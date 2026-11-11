@@ -34,12 +34,11 @@ from app.idempotency import (
     prune_idempotency_keys,
 )
 from app.indexing.pipeline import process_document
-from app.main import create_app
 from app.maintenance import housekeeping
 from app.models import ApiKey, ChatEvent, Document, IdempotencyKey, Project
 from app.question_reports import write_report
 from app.versions import SAME_FILE
-from tests.conftest import APP_HEADERS, FakeTurn
+from tests.conftest import FakeTurn
 from tests.test_authorization import QUESTION_SET
 from tests.test_chats import questions_counted
 from tests.test_check_runs import TOTAL, invoices, work
@@ -826,20 +825,6 @@ def test_the_contract_says_how_every_call_is_made_and_where_it_is_listed():
         for operation in operations.values()
     }
     assert used == set(groups), "A group lists nothing: take it out of TAGS."
-
-
-def test_the_reference_is_a_page_of_its_own_that_anyone_reads(services, tmp_path, monkeypatch):
-    (tmp_path / "index.html").write_text("members")
-    (tmp_path / "reference.html").write_text("reference")
-    monkeypatch.setattr("app.main.FRONTEND_DIST", tmp_path)
-    monkeypatch.setattr(get_settings(), "local_account", False)
-    with TestClient(create_app(services=services), headers=APP_HEADERS) as anyone:
-        for path in ("/api-reference", "/api-reference/", "/reference.html"):
-            assert anyone.get(path).text == "reference", path
-        # A path that only begins like it is the members' as any other, and the contract the
-        # page draws is the API's.
-        assert anyone.get("/api-references").text == "members"
-        assert anyone.get("/api/v1/openapi.json").json()["info"]["title"] == "Emudoc API"
 
 
 def test_what_only_adds_breaks_no_program():

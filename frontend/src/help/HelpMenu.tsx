@@ -1,11 +1,11 @@
-// The question mark in the header: the way to the help pages, what's new, marked while some of
-// it is unread (src/help/WhatsNew.tsx), and the status page, and to write to support from
+// The question mark in the header: the way to what's new, marked while some of it is unread
+// (src/help/WhatsNew.tsx), and the status page, and to write to support from
 // wherever the member is, with the page and the last request that failed attached
 // (src/help/feedback.ts, backend/app/api/help.py). What they typed is kept while the panel is
 // closed, which a click elsewhere or a switch to another window does, until it is sent.
 
 import { useMutation } from '@tanstack/react-query'
-import { Activity, BookOpen, CircleHelp, Sparkles } from 'lucide-react'
+import { Activity, CircleHelp, Sparkles } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useLocation } from 'react-router'
@@ -55,14 +55,6 @@ export function HelpMenu() {
         <Floating anchor={anchor} alignEnd onClose={() => setAnchor(null)} ignore={button} className="w-96 max-w-[calc(100vw-16px)]">
           <div role="dialog" aria-label="Help">
             <div className="border-b border-line p-1">
-              <Link
-                to="/help"
-                onClick={() => setAnchor(null)}
-                className="flex h-8 items-center gap-2.5 rounded-[5px] px-2 text-[13px] outline-none hover:bg-sunken focus-visible:bg-sunken"
-              >
-                <BookOpen className="size-4 shrink-0 opacity-70" />
-                Help pages
-              </Link>
               <Link
                 to="/whats-new"
                 onClick={() => setAnchor(null)}

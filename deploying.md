@@ -1131,18 +1131,21 @@ block by the stage as a model's is; the next build with a model replaces them.
 
 ## The public site
 
-A visitor without a session finds the home page at `/` and the plans at `/pricing`; a browser
-that carries the session cookie gets the members' page at `/` as before, as does development's
-`LOCAL_ACCOUNT`, and `/pricing` is the same for everyone. Both are plain HTML of the frontend's
-build (`frontend/home.html`, `frontend/pricing.html`, `vite build --mode site`, which `pnpm build`
-runs), with no script, so that a search engine reads them whole, and the app fills them in as
-it serves them (`backend/app/site.py`): the plans' figures from the code, the operator's name
-(`OPERATOR_NAME`), the region and the scanner, the support address the Enterprise plan's "Write
-to us" mails, and on `/pricing` Pro's and Team's prices as `STRIPE_PRICES` sells them, read from
-Stripe at most once an hour by each process (five minutes after a failed read, the page saying
-meanwhile that the price is shown before paying; "On request" while nothing is sold). A part of
-either page about a feature behind a flag is shown only once its flag is on for every
-organisation, so that the site offers nothing a new organisation would not find.
+A visitor without a session finds the home page at `/`; a browser that carries the session
+cookie gets the members' page at `/` as before, as does development's `LOCAL_ACCOUNT`. It is
+plain HTML of the frontend's build (`frontend/home.html`, `vite build --mode site`, which `pnpm
+build` runs), with no script, so that a search engine reads it whole, and the app fills it in as
+it serves it (`backend/app/site.py`): the file types the parsers take, the operator's name
+(`OPERATOR_NAME`), the region, the scanner and the sample project. A part of the page about a
+feature behind a flag is shown only once its flag is on for every organisation, so that the site
+offers nothing a new organisation would not find.
+
+The page offers no sign-up of its own. Its way in is "Book a demo", which opens `BOOKING_URL`, a
+booking page of Cal.com, Calendly or the like; unset, "Request access" mails the support address
+(`SUPPORT_EMAIL`, else `OPERATOR_EMAIL`). The plans' page, the help pages and the API reference
+are put away for now (2026-11-11): `/pricing`, `/help`, `/help/…` and `/api-reference` send a
+visitor to `/`, and no search engine is told of them. The versioned API itself, and its contract
+at `/api/v1/openapi.json`, stay.
 
 ### The private beta
 
@@ -1150,12 +1153,8 @@ organisation, so that the site offers nothing a new organisation would not find.
 teams at a time (`backend/app/signups.py`; the AWS module sets it for staging and production).
 The sign-up form refuses every address alike, with a sentence that says Emudoc is in a private
 beta, and a first sign-in through Google or Microsoft makes no account. The site's home page
-shows "Private beta" and offers "Book a call", which opens `BOOKING_URL`, a booking page of
-Cal.com, Calendly or the like (unset, "Write to us" mails the support address, or opens the
-help's page on support without one), where it offered "Start free"; `/pricing` sends a visitor
-to the home page, the header, the footer and the sign-in pages link no plans, and no search
-engine is told of them. The sign-up page says the same as the home page, with the button, and
-the sign-in page's "New to Emudoc?" leads to it.
+says "Private beta" beside its "Book a demo" ("The public site"). The sign-up page says the same
+as the home page, with the button, and the sign-in page's "New to Emudoc?" leads to it.
 
 Two ways in stay. A member invites colleagues into their organisation as ever ("Invitations"),
 by the password page or through a provider. And the operator sends someone a sign-up link, which
@@ -1167,16 +1166,15 @@ maintenance invite grace@example.com   # the link mailed, working for 14 days; r
 ```
 
 A link sent before the sign-up closed still makes its account until it expires. Setting
-`SIGNUP_OPEN=true` (the default) opens the sign-up again, and the site and the pages offer it
-and the plans at once, with no release.
+`SIGNUP_OPEN=true` (the default) opens the sign-up again, at once, with no release.
 
 `SEARCH_ENGINES=true` asks search engines to list the public pages: robots.txt keeps them from
-`/api/` alone and names `/sitemap.xml` (the home page, the plans, the help and each of its
-articles, what's new, the API reference, the terms, the privacy policy, the subprocessors), and
+`/api/` alone and names `/sitemap.xml` (the home page, what's new, the terms, the privacy
+policy, the subprocessors), and
 every other page, a member's or a share link's, says `X-Robots-Tag: noindex`. Left off, as in
 development and on staging (the AWS module sets it on production alone), robots.txt turns every
-crawler away, there is no sitemap, and every page says `noindex`. The link previews of both
-pages name `APP_URL` and show `/brand/og-image.png`, the logo kit's.
+crawler away, there is no sitemap, and every page says `noindex`. The home page's link preview
+names `APP_URL` and shows `/brand/og-image.png`, the logo kit's.
 
 ## TLS at a reverse proxy
 
@@ -2044,8 +2042,8 @@ production refuses.
 ## Webhooks
 
 An organisation's owners and admins give its programs addresses to hear of its work at
-(`backend/app/webhooks.py`; on the plans that include the API, every plan but Free; the help's
-"Organisations, members and roles" says what a member reads): `document.ready` and
+(`backend/app/webhooks.py`; on the plans that include the API, every plan but Free; the
+organisation page's Webhooks section says how a program checks a signature): `document.ready` and
 `document.failed` once a document's indexing ended and none is to run after it,
 `check_run.completed` once a run of cross-checks is worked out and its report, when asked for,
 written, and `report.completed` once a question set's report is answered or failed, its body
@@ -3692,27 +3690,13 @@ figures for each 30 days go into the same record.
 
 ## Support
 
-The question mark in the header opens the help pages, `/help`, public like the terms and linked
-under the sign-in pages. The backend fills them in as it serves them (`backend/app/help/`, `GET
-/api/help`) from the code and the settings: the plans' figures, the upload ceilings
-(`MAX_UPLOAD_MB`, `MAX_UPLOAD_FILES`, `MAX_UPLOAD_REQUEST_MB`, `OCR_MAX_PAGES`),
-`SESSION_DAYS`, `RATE_FAILED_SIGN_INS`, `RATE_API_REQUESTS`, and how long the trash, an export
-and a deletion's grace last. What the deployment does not do is left out: malware scanning
-without `SCANNER_URL`, buying a plan without Stripe (the pages say to write to support), the
-breached-password check without `PWNED_PASSWORDS_URL`. Changing what they say is a change to
-the Markdown beside the module; a figure written into them by hand is a bug.
+The question mark in the header is the help menu, where members write for help, read what's
+new and find the status page. The versioned API's contract, which `GET /api/v1/openapi.json`
+serves to anyone, without a key, with `APP_URL` as its server, is for whoever writes a program
+against the deployment: a tool that writes a client from it calls the deployment. It changes
+with a release, never by hand (the contract is `backend/app/api/v1/openapi.json`).
 
-The API reference, `/api-reference`, is public too, for whoever writes a program against the
-deployment, and the help's article on organisations and the organisation page's API keys link
-to it. It is a page of its own (`frontend/reference.html`, built by `pnpm build` beside the
-members' page, its scripts' budget apart in `frontend/scripts/size.ts`), drawn from the
-versioned API's contract, which `GET /api/v1/openapi.json` serves to anyone, without a key, with
-`APP_URL` as its server: each request the page shows is at the deployment's address, and a tool
-that writes a client from the contract calls the deployment. It changes with a release, never by
-hand (the contract is `backend/app/api/v1/openapi.json`). A proxy that lets only some paths
-through lets both.
-
-Members write for help from the same menu: a problem,
+Members write for help from that menu: a problem,
 a question or an idea, in their own words. The app mails it to `SUPPORT_EMAIL` (or
 `OPERATOR_EMAIL`, where one address answers both), from `MAIL_FROM`, with a `Reply-To` of the
 member's address, so a reply from the support mailbox or a help desk that reads it goes to
@@ -3743,7 +3727,7 @@ of their documents.
 
 ### What's new
 
-The help menu also leads to what's new, `/whats-new`, public like the help pages: the
+The help menu also leads to what's new, `/whats-new`, public like the terms: the
 **Members** entries of `CHANGELOG.md`, the newest days first, a week of days a page (`GET
 /api/changelog`, `backend/app/changelog.py`), which are what a release changed for members and
 the same for every deployment of it. The image carries the file at `/app/CHANGELOG.md`
@@ -3761,8 +3745,8 @@ whoever runs the deployment and are served to nobody.
 
 A status page tells members whether Emudoc is up when Emudoc itself cannot, so it runs outside
 the deployment, on another provider's servers: never on the machine, the database or the proxy
-it reports on. `STATUS_PAGE_URL` names it, and the help menu, the help pages ("Getting help")
-and the page a member sees when the app cannot reach its server link to it; `GET /api/help`,
+it reports on. `STATUS_PAGE_URL` names it, and the help menu and the page a member sees when
+the app cannot reach its server link to it; `GET /api/help`,
 which tells the page the address, reads no database, so it answers while the database is down
 (when the API itself is down, nothing of the app loads, and members find the page by its
 address). Three things fill it:
@@ -4823,7 +4807,7 @@ the roots' `settings` the others ("The settings").
 | `APP_URL` | the request's origin | required | Where members reach the app: the links in mail, the OAuth redirect |
 | `SEARCH_ENGINES` | `false` | `true` on the deployment the public reaches, never staging | Whether search engines are asked to list the public pages ("The public site") |
 | `SIGNUP_OPEN` | `true` | `false` during the private beta, which the AWS module sets | Whether anyone may make an account with an organisation of its own ("The private beta") |
-| `BOOKING_URL` | none | | The `https://` page "Book a call" opens while sign-up is closed; none mails the support address ("The private beta") |
+| `BOOKING_URL` | none | | The `https://` page the home page's "Book a demo" opens, and the sign-up page's while sign-up is closed; none mails the support address ("The public site") |
 | `SESSION_DAYS` | `30` | | How long a sign-in lasts; an organisation may sign its members in again sooner |
 | `OPERATOR_NETWORKS` | `127.0.0.1/32,::1/128` in development, none in production | the operators' addresses | Where the operator's area answers from ("The operator's area") |
 | `SAMPLE_PROJECT` | `true` | | Whether the organisation an account signs up with starts with the sample project ("The sample project") |
@@ -4979,8 +4963,8 @@ and the like), named on its models' pages.
 | `HOSTING_PROVIDER` | none | required | Who runs the servers, first on `/subprocessors` |
 | `OPERATOR_NAME` | none | required | Who runs the deployment, as the terms name them |
 | `OPERATOR_EMAIL` | none | required | Where people write about their account and data |
-| `SUPPORT_EMAIL` | `OPERATOR_EMAIL` | | Where members write for help, from the app's help menu and the help pages ("Support") |
-| `STATUS_PAGE_URL` | none | | The status page outside the deployment that the help menu and the help pages link to ("The status page") |
+| `SUPPORT_EMAIL` | `OPERATOR_EMAIL` | | Where members write for help, from the app's help menu ("Support") |
+| `STATUS_PAGE_URL` | none | | The status page outside the deployment that the help menu links to ("The status page") |
 | `BACKUP_DAYS` | none | required | How long the backups are kept ("Backups") |
 | `SERVER_LOG_DAYS` | none | required | How long the server logs are kept ("How long they are kept") |
 | `ACCESS_LOG_DAYS` | none | | How long the infrastructure's connection records are kept, when it keeps any |

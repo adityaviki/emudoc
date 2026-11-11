@@ -107,7 +107,7 @@ FIRST_WAIT = timedelta(minutes=1)
 # How long the delivery log keeps an entry.
 DELIVERIES_KEPT = timedelta(days=30)
 # How far from a receiver's clock a signature's time may be before it refuses the event, as the
-# contract and the help advise: Stripe's figure.
+# contract advises: Stripe's figure.
 TOLERANCE = 300
 SIGNATURE = "Emudoc-Signature"
 EVENT = "Emudoc-Event"

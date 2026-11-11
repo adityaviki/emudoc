@@ -1,32 +1,36 @@
 <footer class="border-t border-line bg-surface">
-      <div class="mx-auto grid max-w-6xl gap-8 px-4 py-10 text-sm sm:grid-cols-[1fr_auto_auto] sm:px-6">
+      <div class="mx-auto grid max-w-6xl gap-10 px-4 py-12 text-sm sm:grid-cols-2 sm:px-6 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
         <div>
           <img src="/brand/emudoc-logo-horizontal.svg" alt="Emudoc" width="115" height="20" class="h-5 w-auto dark:hidden" />
           <img src="/brand/emudoc-logo-horizontal-on-dark.svg" alt="Emudoc" width="115" height="20" class="hidden h-5 w-auto dark:block" />
-          <p class="mt-3 max-w-xs text-muted">Answers from your documents, with the passage each one rests on.</p>
+          <p class="mt-4 max-w-xs leading-relaxed text-muted">Answers from your documents, each with the passage it rests on.</p>
         </div>
-        <nav aria-label="Emudoc">
-          <h2 class="font-semibold">Emudoc</h2>
-          <ul class="mt-3 space-y-2 text-muted">
-            <!-- if signup_open -->
-            <li><a href="/pricing" class="hover:text-ink hover:underline">Pricing</a></li>
-            <!-- end signup_open -->
-            <!-- if signup_closed -->
-            <li><a href="$book" class="hover:text-ink hover:underline">$book_label</a></li>
-            <!-- end signup_closed -->
-            <li><a href="/help" class="hover:text-ink hover:underline">Help</a></li>
+        <nav aria-label="Product">
+          <h2 class="font-semibold">Product</h2>
+          <ul class="mt-4 space-y-2.5 text-muted">
+            <li><a href="#how" class="hover:text-ink hover:underline">How it works</a></li>
+            <li><a href="#features" class="hover:text-ink hover:underline">Features</a></li>
+            <li><a href="#security" class="hover:text-ink hover:underline">Security</a></li>
             <li><a href="/whats-new" class="hover:text-ink hover:underline">What's new</a></li>
-            <li><a href="/api-reference" class="hover:text-ink hover:underline">API reference</a></li>
+          </ul>
+        </nav>
+        <nav aria-label="Get started">
+          <h2 class="font-semibold">Get started</h2>
+          <ul class="mt-4 space-y-2.5 text-muted">
+            <li><a href="$book" class="hover:text-ink hover:underline">$book_label</a></li>
+            <li><a href="/login" class="hover:text-ink hover:underline">Sign in</a></li>
           </ul>
         </nav>
         <nav aria-label="Legal">
           <h2 class="font-semibold">Legal</h2>
-          <ul class="mt-3 space-y-2 text-muted">
+          <ul class="mt-4 space-y-2.5 text-muted">
             <li><a href="/terms" class="hover:text-ink hover:underline">Terms of service</a></li>
             <li><a href="/privacy" class="hover:text-ink hover:underline">Privacy policy</a></li>
             <li><a href="/subprocessors" class="hover:text-ink hover:underline">Subprocessors</a></li>
           </ul>
         </nav>
       </div>
-      <p class="mx-auto max-w-6xl px-4 pb-8 text-sm text-muted sm:px-6">© $year $operator</p>
+      <div class="border-t border-line">
+        <p class="mx-auto max-w-6xl px-4 py-6 text-sm text-muted sm:px-6">© $year $operator</p>
+      </div>
     </footer>

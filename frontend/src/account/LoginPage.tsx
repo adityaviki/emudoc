@@ -81,7 +81,7 @@ function PasswordStep({ next, onCode }: { next: string; onCode: () => void }) {
         <>
           New to Emudoc?{' '}
           {closed ? (
-            // While sign-up is closed, the way to ask for an account: a page of another site, a mail or the help's.
+            // While sign-up is closed, the way to ask for an account (backend/app/signups.py).
             <a href={closed.book_url} className="font-medium text-accent hover:underline">
               {closed.book_label}
             </a>

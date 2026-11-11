@@ -107,8 +107,6 @@ from app.shutdown import Stop, heard_stop
 from app.site import (
     NOT_LISTED,
     PAGES,
-    PRICING_PAGE,
-    Prices,
     fill,
     html_response,
     listed_by_search_engines,
@@ -150,10 +148,6 @@ register_url_convertor("page", PagePath())
 # taken too, so that the file is reached by no other way.
 OPERATOR_PAGE = "operator.html"
 _OPERATOR_PATH = re.compile(r"operator(?:/.*)?|operator\.html")
-# The versioned API's reference (`frontend/reference.html`): a page of its own too, with a bundle
-# of its own, which anyone may read, drawn from the contract served at /api/v1/openapi.json.
-REFERENCE_PAGE = "reference.html"
-REFERENCE_PATH = "api-reference"
 # The public site's pages (app/site.py), served filled in at their paths alone.
 SITE_FILES = frozenset(PAGES.values())
 
@@ -305,9 +299,9 @@ def _contract() -> dict[str, Any]:
 
 @system.get("/v1/openapi.json", include_in_schema=False)
 def api_contract(request: Request) -> JSONResponse:
-    """The versioned API's published contract (app/api/v1/contract.py), for programs, the
-    clients generated from it and the /api-reference page, with this deployment's address as its
-    server, which the published file cannot know. Public, like the subprocessor list: whoever
+    """The versioned API's published contract (app/api/v1/contract.py), for programs and the
+    clients generated from it, with this deployment's address as its server, which the published
+    file cannot know. Public, like the subprocessor list: whoever
     writes a program reads it before an owner gives them a key, and it holds no data."""
     return JSONResponse({**_contract(), "servers": [{"url": auth.app_url(request)}]})
 
@@ -502,8 +496,6 @@ def create_app(
         )
         app.state.policy = content_security_policy(app.state.services.storage)
         app.state.http = http or httpx.Client(timeout=10)
-        # The plans' prices the public plans' page shows, read from Stripe now and then.
-        app.state.prices = Prices()
         # The threads the page images and thumbnails are drawn in, one per render process
         # (app/rendering.py): a request beyond them waits without holding a thread of its own.
         app.state.drawing = CapacityLimiter(settings.render_processes)
@@ -625,7 +617,7 @@ def create_app(
         if not settings.search_engines:
             return Response(status_code=404, headers={"X-Robots-Tag": NOT_LISTED})
         return Response(
-            sitemap(auth.app_url(request), settings),
+            sitemap(auth.app_url(request)),
             media_type="application/xml",
             headers={"Cache-Control": PAGE_KEPT},
         )
@@ -647,14 +639,12 @@ def create_app(
             return response
 
         async def _page(path: str, request: Request) -> Response:
-            if (elsewhere := moved(path, settings)) is not None:
-                # A page of the site put away while sign-up is closed (app/site.py).
+            if (elsewhere := moved(path)) is not None:
+                # A page put away for now: the plans, the help, the API reference (app/site.py).
                 return RedirectResponse(elsewhere, status_code=302)
             if (site_page := page_at(path, request, settings)) is not None:
                 if served := await to_thread.run_sync(_site_page, site_page, request):
                     return served
-            if path.rstrip("/") == REFERENCE_PATH:
-                return await page.get_response(REFERENCE_PAGE, request.scope)
             if _OPERATOR_PATH.fullmatch(path):
                 # Anyone but an operator gets the members' page, as for a path nobody serves.
                 if await to_thread.run_sync(_from_operator, request):
@@ -677,10 +667,7 @@ def create_app(
                 html = (FRONTEND_DIST / name).read_text()
             except FileNotFoundError:
                 return None
-            prices = None
-            if name == PRICING_PAGE:
-                prices = request.app.state.prices.get(settings, request.app.state.http)
-            return html_response(request, fill(html, settings, auth.app_url(request), prices))
+            return html_response(request, fill(html, settings, auth.app_url(request)))
 
     return app
 

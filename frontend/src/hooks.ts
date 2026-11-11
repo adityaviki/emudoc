@@ -51,22 +51,19 @@ export function usePrintTitle(title: string) {
 }
 
 /**
- * Names a page anyone reads (the help, the terms, the sign-in pages) in the browser's tab and to a
- * search engine, which reads the title and the description the page shows once its script ran:
- * "Plans and usage · Emudoc help", with the article's summary. The page's own again once it goes.
+ * Names a page anyone reads (the terms, what's new, the sign-in pages) in the browser's tab and to
+ * a search engine, which reads the title the page shows once its script ran. The page's own again
+ * once it goes.
  */
-export function usePageTitle(title: string | undefined, description?: string) {
+export function usePageTitle(title: string | undefined) {
   useEffect(() => {
     if (!title) return
-    const meta = window.document.querySelector<HTMLMetaElement>('meta[name="description"]')
-    const before = { title: window.document.title, description: meta?.content }
+    const before = window.document.title
     window.document.title = title
-    if (meta && description) meta.content = description
     return () => {
-      window.document.title = before.title
-      if (meta && before.description !== undefined) meta.content = before.description
+      window.document.title = before
     }
-  }, [title, description])
+  }, [title])
 }
 
 export function useFolders(projectId: number) {
@@ -78,7 +75,7 @@ export function useLegal() {
   return useQuery({ queryKey: ['legal'], queryFn: api.legal, staleTime: Infinity })
 }
 
-/** The help pages and where members write for help; they change only with a deployment. */
+/** Where members write for help, and the status page; they change only with a deployment. */
 export function useHelp() {
   return useQuery({ queryKey: ['help'], queryFn: api.help, staleTime: Infinity })
 }

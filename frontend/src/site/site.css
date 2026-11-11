@@ -1,14 +1,38 @@
-/* The public site's stylesheet (home.html, pricing.html): the members' colours and type, and
-   the utilities its pages and their header and footer use, read from those files alone so that
-   the page's few rules are not the whole app's. */
+/* The public site's stylesheet (home.html): the members' colours and type, and the utilities its
+   page and its header and footer use, read from those files alone so that the page's few rules
+   are not the whole app's. */
 @import 'tailwindcss' source(none);
 @import '../theme.css';
 
 @source '../../home.html';
-@source '../../pricing.html';
 @source './';
 
 /* The site reads at a size for reading, where the app is dense. */
 body {
   font-size: 16px;
+}
+
+/* The header's links lead to the page's sections, which the sticky header would otherwise
+   cover; the scroll is smooth unless less motion was asked for (theme.css). */
+html {
+  scroll-behavior: smooth;
+}
+
+section[id] {
+  scroll-margin-top: 4.5rem;
+}
+
+/* The hero's backdrop: a faint grid in the line colour, fading out towards its edges. */
+.site-grid {
+  background-image:
+    linear-gradient(to right, var(--color-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--color-line) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 75% 60% at 50% 0%, #000 30%, transparent 100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-ping {
+    animation: none !important;
+  }
 }

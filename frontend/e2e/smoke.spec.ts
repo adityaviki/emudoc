@@ -10,8 +10,8 @@ import { INBOUND_DOMAIN, chooseFlag, makeOperator, movePlan, receiveMail } from 
 import { printed } from './print.ts'
 import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, releaseTurns } from './standin.ts'
 
-// The member's way through the app, end to end: read the home page and the plans a visitor is
-// shown, sign up through the link the app mails, skip the tour the first project shows, ask the sample
+// The member's way through the app, end to end: read the home page a visitor is shown, whose
+// old plans' address leads home, sign up through the link the app mails, skip the tour the first project shows, ask the sample
 // project the organisation starts with one of its questions, print its contract's pages, make a project, upload a contract,
 // begun offline and waiting for the connection, wait for it to be indexed, find it by searching, ask about it, stop the
 // answer while the model thinks and try it again, open the passage the answer
@@ -22,9 +22,8 @@ import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, rele
 // download it, delete it and keep it, and switch back, and, on Team, invite a colleague as a
 // viewer from under that answer, who makes an account from the invitation's link, ends her tour, finds
 // the project and is offered no change to it until made a member, write to support from the
-// help menu, which mails the page written from, read the help pages and what's new, add a webhook,
-// read the API reference the help links to and download the contract it is drawn from,
-// then make the project private, which she no longer finds until chosen for it, and share the chat, which the
+// help menu, which mails the page written from, read what's new, make a read key, which reads the
+// versioned API and its contract, add a webhook, then make the project private, which she no longer finds until chosen for it, and share the chat, which the
 // colleague then reads but does not ask in, and last ask the question that uses the month's
 // questions, which the bell tells, and open that notice from the other organisation; then, made
 // an operator, read the organisation in the operator's area, which nobody else is sent, raise its
@@ -99,19 +98,22 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   const webhooks = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Webhooks', exact: true }) })
   let hookSecret = ''
 
-  await test.step('read the home page and the plans as a visitor', async () => {
+  await test.step('read the home page as a visitor, which offers a demo and no sign-up', async () => {
     // Without a session, / is the public site's home page: plain HTML the server fills in.
     const site = page.getByRole('navigation', { name: 'Site' })
     await page.goto('/')
     await expect(page.getByRole('heading', { level: 1, name: /^Ask your documents/ })).toBeVisible()
+    // Its way in is a mail to support, this run having no booking page, and never the sign-up.
+    await expect(site.getByRole('link', { name: 'Request access' })).toHaveAttribute('href', 'mailto:support@example.com?subject=Access%20to%20Emudoc')
+    await expect(page.locator('a[href^="/signup"]')).toHaveCount(0)
     await expectAccessible(page, 'the home page')
-    await site.getByRole('link', { name: 'Pricing' }).click()
-    await expect(page).toHaveURL(/\/pricing$/)
-    await expect(page.getByRole('heading', { level: 1, name: 'Plans and pricing' })).toBeVisible()
-    // The plans' own figures, and nothing sold on this run, so the paid plans are on request.
-    await expect(page.getByRole('row', { name: /^Pages read a month 200 5,000 / })).toBeVisible()
-    await expect(page.getByText('On request', { exact: true })).toHaveCount(2)
-    await expectAccessible(page, 'the plans page')
+    // The header's links lead to the page's sections.
+    await site.getByRole('link', { name: 'Features' }).click()
+    await expect(page).toHaveURL(/#features$/)
+    await expect(page.getByRole('heading', { level: 2, name: /^Everything you need/ })).toBeInViewport()
+    // The plans, the help and the API reference are put away for now: an old link leads home.
+    await page.goto('/pricing')
+    await expect(page).toHaveURL(/\/$/)
     await site.getByRole('link', { name: 'Sign in' }).click()
     await expect(page).toHaveURL(/\/login$/)
     // The sign-in page's logo leads a visitor back to the site.
@@ -762,26 +764,6 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('button', { name: 'Help', exact: true })).toBeFocused()
   })
 
-  await test.step('read the help pages from the help menu, find one by a word and follow its link into the app', async () => {
-    await page.getByRole('button', { name: 'Help', exact: true }).click()
-    const menu = page.getByRole('dialog', { name: 'Help' })
-    // The status page is outside the deployment (STATUS_PAGE_URL in e2e/serve.sh).
-    await expect(menu.getByRole('link', { name: 'Service status' })).toHaveAttribute('href', 'https://status.example.com')
-    await menu.getByRole('link', { name: 'Help pages' }).click()
-    await expect(page.getByRole('heading', { name: 'Help', exact: true })).toBeVisible()
-    await page.getByLabel('Search the help').fill('zip file')
-    await expect(page.getByRole('link', { name: /^Getting started/ })).toHaveCount(0)
-    await page.getByRole('link', { name: /^Your data/ }).click()
-    const article = page.getByRole('article')
-    await expect(article.getByRole('heading', { name: 'Your data: exports, the trash and deletion' })).toBeVisible()
-    // Its figures are the deployment's own (backend/app/help).
-    await expect(article).toContainText('kept 7 days for whoever asked for it')
-    await expectAccessible(page, 'a help page')
-    await article.getByRole('link', { name: 'account page' }).click()
-    await expect(page).toHaveURL(/\/account$/)
-    await expectAccessible(page, 'the account page')
-  })
-
   await test.step("read what's new from the help menu: the changelog's newest entries for members", async () => {
     const changelog = await readFile(join(import.meta.dirname, '..', '..', 'CHANGELOG.md'), 'utf8')
     // The newest entry's first words, before any code in it, which the page sets apart.
@@ -797,12 +779,14 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('button', { name: 'Help', exact: true })).not.toHaveAttribute('aria-describedby')
   })
 
-  await test.step('make a read key, which a program lists the projects with and changes nothing by, beside the upload client', async () => {
+  await test.step('make a read key, which a program lists the projects with and changes nothing by, beside the upload client, and read the contract the API publishes', async () => {
     await page.goto('/organization')
     const keys = page.locator('section').filter({ has: page.getByRole('heading', { name: 'API keys', exact: true }) })
     await keys.getByLabel('Name', { exact: true }).fill('Invoices sync')
     await keys.getByRole('button', { name: 'Make a key' }).click()
-    const key = (await keys.locator('code').first().textContent()) ?? ''
+    // The key, shown once; the section's sentence names the variable a program reads it from in code too.
+    const shown = keys.locator('code', { hasText: /^emk_/ })
+    const key = (await shown.textContent()) ?? ''
     expect(key).toMatch(/^emk_/)
     // A program sends the key alone, with no cookie and none of the app's headers, to the versioned API.
     const bearer = { Authorization: `Bearer ${key}` }
@@ -817,9 +801,13 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     expect(script.headers()['content-disposition']).toBe('attachment; filename="emudoc_upload.py"')
     expect(await script.text()).toMatch(/^#!\/usr\/bin\/env python3\n/)
     await keys.getByRole('button', { name: 'I have saved it' }).click()
-    await expect(keys.locator('code')).toHaveCount(0)
+    await expect(shown).toHaveCount(0)
     await page.reload()
     await expect(keys.getByRole('listitem').filter({ hasText: 'Invoices sync' })).toContainText('last used')
+    // The contract a program's tools read, which names this deployment.
+    const contract = await request.get('/api/v1/openapi.json')
+    expect(contract.status()).toBe(200)
+    expect((await contract.json()).servers).toEqual([{ url: new URL(page.url()).origin }])
   })
 
   await test.step('add a webhook at a program of its own, whose secret is shown once', async () => {
@@ -839,30 +827,6 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await webhooks.getByRole('button', { name: 'I have saved it' }).click()
     await expect(secret).toHaveCount(0)
     await expect(webhooks.getByRole('listitem')).toContainText('nothing sent yet')
-  })
-
-  await test.step("read the API reference the help links to, its requests at the deployment's address, and download the contract it is drawn from", async () => {
-    const origin = new URL(page.url()).origin
-    // The organisation page offers it beside the keys, as the help does.
-    await expect(page.locator('section').filter({ has: page.getByRole('heading', { name: 'API keys', exact: true }) }).getByRole('link', { name: 'API reference' })).toHaveAttribute('href', '/api-reference')
-    await page.goto('/help/organisations')
-    // A page of its own, which the browser loads rather than the members' page routes.
-    await page.getByRole('article').getByRole('link', { name: 'API reference' }).click()
-    await expect(page).toHaveURL(/\/api-reference$/)
-    await expect(page.getByRole('heading', { name: /^Emudoc API/, level: 1 })).toBeVisible()
-    const made = page.getByRole('article', { name: 'Create Project' })
-    await expect(made.locator('pre')).toContainText(`curl -X POST "${origin}/api/v1/projects"`)
-    await expect(made.locator('pre')).toContainText('-H "Authorization: Bearer $EMUDOC_API_KEY"')
-    // A schema an operation names opens where its fields are.
-    await made.getByRole('link', { name: 'NewProject', exact: true }).click()
-    await expect(page).toHaveURL(/#schema-NewProject$/)
-    await expect(page.getByRole('region', { name: 'NewProject', exact: true })).toBeInViewport()
-    await expect(page.getByRole('article', { name: 'A document is indexed' })).toContainText('Emudoc-Signature')
-    await expectAccessible(page, 'the API reference')
-    // The contract it is drawn from, which a program's tools read, names this deployment.
-    const contract = await request.get((await page.getByRole('link', { name: 'openapi.json' }).getAttribute('href')) ?? '')
-    expect(contract.status()).toBe(200)
-    expect((await contract.json()).servers).toEqual([{ url: origin }])
   })
 
   await test.step('make the project private, which a member not chosen no longer finds, then choose her', async () => {

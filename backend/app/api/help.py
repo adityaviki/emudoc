@@ -1,6 +1,6 @@
-"""Help for members: the help pages and where to write for help (`GET /api/help`, public, since
-the sign-in pages link to the help too; the articles are app/help/), the upload client they
-link to (`GET /api/help/emudoc_upload.py`, app/client/), what's new (`GET
+"""Help for members: where to write for help and the status page (`GET /api/help`, public, since
+the page that cannot reach its server asks it too), the upload client the organisation's API keys
+offer (`GET /api/help/emudoc_upload.py`, app/client/), what's new (`GET
 /api/changelog`, public likewise, and `POST /api/auth/changelog/read`, the account's; the
 entries are the changelog's, app/changelog.py), and a member's message to support from the app's
 help menu (`POST /api/feedback`), mailed to SUPPORT_EMAIL with what support needs to find what
@@ -15,7 +15,6 @@ changes nothing of the organisation's, so no audit row, and the queue's job give
 up once it is sent (app/postbox.py), so the app keeps none of it.
 """
 
-from dataclasses import asdict
 from datetime import UTC, date, datetime
 from uuid import uuid4
 
@@ -27,7 +26,6 @@ from app.api.deps import AccountDep, SessionDep, UsableAccountDep, limited
 from app.changelog import news, page, read_through
 from app.client import UPLOAD_CLIENT
 from app.config import get_settings
-from app.help import articles
 from app.logs import current_context
 from app.mail import compose, support_message_email
 from app.postbox import post
@@ -37,7 +35,6 @@ from app.schemas import (
     ChangesDayOut,
     FeedbackIn,
     FeedbackOut,
-    HelpArticleOut,
     HelpOut,
     MeOut,
 )
@@ -56,12 +53,10 @@ BROWSER_CHARS = 300
 
 @router.get("/help", response_model=HelpOut)
 def help_offered():
-    """The help pages, filled in for this deployment, where members write for help and the
-    status page. It reads no database, so that the page that cannot reach its server, a database
-    being down, still learns where the status page is."""
+    """Where members write for help and the status page. It reads no database, so that the page
+    that cannot reach its server, a database being down, still learns where the status page is."""
     settings = get_settings()
     return HelpOut(
-        articles=[HelpArticleOut(**asdict(article)) for article in articles(settings)],
         support_email=settings.support_address or None,
         status_page=settings.status_page_url or None,
     )
@@ -70,8 +65,8 @@ def help_offered():
 @router.get("/help/emudoc_upload.py", response_class=FileResponse)
 def upload_client():
     """The upload client, a script a member downloads and runs with an API key to send a
-    folder, or what a scanner saves to one, into a project (app/client/). Public, like the help
-    that says how to run it, and the same for every deployment of a release."""
+    folder, or what a scanner saves to one, into a project (app/client/). Public, and the same
+    for every deployment of a release."""
     return FileResponse(UPLOAD_CLIENT, media_type="text/x-python", filename=UPLOAD_CLIENT.name)
 
 

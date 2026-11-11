@@ -35,26 +35,15 @@ export function AuthLayout() {
   )
 }
 
-/**
- * The plans, the help, the terms, the privacy policy and the subprocessor list, at the foot of a
- * page. The plans are the public site's page, not the router's, so theirs is a plain link, shown
- * only while anyone may sign up: the site puts the page away while sign-up is closed.
- */
+/** The terms, the privacy policy and the subprocessor list, at the foot of a page. */
 export function LegalLinks() {
-  const pricing = useAuthOptions().data?.signup_open === true
   const links = [
-    { to: '/help', label: 'Help' },
     { to: '/terms', label: 'Terms of service' },
     { to: '/privacy', label: 'Privacy policy' },
     { to: '/subprocessors', label: 'Subprocessors' },
   ]
   return (
     <nav className="flex flex-wrap justify-center gap-x-4 gap-y-1 px-4 pb-6 text-xs text-muted">
-      {pricing && (
-        <a href="/pricing" className="hover:text-ink hover:underline">
-          Pricing
-        </a>
-      )}
       {links.map((link) => (
         <Link key={link.to} to={link.to} className="hover:text-ink hover:underline">
           {link.label}

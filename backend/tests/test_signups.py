@@ -26,14 +26,17 @@ def test_the_sign_in_pages_are_told_whether_anyone_may_sign_up(client, monkeypat
     monkeypatch.setattr(settings, "operator_email", "")
     options = client.get("/api/auth/options").json()
     assert options["signup_open"] is True
-    # Where a visitor asks for an account while nobody may sign up: the booking page, else a
-    # message to support, else the help's page on it.
-    assert (options["book_url"], options["book_label"]) == ("/help/support", "Write to us")
+    # Where a visitor asks for an account: the booking page, else a message to support, else
+    # (development alone) the sign-up page while it is open and the sign-in page while not.
+    assert (options["book_url"], options["book_label"]) == ("/signup", "Request access")
+    monkeypatch.setattr(settings, "signup_open", False)
+    options = client.get("/api/auth/options").json()
+    assert (options["book_url"], options["book_label"]) == ("/login", "Sign in")
     monkeypatch.setattr(settings, "support_email", "help@emudoc.test")
     options = client.get("/api/auth/options").json()
     assert (options["book_url"], options["book_label"]) == (
-        "mailto:help@emudoc.test",
-        "Write to us",
+        "mailto:help@emudoc.test?subject=Access%20to%20Emudoc",
+        "Request access",
     )
     monkeypatch.setattr(settings, "booking_url", "https://cal.com/emudoc/30min")
     monkeypatch.setattr(settings, "signup_open", False)
@@ -41,7 +44,7 @@ def test_the_sign_in_pages_are_told_whether_anyone_may_sign_up(client, monkeypat
     assert options["signup_open"] is False
     assert (options["book_url"], options["book_label"]) == (
         "https://cal.com/emudoc/30min",
-        "Book a call",
+        "Book a demo",
     )
 
 
