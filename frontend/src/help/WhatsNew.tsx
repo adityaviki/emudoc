@@ -1,7 +1,5 @@
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft } from 'lucide-react'
 import { useContext, useEffect, useId, useState } from 'react'
-import { Link } from 'react-router'
 import { api, auth } from '../api.ts'
 import type { ChangesDay } from '../api.ts'
 import { MeContext, setSignedIn } from '../auth.ts'
@@ -12,7 +10,7 @@ import { dayWords, unreadPerDay, unreadWords } from './changes.ts'
 
 /**
  * What's new at /whats-new: what changed for members, a week of days at a time, the newest first
- * (the changelog's entries for them, backend/app/changelog.py). Public, like the help pages. A
+ * (the changelog's entries for them, backend/app/changelog.py). Public, like the terms. A
  * member who opens it has read it, so the help menu's mark goes, while the entries that were new
  * as the page opened stay marked until they leave it; support's view of an account reads it
  * without saying so.
@@ -44,10 +42,6 @@ export function WhatsNew() {
 
   return (
     <div className="w-full max-w-2xl">
-      <Link to="/help" className="mb-3 inline-flex items-center gap-1 text-[13px] text-muted hover:text-ink">
-        <ArrowLeft className="size-3.5" />
-        All help
-      </Link>
       <h1 className="text-lg font-semibold tracking-tight">What's new</h1>
       <p className="mt-1 text-[13px] text-muted">
         What changed in Emudoc, the newest first.

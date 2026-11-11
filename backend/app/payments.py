@@ -3,8 +3,7 @@ calls billing makes (app/billing.py), and the check of the signature on the even
 
 There is no SDK on purpose. Billing needs a customer, a Checkout session, a portal session
 (opened on its home page, or on one step: cancelling, or confirming a new plan) and a
-subscription read back, and an event's signature checked, and the public plans' page the price
-of each plan (app/site.py); the library would bring a second
+subscription read back, and an event's signature checked; the library would bring a second
 HTTP stack with retries and telemetry of its own, which the app would have to hold to what it
 logs and sends as it holds httpx. Every request names API_VERSION, so the answers keep the
 shape this module reads whatever the Stripe account's default is, and the webhook endpoint is
@@ -39,9 +38,6 @@ API = "https://api.stripe.com"
 # The version this module was written against: the latest on 2026-10-20.
 API_VERSION = "2026-09-30.endive"
 TIMEOUT = 20.0
-# A price read for the public plans' page (app/site.py), which a visitor waits on: shorter, since
-# the page is shown without the price rather than late.
-PRICE_TIMEOUT = 5.0
 # The header Stripe signs each event in, and how old a signature may be, in seconds: Stripe's
 # own libraries allow five minutes, which a replayed event is refused past.
 SIGNATURE_HEADER = "Stripe-Signature"
@@ -118,12 +114,6 @@ class Stripe:
             "GET", f"/v1/subscriptions/{_id(subscription_id)}", call="read a subscription"
         )
 
-    def price(self, price_id: str) -> dict:
-        """A price as Stripe sells it: its amount, currency, period and tax behaviour."""
-        return self._request(
-            "GET", f"/v1/prices/{_id(price_id)}", call="read a price", timeout=PRICE_TIMEOUT
-        )
-
     def _request(
         self,
         method: str,
@@ -132,7 +122,6 @@ class Stripe:
         *,
         call: str,
         idempotency: str | None = None,
-        timeout: float = TIMEOUT,
     ) -> dict:
         """Stripe's answer to the request, as JSON; `call` says what it was for in an error."""
         headers = {"Authorization": f"Bearer {self.key}", "Stripe-Version": API_VERSION}
@@ -148,7 +137,7 @@ class Stripe:
                 f"{API}{path}",
                 content=body,
                 headers=headers,
-                timeout=timeout,
+                timeout=TIMEOUT,
             )
         except httpx.HTTPError as error:
             # The message would name the address, and with it an id.

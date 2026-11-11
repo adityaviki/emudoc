@@ -1,5 +1,5 @@
 /* The colours, the type and the base rules every page shares: the members' page, the
-   operator's, the API reference (src/index.css imports this) and the public site's pages
+   operator's (src/index.css imports this) and the public site's page
    (src/site/site.css), so that a change of the palette reaches them all. */
 
 /* Light is the default; dark applies only when the header toggle sets data-theme="dark". */

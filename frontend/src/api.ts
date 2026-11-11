@@ -1162,18 +1162,8 @@ export interface PageError {
   path: string
 }
 
-/** A help page (backend/app/help), filled in for the deployment: Markdown, its title the first heading. */
-export interface HelpArticle {
-  slug: string
-  title: string
-  /** The line the contents show of it. */
-  summary: string
-  text: string
-}
-
-/** The help pages, and where members write for help (backend/app/api/help.py): none only in development. */
+/** Where members write for help (backend/app/api/help.py): none only in development. */
 export interface Help {
-  articles: HelpArticle[]
   support_email: string | null
   /** The status page outside the deployment, which says whether it is up; none where it names none. */
   status_page: string | null
@@ -1779,9 +1769,9 @@ export interface OAuthProvider {
 export interface AuthOptions {
   providers: OAuthProvider[]
   signup_open: boolean
-  /** Where a visitor asks for an account while sign-up is closed: the booking page, a mail to support, or the help's page on it. */
+  /** Where a visitor asks for an account while sign-up is closed (backend/app/signups.py). */
   book_url: string
-  /** The words of the button that leads there: "Book a call" or "Write to us". */
+  /** The words of the button that leads there: "Book a demo" or "Request access". */
   book_label: string
 }
 

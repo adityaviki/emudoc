@@ -2846,22 +2846,10 @@ class PageErrorOut(BaseModel):
     reference: str | None
 
 
-class HelpArticleOut(BaseModel):
-    """A help page (app/help/), filled in for the deployment: the whole article as Markdown, its
-    title the first heading, and the line the contents show of it."""
-
-    slug: str
-    title: str
-    summary: str
-    text: str
-
-
 class HelpOut(BaseModel):
-    """The help pages and the help menu (app/api/help.py): the articles in the contents' order,
-    the address members write to for help, which is none only in development, and the status
-    page, where the deployment has one."""
+    """The help menu (app/api/help.py): the address members write to for help, which is none
+    only in development, and the status page, where the deployment has one."""
 
-    articles: list[HelpArticleOut]
     support_email: str | None
     # The public status page (STATUS_PAGE_URL), outside the deployment.
     status_page: str | None

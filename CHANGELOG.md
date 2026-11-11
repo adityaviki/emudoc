@@ -17,11 +17,23 @@ newest entry first.
 
 Members:
 
+- The home page is new: an answer shown beside the passages it cites, the questions Emudoc
+  answers across documents, the files it reads, and how your documents are kept. Its button asks
+  for a demo, or for access, rather than starting a free plan.
+- The plans, the help pages and the API reference are taken down for now, and their old
+  addresses lead to the home page. The help menu keeps what's new, the service status and the
+  form to write to us; the organisation page still offers the upload client, with how to run
+  it, and says how a program checks a webhook's signature.
 - Answers no longer suggest questions to ask next under them. A new chat still suggests questions
   written from the project's documents.
 
 Operators:
 
+- The home page offers no sign-up, whether `SIGNUP_OPEN` is on or off: its button is "Book a
+  demo" (`BOOKING_URL`), else "Request access", a mail to the support address. `/pricing`,
+  `/help`, `/help/…` and `/api-reference` answer 302 to `/` and leave the sitemap, `GET
+  /api/help` lists no articles, and `pnpm build` makes three builds, without `reference.html`.
+  The versioned API and `/api/v1/openapi.json` stay (deploying.md, "The public site").
 - The agent is no longer offered `suggest_follow_ups`, so the answers' prompt version moves. The
   migration drops `chat_messages.follow_ups`.
 

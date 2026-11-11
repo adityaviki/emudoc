@@ -916,8 +916,8 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   `BACKUP_DAYS` (`deploying.md`, "Backups").
 - `SUPPORT_EMAIL` is where members write for help, from the app's help menu (Accounts, below);
   unset, it is `OPERATOR_EMAIL`, for a deployment whose one address answers both.
-  `STATUS_PAGE_URL` names the status page outside the deployment that the help menu and the
-  help pages link to (`deploying.md`, "The status page").
+  `STATUS_PAGE_URL` names the status page outside the deployment that the help menu links to
+  (`deploying.md`, "The status page").
 - `ACCESS_LOG_DAYS` says how long the infrastructure keeps its records of connections, which
   hold members' addresses: a network's flow logs, and the access logs of the bucket their
   browsers fetch page images and downloads from. Set, the privacy policy names them and the
@@ -1081,8 +1081,8 @@ each other. It counts against nothing on the plan and takes no uploads; its ques
 it is deleted like any project (`SAMPLE_PROJECT=false` turns it off; deploying.md, "The sample
 project"). A deployment can close the sign-up, as for a private beta (`SIGNUP_OPEN=false`,
 `backend/app/signups.py`; deploying.md, "The private beta"): the form and a first sign-in
-through Google or Microsoft then make no account, the sign-up page and the site's home page
-offer "Book a call" (`BOOKING_URL`) instead, and an account comes only from an invitation into
+through Google or Microsoft then make no account, the sign-up page offers the home page's
+"Book a demo" (`BOOKING_URL`) instead, and an account comes only from an invitation into
 an organisation or a sign-up link the operator sends from the operator's area or with
 `maintenance invite <address>`. The first project a member opens shows a short tour of the workspace, card by card,
 which "Skip the tour" or Escape ends; the user menu offers it again inside a project. Once an
@@ -1118,10 +1118,9 @@ mail, a plain text and an HTML part each, from a queue: a relay that is down get
 for half an hour, and an address the mail provider says bounced for good or was marked as spam
 is sent no notices for a year (deploying.md, "Mail"). Google and Microsoft accounts sign in through
 OpenID Connect and are linked to an existing account only when both sides have verified the
-address. A visitor without a session finds the public site's home page at `/`, and the plans
-with what each allows and costs at `/pricing`, plain HTML that the app fills in from the plans
-and the prices it sells them at (deploying.md, "The public site"); any other page sends them
-to `/login`, which returns them to the page they wanted.
+address. A visitor without a session finds the public site's home page at `/`, plain HTML that
+the app fills in from the deployment's settings (deploying.md, "The public site"); any other page
+sends them to `/login`, which returns them to the page they wanted.
 A session the server stops accepting drops everything the tab had fetched, so whoever signs in
 next in it starts from nothing. Every request that changes something must carry an `X-Requested-With` header, which the app's own
 requests do and a page on another site cannot add, so the cookie alone changes nothing; send the
@@ -1205,14 +1204,13 @@ against it (one gone, renamed or retyped, or one a request must now send):
 curl -H "Authorization: Bearer emk_…" -H "Idempotency-Key: $(uuidgen)" \
   -F files=@invoice.pdf https://emudoc.example.org/api/v1/projects/12/documents
 ```
-The API reference at `/api-reference` (`frontend/src/reference/`), a page of its own that anyone
-may read, draws each route, the webhooks' events and the schemas from the contract, which the
-API serves at `/api/v1/openapi.json`, public as well, naming the deployment's address as its
-server; each route has a curl request at that address to try. The contract names the key every
-route takes (the security scheme `APIKey`) and the group each is listed in, with its words.
+The contract, each route, the webhooks' events and the schemas, is served at
+`/api/v1/openapi.json`, public, naming the deployment's address as its server, for a program's
+tools to read. It names the key every route takes (the security scheme `APIKey`) and the group
+each is listed in, with its words.
 A key that reads and writes also runs the upload client, `emudoc_upload.py`
 (`backend/app/client/`), which the app serves to anyone at `/api/help/emudoc_upload.py`, links
-to from the API keys section and the help, and which any Python from 3.9 runs, needing nothing
+to from the API keys section, and which any Python from 3.9 runs, needing nothing
 but the standard library. `send` files folders into a project as they are (and files named on
 their own beside them, `--into` a folder of the project), leaving out what the app would refuse
 and hidden files, sends the rest through the versioned API in requests within `GET
@@ -1421,16 +1419,10 @@ a sentence that ends with the request's id as the reference to quote. The subpro
 and the privacy policy name the tracker when it is a company's. `deploying.md` ("Error
 tracking") has the details.
 
-The question mark in the header is the help menu. It opens the help pages at `/help`, public
-like the terms and linked under every sign-in page: a few articles, from getting started to
-plans, roles and deleting, with a search over them, which the backend fills in as it serves
-them (`backend/app/help/`, `GET /api/help`) from the code and the settings, so that the plans'
-figures, the file types and sizes an upload takes and how long the trash keeps what was deleted
-are the deployment's own, and a sentence about something it does not do (scanning, selling
-plans) is left out. And it is where a member writes to support: a problem, a
+The question mark in the header is the help menu, where a member writes to support: a problem, a
 question or an idea, in their own words (`frontend/src/help/`, `POST /api/feedback` in
 `backend/app/api/help.py`). With `STATUS_PAGE_URL` it also leads to the status page, which the
-page that cannot reach its server links to as well. It leads to what's new, `/whats-new`, also
+page that cannot reach its server links to as well (`GET /api/help`). It leads to what's new, `/whats-new`, also
 public: what changed for members, the **Members** entries of `CHANGELOG.md` a week of days at a
 time (`backend/app/changelog.py`, `GET /api/changelog`), with a dot on the question mark while a
 member has entries they have not read since they last opened it, which is kept on their account
@@ -1701,7 +1693,6 @@ frontend/src/
   pages/        the Projects page, the search of every project and the Workspace (two panes)
   workspace/    the library, tabs, document viewers and the chat pane
   account/      sign-in, sign-up, the email links, and the account page
-  reference/    the API reference at /api-reference, a page of its own drawn from the contract
   api.ts        the typed client for the backend
   auth.ts       who is signed in, for the shell and its pages
   chat.ts       a chat's messages as the chat pane holds them, and the answers being followed

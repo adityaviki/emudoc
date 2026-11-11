@@ -469,13 +469,13 @@ class Settings(BaseSettings):
     operator_name: str = ""
     operator_email: str = ""
     # Where members' messages to support go: what they write from the app's help menu, with
-    # the page and the request it was about (app/api/help.py), and the address the help pages
-    # and the mail about an account's address name for help. Empty is OPERATOR_EMAIL's, for a
-    # deployment whose one address answers both.
+    # the page and the request it was about (app/api/help.py), and the address the mail about an
+    # account's address names for help. Empty is OPERATOR_EMAIL's, for a deployment whose one
+    # address answers both.
     support_email: str = ""
     # The public status page that says whether the service is up, run outside the deployment
-    # it reports on (deploying.md, "The status page"): the help menu, the help pages and the
-    # page that cannot reach its server link to it. Empty links to none.
+    # it reports on (deploying.md, "The status page"): the help menu and the page that cannot
+    # reach its server link to it. Empty links to none.
     status_page_url: str = ""
     # How many days the deployment keeps the backups of its database and bucket, zero for
     # none. The app makes none itself; the privacy policy names this as the outer bound of a
@@ -629,18 +629,18 @@ class Settings(BaseSettings):
     # the origin of the request that needs it, which is right in development.
     app_url: str = ""
     # Whether search engines are asked to list the public pages (app/site.py): the home page,
-    # the plans, the help, the terms and the API reference, in robots.txt and the sitemap. Off,
+    # what's new and the terms, in robots.txt and the sitemap. Off,
     # robots.txt turns every crawler away and every page says not to be listed, as a staging
     # deployment or one on a machine of its own should, so it is on only where it is said to be.
     search_engines: bool = False
     # Whether anyone may make an account with an organisation of its own, by email or through
     # Google or Microsoft (app/signups.py). Off, as for a private beta, the sign-up page and the
-    # public site offer BOOKING_URL instead, the plans' page is put away, and an account comes
+    # public site offer BOOKING_URL instead, and an account comes
     # only from an invitation into an organisation or a sign-up link the operator sends.
     signup_open: bool = True
-    # The page a visitor books a call on (Cal.com, Calendly or the like), which "Book a call"
-    # opens on the public site and the sign-up page while sign-up is closed. Empty offers the
-    # support address instead.
+    # The page a visitor books a demo on (Cal.com, Calendly or the like), which "Book a demo"
+    # opens on the public site, and on the sign-up page while sign-up is closed. Empty offers a
+    # message to the support address instead ("Request access").
     booking_url: str = ""
     session_days: int = 30
     # The client addresses the operator's area (app/operators.py) answers, as networks or single

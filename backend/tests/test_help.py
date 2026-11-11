@@ -1,19 +1,14 @@
-"""Help for members (app/api/help.py): the help pages, filled in from what the deployment does,
-where to write for help, and a message to support from the app's help menu, mailed with where
-the member was and nothing of it kept or logged."""
-
-import re
+"""Help for members (app/api/help.py): where to write for help, the status page, and a message to
+support from the app's help menu, mailed with where the member was and nothing of it kept or
+logged."""
 
 import pytest
 from pydantic import ValidationError
 from sqlalchemy import func, select
 
 from app.api.help import NO_SUPPORT
-from app.config import ROOT_DIR, Settings, get_settings
-from app.help import ARTICLES, articles
-from app.main import REFERENCE_PATH
+from app.config import Settings, get_settings
 from app.models import AuditEvent, Job
-from app.parsing import SUPPORTED_EXTENSIONS
 from app.ratelimit import FEEDBACK
 from tests.test_apikeys import make_key, program
 from tests.test_auth import another_browser, signup
@@ -137,8 +132,8 @@ def test_a_program_does_not_write_to_support(client, mailer):
 def test_help_names_where_to_write_and_development_may_name_nowhere(
     client, mailer, monkeypatch, signed_in_only
 ):
-    # Anyone may ask, the sign-in pages linking to help too.
-    assert client.get("/api/help").json()["support_email"] == SUPPORT
+    # Anyone may ask, the page that cannot reach its server too.
+    assert client.get("/api/help").json() == {"support_email": SUPPORT, "status_page": None}
     settings = get_settings()
     monkeypatch.setattr(settings, "support_email", "")
     monkeypatch.setattr(settings, "operator_email", "privacy@emudoc.example.com")
@@ -153,105 +148,10 @@ def test_help_names_where_to_write_and_development_may_name_nowhere(
     assert mailer.sent[1:] == []
 
 
-# The help pages (app/help): filled in from the code and the settings, and every link of theirs
-# leads to an article or a page of the app.
-
-# The app's pages, as the router names them (frontend/src/App.tsx), and the articles'.
-ROUTES = re.compile(r'<Route (?:index |path="([^"]*)")')
-
-
-def pages() -> set[str]:
-    """The members' page's routes, the help's articles and the API reference, a page of its own
-    (frontend/reference.html), which the help's Markdown loads rather than routes."""
-    paths = ROUTES.findall((ROOT_DIR / "frontend" / "src" / "App.tsx").read_text())
-    named = {f"/{path}" for path in paths if path and ":" not in path and path != "*"}
-    return named | {"/", f"/{REFERENCE_PATH}"} | {f"/help/{slug}" for slug, _ in ARTICLES}
-
-
-def said(article: dict) -> str:
-    return " ".join(article["text"].split())
-
-
-def test_the_help_is_filled_in_from_what_the_deployment_allows(client, signed_in_only):
-    # Anyone may read it, before signing in too.
-    help = client.get("/api/help").json()
-    assert [article["slug"] for article in help["articles"]] == [slug for slug, _ in ARTICLES]
-    by = {article["slug"]: article for article in help["articles"]}
-    assert by["documents"]["title"] == "Uploading and organising documents"
-    assert by["documents"]["text"].startswith("# Uploading and organising documents\n")
-    assert by["documents"]["summary"] == dict(ARTICLES)["documents"]
-    documents = said(by["documents"])
-    assert (
-        "PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx), RTF, HTML, CSV, plain text, "
-        "Markdown files, and images (PNG, JPEG, WebP, TIFF, HEIC). A file may be up to 100 MB, "
-        "and a PDF, a TIFF or a presentation up to 5,000 pages."
-    ) in documents
-    assert "A larger upload is sent 100 files or 500 MB at a time" in documents
-    assert "in the trash for 30 days" in documents
-    assert "| Pages a month | 200 | 5,000 | 25,000 | No limit |" in by["plans"]["text"]
-    assert "| Members | 1 | 1 | 3, or the seats bought | No limit |" in by["plans"]["text"]
-    assert (
-        "| Chats kept after their last question | 30 days | 365 days | Until deleted"
-        in (by["plans"]["text"])
-    )
-    assert f"write to [{SUPPORT}](mailto:{SUPPORT})" in said(by["support"])
-    for article in help["articles"]:
-        assert "$" not in article["text"], article["slug"]
-
-
-def test_what_a_deployment_does_not_do_the_help_does_not_say(monkeypatch):
-    settings = get_settings()
-
-    def text(slug: str) -> str:
-        return " ".join(next(a for a in articles(settings) if a.slug == slug).text.split())
-
-    # The suite scans nothing, sells nothing and checks no breach list.
-    assert "scanned for malware" not in text("documents")
-    assert "write to support ([Getting help](/help/support))" in text("plans")
-    assert "data breach" not in text("account")
-    monkeypatch.setattr(settings, "scanner_url", "clamd://127.0.0.1:3310")
-    monkeypatch.setattr(settings, "pwned_passwords_url", "https://api.pwnedpasswords.com")
-    monkeypatch.setattr(settings, "rate_failed_sign_ins", 0)
-    monkeypatch.setattr(settings, "ocr_max_pages", 0)
-    monkeypatch.setattr(settings, "max_upload_mb", 250)
-    monkeypatch.setattr(settings, "parse_max_pages", 0)
-    assert "Every upload is first scanned for malware" in text("documents")
-    assert "as an image." in text("documents")
-    assert "A file may be up to 250 MB. Upload files" in text("documents")
-    assert "data breach is refused." in text("account") and "pause" not in text("account")
-    # The figures are the code's, never typed in.
-    monkeypatch.setattr("app.help.TRASH_DAYS", 45)
-    assert "in the trash for 45 days" in text("documents")
-
-
-def test_the_help_names_every_file_type_an_upload_takes(monkeypatch):
-    monkeypatch.setattr("app.help.SUPPORTED_EXTENSIONS", {*SUPPORTED_EXTENSIONS, ".odt"})
-    with pytest.raises(RuntimeError, match=r"\.odt"):
-        articles(get_settings())
-
-
-def test_every_link_of_the_help_leads_to_an_article_or_a_page(client):
-    known = pages()
-    assert {"/account", "/organization/usage", "/privacy", "/help"} <= known
-    for article in articles(get_settings()):
-        for link in re.findall(r"\]\((/[^)]*)\)", article.text):
-            # Or to a file the API serves, which the page downloads: the upload client.
-            if link.startswith("/api/"):
-                assert client.get(link).status_code == 200, (article.slug, link)
-            else:
-                assert link in known, (article.slug, link)
-
-
-def test_the_help_names_the_status_page_where_there_is_one(client, monkeypatch):
-    def support() -> str:
-        found = client.get("/api/help").json()
-        return next(a["text"] for a in found["articles"] if a["slug"] == "support")
-
+def test_help_names_the_status_page_where_there_is_one(client, monkeypatch):
     assert client.get("/api/help").json()["status_page"] is None
-    assert "status page" not in support()
     monkeypatch.setattr(get_settings(), "status_page_url", "https://status.emudoc.example.com")
     assert client.get("/api/help").json()["status_page"] == "https://status.emudoc.example.com"
-    assert "[our status page](https://status.emudoc.example.com)" in support()
 
 
 def test_the_page_that_cannot_reach_the_database_still_finds_the_status_page(
@@ -272,18 +172,3 @@ def test_the_page_that_cannot_reach_the_database_still_finds_the_status_page(
 def test_a_status_page_is_a_web_address(url):
     with pytest.raises(ValidationError, match="STATUS_PAGE_URL"):
         Settings(_env_file=None, database_url="postgresql+psycopg://db/emudoc", status_page_url=url)
-
-
-def test_the_help_says_how_to_run_the_upload_client_by_its_own_figures(client, monkeypatch):
-    monkeypatch.setattr(get_settings(), "app_url", "https://docs.acme.example/")
-    found = client.get("/api/help").json()["articles"]
-    documents = said(next(article for article in found if article["slug"] == "documents"))
-    assert "[emudoc_upload.py](/api/help/emudoc_upload.py), which Python 3.9 or later runs" in (
-        documents
-    )
-    assert (
-        "python3 emudoc_upload.py watch --server https://docs.acme.example --project "
-        '"Invoices" --into Scans ~/Scans'
-    ) in documents
-    assert "every 10 seconds" in documents and "`.emudoc-upload.json` in the folder" in documents
-    assert "`export EMUDOC_API_KEY=emk_…` on a Mac or Linux" in documents

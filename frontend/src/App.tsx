@@ -31,7 +31,6 @@ import { ThemeToggle } from './components/ThemeToggle.tsx'
 import { Button, IconButton, Spinner } from './components/ui.tsx'
 import { useHelp, useLocalStorage, useOnline, useStatus } from './hooks.ts'
 import { HelpMenu } from './help/HelpMenu.tsx'
-import { HelpPage } from './help/HelpPage.tsx'
 import { WhatsNew } from './help/WhatsNew.tsx'
 import { AuditPage } from './organization/AuditPage.tsx'
 import { NewOrganizationPage, OrganizationPage } from './organization/OrganizationPage.tsx'
@@ -122,8 +121,6 @@ function App() {
           <Route path="subprocessors" element={<SubprocessorsPage />} />
           <Route path="terms" element={<LegalPage document="terms" />} />
           <Route path="privacy" element={<LegalPage document="privacy" />} />
-          <Route path="help" element={<HelpPage />} />
-          <Route path="help/:slug" element={<HelpPage />} />
           <Route path="whats-new" element={<WhatsNew />} />
         </Route>
         {/* A share link's page, for whoever holds the link, with a frame of its own. */}
@@ -225,8 +222,8 @@ function OpenLinked({ me, id, rest }: { me: Me; id: number; rest: string }) {
 }
 
 /**
- * Where the service says whether it is up, under the screen that cannot reach the server: the
- * help reads no database, so it answers while the database is down.
+ * Where the service says whether it is up, under the screen that cannot reach the server:
+ * `GET /api/help` reads no database, so it answers while the database is down.
  */
 function StatusPageNote() {
   const help = useHelp()

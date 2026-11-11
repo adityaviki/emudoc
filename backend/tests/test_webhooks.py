@@ -5,7 +5,6 @@ again while it is not taken, and kept in a delivery log that never holds what it
 import hashlib
 import hmac
 import json
-import re
 import ssl
 import time
 from datetime import UTC, datetime, timedelta
@@ -23,7 +22,6 @@ from app.billing import change_plan
 from app.config import get_settings
 from app.encrypted import WEBHOOK_SECRETS, decrypt, encrypt_secrets
 from app.flags import QUESTION_SETS
-from app.help import articles
 from app.jobs import (
     DELIVER_WEBHOOK,
     INDEX_DOCUMENT,
@@ -172,15 +170,18 @@ def uploaded(client, project_id: int, name: str = "note.txt") -> int:
     return response.json()["documents"][0]["id"]
 
 
-def verified(request: httpx.Request, secret: str) -> bool:
-    """What a receiver checks, as the help shows it: the HMAC of the time and the body as sent,
-    with a time near its own."""
-    parts = dict(part.split("=", 1) for part in request.headers[SIGNATURE].split(","))
-    expected = hmac.new(
-        secret.encode(), f"{parts['t']}.".encode() + request.content, hashlib.sha256
-    ).hexdigest()
+def checks(body: bytes, header: str, secret: str) -> bool:
+    """What a receiver checks, as the organisation page says it: `v1=` the HMAC-SHA256, in hex,
+    of `t=` the time, a full stop and the body as sent, with a time near its own."""
+    parts = dict(part.split("=", 1) for part in header.split(","))
+    expected = hmac.new(secret.encode(), f"{parts['t']}.".encode() + body, hashlib.sha256)
     recent = abs(time.time() - int(parts["t"])) <= TOLERANCE
-    return recent and hmac.compare_digest(expected, parts["v1"])
+    return recent and hmac.compare_digest(expected.hexdigest(), parts["v1"])
+
+
+def verified(request: httpx.Request, secret: str) -> bool:
+    """Whether a request the receiver took carries Emudoc's signature of its body."""
+    return checks(request.content, request.headers[SIGNATURE], secret)
 
 
 def test_an_admin_adds_a_webhook_whose_secret_is_shown_once(client, session, account):
@@ -692,15 +693,11 @@ def test_a_secret_is_encrypted_afresh_when_the_keys_rotate(
     assert verified(receiver.requests[0], hook["secret"])
 
 
-def test_the_help_shows_how_a_program_checks_a_signature():
-    # The help's example, run as a program would run it, against what Emudoc signs.
-    text = next(a.text for a in articles(get_settings()) if a.slug == "organisations")
-    example = re.search(r"## Webhooks.*?```python\n(.*?)```", text, re.S).group(1)
-    found: dict = {}
-    exec(example, found)
+def test_a_program_checks_a_signature_as_the_organisation_page_says():
+    # A changed body, another secret, or a time too far from the receiver's own fails the check.
     secret, body = webhooks.new_secret(), b'{"id": "evt_1"}'
     now = int(time.time())
-    assert found["verified"](body, webhooks.sign(body, secret, now), secret)
-    assert not found["verified"](body + b" ", webhooks.sign(body, secret, now), secret)
-    assert not found["verified"](body, webhooks.sign(body, secret, now - TOLERANCE - 1), secret)
-    assert "doubling from 1 minute, 12 times over about 34 hours" in " ".join(text.split())
+    assert checks(body, webhooks.sign(body, secret, now), secret)
+    assert not checks(body + b" ", webhooks.sign(body, secret, now), secret)
+    assert not checks(body, webhooks.sign(body, secret, now - TOLERANCE - 1), secret)
+    assert not checks(body, webhooks.sign(body, webhooks.new_secret(), now), secret)

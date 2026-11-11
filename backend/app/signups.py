@@ -43,14 +43,17 @@ class HasAnAccount(Exception):
 
 
 def booking(settings: Settings) -> tuple[str, str]:
-    """Where a visitor asks for an account while sign-up is closed, and the words of the button
-    that leads there: the booking page, else a message to the support address, else the help's
-    page on support."""
+    """Where a visitor asks for an account, and the words of the button that leads there: the
+    home page's way in (app/site.py), and the sign-in pages' while sign-up is closed. The
+    booking page, else a message to the support address; without either, which only development
+    lacks, the sign-up page while it is open and the sign-in page while it is not."""
     if settings.booking_url:
-        return settings.booking_url, "Book a call"
+        return settings.booking_url, "Book a demo"
     if support := settings.support_address:
-        return f"mailto:{support}", "Write to us"
-    return "/help/support", "Write to us"
+        return f"mailto:{support}?subject={quote('Access to Emudoc')}", "Request access"
+    if settings.signup_open:
+        return "/signup", "Request access"
+    return "/login", "Sign in"
 
 
 def send_sign_up_link(

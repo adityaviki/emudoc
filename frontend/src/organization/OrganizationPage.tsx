@@ -463,16 +463,9 @@ function ApiKeysSection({ me }: { me: Me }) {
             scanner saves to one:{' '}
             <a href={UPLOAD_CLIENT} download className="font-medium text-accent hover:underline">
               download the upload client
-            </a>{' '}
-            and read{' '}
-            <Link to="/help/documents" className="font-medium text-accent hover:underline">
-              how to run it
-            </Link>
-            . What a program may ask of the API is in the{' '}
-            <a href="/api-reference" className="font-medium text-accent hover:underline">
-              API reference
             </a>
-            .
+            , give it the key in <code className="font-mono">EMUDOC_API_KEY</code>, and{' '}
+            <code className="font-mono">python3 emudoc_upload.py --help</code> says how to run it.
           </p>
         </form>
       ) : (
@@ -640,12 +633,10 @@ function WebhooksSection({ me }: { me: Me }) {
             onSubmit={(body, done) => make.mutate(body, { onSuccess: done })}
           />
           <p className="mt-3 text-[13px] text-muted">
-            Each event carries what the versioned API answers for its document or run, and a signature your program checks
-            with the secret:{' '}
-            <Link to="/help/organisations" className="font-medium text-accent hover:underline">
-              how to check it
-            </Link>
-            .
+            Each event carries what the versioned API answers for its document or run, and an{' '}
+            <code className="font-mono">Emudoc-Signature</code> header your program checks with the secret:{' '}
+            <code className="font-mono">t=</code> the time in seconds and <code className="font-mono">v1=</code> the
+            HMAC-SHA256, in hex, of that time, a full stop and the body as sent.
           </p>
         </>
       ) : (

@@ -1,10 +1,9 @@
 @import 'tailwindcss';
 @import './theme.css';
 
-/* The public site's pages have a stylesheet of their own (src/site/site.css), and the logo's
+/* The public site's page has a stylesheet of its own (src/site/site.css), and the logo's
    drawing names no class, though its attributes read like some. */
 @source not '../home.html';
-@source not '../pricing.html';
 @source not './site';
 @source not '../public/brand';
 

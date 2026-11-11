@@ -462,8 +462,7 @@ def _region(settings: Settings) -> str:
 
 def by_plan(days_of: Callable[[Entitlements], int | None], forever: str) -> str:
     """How long each plan keeps something, the plans with the same period together:
-    "Free: 30 days; Pro: 365 days; Team and Enterprise: until deleted"; the help pages say it
-    too (app/help/)."""
+    "Free: 30 days; Pro: 365 days; Team and Enterprise: until deleted"."""
     plans: dict[int | None, list[str]] = {}
     for name, entitlements in PLANS.items():
         plans.setdefault(days_of(entitlements), []).append(name.title())

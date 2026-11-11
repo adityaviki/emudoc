@@ -763,7 +763,7 @@ class Sender:
         if None in refusals:
             raise Unusable(
                 "This Emudoc does not say which of the files it refused: download the client "
-                "again from its help pages."
+                "again from the organisation's page, under API keys."
             )
         documents = iter(result["documents"])
         kept: list[str] = []

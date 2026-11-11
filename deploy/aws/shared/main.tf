@@ -30,7 +30,7 @@ output "settings" {
     GOOGLE_PAID_TIER     = ""
 
     # The private beta (deploying.md, "The private beta"): nobody signs up, the operator sends
-    # each team a sign-up link, and the site's "Book a call" opens BOOKING_URL, a booking page
+    # each team a sign-up link, and the site's "Book a demo" opens BOOKING_URL, a booking page
     # (empty mails the support address). SIGNUP_OPEN empty opens the sign-up again.
     SIGNUP_OPEN = "false"
     BOOKING_URL = ""

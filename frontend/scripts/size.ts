@@ -69,15 +69,10 @@ const BUDGET = 321_000
 // and the rest again, 102.0 kB on 2026-10-21. Its size costs no member anything, so its budget
 // only catches a dependency pulled in by mistake.
 const OPERATOR_BUDGET = 125_000
-// The API reference (reference.html), a build of its own that anyone reads at /api-reference: React
-// and the page drawn from the contract, 80.0 kB on 2026-10-25. Read by whoever writes a program,
-// once, so its budget too only catches a dependency pulled in by mistake.
-const REFERENCE_BUDGET = 95_000
 
 const PAGES = [
   { file: 'index.html', name: "The members' page", budget: BUDGET },
   { file: 'operator.html', name: "The operator's page", budget: OPERATOR_BUDGET },
-  { file: 'reference.html', name: 'The API reference', budget: REFERENCE_BUDGET },
 ]
 
 const dist = new URL('../dist/', import.meta.url)
