@@ -368,14 +368,6 @@ the server as the project is (`backend/app/scopes.py`), whatever the model asks 
 folder or documents were deleted, or are in the trash, reads nothing and its answer says so,
 rather than reading the whole project.
 
-A new chat offers a few questions to start from. In the sample project they are its own; in any
-other the indexing model writes three from the project's catalogue (each document's folder,
-type, date and summary) once its documents are indexed, a background job that runs when no
-document of the project is still waiting, and again an hour after the last writing at the
-soonest, in the organisation's language (`backend/app/suggestions.py`). Without the model, or past
-the day's spending limit, a project keeps the questions it has, or the page's own three. A
-suggestion is only ever asked by a member's press, as if it were typed, and counts as a question.
-
 A chat is its starter's alone until they share it with the project ("Share" in the chat's
 header, "Make private" to take it back). Everyone who sees the project then finds it under
 "Shared with the project" in the chat list, and a new chat offers the latest three, each with
@@ -774,7 +766,7 @@ one checkout at a time.
 
 | Missing          | Still works                                           | Does not                                          |
 | ---------------- | ----------------------------------------------------- | ------------------------------------------------- |
-| Model API key    | Parsing, outlines from headings, search, the viewer   | Summaries, facts, scans and images, the Ask tab, suggested questions |
+| Model API key    | Parsing, outlines from headings, search, the viewer   | Summaries, facts, scans and images, the Ask tab   |
 | Embeddings       | Keyword search, everything else                       | Search by meaning                                 |
 | ClamAV           | Everything; each document says it was not scanned     | Malware scanning of uploads (off by choice only in production) |
 | Converter        | Everything; Office files are shown by their text      | Word, PowerPoint and Excel files shown as they look |
@@ -1076,8 +1068,7 @@ and with the address confirmed, since whoever chose the password holds the mail.
 starts with the sample project, "Sample: Acme supplier contract": a supplier's contract, three of
 its invoices, the price list, the delivery log, an email and meeting notes, indexed already
 (`backend/app/sample`), so that the first question gets its answer and citations without waiting
-for an upload, and an empty chat in it offers three questions that read the documents against
-each other. It counts against nothing on the plan and takes no uploads; its questions count, and
+for an upload. It counts against nothing on the plan and takes no uploads; its questions count, and
 it is deleted like any project (`SAMPLE_PROJECT=false` turns it off; deploying.md, "The sample
 project"). A deployment can close the sign-up, as for a private beta (`SIGNUP_OPEN=false`,
 `backend/app/signups.py`; deploying.md, "The private beta"): the form and a first sign-in

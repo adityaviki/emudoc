@@ -33,8 +33,8 @@ organisation uploaded a document about you, ask the organisation first; we help 
   your account secure, which is our legitimate interest.
 - **What you upload and ask**: the documents, with the files they had before a new version and the
   text read from those, what is read from them (their text, images of their pages, a PDF made of a
-  Word, PowerPoint, Excel, RTF or HTML file to show it as it looks, summaries, facts,
-  the search index and the questions suggested about them), the facts you checked or corrected with when, and the documents you put in
+  Word, PowerPoint, Excel, RTF or HTML file to show it as it looks, summaries, facts
+  and the search index), the facts you checked or corrected with when, and the documents you put in
   review, approved or disputed with when and those assigned to you, which your organisation's
   members see beside your name, your chats with their questions and answers, the chats you pinned to
   the top of your list, the documents you starred and the last $recent of each project's you opened

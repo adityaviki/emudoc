@@ -64,18 +64,3 @@ export function sameScope(a: ScopeIn, b: ScopeIn): boolean {
     'folder_id' in scope ? `f${scope.folder_id}` : 'document_ids' in scope && scope.document_ids.length ? `d${[...scope.document_ids].sort((x, y) => x - y).join('-')}` : ''
   return key(a) === key(b)
 }
-
-/**
- * The questions a new chat about the scope offers: a folder's summary, a comparison of two
- * documents, a summary of the others; null for the whole project, whose own the model writes, and
- * none for a scope that is gone.
- */
-export function questionsFor(scope: ChatScope): string[] | null {
-  if (scope.kind === 'project') return null
-  if (scope.kind === 'folder') return scope.folder ? [SUMMARY_QUESTION] : []
-  const names = scope.documents.map((document) => document.filename)
-  if (names.length === 0) return []
-  if (names.length === 1) return [`Summarise ${names[0]}: what it is, and what it says.`]
-  if (names.length === 2) return [comparisonQuestion(names[0], names[1])]
-  return ['Summarise each of these documents, and what they say together.']
-}

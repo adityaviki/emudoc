@@ -16,8 +16,6 @@ the passages. It answers as a model would that does the least the app asks:
   streamed as the app streams every turn;
 - an agent turn after a search answers with the first sentence of the best passage, cited by
   its [P...] reference;
-- a request for a project's suggested questions (a schema of `questions`) asks what each of the
-  first three documents its catalogue lists says;
 - an agent turn offered `create_draft`, for a question that begins "Draft ", offers after its
   search a draft of the kind the question names (a reply email unless it says dispute, memo,
   table or report) about the best passage's document, the question its instructions, then says
@@ -82,9 +80,6 @@ DRAFT_WORDS = (
     ("report", "report"),
 )
 OFFERED = "The member is offered a"
-# A document's line in the catalogue that a request for a project's questions lists
-# (`list_documents`, backend/app/agent/tools.py).
-LISTED_DOCUMENT = re.compile(r"^doc \d+ · (.+?)(?: · |$)", re.MULTILINE)
 
 # Google Drive's tree under /google: each item by its id, its name, its type, its parent, and a
 # file's bytes.
@@ -295,14 +290,6 @@ def text_of(content: Any) -> str:
     return ""
 
 
-def questions_of(messages: list[dict[str, Any]]) -> dict[str, Any]:
-    """The reply to a request for a project's suggested questions (backend/app/suggestions.py):
-    what each of the first three documents its catalogue lists says."""
-    prompt = "\n".join(text_of(m.get("content")) for m in messages if m.get("role") == "user")
-    titles = LISTED_DOCUMENT.findall(prompt)[:3]
-    return {"questions": [f"What does {title} say?" for title in titles]}
-
-
 def agent_turn(messages: list[dict[str, Any]], tools: list[str]) -> dict[str, Any]:
     """What the model does next: a search for the question, a draft offered from its results
     when the question asks for one and the tool is offered, or the answer from them."""
@@ -499,8 +486,6 @@ class Handler(BaseHTTPRequestHandler):
                 schema,
                 messages,
             )
-            if "questions" in schema.get("properties", {}):
-                made = questions_of(messages)
             reply: dict[str, Any] = {"text": json.dumps(made)}
             time.sleep(self.index_seconds)
         elif body.get("tools"):

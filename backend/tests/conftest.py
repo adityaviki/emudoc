@@ -222,7 +222,6 @@ from app.parsing import limits as parse_limits  # noqa: E402
 from app.postbox import deliver  # noqa: E402
 from app.scanning import ScanError  # noqa: E402
 from app.storage import original_key, storage_from_settings  # noqa: E402
-from app.suggestions import SuggestedQuestions  # noqa: E402
 from app.switches import switched_off  # noqa: E402
 
 # A start (`prepare`) or a maintenance command copies `.env` into the environment in development:
@@ -287,14 +286,6 @@ MISSING_KEY = "Set GOOGLE_API_KEY in .env to use google:gemini-2.5-flash-lite."
 APP_HEADERS = {SAME_APP_HEADER: "fetch"}
 
 
-# The questions the fake model writes for a project's empty chat.
-SUGGESTED = (
-    "When does the services agreement end?",
-    "Which invoices name Globex Ltd?",
-    "Does the agreement set a notice period?",
-)
-
-
 class FakeLLM:
     """Stands in for the model: canned structured replies and scripted agent turns."""
 
@@ -313,8 +304,6 @@ class FakeLLM:
         self.template: str | None = None
         # Facts every reply that reads a document adds to those the fake finds itself.
         self.more_facts: list[ExtractedFact] = []
-        # What a request for a project's suggested questions gets (app/suggestions.py).
-        self.questions: list[str] = list(SUGGESTED)
 
     def problem(self) -> str | None:
         return None if self.available else MISSING_KEY
@@ -338,8 +327,6 @@ class FakeLLM:
                     OcrBlock(kind="paragraph", level=None, text="Total due: EUR 500"),
                 ]
             )
-        if schema is SuggestedQuestions:
-            return SuggestedQuestions(questions=list(self.questions))
         if schema is InferredSections:
             return InferredSections(
                 sections=[

@@ -58,8 +58,6 @@ export interface Project {
   visibility: ProjectVisibility
   /** The sample project a new organisation starts with (backend/app/sample): Emudoc's own documents, which count against nothing on the plan and take no uploads. */
   sample: boolean
-  /** The questions an empty chat offers to ask; none offers the page's own. */
-  suggestions: string[]
   document_count: number
   /** The documents partly indexed (`unfinishedStages` in indexing.ts), which the library offers to index the rest of. */
   partly_indexed_count: number

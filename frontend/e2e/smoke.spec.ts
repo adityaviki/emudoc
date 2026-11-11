@@ -12,7 +12,7 @@ import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, rele
 
 // The member's way through the app, end to end: read the home page a visitor is shown, whose
 // old plans' address leads home, sign up through the link the app mails, skip the tour the first project shows, ask the sample
-// project the organisation starts with one of its questions, print its contract's pages, make a project, upload a contract,
+// project the organisation starts with whether an invoice applies its contract's discount, print its contract's pages, make a project, upload a contract,
 // begun offline and waiting for the connection, wait for it to be indexed, find it by searching, ask about it, stop the
 // answer while the model thinks and try it again, open the passage the answer
 // cites and print the contract as it reads, which the Free plan's chat follows with the way to a plan for a team, upload a folder,
@@ -144,7 +144,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expectAccessible(page, 'the projects page')
   })
 
-  await test.step('skip the tour, and ask the sample project one of its questions', async () => {
+  await test.step('skip the tour, and ask the sample project whether an invoice applies the contract\'s discount', async () => {
     await page.getByText(SAMPLE).click()
     await expect(page).toHaveURL(/\/projects\/\d+$/)
     // The first project opened shows the tour: the sample takes no uploads, so it has no card.
@@ -164,7 +164,9 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     const ready = page.getByRole('img', { name: /Embeddings: done/ })
     await expect(ready).toHaveCount(8, { timeout: 30_000 })
     await expect(ready.first()).toHaveAccessibleName(/Summaries and facts: done/)
-    await page.getByRole('button', { name: /^Does invoice INV-2026-0503 apply the volume discount/ }).click()
+    const composer = page.getByPlaceholder('Ask a question about these documents')
+    await composer.fill('Does invoice INV-2026-0503 apply the volume discount the contract sets?')
+    await composer.press('Enter')
     await expect(page).toHaveURL(/[?&]chat=\d+/)
     await expect(page.getByRole('button', { name: '1', exact: true })).toBeVisible({ timeout: 30_000 })
     await expect(page.getByText('Thinking')).toHaveCount(0)
@@ -1768,21 +1770,6 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.getByLabel('What').selectOption('kind:chats')
     await expect(page.getByRole('listitem').filter({ hasText: 'Downloaded an answer' })).toContainText('as Markdown')
     await expect(page.getByRole('listitem').filter({ hasText: 'Downloaded a chat' })).toContainText('1 answer, as a PDF')
-  })
-
-  await test.step('a new chat offers the questions written from its documents, one asked with a press', async () => {
-    await page.goto('/')
-    await page.getByRole('link', { name: /^Supplier contracts/ }).click()
-    await page.getByRole('button', { name: 'New chat' }).click()
-    // Written once the project's first upload settled: the stand-in asks what each of the first documents says, in place of the page's own.
-    const written = page.getByRole('button', { name: /^What does .+ say\?$/ }).first()
-    await expect(written).toBeVisible()
-    await expect(page.getByRole('button', { name: 'What documents are in this project?' })).toHaveCount(0)
-    const words = (await written.textContent())!.trim()
-    await written.click()
-    // Pressed, it is the member's question, answered as a typed one is.
-    await expect(page.getByRole('paragraph').filter({ hasText: words }).first()).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Share the answer' })).toHaveCount(1, { timeout: 30_000 })
   })
 
   await test.step("summarise a folder in a chat about it alone, write its answer again and edit its question, then compare two documents", async () => {

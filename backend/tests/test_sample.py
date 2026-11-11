@@ -23,7 +23,6 @@ from app.sample import (
     FILES,
     NAME,
     NOTHING_TO_SCAN,
-    QUESTIONS,
     SAMPLE_UPLOADS,
     build_sample,
     check_sample,
@@ -96,7 +95,6 @@ def test_a_sign_up_starts_with_the_sample_ready_to_ask_about(
     signup(client)
     sample = the_sample(client)
     assert sample["name"] == NAME and sample["description"] == DESCRIPTION
-    assert sample["suggestions"] == list(QUESTIONS)
     assert sample["document_count"] == FILE_COUNT and sample["visibility"] == "organization"
 
     documents = documents_of(client, sample["id"])
@@ -187,7 +185,7 @@ def test_it_counts_against_nothing_the_plan_holds_and_takes_no_uploads(
     # The free plan's one project is the member's own.
     made = client.post("/api/projects", json={"name": "Contracts"})
     assert made.status_code == 201, made.text
-    assert made.json()["sample"] is False and made.json()["suggestions"] == []
+    assert made.json()["sample"] is False
     assert client.post("/api/projects", json={"name": "More"}).status_code == 402
 
     # Deleting it is deleting a project, into the trash and from there for good; restored, it

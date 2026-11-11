@@ -48,10 +48,8 @@ class ProjectOut(_FromORM):
     description: str
     created_at: dt.datetime
     visibility: str
-    # The sample project a new organisation starts with (app/sample), which takes no uploads,
-    # and the questions an empty chat in a project offers, none being the page's own.
+    # The sample project a new organisation starts with (app/sample), which takes no uploads.
     sample: bool = False
-    suggestions: list[str] = Field(default_factory=list)
     document_count: int = 0
     # The documents that are partly indexed (`unfinished_stages`, app/indexing/pipeline.py),
     # which the library offers to index the rest of, and those of them without summaries and

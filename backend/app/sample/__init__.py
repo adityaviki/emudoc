@@ -72,9 +72,10 @@ DESCRIPTION = (
     "the delivery log, an email and the notes of a review meeting. Ask about them; your own "
     "documents go in a project of your own."
 )
-# Each asks the agent to read several documents against each other, as the product is for:
-# invoice INV-2026-0503 bills 340 pallets with none of the contract's 6 % discount, two
-# deliveries were late, and the prices are the list's.
+# The first three golden questions (app/golden.py). Each asks the agent to read several
+# documents against each other, as the product is for: invoice INV-2026-0503 bills 340 pallets
+# with none of the contract's 6 % discount, two deliveries were late, and the prices are the
+# list's.
 QUESTIONS = (
     "Does invoice INV-2026-0503 apply the volume discount the contract sets?",
     "Which deliveries were late, why, and does the contract give Northwind a credit for them?",
@@ -189,7 +190,6 @@ def copy_sample(
         name=NAME,
         description=DESCRIPTION,
         sample=True,
-        suggestions=list(QUESTIONS),
     )
     session.add(project)
     session.flush()

@@ -113,7 +113,6 @@ from app.jobs import (
     SEEN_WITHIN,
     SEND_DIGESTS,
     SEND_EMAIL,
-    SUGGEST_QUESTIONS,
     SYNC_CONNECTOR,
     WRITE_DRAFT,
     WRITE_QUESTION_REPORT,
@@ -154,8 +153,6 @@ from app.scanning import ScanError, alert_quarantines
 from app.spending import alert_spending, when
 from app.startup import prepare
 from app.storage import StorageError
-from app.suggestions import after_index as suggest_after_index
-from app.suggestions import write_suggestions
 from app.tracing import describe, timed, trace_of
 from app.tracking import start_tracking
 from app.version import VERSION
@@ -325,17 +322,12 @@ def _minutes(delta: timedelta) -> str:
 
 
 def _after_index(job: Job, services: Services) -> None:
-    """Once an index job ended: its document's upload may be settled, the document's webhooks
-    told (app/webhooks.py) and its project's questions written again (app/suggestions.py), each
-    whichever way the others went."""
-    document_id = job.payload["document_id"]
+    """Once an index job ended: its document's upload may be settled, and the document's webhooks
+    told (app/webhooks.py) whichever way that went."""
     try:
         after_index(job, services)
     finally:
-        try:
-            announce_document(document_id, job.id)
-        finally:
-            suggest_after_index(document_id)
+        announce_document(job.payload["document_id"], job.id)
 
 
 def _abandon_index(job: Job, services: Services) -> None:
@@ -435,16 +427,6 @@ def _abandon_automation(job: Job, services: Services) -> None:
     pass
 
 
-def _run_suggestions(job: Job, services: Services) -> str | None:
-    write_suggestions(job.project_id, services, Lease(job.id, job.worker_id))
-    return None
-
-
-def _abandon_suggestions(job: Job, services: Services) -> None:
-    # The project keeps the questions it had, and its next upload queues another writing.
-    pass
-
-
 def _run_question_set(job: Job, services: Services) -> str | None:
     return run_question_set(job.payload["set_id"], Lease(job.id, job.worker_id))
 
@@ -491,8 +473,7 @@ def _abandon_language(job: Job, services: Services) -> None:
 # reports, with the jobs that make those on a schedule or as documents arrive; every other kind
 # shares the indexers, a message sent to a project's address among them (app/receiving.py),
 # which is an upload, and so is a connected folder's sync (app/connectors/sync.py), the
-# deliveries of the webhooks (app/webhooks.py), whose answers come within seconds, the writing of
-# a project's suggested questions (app/suggestions.py), one indexing request, and the hour's
+# deliveries of the webhooks (app/webhooks.py), whose answers come within seconds, and the hour's
 # weekly digests (app/digests.py), a few statements a member.
 HANDLERS: dict[str, Handler] = {
     INDEX_DOCUMENT: Handler(_run_index, _abandon_index, _after_index),
@@ -507,7 +488,6 @@ HANDLERS: dict[str, Handler] = {
     RECEIVE_MAIL: Handler(_run_receive, _abandon_receive),
     SYNC_CONNECTOR: Handler(_run_sync, _abandon_sync),
     DELIVER_WEBHOOK: Handler(run_delivery, abandon_delivery),
-    SUGGEST_QUESTIONS: Handler(_run_suggestions, _abandon_suggestions),
     RUN_QUESTION_SET: Handler(_run_question_set, _abandon_question_set),
     WRITE_QUESTION_REPORT: Handler(_write_report, _abandon_report, _after_report),
     SEND_DIGESTS: Handler(_send_digests, _abandon_digests),

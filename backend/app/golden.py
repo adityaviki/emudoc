@@ -81,7 +81,7 @@ class Golden:
 
 
 GOLDEN = (
-    # The three an empty chat of the sample offers, as every new member sees them. Invoice
+    # The three questions of the canonical scenario (app/sample, QUESTIONS). Invoice
     # INV-2026-0503 bills 210 and 130 pallets, past the contract's 250 for its 6 %, with no
     # discount; two deliveries were late, by a carrier's strike, and the contract sets no credit
     # for that; and every unit price is the list's.

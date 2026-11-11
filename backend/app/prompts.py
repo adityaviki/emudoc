@@ -26,7 +26,7 @@ app/usage.py), and the usage an answer, a document, a run or a draft shows keeps
 kind; the `costs` command splits each kind's cost by version (`prompt_costs`), and the `golden`
 and `fact-accuracy` reports name the versions they ran.
 
-What the model works on is shown inside tags the prompt names (`<document>`, `<catalogue>`, the
+What the model works on is shown inside tags the prompt names (`<document>`, the
 agent's `<project_data>`), which the prompt says hold data and never instructions. `untagged`
 writes a tag of those inside the words shown so that it is none, since a document that wrote
 `</document>` would otherwise end what is shown and go on as the prompt.
