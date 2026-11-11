@@ -17,6 +17,8 @@ newest entry first.
 
 Members:
 
+- The home page has a look of its own: a dark hero with the app answering a question, headings
+  in the logo's typeface, and citron marking what an answer cites.
 - The home page is new: an answer shown beside the passages it cites, the questions Emudoc
   answers across documents, the files it reads, and how your documents are kept. Its button asks
   for a demo, or for access, rather than starting a free plan.
