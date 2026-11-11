@@ -31,8 +31,6 @@ export interface Message {
   sources: Record<number, Source>
   // The draft the answer offers, and once pressed the one written from it.
   draft?: DraftOffer | null
-  // The questions the answer suggests asking next.
-  follow_ups?: string[]
   status: MessageStatus
   thinking?: boolean
   notice?: string | null
@@ -104,7 +102,6 @@ function empty(message: Message): Message {
     steps: [],
     sources: {},
     draft: null,
-    follow_ups: [],
     status: 'streaming',
     thinking: true,
     notice: null,
@@ -153,8 +150,6 @@ export function applyEvent(message: Message, event: ChatEvent): Message {
         ...message,
         draft: { kind: event.kind, instructions: event.instructions, documents: event.documents, written: false, draft_id: null },
       }
-    case 'follow_ups':
-      return { ...message, follow_ups: event.questions }
     case 'notice':
       return { ...message, notice: event.message }
     case 'error':
@@ -163,6 +158,10 @@ export function applyEvent(message: Message, event: ChatEvent): Message {
       return { ...message, thinking: false, usage: event.usage }
     case 'end':
       return { ...message, thinking: false, status: event.status }
+    default:
+      // An event of a kind this page does not know, such as the questions to ask next that an
+      // answer written before 2026-11-11 suggested: nothing of it is shown.
+      return message
   }
 }
 
@@ -271,16 +270,6 @@ export function editableQuestion(messages: Message[]): Message | null {
   const [question, answer] = messages.slice(-2)
   if (question?.role !== 'user' || answer?.role !== 'assistant') return null
   return answer.status === 'streaming' || answer.lost ? null : question
-}
-
-/**
- * The questions to offer under the chat's last answer to ask next: those it suggests, once it is
- * done without an error; none while anything comes after it.
- */
-export function followUpsOf(messages: Message[]): string[] {
-  const last = messages[messages.length - 1]
-  if (last === undefined || last.role !== 'assistant' || last.status !== 'done' || last.error) return []
-  return last.follow_ups ?? []
 }
 
 /** End the answer with what arrived so far, on the server and here. */

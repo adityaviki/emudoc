@@ -373,10 +373,8 @@ other the indexing model writes three from the project's catalogue (each documen
 type, date and summary) once its documents are indexed, a background job that runs when no
 document of the project is still waiting, and again an hour after the last writing at the
 soonest, in the organisation's language (`backend/app/suggestions.py`). Without the model, or past
-the day's spending limit, a project keeps the questions it has, or the page's own three. An
-answer suggests two or three questions to ask next (the agent's `suggest_follow_ups`, called
-before the model writes the answer as its last reply), shown as "Ask next" under the chat's last
-answer to its starter; a press asks one as if it were typed, and counts as a question. A suggestion is only ever asked by a member's press.
+the day's spending limit, a project keeps the questions it has, or the page's own three. A
+suggestion is only ever asked by a member's press, as if it were typed, and counts as a question.
 
 A chat is its starter's alone until they share it with the project ("Share" in the chat's
 header, "Make private" to take it back). Everyone who sees the project then finds it under

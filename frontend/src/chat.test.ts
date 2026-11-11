@@ -5,7 +5,6 @@ import {
   ask,
   chatKey,
   editableQuestion,
-  followUpsOf,
   isStreaming,
   loadChat,
   mayRegenerate,
@@ -36,7 +35,7 @@ const SOURCE: Source = {
 const USAGE = { model: 'google:gemini', calls: 2, input_tokens: 900, output_tokens: 40, cost_micros: 1200 }
 
 function saved(id: number, role: 'user' | 'assistant', content: string, status: ChatMessage['status'] = 'done'): ChatMessage {
-  return { id, role, content, steps: [], sources: [], draft: null, follow_ups: [], notice: null, error: null, status, usage: {}, created_at: '2026-10-17T09:00:00Z' }
+  return { id, role, content, steps: [], sources: [], draft: null, notice: null, error: null, status, usage: {}, created_at: '2026-10-17T09:00:00Z' }
 }
 
 function chat(messages: ChatMessage[] = []): ChatDetail {
@@ -106,13 +105,11 @@ describe('applyEvent', () => {
     expect(message.steps.map((step) => step.id)).toEqual(['call_1', 'call_2'])
   })
 
-  it('keeps the answer written beside the questions to ask next, which are no step', () => {
-    const message = fold([
-      { type: 'text', text: 'The notice period is 90 days.' },
-      { type: 'follow_ups', questions: ['How is notice given?'] },
-      { type: 'done', usage: USAGE },
-    ])
-    expect(message).toMatchObject({ content: 'The notice period is 90 days.', follow_ups: ['How is notice given?'] })
+  it('passes over an event of a kind it does not know, such as the questions an older answer suggested', () => {
+    const older = { type: 'follow_ups', questions: ['How is notice given?'] } as unknown as ChatEvent
+    const message = fold([{ type: 'text', text: 'The notice period is 90 days.' }, older, { type: 'done', usage: USAGE }])
+    expect(message).toMatchObject({ content: 'The notice period is 90 days.', usage: USAGE })
+    expect(message).not.toHaveProperty('follow_ups')
   })
 
   it('starts over when the run writing the answer was lost', () => {
@@ -136,15 +133,6 @@ describe('applyEvent', () => {
       draft_id: null,
     })
     expect(fold([{ type: 'restart' }], offered).draft).toBeNull()
-  })
-
-  it('keeps the questions the answer suggests asking next, which a run starting over drops', () => {
-    const suggested = fold([
-      { type: 'text', text: 'Ninety days.' },
-      { type: 'follow_ups', questions: ['How is notice given?', 'Who pays the penalty?'] },
-    ])
-    expect(suggested.follow_ups).toEqual(['How is notice given?', 'Who pays the penalty?'])
-    expect(fold([{ type: 'restart' }], suggested).follow_ups).toEqual([])
   })
 
   it('shows an error and a notice beside the text', () => {
@@ -567,20 +555,6 @@ describe('mayRetry', () => {
     expect(mayRetry(answer({ status: 'done' }))).toBe(false)
     expect(mayRetry(answer({ status: 'streaming' }))).toBe(false)
     expect(mayRetry({ ...answer({ status: 'failed' }), role: 'user' })).toBe(false)
-  })
-})
-
-describe('followUpsOf', () => {
-  it("offers the questions the chat's last answer suggests once it is done, and nothing after it", () => {
-    const question: Message = { ...answering, role: 'user', content: 'Notice?', status: 'done', thinking: false }
-    const answer = (change: Partial<Message>): Message => ({ ...answering, thinking: false, follow_ups: ['Who signed it?'], ...change })
-    expect(followUpsOf([question, answer({ status: 'done' })])).toEqual(['Who signed it?'])
-    expect(followUpsOf([question, answer({ status: 'streaming' })])).toEqual([])
-    expect(followUpsOf([question, answer({ status: 'stopped', notice: 'Stopped.' })])).toEqual([])
-    expect(followUpsOf([question, answer({ status: 'done', error: 'The model is not answering.' })])).toEqual([])
-    expect(followUpsOf([question, answer({ status: 'done' }), question])).toEqual([])
-    expect(followUpsOf([question, answer({ status: 'done', follow_ups: undefined })])).toEqual([])
-    expect(followUpsOf([])).toEqual([])
   })
 })
 

@@ -26,7 +26,7 @@ import {
   WifiOff,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import { api, organizations, pageLabel, sectionPath, sourceLabel } from '../api.ts'
 import type { Chat, ChatScope, DraftKind, ScopeIn, Source, TextFormat } from '../api.ts'
@@ -35,7 +35,6 @@ import {
   ask,
   chatKey,
   editableQuestion,
-  followUpsOf,
   isStreaming,
   latestOwn,
   loadChat,
@@ -593,8 +592,6 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
   const scoped = scopeWords(scope, pathOf)
   // A chat about part of the project offers questions about that part; one about all of it, the project's.
   const offered = questionsFor(scope) ?? (project.suggestions.length ? project.suggestions : SUGGESTIONS)
-  // What the last answer suggests asking next, which its starter asks with a press.
-  const next = starter || streaming ? [] : followUpsOf(messages)
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto px-5">
@@ -681,17 +678,6 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
               />
             ),
           )}
-          {next.length > 0 && (
-            <AskNext
-              questions={next}
-              disabled={!online || unavailable}
-              onAsk={(question) => {
-                send(question)
-                // The questions go with the press: the composer takes the focus, for the next.
-                composer.current?.focus()
-              }}
-            />
-          )}
           {nudge && <InviteTeam room={nudge.room} onInvited={() => setInvitedFrom(nudge)} />}
           {sharing != null && chatId != null && (
             <ShareDialog target={{ kind: 'answer', chatId, id: sharing }} onClose={() => setSharing(null)} />
@@ -767,32 +753,6 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
             {!starter && ` · Enter to send · Shift+Enter for a new line · ${listHint(onMac())}`}
           </p>
         </div>
-      </div>
-    </div>
-  )
-}
-
-/** The questions the chat's last answer suggests asking next, each asked with a press. */
-function AskNext({ questions, disabled, onAsk }: { questions: string[]; disabled: boolean; onAsk: (question: string) => void }) {
-  const label = useId()
-  return (
-    <div role="group" aria-labelledby={label}>
-      <p id={label} className="mb-1.5 text-[11px] font-medium tracking-wide text-muted uppercase">
-        Ask next
-      </p>
-      <div className="flex flex-wrap gap-2">
-        {questions.map((question) => (
-          <button
-            key={question}
-            type="button"
-            onClick={() => onAsk(question)}
-            disabled={disabled}
-            className="flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-1.5 text-left text-[13px] shadow-xs transition hover:border-ink/15 hover:bg-sunken/50 disabled:cursor-not-allowed disabled:bg-sunken disabled:text-muted"
-          >
-            {question}
-            <ArrowUp className="size-3.5 shrink-0 rotate-45 text-muted" />
-          </button>
-        ))}
       </div>
     </div>
   )

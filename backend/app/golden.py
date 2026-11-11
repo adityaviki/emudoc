@@ -323,11 +323,11 @@ def _embed(services: Services, document_ids: list[int]) -> str | None:
 def _ask(services: Services, project_id: int, names: dict[int, str], golden: Golden) -> Asked:
     usage = ModelUsage()
     started = time.monotonic()
-    # As an answer runs (`answer` in app/answers.py), offered the questions to ask next, and
-    # folded as its row is, so that the answer graded is the one a member would read.
+    # As an answer runs (`answer` in app/answers.py), folded as its row is, so that the answer
+    # graded is the one a member would read.
     turn = [{"role": "user", "content": golden.question}]
     reply = Reply()
-    for event in run_agent(services, project_id, turn, usage, following=True):
+    for event in run_agent(services, project_id, turn, usage):
         reply.apply(event)
     answer = reply.content
     errors = [f"ended with an error: {reply.error}"] if reply.error else []

@@ -1189,8 +1189,6 @@ class ChatMessageOut(_FromORM):
     steps: list[ChatStep]
     sources: list[SourceOut]
     draft: DraftOfferOut | None
-    # The questions the answer suggests asking next, which its chat's starter asks with a press.
-    follow_ups: list[str]
     notice: str | None
     error: str | None
     status: MessageStatus

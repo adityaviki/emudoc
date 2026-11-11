@@ -1806,7 +1806,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('listitem').filter({ hasText: 'Downloaded a chat' })).toContainText('1 answer, as a PDF')
   })
 
-  await test.step('a new chat offers the questions written from its documents, and an answer what to ask next, each asked with a press', async () => {
+  await test.step('a new chat offers the questions written from its documents, one asked with a press', async () => {
     await page.goto('/')
     await page.getByRole('link', { name: /^Supplier contracts/ }).click()
     await page.getByRole('button', { name: 'New chat' }).click()
@@ -1814,20 +1814,11 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     const written = page.getByRole('button', { name: /^What does .+ say\?$/ }).first()
     await expect(written).toBeVisible()
     await expect(page.getByRole('button', { name: 'What documents are in this project?' })).toHaveCount(0)
+    const words = (await written.textContent())!.trim()
     await written.click()
-    const next = page.getByRole('group', { name: 'Ask next' })
-    await expect(next.getByRole('button')).toHaveText(['Which other documents mention it?', 'What does the project say about payment?'], {
-      timeout: 30_000,
-    })
-    await expectAccessible(page, 'the questions an answer suggests asking next')
-    // Pressed, a follow-up is the member's question, and the composer takes the focus from it.
-    await next.getByRole('button', { name: 'What does the project say about payment?' }).click()
-    await expect(page.getByPlaceholder('Ask a question about these documents')).toBeFocused()
-    await expect(page.getByText('What does the project say about payment?', { exact: true }).first()).toBeVisible()
-    // Its own answer suggests again, under it alone.
-    await expect(next.getByRole('button', { name: 'Which other documents mention it?' })).toBeVisible({ timeout: 30_000 })
-    await expect(page.getByRole('button', { name: 'Share the answer' })).toHaveCount(2)
-    await expect(next).toHaveCount(1)
+    // Pressed, it is the member's question, answered as a typed one is.
+    await expect(page.getByRole('paragraph').filter({ hasText: words }).first()).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Share the answer' })).toHaveCount(1, { timeout: 30_000 })
   })
 
   await test.step("summarise a folder in a chat about it alone, write its answer again and edit its question, then compare two documents", async () => {

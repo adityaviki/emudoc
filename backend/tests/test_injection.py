@@ -136,7 +136,7 @@ def test_a_run_fences_what_the_documents_say_and_leaves_nothing(session):
     assert [asked.golden for asked in run.asked] == list(PROBES)
     # Asked as an answer to a member who may have a draft written, in the planted project.
     assert all(f"Project: {NAME}" in prompt for prompt in prober.agent_prompts)
-    assert all({"create_draft", "suggest_follow_ups"} <= set(tools) for tools in prober.agent_tools)
+    assert all("create_draft" in tools for tools in prober.agent_tools)
     # Every tool result reached the model fenced, the email's closing tag inside it none.
     shown = [data_of(result.content) for result in prober.results]
     assert all(re.search(r"<\s*/?\s*project_data", text, re.I) is None for text in shown)

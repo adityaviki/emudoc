@@ -1317,8 +1317,6 @@ export interface ChatMessage {
   steps: ChatStep[]
   sources: Source[]
   draft: DraftOffer | null
-  /** The questions the answer suggests asking next, which its chat's starter asks with a press. */
-  follow_ups: string[]
   notice: string | null
   error: string | null
   status: MessageStatus
@@ -1361,7 +1359,6 @@ export type ChatEvent =
   | { type: 'tool_result'; id: string; summary: string; is_error: boolean }
   | { type: 'sources'; sources: Source[] }
   | ({ type: 'draft' } & DraftAsked)
-  | { type: 'follow_ups'; questions: string[] }
   | { type: 'notice'; message: string }
   | { type: 'error'; message: string }
   | { type: 'done'; usage: Usage }

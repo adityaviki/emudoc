@@ -20,18 +20,13 @@ question, counted as one.
 """
 
 import logging
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 
 from pydantic import BaseModel
 from sqlalchemy import exists, select, text, update
 
-from app.agent.tools import (
-    LIVE,
-    ListDocumentsInput,
-    ToolContext,
-    distinct_questions,
-    list_documents,
-)
+from app.agent.tools import LIVE, ListDocumentsInput, ToolContext, list_documents
 from app.db import SessionLocal
 from app.indexing.pipeline import Services
 from app.jobs import BULK, SUGGEST_QUESTIONS, Lease, LeaseLost, enqueue, renew
@@ -48,6 +43,9 @@ log = logging.getLogger(__name__)
 # reads for them, the first by the order the agent lists them in, with the count of each type.
 QUESTIONS = 3
 CATALOGUE_DOCUMENTS = 60
+# How long a question may be: one a member reads at a glance, longer than which the model wrote
+# something else.
+SUGGESTED_CHARS = 200
 # The least time between two writings of one project's questions.
 AGAIN_AFTER = timedelta(hours=1)
 
@@ -173,6 +171,17 @@ def write_suggestions(project_id: int, services: Services, lease: Lease | None =
             session.rollback()
             raise LeaseLost(lease)
         session.commit()
+
+
+def distinct_questions(questions: Iterable[str], limit: int) -> list[str]:
+    """Questions as the page offers them: each on one line of at most SUGGESTED_CHARS, none twice
+    whatever its case, the first `limit` of them."""
+    kept: dict[str, str] = {}
+    for question in questions:
+        line = " ".join(question.split())
+        if line and len(line) <= SUGGESTED_CHARS:
+            kept.setdefault(line.casefold(), line)
+    return list(kept.values())[:limit]
 
 
 def _language(organization: Organization) -> str:
