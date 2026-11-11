@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#08090d" />
     <title>Emudoc: ask your documents, and check every answer</title>
     <meta name="description" content="Emudoc reads your contracts, invoices and reports, then answers questions about them with every claim cited to the passage it comes from. One click opens the page." />
     <!--
@@ -11,7 +12,8 @@
       The backend fills in each placeholder, and keeps a part marked "if" and "end" with a flag's name
       only once that feature's flag is on for every organisation (backend/app/flags.py), and a part
       marked signup_open or signup_closed by whether anyone may sign up (backend/app/signups.py).
-      The answers shown are the sample project's own (backend/app/sample).
+      The answers shown are the sample project's own (backend/app/sample). The page has a look of
+      its own, apart from the app's (src/site/site.css), and loads no script.
     -->
     <link rel="canonical" href="$app_url/" />
     <meta property="og:type" content="website" />
@@ -21,535 +23,605 @@
     <meta property="og:url" content="$app_url/" />
     <meta property="og:image" content="$app_url/brand/og-image.png" />
     <meta name="twitter:card" content="summary_large_image" />
-    <script src="/theme.js"></script>
+    <link rel="preload" href="/brand/fonts/kanit-600-latin.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="/src/site/site.css" />
   </head>
   <body>
     <!-- include header.html -->
     <main id="main">
-      <!-- The hero, over a faint grid and a glow of the accent. -->
-      <section aria-labelledby="hero-title" class="relative isolate overflow-hidden">
-        <div aria-hidden="true" class="site-grid absolute inset-0 -z-10"></div>
-        <div aria-hidden="true" class="absolute inset-x-0 top-0 -z-10 h-[44rem] bg-[radial-gradient(55%_50%_at_50%_0%,var(--color-accent-soft),transparent)]"></div>
-        <div class="mx-auto max-w-6xl px-4 pt-16 pb-20 sm:px-6 lg:pt-24 lg:pb-28">
-          <div class="mx-auto max-w-3xl text-center">
+      <!-- The hero, on the night, under a field of dots and glows of Beak, violet and citron. -->
+      <section aria-labelledby="hero-title" class="relative isolate overflow-hidden bg-night text-snow">
+        <div aria-hidden="true" class="dots absolute inset-0 -z-10"></div>
+        <div aria-hidden="true" class="absolute -top-56 left-1/2 -z-10 h-[42rem] w-[70rem] max-w-none -translate-x-1/2 rounded-full bg-beak/45 blur-[150px]"></div>
+        <div aria-hidden="true" class="absolute top-40 -left-24 -z-10 size-[26rem] rounded-full bg-violet-600/25 blur-[130px]"></div>
+        <div aria-hidden="true" class="absolute top-72 -right-20 -z-10 size-[22rem] rounded-full bg-citron/10 blur-[120px]"></div>
+        <div class="mx-auto max-w-6xl px-4 pt-36 pb-20 sm:px-6 lg:pt-44">
+          <div class="mx-auto max-w-4xl text-center">
             <!-- if signup_closed -->
-            <p class="mb-6 inline-flex items-center gap-2 rounded-full border border-line bg-surface px-3.5 py-1.5 text-sm font-medium text-accent shadow-sm">
-              <span aria-hidden="true" class="relative flex size-2">
-                <span class="absolute inline-flex size-full animate-ping rounded-full bg-accent opacity-60"></span>
-                <span class="relative inline-flex size-2 rounded-full bg-accent"></span>
+            <p class="inline-flex items-center gap-2.5 rounded-full border border-white/10 bg-white/5 py-1.5 pr-4 pl-1.5 text-sm text-mist backdrop-blur">
+              <span class="inline-flex items-center gap-1.5 rounded-full bg-citron px-2.5 py-0.5 text-xs font-semibold text-ink">
+                <span aria-hidden="true" class="relative flex size-1.5">
+                  <span class="absolute inline-flex size-full animate-ping rounded-full bg-ink opacity-50"></span>
+                  <span class="relative inline-flex size-1.5 rounded-full bg-ink"></span>
+                </span>
+                Private beta
               </span>
-              Private beta: now inviting teams
+              Now inviting teams
             </p>
             <!-- end signup_closed -->
             <!-- if signup_open -->
-            <p class="mb-6 inline-flex items-center gap-2 rounded-full border border-line bg-surface px-3.5 py-1.5 text-sm font-medium text-accent shadow-sm">
-              <span aria-hidden="true" class="size-2 rounded-full bg-accent"></span>
-              For contracts, invoices and the paperwork between them
+            <p class="inline-flex items-center gap-2.5 rounded-full border border-white/10 bg-white/5 py-1.5 pr-4 pl-1.5 text-sm text-mist backdrop-blur">
+              <span class="rounded-full bg-citron px-2.5 py-0.5 text-xs font-semibold text-ink">New</span>
+              Answers that show their sources
             </p>
             <!-- end signup_open -->
-            <h1 id="hero-title" class="text-[2.6rem] leading-[1.08] font-semibold tracking-tight text-balance sm:text-6xl lg:text-7xl">
+            <h1 id="hero-title" class="mt-8 font-display text-[3.1rem] leading-[1.02] font-semibold tracking-tight text-balance text-white sm:text-7xl lg:text-[5.6rem]">
               Ask your documents.
-              <span class="block text-accent">Check every answer.</span>
+              <span class="text-glow block pb-2">Check every answer.</span>
             </h1>
-            <p class="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-pretty text-muted sm:text-xl">
+            <p class="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-pretty text-mist sm:text-xl">
               Emudoc reads the contracts, invoices and reports behind your work, then answers your questions in plain language, with every claim cited to the passage it comes from. One click, and you are on the page.
             </p>
-            <div class="mt-9 flex flex-wrap justify-center gap-3">
-              <a href="$book" class="inline-flex items-center gap-2 rounded-xl bg-accent px-6 py-3.5 font-medium text-accent-ink shadow-lg shadow-accent/25 hover:bg-accent-hover">
+            <div class="mt-10 flex flex-wrap justify-center gap-3">
+              <a href="$book" class="group inline-flex items-center gap-3 rounded-full bg-white py-2 pr-2 pl-6 font-medium text-ink shadow-[0_0_60px_-12px] shadow-beak transition-colors hover:bg-citron">
                 $book_label
-                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-4"><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></svg>
+                <span aria-hidden="true" class="flex size-9 items-center justify-center rounded-full bg-beak text-white transition-transform group-hover:translate-x-0.5">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-4"><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></svg>
+                </span>
               </a>
-              <a href="#how" class="rounded-xl border border-line bg-surface px-6 py-3.5 font-medium shadow-sm hover:bg-sunken">See how it works</a>
+              <a href="#how" class="inline-flex items-center rounded-full border border-white/15 bg-white/5 px-6 py-3 font-medium text-white backdrop-blur transition-colors hover:bg-white/10">See how it works</a>
             </div>
             <!-- if signup_closed -->
-            <p class="mt-5 text-sm text-muted">Opening to a few teams at a time. Invited already? <a href="/login" class="font-medium text-ink underline underline-offset-2 hover:text-accent">Sign in</a></p>
+            <p class="mt-6 text-sm text-mist">Opening to a few teams at a time. Invited already? <a href="/login" class="font-medium text-white underline decoration-white/40 underline-offset-4 hover:decoration-white">Sign in</a></p>
             <!-- end signup_closed -->
             <!-- if signup_open -->
-            <p class="mt-5 text-sm text-muted">Have an account already? <a href="/login" class="font-medium text-ink underline underline-offset-2 hover:text-accent">Sign in</a></p>
+            <p class="mt-6 text-sm text-mist">Have an account already? <a href="/login" class="font-medium text-white underline decoration-white/40 underline-offset-4 hover:decoration-white">Sign in</a></p>
             <!-- end signup_open -->
           </div>
 
-          <figure class="relative mt-16 lg:mt-20">
+          <figure class="relative mt-20 lg:mt-24">
             <figcaption class="sr-only">Emudoc answering a question about a supplier's invoice: the project's documents, the answer with the two passages it cites, and the contract's discount table that the second citation opens, its row marked</figcaption>
-            <div aria-hidden="true" class="absolute -inset-6 -z-10 rounded-[2.5rem] bg-[radial-gradient(60%_60%_at_50%_40%,var(--color-accent-soft),transparent)] blur-2xl"></div>
-            <div class="overflow-hidden rounded-2xl border border-line bg-surface text-left shadow-2xl shadow-ink/10">
-              <div class="flex items-center gap-3 border-b border-line bg-sunken px-4 py-2.5">
-                <span aria-hidden="true" class="flex gap-1.5">
-                  <span class="size-2.5 rounded-full bg-line"></span>
-                  <span class="size-2.5 rounded-full bg-line"></span>
-                  <span class="size-2.5 rounded-full bg-line"></span>
-                </span>
-                <span class="flex-1 truncate text-center text-xs font-medium text-muted">Acme supplier contract</span>
-                <span aria-hidden="true" class="w-12"></span>
-              </div>
-              <div class="grid grid-cols-1 md:grid-cols-[15.5rem_1fr] lg:grid-cols-[15.5rem_1fr_19rem]">
-                <div class="hidden border-r border-line bg-page p-3 text-[13px] md:block">
-                  <p class="px-2 pt-1 pb-2 text-xs font-medium text-muted">Documents</p>
-                  <ul class="space-y-0.5">
-                    <li class="flex items-center gap-2 rounded-md bg-accent-soft px-2 py-1.5">
-                      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-4 shrink-0 text-file-pdf"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></svg>
-                      <span class="truncate">acme-service-contract.pdf</span>
-                    </li>
-                    <li class="flex items-center gap-2 px-2 py-1.5">
-                      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-4 shrink-0 text-file-sheet"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></svg>
-                      <span class="truncate">delivery-log.xlsx</span>
-                    </li>
-                    <li class="flex items-center gap-2 px-2 py-1.5">
-                      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-4 shrink-0 text-muted"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></svg>
-                      <span class="truncate">email-late-delivery.txt</span>
-                    </li>
-                    <li class="flex items-center gap-2 px-2 py-1.5">
-                      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-4 shrink-0 text-file-pdf"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></svg>
-                      <span class="truncate">invoice-INV-2026-0412.pdf</span>
-                    </li>
-                    <li class="flex items-center gap-2 px-2 py-1.5">
-                      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-4 shrink-0 text-file-pdf"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></svg>
-                      <span class="truncate">invoice-INV-2026-0458.pdf</span>
-                    </li>
-                    <li class="flex items-center gap-2 px-2 py-1.5">
-                      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-4 shrink-0 text-file-pdf"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></svg>
-                      <span class="truncate">invoice-INV-2026-0503.pdf</span>
-                    </li>
-                    <li class="flex items-center gap-2 px-2 py-1.5">
-                      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-4 shrink-0 text-file-sheet"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></svg>
-                      <span class="truncate">price-list.csv</span>
-                    </li>
-                    <li class="flex items-center gap-2 px-2 py-1.5">
-                      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-4 shrink-0 text-file-word"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></svg>
-                      <span class="truncate">supplier-review-meeting.docx</span>
-                    </li>
-                  </ul>
+            <div aria-hidden="true" class="absolute inset-x-10 -top-10 -z-10 h-64 rounded-full bg-beak/30 blur-[90px]"></div>
+            <div aria-hidden="true" class="float absolute -bottom-8 -left-8 z-10 hidden items-center gap-2.5 rounded-2xl border border-white/10 bg-ink-800/90 px-4 py-3 text-sm shadow-2xl shadow-black/40 backdrop-blur-xl xl:flex">
+              <span class="flex size-7 items-center justify-center rounded-full bg-citron text-ink">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" class="size-3.5"><path d="m5 12 4 4 10-10" /></svg>
+              </span>
+              <span><span class="block font-medium text-white">Two passages cited</span><span class="block text-xs text-mist">The invoice, and the contract</span></span>
+            </div>
+            <div aria-hidden="true" class="float float-late absolute -top-9 -right-8 z-10 hidden items-center gap-2.5 rounded-2xl border border-white/10 bg-ink-800/90 px-4 py-3 text-sm shadow-2xl shadow-black/40 backdrop-blur-xl xl:flex">
+              <span class="flex size-7 items-center justify-center rounded-full bg-beak font-display text-xs font-semibold text-white">6&nbsp;%</span>
+              <span><span class="block font-medium text-white">Discount missing</span><span class="block text-xs text-mist">340 pallets, none taken off</span></span>
+            </div>
+            <div class="edge-glow rounded-[22px] p-px shadow-2xl shadow-beak/25">
+              <div class="overflow-hidden rounded-[21px] bg-ink text-left">
+                <div class="flex items-center gap-3 border-b border-white/5 bg-white/[0.02] px-4 py-3">
+                  <span aria-hidden="true" class="flex gap-1.5">
+                    <span class="size-2.5 rounded-full bg-white/15"></span>
+                    <span class="size-2.5 rounded-full bg-white/15"></span>
+                    <span class="size-2.5 rounded-full bg-white/15"></span>
+                  </span>
+                  <span class="flex-1 truncate text-center text-xs font-medium text-mist">Acme supplier contract</span>
+                  <span aria-hidden="true" class="w-12"></span>
                 </div>
+                <div class="grid grid-cols-1 md:grid-cols-[15.5rem_1fr] lg:grid-cols-[15.5rem_1fr_19rem]">
+                  <div class="hidden border-r border-white/5 bg-night/50 p-3 text-[13px] text-snow md:block">
+                    <p class="px-2 pt-1 pb-2 text-xs font-medium text-mist">Documents</p>
+                    <ul class="space-y-0.5">
+                      <li class="flex items-center gap-2 rounded-lg bg-beak/20 px-2 py-1.5 text-white">
+                        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-4 shrink-0 text-file-pdf"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></svg>
+                        <span class="truncate">acme-service-contract.pdf</span>
+                      </li>
+                      <li class="flex items-center gap-2 px-2 py-1.5">
+                        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-4 shrink-0 text-file-sheet"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></svg>
+                        <span class="truncate">delivery-log.xlsx</span>
+                      </li>
+                      <li class="flex items-center gap-2 px-2 py-1.5">
+                        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-4 shrink-0 text-mist"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></svg>
+                        <span class="truncate">email-late-delivery.txt</span>
+                      </li>
+                      <li class="flex items-center gap-2 px-2 py-1.5">
+                        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-4 shrink-0 text-file-pdf"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></svg>
+                        <span class="truncate">invoice-INV-2026-0412.pdf</span>
+                      </li>
+                      <li class="flex items-center gap-2 px-2 py-1.5">
+                        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-4 shrink-0 text-file-pdf"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></svg>
+                        <span class="truncate">invoice-INV-2026-0458.pdf</span>
+                      </li>
+                      <li class="flex items-center gap-2 px-2 py-1.5">
+                        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-4 shrink-0 text-file-pdf"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></svg>
+                        <span class="truncate">invoice-INV-2026-0503.pdf</span>
+                      </li>
+                      <li class="flex items-center gap-2 px-2 py-1.5">
+                        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-4 shrink-0 text-file-sheet"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></svg>
+                        <span class="truncate">price-list.csv</span>
+                      </li>
+                      <li class="flex items-center gap-2 px-2 py-1.5">
+                        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-4 shrink-0 text-file-word"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></svg>
+                        <span class="truncate">supplier-review-meeting.docx</span>
+                      </li>
+                    </ul>
+                  </div>
 
-                <div class="flex flex-col p-5 sm:p-7">
-                  <p class="ml-auto w-fit max-w-[88%] rounded-2xl rounded-br-md bg-accent px-4 py-2.5 text-[15px] text-accent-ink">Does invoice INV-2026-0503 apply the volume discount the contract sets?</p>
-                  <div class="mt-6 flex gap-3">
-                    <img src="/favicon.svg" alt="" width="28" height="28" class="size-7 shrink-0 rounded-lg" />
-                    <div class="min-w-0 text-[15px] leading-relaxed">
-                      <p>
-                        <span class="font-semibold">No.</span> The invoice bills 340 pallets in the month at the price list's prices, with no discount<a href="#source-1" class="ml-0.5 rounded bg-accent-soft px-1.5 py-0.5 text-xs font-semibold text-accent">1</a>.
-                        The contract takes 6&nbsp;% off any month of 250 pallets or more<a href="#source-2" class="ml-0.5 rounded bg-accent-soft px-1.5 py-0.5 text-xs font-semibold text-accent">2</a>, so the invoice should carry it.
-                      </p>
-                      <ol class="mt-4 space-y-2 border-t border-line pt-4 text-sm">
-                        <li id="source-1" class="flex items-center gap-2"><span class="flex size-5 shrink-0 items-center justify-center rounded bg-accent-soft text-xs font-semibold text-accent">1</span><span class="truncate"><span class="font-medium">invoice-INV-2026-0503.pdf</span> <span class="text-muted">· page 1</span></span></li>
-                        <li id="source-2" class="flex items-center gap-2"><span class="flex size-5 shrink-0 items-center justify-center rounded bg-accent-soft text-xs font-semibold text-accent">2</span><span class="truncate"><span class="font-medium">acme-service-contract.pdf</span> <span class="text-muted">· 2. Fees and Payment</span></span></li>
-                      </ol>
+                  <div class="flex flex-col p-5 text-snow sm:p-7">
+                    <p class="ml-auto w-fit max-w-[88%] rounded-2xl rounded-br-md bg-beak px-4 py-2.5 text-[15px] text-white">Does invoice INV-2026-0503 apply the volume discount the contract sets?</p>
+                    <div class="mt-6 flex gap-3">
+                      <img src="/favicon.svg" alt="" width="28" height="28" class="size-7 shrink-0 rounded-lg" />
+                      <div class="min-w-0 text-[15px] leading-relaxed">
+                        <p>
+                          <span class="font-semibold text-white">No.</span> The invoice bills 340 pallets in the month at the price list's prices, with no discount<a href="#source-1" class="ml-0.5 rounded-md bg-beak/30 px-1.5 py-0.5 text-xs font-semibold text-beak-200">1</a>.
+                          The contract takes 6&nbsp;% off any month of 250 pallets or more<a href="#source-2" class="ml-0.5 rounded-md bg-citron px-1.5 py-0.5 text-xs font-semibold text-ink">2</a>, so the invoice should carry it.
+                        </p>
+                        <ol class="mt-4 space-y-2 border-t border-white/10 pt-4 text-sm">
+                          <li id="source-1" class="flex items-center gap-2"><span class="flex size-5 shrink-0 items-center justify-center rounded-md bg-beak/30 text-xs font-semibold text-beak-200">1</span><span class="truncate"><span class="font-medium text-white">invoice-INV-2026-0503.pdf</span> <span class="text-mist">· page 1</span></span></li>
+                          <li id="source-2" class="flex items-center gap-2"><span class="flex size-5 shrink-0 items-center justify-center rounded-md bg-citron text-xs font-semibold text-ink">2</span><span class="truncate"><span class="font-medium text-white">acme-service-contract.pdf</span> <span class="text-mist">· 2. Fees and Payment</span></span></li>
+                        </ol>
+                      </div>
+                    </div>
+                    <div class="mt-auto pt-8">
+                      <div class="flex items-center gap-2 rounded-2xl border border-white/10 bg-night/60 py-2 pr-2 pl-4 text-sm text-mist">
+                        <span class="flex-1 truncate">Ask about the project…</span>
+                        <span aria-hidden="true" class="flex size-8 items-center justify-center rounded-xl bg-beak text-white">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-4"><path d="M12 19V5" /><path d="m5 12 7-7 7 7" /></svg>
+                        </span>
+                      </div>
                     </div>
                   </div>
-                  <div class="mt-auto pt-7">
-                    <div class="flex items-center gap-2 rounded-xl border border-line bg-page py-2 pr-2 pl-4 text-sm text-muted">
-                      <span class="flex-1 truncate">Ask about the project…</span>
-                      <span aria-hidden="true" class="flex size-8 items-center justify-center rounded-lg bg-accent text-accent-ink">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-4"><path d="M12 19V5" /><path d="m5 12 7-7 7 7" /></svg>
-                      </span>
-                    </div>
-                  </div>
-                </div>
 
-                <div class="hidden border-l border-line bg-page p-5 text-sm lg:block">
-                  <p class="text-xs font-medium text-muted">acme-service-contract.pdf · page 1</p>
-                  <p class="mt-4 font-semibold">2. Fees and Payment</p>
-                  <p class="mt-2 text-[13px] leading-relaxed text-muted">Unit prices are those of Schedule A, in EUR. Each monthly invoice carries a volume discount by the pallets delivered in the month:</p>
-                  <table class="mt-4 w-full text-left text-[13px]">
-                    <thead class="text-muted">
-                      <tr><th scope="col" class="px-2 py-1.5 font-medium">Pallets a month</th><th scope="col" class="px-2 py-1.5 text-right font-medium">Discount</th></tr>
-                    </thead>
-                    <tbody>
-                      <tr class="border-t border-line"><td class="px-2 py-1.5">0 to 99</td><td class="px-2 py-1.5 text-right">0&nbsp;%</td></tr>
-                      <tr class="border-t border-line"><td class="px-2 py-1.5">100 to 249</td><td class="px-2 py-1.5 text-right">3&nbsp;%</td></tr>
-                      <tr class="border-t border-line bg-mark"><td class="px-2 py-1.5 font-semibold">250 or more</td><td class="px-2 py-1.5 text-right font-semibold">6&nbsp;%</td></tr>
-                    </tbody>
-                  </table>
-                  <p class="mt-5 inline-flex items-center gap-1.5 rounded-full bg-accent-soft px-2.5 py-1 text-xs font-medium text-accent">
-                    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3.5"><path d="m5 12 4 4 10-10" /></svg>
-                    Cited as source 2
-                  </p>
+                  <div class="hidden border-l border-white/5 bg-night/50 p-5 text-sm text-snow lg:block">
+                    <p class="text-xs font-medium text-mist">acme-service-contract.pdf · page 1</p>
+                    <p class="mt-4 font-display text-base font-medium text-white">2. Fees and Payment</p>
+                    <p class="mt-2 text-[13px] leading-relaxed text-mist">Unit prices are those of Schedule A, in EUR. Each monthly invoice carries a volume discount by the pallets delivered in the month:</p>
+                    <table class="mt-4 w-full text-left text-[13px]">
+                      <thead class="text-mist">
+                        <tr><th scope="col" class="px-2 py-1.5 font-medium">Pallets a month</th><th scope="col" class="px-2 py-1.5 text-right font-medium">Discount</th></tr>
+                      </thead>
+                      <tbody>
+                        <tr class="border-t border-white/10"><td class="px-2 py-1.5">0 to 99</td><td class="px-2 py-1.5 text-right">0&nbsp;%</td></tr>
+                        <tr class="border-t border-white/10"><td class="px-2 py-1.5">100 to 249</td><td class="px-2 py-1.5 text-right">3&nbsp;%</td></tr>
+                        <tr class="bg-citron text-ink"><td class="rounded-l-md px-2 py-1.5 font-semibold">250 or more</td><td class="rounded-r-md px-2 py-1.5 text-right font-semibold">6&nbsp;%</td></tr>
+                      </tbody>
+                    </table>
+                    <p class="mt-5 inline-flex items-center gap-1.5 rounded-full border border-citron/30 bg-citron/10 px-2.5 py-1 text-xs font-medium text-citron">
+                      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3.5"><path d="m5 12 4 4 10-10" /></svg>
+                      Cited as source 2
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
           </figure>
         </div>
+
+        <!-- The kinds of paperwork, scrolling by; the second copy is for the eye alone. -->
+        <div class="border-t border-white/10 py-10">
+          <h2 class="px-4 text-center text-xs font-semibold tracking-[0.18em] text-mist uppercase">Made for the paperwork behind real work</h2>
+          <div class="fade-x mt-7 overflow-hidden">
+            <div class="marquee flex w-max">
+              <ul class="flex shrink-0 gap-4 pr-4 font-display text-xl font-medium text-snow sm:text-2xl">
+                <li class="flex items-center gap-4">Contracts<span aria-hidden="true" class="text-beak-300">✦</span></li>
+                <li class="flex items-center gap-4">Invoices<span aria-hidden="true" class="text-beak-300">✦</span></li>
+                <li class="flex items-center gap-4">Price lists<span aria-hidden="true" class="text-beak-300">✦</span></li>
+                <li class="flex items-center gap-4">Purchase orders<span aria-hidden="true" class="text-beak-300">✦</span></li>
+                <li class="flex items-center gap-4">Delivery logs<span aria-hidden="true" class="text-beak-300">✦</span></li>
+                <li class="flex items-center gap-4">Meeting notes<span aria-hidden="true" class="text-beak-300">✦</span></li>
+                <li class="flex items-center gap-4">Reports<span aria-hidden="true" class="text-beak-300">✦</span></li>
+                <li class="flex items-center gap-4">Correspondence<span aria-hidden="true" class="text-beak-300">✦</span></li>
+              </ul>
+              <ul aria-hidden="true" class="flex shrink-0 gap-4 pr-4 font-display text-xl font-medium text-snow sm:text-2xl">
+                <li class="flex items-center gap-4">Contracts<span class="text-beak-300">✦</span></li>
+                <li class="flex items-center gap-4">Invoices<span class="text-beak-300">✦</span></li>
+                <li class="flex items-center gap-4">Price lists<span class="text-beak-300">✦</span></li>
+                <li class="flex items-center gap-4">Purchase orders<span class="text-beak-300">✦</span></li>
+                <li class="flex items-center gap-4">Delivery logs<span class="text-beak-300">✦</span></li>
+                <li class="flex items-center gap-4">Meeting notes<span class="text-beak-300">✦</span></li>
+                <li class="flex items-center gap-4">Reports<span class="text-beak-300">✦</span></li>
+                <li class="flex items-center gap-4">Correspondence<span class="text-beak-300">✦</span></li>
+              </ul>
+            </div>
+          </div>
+        </div>
       </section>
 
-      <section aria-labelledby="kinds-title" class="border-y border-line bg-surface">
-        <div class="mx-auto flex max-w-6xl flex-col items-center gap-5 px-4 py-9 sm:px-6 lg:flex-row lg:gap-10">
-          <h2 id="kinds-title" class="shrink-0 text-sm font-semibold text-muted">Made for the paperwork behind real work</h2>
-          <ul class="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-[15px] font-medium lg:justify-start">
-            <li>Contracts</li>
-            <li aria-hidden="true" class="hidden size-1 rounded-full bg-line lg:block"></li>
-            <li>Invoices</li>
-            <li aria-hidden="true" class="hidden size-1 rounded-full bg-line lg:block"></li>
-            <li>Price lists</li>
-            <li aria-hidden="true" class="hidden size-1 rounded-full bg-line lg:block"></li>
-            <li>Purchase orders</li>
-            <li aria-hidden="true" class="hidden size-1 rounded-full bg-line lg:block"></li>
-            <li>Delivery logs</li>
-            <li aria-hidden="true" class="hidden size-1 rounded-full bg-line lg:block"></li>
-            <li>Meeting notes</li>
+      <!-- The promise, said large. -->
+      <section aria-labelledby="promise-title" class="relative isolate overflow-hidden">
+        <div aria-hidden="true" class="dots-light absolute inset-0 -z-10"></div>
+        <div class="mx-auto max-w-5xl px-4 py-28 text-center sm:px-6 lg:py-36">
+          <h2 id="promise-title" class="text-sm font-semibold tracking-[0.18em] text-beak uppercase">Why Emudoc</h2>
+          <p class="mt-6 font-display text-3xl leading-[1.35] font-medium tracking-tight text-balance sm:text-5xl sm:leading-[1.3]">
+            Emudoc does not ask for your trust.
+            <span class="rounded-lg bg-citron box-decoration-clone px-2 py-0.5">Every claim points to the passage it came from</span>,
+            so checking an answer takes a click, not an afternoon.
+          </p>
+          <ul class="mt-14 grid gap-4 text-left sm:grid-cols-3">
+            <li class="rounded-2xl border border-paper-300 bg-white p-5">
+              <span class="font-display text-lg font-medium">Cited to the passage</span>
+              <span class="mt-1 block text-[15px] leading-relaxed text-stone">Not the document, the very words, on their page.</span>
+            </li>
+            <li class="rounded-2xl border border-paper-300 bg-white p-5">
+              <span class="font-display text-lg font-medium">Across the whole project</span>
+              <span class="mt-1 block text-[15px] leading-relaxed text-stone">The invoice read against the contract, the log against the email.</span>
+            </li>
+            <li class="rounded-2xl border border-paper-300 bg-white p-5">
+              <span class="font-display text-lg font-medium">Private to your team</span>
+              <span class="mt-1 block text-[15px] leading-relaxed text-stone">Never sold, and never used to train AI models.</span>
+            </li>
           </ul>
         </div>
       </section>
 
-      <section id="how" aria-labelledby="how-title" class="mx-auto max-w-6xl px-4 py-24 sm:px-6">
-        <div class="mx-auto max-w-2xl text-center">
-          <p class="text-sm font-semibold text-accent">How it works</p>
-          <h2 id="how-title" class="mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl">From a pile of files to answers you can trust</h2>
-          <p class="mt-4 text-lg leading-relaxed text-pretty text-muted">Nothing to set up: put the documents of a piece of work in a project, and start asking.</p>
+      <section id="how" aria-labelledby="how-title" class="bg-white">
+        <div class="mx-auto max-w-6xl px-4 py-28 sm:px-6">
+          <div class="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+            <div class="max-w-2xl">
+              <p class="text-sm font-semibold tracking-[0.18em] text-beak uppercase">How it works</p>
+              <h2 id="how-title" class="mt-4 font-display text-4xl leading-[1.08] font-semibold tracking-tight text-balance sm:text-5xl">From a pile of files to answers you can trust</h2>
+            </div>
+            <p class="max-w-sm text-lg leading-relaxed text-pretty text-stone">Nothing to set up: put the documents of a piece of work in a project, and start asking.</p>
+          </div>
+          <ol class="mt-16 grid gap-5 md:grid-cols-3">
+            <li class="group relative flex flex-col overflow-hidden rounded-3xl border border-paper-300 bg-paper p-7">
+              <span aria-hidden="true" class="font-display text-6xl font-semibold text-beak">01</span>
+              <h3 class="mt-6 font-display text-2xl font-medium">Drop in the paperwork</h3>
+              <p class="mt-3 leading-relaxed text-stone">The contract, its invoices, the price list and the delivery log: drag in files, or whole folders, and Emudoc keeps them together in a project.</p>
+              <div aria-hidden="true" class="mt-8 flex flex-wrap gap-2 rounded-2xl border border-dashed border-stone/40 bg-white p-4 text-xs font-medium">
+                <span class="rounded-lg bg-paper px-2.5 py-1.5">contract.pdf</span>
+                <span class="rounded-lg bg-paper px-2.5 py-1.5">invoices/</span>
+                <span class="rounded-lg bg-paper px-2.5 py-1.5">price-list.csv</span>
+                <span class="rounded-lg bg-paper px-2.5 py-1.5">delivery-log.xlsx</span>
+              </div>
+            </li>
+            <li class="group relative flex flex-col overflow-hidden rounded-3xl border border-paper-300 bg-paper p-7">
+              <span aria-hidden="true" class="font-display text-6xl font-semibold text-beak">02</span>
+              <h3 class="mt-6 font-display text-2xl font-medium">Emudoc reads every page</h3>
+              <p class="mt-3 leading-relaxed text-stone">Text, tables and headings, each kept with the page it is on, an outline of every document, and the facts it states. Scans and photos too.</p>
+              <div aria-hidden="true" class="mt-8 space-y-2 rounded-2xl bg-white p-4 text-xs">
+                <p class="font-semibold">1. Scope of Services</p>
+                <p class="font-semibold">2. Fees and Payment</p>
+                <p class="ml-3 w-fit rounded bg-citron px-1.5">Volume discount · page 1</p>
+                <p class="font-semibold">3. Delivery and Acceptance</p>
+              </div>
+            </li>
+            <li class="group relative flex flex-col overflow-hidden rounded-3xl bg-night p-7 text-snow">
+              <div aria-hidden="true" class="absolute -top-20 -right-20 size-56 rounded-full bg-beak/40 blur-[70px]"></div>
+              <span aria-hidden="true" class="text-glow relative font-display text-6xl font-semibold">03</span>
+              <h3 class="relative mt-6 font-display text-2xl font-medium text-white">Ask, and follow the citation</h3>
+              <p class="relative mt-3 leading-relaxed text-mist">Ask the way you would ask a colleague. Every claim in the answer cites its passage, and a click opens the document right there.</p>
+              <div aria-hidden="true" class="relative mt-8 rounded-2xl border border-white/10 bg-white/5 p-4 text-xs leading-relaxed">
+                Payment is due within 30 days of the invoice<span class="ml-0.5 rounded bg-citron px-1 font-semibold text-ink">2</span>, with interest of 1.5&nbsp;% a month after that<span class="ml-0.5 rounded bg-citron px-1 font-semibold text-ink">2</span>.
+              </div>
+            </li>
+          </ol>
         </div>
-        <ol class="relative mt-16 grid gap-6 md:grid-cols-3">
-          <li class="flex flex-col rounded-2xl border border-line bg-surface p-6 shadow-sm">
-            <div class="flex items-center gap-3">
-              <span aria-hidden="true" class="flex size-10 items-center justify-center rounded-xl bg-accent text-accent-ink">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="m17 8-5-5-5 5" /><path d="M12 3v12" /></svg>
-              </span>
-              <span class="text-sm font-semibold text-muted">Step 1</span>
-            </div>
-            <h3 class="mt-5 text-xl font-semibold">Drop in the paperwork</h3>
-            <p class="mt-2 leading-relaxed text-muted">The contract, its invoices, the price list and the delivery log: drag in files, or whole folders, and Emudoc keeps them together in a project.</p>
-            <div aria-hidden="true" class="mt-6 flex flex-wrap gap-2 rounded-xl border border-dashed border-line bg-page p-4 text-xs font-medium">
-              <span class="rounded-md border border-line bg-surface px-2 py-1">contract.pdf</span>
-              <span class="rounded-md border border-line bg-surface px-2 py-1">invoices/</span>
-              <span class="rounded-md border border-line bg-surface px-2 py-1">price-list.csv</span>
-              <span class="rounded-md border border-line bg-surface px-2 py-1">delivery-log.xlsx</span>
-            </div>
-          </li>
-          <li class="flex flex-col rounded-2xl border border-line bg-surface p-6 shadow-sm">
-            <div class="flex items-center gap-3">
-              <span aria-hidden="true" class="flex size-10 items-center justify-center rounded-xl bg-accent text-accent-ink">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="M2 4h6a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2z" /><path d="M22 4h-6a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h7z" /></svg>
-              </span>
-              <span class="text-sm font-semibold text-muted">Step 2</span>
-            </div>
-            <h3 class="mt-5 text-xl font-semibold">Emudoc reads every page</h3>
-            <p class="mt-2 leading-relaxed text-muted">Text, tables and headings, each kept with the page it is on, an outline of every document, and the facts it states. Scans and photos too.</p>
-            <div aria-hidden="true" class="mt-6 space-y-2 rounded-xl border border-line bg-page p-4 text-xs">
-              <p class="font-semibold">1. Scope of Services</p>
-              <p class="font-semibold">2. Fees and Payment</p>
-              <p class="pl-3 text-muted">Volume discount · page 1</p>
-              <p class="font-semibold">3. Delivery and Acceptance</p>
-            </div>
-          </li>
-          <li class="flex flex-col rounded-2xl border border-line bg-surface p-6 shadow-sm">
-            <div class="flex items-center gap-3">
-              <span aria-hidden="true" class="flex size-10 items-center justify-center rounded-xl bg-accent text-accent-ink">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /><path d="M8 9h8M8 13h5" /></svg>
-              </span>
-              <span class="text-sm font-semibold text-muted">Step 3</span>
-            </div>
-            <h3 class="mt-5 text-xl font-semibold">Ask, and follow the citation</h3>
-            <p class="mt-2 leading-relaxed text-muted">Ask the way you would ask a colleague. Every claim in the answer cites its passage, and a click opens the document right there.</p>
-            <div aria-hidden="true" class="mt-6 rounded-xl border border-line bg-page p-4 text-xs leading-relaxed">
-              Payment is due within 30 days of the invoice<span class="ml-0.5 rounded bg-accent-soft px-1 font-semibold text-accent">2</span>, with interest of 1.5&nbsp;% a month after that<span class="ml-0.5 rounded bg-accent-soft px-1 font-semibold text-accent">2</span>.
-            </div>
-          </li>
-        </ol>
       </section>
 
-      <section aria-labelledby="ask-title" class="border-y border-line bg-surface">
-        <div class="mx-auto max-w-6xl px-4 py-24 sm:px-6">
-          <div class="grid gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
-            <div>
-              <p class="text-sm font-semibold text-accent">Ask anything</p>
-              <h2 id="ask-title" class="mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl">The questions that used to take an afternoon</h2>
-              <p class="mt-4 text-lg leading-relaxed text-pretty text-muted">Emudoc reads documents against each other: the invoice against the contract, the delivery log against the email, the meeting notes against both. Before it answers, it reads each document's outline, searches its passages and looks up the facts they state, and then it shows its working.</p>
-              <ul class="mt-8 space-y-3">
-                <li class="flex gap-3"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 size-5 shrink-0 text-accent"><path d="m5 12 4 4 10-10" /></svg><span>Ask about the whole project, a folder, or just the documents you pick.</span></li>
-                <li class="flex gap-3"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 size-5 shrink-0 text-accent"><path d="m5 12 4 4 10-10" /></svg><span>Every new chat suggests questions drawn from the project's own documents.</span></li>
-                <li class="flex gap-3"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 size-5 shrink-0 text-accent"><path d="m5 12 4 4 10-10" /></svg><span>Chats stay private until you share them with the project.</span></li>
-              </ul>
-            </div>
+      <section aria-labelledby="ask-title" class="relative isolate overflow-hidden">
+        <div class="mx-auto grid max-w-6xl gap-14 px-4 py-28 sm:px-6 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
+          <div>
+            <p class="text-sm font-semibold tracking-[0.18em] text-beak uppercase">Ask anything</p>
+            <h2 id="ask-title" class="mt-4 font-display text-4xl leading-[1.08] font-semibold tracking-tight text-balance sm:text-5xl">The questions that used to take an afternoon</h2>
+            <p class="mt-5 text-lg leading-relaxed text-pretty text-stone">Emudoc reads documents against each other: the invoice against the contract, the delivery log against the email, the meeting notes against both. Before it answers, it reads each document's outline, searches its passages and looks up the facts they state, and then it shows its working.</p>
+            <ul class="mt-8 space-y-3">
+              <li class="flex gap-3"><span aria-hidden="true" class="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-beak text-white"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="size-3"><path d="m5 12 4 4 10-10" /></svg></span><span>Ask about the whole project, a folder, or just the documents you pick.</span></li>
+              <li class="flex gap-3"><span aria-hidden="true" class="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-beak text-white"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="size-3"><path d="m5 12 4 4 10-10" /></svg></span><span>Every new chat suggests questions drawn from the project's own documents.</span></li>
+              <li class="flex gap-3"><span aria-hidden="true" class="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-beak text-white"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="size-3"><path d="m5 12 4 4 10-10" /></svg></span><span>Chats stay private until you share them with the project.</span></li>
+            </ul>
+          </div>
+          <div class="relative">
+            <div aria-hidden="true" class="absolute inset-0 -z-10 m-auto size-80 rounded-full bg-beak/15 blur-[90px]"></div>
             <ul class="space-y-4">
-              <li class="rounded-2xl border border-line bg-page p-5 shadow-sm">
-                <p class="font-semibold">Which deliveries were late, and why?</p>
-                <p class="mt-2 text-[15px] leading-relaxed text-muted">PO-7708's 25 pallets of pipe fittings arrived three days late<span class="ml-0.5 rounded bg-accent-soft px-1 text-xs font-semibold text-accent">1</span>, held up by a carrier strike in Rotterdam<span class="ml-0.5 rounded bg-accent-soft px-1 text-xs font-semibold text-accent">2</span>.</p>
-                <p class="mt-3 flex flex-wrap gap-2 text-xs font-medium text-muted"><span class="rounded-full border border-line bg-surface px-2.5 py-0.5">email-late-delivery.txt</span><span class="rounded-full border border-line bg-surface px-2.5 py-0.5">supplier-review-meeting.docx</span></p>
+              <li class="rounded-3xl border border-paper-300 bg-white p-6 shadow-xl shadow-ink/5">
+                <p class="flex items-start gap-3 font-display text-lg font-medium"><span aria-hidden="true" class="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-paper text-beak"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-4"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg></span>Which deliveries were late, and why?</p>
+                <p class="mt-3 pl-10 text-[15px] leading-relaxed text-stone">PO-7708's 25 pallets of pipe fittings arrived three days late<span class="ml-0.5 rounded bg-citron px-1 text-xs font-semibold text-ink">1</span>, held up by a carrier strike in Rotterdam<span class="ml-0.5 rounded bg-citron px-1 text-xs font-semibold text-ink">2</span>.</p>
+                <p class="mt-4 flex flex-wrap gap-2 pl-10 text-xs font-medium text-stone"><span class="rounded-full bg-paper px-2.5 py-1">email-late-delivery.txt</span><span class="rounded-full bg-paper px-2.5 py-1">supplier-review-meeting.docx</span></p>
               </li>
-              <li class="rounded-2xl border border-line bg-page p-5 shadow-sm lg:ml-10">
-                <p class="font-semibold">What did the supplier review agree?</p>
-                <p class="mt-2 text-[15px] leading-relaxed text-muted">On-time delivery was 94&nbsp;% in August against a 97&nbsp;% target<span class="ml-0.5 rounded bg-accent-soft px-1 text-xs font-semibold text-accent">1</span>. Northwind asked for the 6&nbsp;% discount to start at 200 pallets a month, and Acme will answer by 30 September<span class="ml-0.5 rounded bg-accent-soft px-1 text-xs font-semibold text-accent">2</span>.</p>
-                <p class="mt-3 flex flex-wrap gap-2 text-xs font-medium text-muted"><span class="rounded-full border border-line bg-surface px-2.5 py-0.5">supplier-review-meeting.docx</span></p>
+              <li class="rounded-3xl bg-night p-6 text-snow shadow-xl shadow-beak/20 lg:ml-12">
+                <p class="flex items-start gap-3 font-display text-lg font-medium text-white"><span aria-hidden="true" class="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-beak text-white"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-4"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg></span>What did the supplier review agree?</p>
+                <p class="mt-3 pl-10 text-[15px] leading-relaxed text-mist">On-time delivery was 94&nbsp;% in August against a 97&nbsp;% target<span class="ml-0.5 rounded bg-citron px-1 text-xs font-semibold text-ink">1</span>. Northwind asked for the 6&nbsp;% discount to start at 200 pallets a month, and Acme will answer by 30 September<span class="ml-0.5 rounded bg-citron px-1 text-xs font-semibold text-ink">2</span>.</p>
+                <p class="mt-4 flex flex-wrap gap-2 pl-10 text-xs font-medium text-mist"><span class="rounded-full bg-white/10 px-2.5 py-1">supplier-review-meeting.docx</span></p>
               </li>
-              <li class="rounded-2xl border border-line bg-page p-5 shadow-sm">
-                <p class="font-semibold">Does invoice INV-2026-0503 apply the volume discount?</p>
-                <p class="mt-2 text-[15px] leading-relaxed text-muted">No. It bills 340 pallets with no discount<span class="ml-0.5 rounded bg-accent-soft px-1 text-xs font-semibold text-accent">1</span>, where the contract takes 6&nbsp;% off a month of 250 or more<span class="ml-0.5 rounded bg-accent-soft px-1 text-xs font-semibold text-accent">2</span>.</p>
-                <p class="mt-3 flex flex-wrap gap-2 text-xs font-medium text-muted"><span class="rounded-full border border-line bg-surface px-2.5 py-0.5">invoice-INV-2026-0503.pdf</span><span class="rounded-full border border-line bg-surface px-2.5 py-0.5">acme-service-contract.pdf</span></p>
+              <li class="rounded-3xl border border-paper-300 bg-white p-6 shadow-xl shadow-ink/5">
+                <p class="flex items-start gap-3 font-display text-lg font-medium"><span aria-hidden="true" class="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-paper text-beak"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-4"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg></span>Does invoice INV-2026-0503 apply the volume discount?</p>
+                <p class="mt-3 pl-10 text-[15px] leading-relaxed text-stone">No. It bills 340 pallets with no discount<span class="ml-0.5 rounded bg-citron px-1 text-xs font-semibold text-ink">1</span>, where the contract takes 6&nbsp;% off a month of 250 or more<span class="ml-0.5 rounded bg-citron px-1 text-xs font-semibold text-ink">2</span>.</p>
+                <p class="mt-4 flex flex-wrap gap-2 pl-10 text-xs font-medium text-stone"><span class="rounded-full bg-paper px-2.5 py-1">invoice-INV-2026-0503.pdf</span><span class="rounded-full bg-paper px-2.5 py-1">acme-service-contract.pdf</span></p>
               </li>
             </ul>
           </div>
         </div>
       </section>
 
-      <section id="features" aria-labelledby="features-title" class="mx-auto max-w-6xl px-4 py-24 sm:px-6">
-        <div class="mx-auto max-w-2xl text-center">
-          <p class="text-sm font-semibold text-accent">Features</p>
-          <h2 id="features-title" class="mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Everything you need to get through the paperwork</h2>
-        </div>
-        <div class="mt-16 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-          <div class="flex flex-col rounded-2xl border border-line bg-surface p-7 shadow-sm md:col-span-2 lg:row-span-2">
-            <span aria-hidden="true" class="flex size-11 items-center justify-center rounded-xl bg-accent-soft text-accent">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /><path d="M8 9h8M8 13h5" /></svg>
-            </span>
-            <h3 class="mt-5 text-2xl font-semibold tracking-tight">Answers that show their sources</h3>
-            <p class="mt-3 max-w-xl leading-relaxed text-muted">Every claim carries a numbered citation. Click it, and the document opens at the passage it rests on, marked, so you can check the answer in seconds rather than take it on trust.</p>
-            <div aria-hidden="true" class="mt-8 grid flex-1 gap-4 sm:grid-cols-2">
-              <div class="flex flex-col rounded-xl border border-line bg-page p-4 text-sm leading-relaxed">
-                <p class="text-xs font-medium text-muted">The answer</p>
-                <p class="mt-2">Either party may end the agreement on 90 days' notice<span class="ml-0.5 rounded bg-accent px-1.5 py-0.5 text-xs font-semibold text-accent-ink">1</span>, and the supplier's liability is capped at EUR 250,000<span class="ml-0.5 rounded bg-accent-soft px-1.5 py-0.5 text-xs font-semibold text-accent">2</span>.</p>
-                <ol class="mt-auto space-y-1.5 border-t border-line pt-3 text-xs">
-                  <li class="flex items-center gap-2"><span class="flex size-4.5 shrink-0 items-center justify-center rounded bg-accent font-semibold text-accent-ink">1</span><span class="truncate">acme-service-contract.pdf <span class="text-muted">· 4. Termination</span></span></li>
-                  <li class="flex items-center gap-2"><span class="flex size-4.5 shrink-0 items-center justify-center rounded bg-accent-soft font-semibold text-accent">2</span><span class="truncate">acme-service-contract.pdf <span class="text-muted">· 5. Liability</span></span></li>
-                </ol>
-              </div>
-              <div class="flex flex-col rounded-xl border border-line bg-page p-4 text-sm leading-relaxed">
-                <p class="flex items-center gap-1.5 text-xs font-medium text-muted"><span class="flex size-4.5 shrink-0 items-center justify-center rounded bg-accent font-semibold text-accent-ink">1</span>acme-service-contract.pdf</p>
-                <p class="mt-3 font-semibold">4. Termination</p>
-                <div class="mt-3 space-y-2">
-                  <div class="h-2 w-full rounded-full bg-line"></div>
-                  <div class="h-2 w-11/12 rounded-full bg-line"></div>
-                  <div class="h-2 w-4/5 rounded-full bg-line"></div>
+      <section id="features" aria-labelledby="features-title" class="relative isolate overflow-hidden bg-night text-snow">
+        <div aria-hidden="true" class="dots absolute inset-0 -z-10"></div>
+        <div aria-hidden="true" class="absolute -top-40 left-1/2 -z-10 h-96 w-[56rem] -translate-x-1/2 rounded-full bg-beak/30 blur-[140px]"></div>
+        <div class="mx-auto max-w-6xl px-4 py-28 sm:px-6">
+          <div class="mx-auto max-w-3xl text-center">
+            <p class="text-sm font-semibold tracking-[0.18em] text-beak-300 uppercase">Features</p>
+            <h2 id="features-title" class="mt-4 font-display text-4xl leading-[1.08] font-semibold tracking-tight text-balance text-white sm:text-5xl">Everything you need to get through the paperwork</h2>
+          </div>
+          <div class="mt-16 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+            <div class="flex flex-col rounded-3xl border border-white/10 bg-gradient-to-b from-ink-800 to-ink p-7 md:col-span-2 lg:row-span-2">
+              <span aria-hidden="true" class="flex size-11 items-center justify-center rounded-2xl bg-beak text-white shadow-lg shadow-beak/40">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /><path d="M8 9h8M8 13h5" /></svg>
+              </span>
+              <h3 class="mt-6 font-display text-3xl font-medium tracking-tight text-white">Answers that show their sources</h3>
+              <p class="mt-3 max-w-xl leading-relaxed text-mist">Every claim carries a numbered citation. Click it, and the document opens at the passage it rests on, marked, so you can check the answer in seconds rather than take it on trust.</p>
+              <div aria-hidden="true" class="mt-8 grid flex-1 gap-4 sm:grid-cols-2">
+                <div class="flex flex-col rounded-2xl border border-white/10 bg-night/60 p-4 text-sm leading-relaxed">
+                  <p class="text-xs font-medium text-mist">The answer</p>
+                  <p class="mt-2">Either party may end the agreement on 90 days' notice<span class="ml-0.5 rounded bg-citron px-1.5 py-0.5 text-xs font-semibold text-ink">1</span>, and the supplier's liability is capped at EUR 250,000<span class="ml-0.5 rounded bg-beak/30 px-1.5 py-0.5 text-xs font-semibold text-beak-200">2</span>.</p>
+                  <ol class="mt-auto space-y-1.5 border-t border-white/10 pt-3 text-xs">
+                    <li class="flex items-center gap-2"><span class="flex size-4.5 shrink-0 items-center justify-center rounded bg-citron font-semibold text-ink">1</span><span class="truncate">acme-service-contract.pdf <span class="text-mist">· 4. Termination</span></span></li>
+                    <li class="flex items-center gap-2"><span class="flex size-4.5 shrink-0 items-center justify-center rounded bg-beak/30 font-semibold text-beak-200">2</span><span class="truncate">acme-service-contract.pdf <span class="text-mist">· 5. Liability</span></span></li>
+                  </ol>
                 </div>
-                <p class="mt-3"><span class="bg-mark">Either party may terminate the agreement on 90 days' notice</span> <span class="text-muted">in writing to the other.</span></p>
-                <div class="mt-3 space-y-2">
-                  <div class="h-2 w-full rounded-full bg-line"></div>
-                  <div class="h-2 w-3/4 rounded-full bg-line"></div>
-                </div>
-                <p class="mt-4 font-semibold">5. Liability</p>
-                <div class="mt-3 space-y-2">
-                  <div class="h-2 w-11/12 rounded-full bg-line"></div>
-                  <div class="h-2 w-2/3 rounded-full bg-line"></div>
+                <div class="flex flex-col rounded-2xl bg-paper p-4 text-sm leading-relaxed text-ink">
+                  <p class="flex items-center gap-1.5 text-xs font-medium text-stone"><span class="flex size-4.5 shrink-0 items-center justify-center rounded bg-citron font-semibold text-ink">1</span>acme-service-contract.pdf</p>
+                  <p class="mt-3 font-semibold">4. Termination</p>
+                  <div class="mt-3 space-y-2">
+                    <div class="h-2 w-full rounded-full bg-paper-300"></div>
+                    <div class="h-2 w-11/12 rounded-full bg-paper-300"></div>
+                    <div class="h-2 w-4/5 rounded-full bg-paper-300"></div>
+                  </div>
+                  <p class="mt-3"><span class="rounded bg-citron box-decoration-clone px-0.5">Either party may terminate the agreement on 90 days' notice</span> <span class="text-stone">in writing to the other.</span></p>
+                  <div class="mt-3 space-y-2">
+                    <div class="h-2 w-full rounded-full bg-paper-300"></div>
+                    <div class="h-2 w-3/4 rounded-full bg-paper-300"></div>
+                  </div>
+                  <p class="mt-4 font-semibold">5. Liability</p>
+                  <div class="mt-3 space-y-2">
+                    <div class="h-2 w-11/12 rounded-full bg-paper-300"></div>
+                    <div class="h-2 w-2/3 rounded-full bg-paper-300"></div>
+                  </div>
                 </div>
               </div>
             </div>
+            <div class="rounded-3xl border border-white/10 bg-ink-800/70 p-7 transition-colors hover:border-white/20">
+              <span aria-hidden="true" class="flex size-11 items-center justify-center rounded-2xl bg-white/5 text-beak-300 ring-1 ring-white/10">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+              </span>
+              <h3 class="mt-6 font-display text-xl font-medium text-white">Find it by its words or its meaning</h3>
+              <p class="mt-2 leading-relaxed text-mist">Search by the exact words or by what a passage means, in any language. Narrow by type, date or folder, search within the results, or across every project at once.</p>
+              <div aria-hidden="true" class="mt-6 flex items-center gap-2 rounded-xl border border-white/10 bg-night/60 px-3 py-2.5 text-sm text-snow">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-4 text-mist"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+                late delivery credit
+              </div>
+            </div>
+            <div class="rounded-3xl border border-white/10 bg-ink-800/70 p-7 transition-colors hover:border-white/20">
+              <span aria-hidden="true" class="flex size-11 items-center justify-center rounded-2xl bg-white/5 text-beak-300 ring-1 ring-white/10">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>
+              </span>
+              <h3 class="mt-6 font-display text-xl font-medium text-white">A library that stays in order</h3>
+              <p class="mt-2 leading-relaxed text-mist">Folders, favourites and recent files. Each document's title, type and date beside what the reading found, with its versions and its copies in other projects.</p>
+            </div>
+            <div class="rounded-3xl border border-white/10 bg-ink-800/70 p-7 transition-colors hover:border-white/20">
+              <span aria-hidden="true" class="flex size-11 items-center justify-center rounded-2xl bg-white/5 text-beak-300 ring-1 ring-white/10">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="M12 4v11M7 10l5 5 5-5" /><path d="M5 20h14" /></svg>
+              </span>
+              <h3 class="mt-6 font-display text-xl font-medium text-white">Take the answer with you</h3>
+              <p class="mt-2 leading-relaxed text-mist">Download an answer or a whole chat as Word, PDF or Markdown, its citations as numbered notes. Export a project whole, originals, outline, facts and chats.</p>
+              <p aria-hidden="true" class="mt-6 flex gap-2 font-display text-xs font-medium">
+                <span class="rounded-lg bg-file-word/15 px-2.5 py-1 text-file-word">DOCX</span>
+                <span class="rounded-lg bg-file-pdf/15 px-2.5 py-1 text-file-pdf">PDF</span>
+                <span class="rounded-lg bg-white/10 px-2.5 py-1 text-snow">MD</span>
+              </p>
+            </div>
+            <div class="rounded-3xl border border-white/10 bg-ink-800/70 p-7 transition-colors hover:border-white/20">
+              <span aria-hidden="true" class="flex size-11 items-center justify-center rounded-2xl bg-white/5 text-beak-300 ring-1 ring-white/10">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="M3 7V5a2 2 0 0 1 2-2h2" /><path d="M17 3h2a2 2 0 0 1 2 2v2" /><path d="M21 17v2a2 2 0 0 1-2 2h-2" /><path d="M7 21H5a2 2 0 0 1-2-2v-2" /><path d="M7 12h10" /></svg>
+              </span>
+              <h3 class="mt-6 font-display text-xl font-medium text-white">Scans and photos, read too</h3>
+              <p class="mt-2 leading-relaxed text-mist">A contract that went through a scanner, or a photo of a delivery note, is read like any other file, and its answers cite it the same way.</p>
+            </div>
+            <div class="rounded-3xl border border-white/10 bg-ink-800/70 p-7 transition-colors hover:border-white/20">
+              <span aria-hidden="true" class="flex size-11 items-center justify-center rounded-2xl bg-white/5 text-beak-300 ring-1 ring-white/10">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+              </span>
+              <h3 class="mt-6 font-display text-xl font-medium text-white">Work on it as a team</h3>
+              <p class="mt-2 leading-relaxed text-mist">Invite colleagues as owners, admins, members or viewers, keep a project private to the people you choose, and share a chat with the project when it is ready.</p>
+            </div>
+            <!-- if extraction_templates -->
+            <div class="rounded-3xl border border-white/10 bg-ink-800/70 p-7 transition-colors hover:border-white/20">
+              <span aria-hidden="true" class="flex size-11 items-center justify-center rounded-2xl bg-white/5 text-beak-300 ring-1 ring-white/10">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 10h18M9 10v10" /></svg>
+              </span>
+              <h3 class="mt-6 font-display text-xl font-medium text-white">Read the facts into a table</h3>
+              <p class="mt-2 leading-relaxed text-mist">Dates, amounts, parties and lines, read into a table you sort and filter, each cell with the words it came from. Extraction templates say which fields to read from each kind of document, and a corrected value is kept.</p>
+            </div>
+            <div class="rounded-3xl border border-white/10 bg-ink-800/70 p-7 transition-colors hover:border-white/20">
+              <span aria-hidden="true" class="flex size-11 items-center justify-center rounded-2xl bg-white/5 text-beak-300 ring-1 ring-white/10">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="m5 12 4 4 10-10" /></svg>
+              </span>
+              <h3 class="mt-6 font-display text-xl font-medium text-white">Check one document against another</h3>
+              <p class="mt-2 leading-relaxed text-mist">Cross-checks compare an invoice with its purchase order or a price with the price list, and say where they differ. Automations run them as documents arrive, and reviews keep who approved what.</p>
+            </div>
+            <!-- end extraction_templates -->
+            <!-- if drafts -->
+            <div class="rounded-3xl border border-white/10 bg-ink-800/70 p-7 transition-colors hover:border-white/20">
+              <span aria-hidden="true" class="flex size-11 items-center justify-center rounded-2xl bg-white/5 text-beak-300 ring-1 ring-white/10">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="M4 20h4L19 9l-4-4L4 16z" /></svg>
+              </span>
+              <h3 class="mt-6 font-display text-xl font-medium text-white">Write from what you found</h3>
+              <p class="mt-2 leading-relaxed text-mist">A dispute letter, a reply or a memo, drafted from the project's documents with its citations, edited in versions and downloaded.</p>
+            </div>
+            <!-- end drafts -->
+            <!-- if question_sets -->
+            <div class="rounded-3xl border border-white/10 bg-ink-800/70 p-7 transition-colors hover:border-white/20">
+              <span aria-hidden="true" class="flex size-11 items-center justify-center rounded-2xl bg-white/5 text-beak-300 ring-1 ring-white/10">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" /></svg>
+              </span>
+              <h3 class="mt-6 font-display text-xl font-medium text-white">Ask the same questions every week</h3>
+              <p class="mt-2 leading-relaxed text-mist">Save a project's questions as a set, asked on a schedule or as documents arrive, each run a report of the answers.</p>
+            </div>
+            <!-- end question_sets -->
+            <!-- if comments -->
+            <div class="rounded-3xl border border-white/10 bg-ink-800/70 p-7 transition-colors hover:border-white/20">
+              <span aria-hidden="true" class="flex size-11 items-center justify-center rounded-2xl bg-white/5 text-beak-300 ring-1 ring-white/10">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="M7 8h10M7 12h6" /><path d="M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-6l-5 4v-4H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" /></svg>
+              </span>
+              <h3 class="mt-6 font-display text-xl font-medium text-white">Talk it over beside the passage</h3>
+              <p class="mt-2 leading-relaxed text-mist">Comment on the words you chose in a document, mention a colleague, and read what was done in the project lately.</p>
+            </div>
+            <!-- end comments -->
           </div>
-          <div class="rounded-2xl border border-line bg-surface p-7 shadow-sm">
-            <span aria-hidden="true" class="flex size-11 items-center justify-center rounded-xl bg-accent-soft text-accent">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
-            </span>
-            <h3 class="mt-5 text-lg font-semibold">Find it by its words or its meaning</h3>
-            <p class="mt-2 leading-relaxed text-muted">Search by the exact words or by what a passage means, in any language. Narrow by type, date or folder, search within the results, or across every project at once.</p>
-          </div>
-          <div class="rounded-2xl border border-line bg-surface p-7 shadow-sm">
-            <span aria-hidden="true" class="flex size-11 items-center justify-center rounded-xl bg-accent-soft text-accent">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>
-            </span>
-            <h3 class="mt-5 text-lg font-semibold">A library that stays in order</h3>
-            <p class="mt-2 leading-relaxed text-muted">Folders, favourites and recent files. Each document's title, type and date beside what the reading found, with its versions and its copies in other projects.</p>
-          </div>
-          <div class="rounded-2xl border border-line bg-surface p-7 shadow-sm">
-            <span aria-hidden="true" class="flex size-11 items-center justify-center rounded-xl bg-accent-soft text-accent">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="M12 4v11M7 10l5 5 5-5" /><path d="M5 20h14" /></svg>
-            </span>
-            <h3 class="mt-5 text-lg font-semibold">Take the answer with you</h3>
-            <p class="mt-2 leading-relaxed text-muted">Download an answer or a whole chat as Word, PDF or Markdown, its citations as numbered notes. Export a project whole, originals, outline, facts and chats.</p>
-          </div>
-          <div class="rounded-2xl border border-line bg-surface p-7 shadow-sm">
-            <span aria-hidden="true" class="flex size-11 items-center justify-center rounded-xl bg-accent-soft text-accent">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="M3 7V5a2 2 0 0 1 2-2h2" /><path d="M17 3h2a2 2 0 0 1 2 2v2" /><path d="M21 17v2a2 2 0 0 1-2 2h-2" /><path d="M7 21H5a2 2 0 0 1-2-2v-2" /><path d="M7 12h10" /></svg>
-            </span>
-            <h3 class="mt-5 text-lg font-semibold">Scans and photos, read too</h3>
-            <p class="mt-2 leading-relaxed text-muted">A contract that went through a scanner, or a photo of a delivery note, is read like any other file, and its answers cite it the same way.</p>
-          </div>
-          <div class="rounded-2xl border border-line bg-surface p-7 shadow-sm">
-            <span aria-hidden="true" class="flex size-11 items-center justify-center rounded-xl bg-accent-soft text-accent">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
-            </span>
-            <h3 class="mt-5 text-lg font-semibold">Work on it as a team</h3>
-            <p class="mt-2 leading-relaxed text-muted">Invite colleagues as owners, admins, members or viewers, keep a project private to the people you choose, and share a chat with the project when it is ready.</p>
-          </div>
-          <!-- if extraction_templates -->
-          <div class="rounded-2xl border border-line bg-surface p-7 shadow-sm">
-            <span aria-hidden="true" class="flex size-11 items-center justify-center rounded-xl bg-accent-soft text-accent">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 10h18M9 10v10" /></svg>
-            </span>
-            <h3 class="mt-5 text-lg font-semibold">Read the facts into a table</h3>
-            <p class="mt-2 leading-relaxed text-muted">Dates, amounts, parties and lines, read into a table you sort and filter, each cell with the words it came from. Extraction templates say which fields to read from each kind of document, and a corrected value is kept.</p>
-          </div>
-          <div class="rounded-2xl border border-line bg-surface p-7 shadow-sm">
-            <span aria-hidden="true" class="flex size-11 items-center justify-center rounded-xl bg-accent-soft text-accent">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="m5 12 4 4 10-10" /></svg>
-            </span>
-            <h3 class="mt-5 text-lg font-semibold">Check one document against another</h3>
-            <p class="mt-2 leading-relaxed text-muted">Cross-checks compare an invoice with its purchase order or a price with the price list, and say where they differ. Automations run them as documents arrive, and reviews keep who approved what.</p>
-          </div>
-          <!-- end extraction_templates -->
-          <!-- if drafts -->
-          <div class="rounded-2xl border border-line bg-surface p-7 shadow-sm">
-            <span aria-hidden="true" class="flex size-11 items-center justify-center rounded-xl bg-accent-soft text-accent">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="M4 20h4L19 9l-4-4L4 16z" /></svg>
-            </span>
-            <h3 class="mt-5 text-lg font-semibold">Write from what you found</h3>
-            <p class="mt-2 leading-relaxed text-muted">A dispute letter, a reply or a memo, drafted from the project's documents with its citations, edited in versions and downloaded.</p>
-          </div>
-          <!-- end drafts -->
-          <!-- if question_sets -->
-          <div class="rounded-2xl border border-line bg-surface p-7 shadow-sm">
-            <span aria-hidden="true" class="flex size-11 items-center justify-center rounded-xl bg-accent-soft text-accent">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" /></svg>
-            </span>
-            <h3 class="mt-5 text-lg font-semibold">Ask the same questions every week</h3>
-            <p class="mt-2 leading-relaxed text-muted">Save a project's questions as a set, asked on a schedule or as documents arrive, each run a report of the answers.</p>
-          </div>
-          <!-- end question_sets -->
-          <!-- if comments -->
-          <div class="rounded-2xl border border-line bg-surface p-7 shadow-sm">
-            <span aria-hidden="true" class="flex size-11 items-center justify-center rounded-xl bg-accent-soft text-accent">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="M7 8h10M7 12h6" /><path d="M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-6l-5 4v-4H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" /></svg>
-            </span>
-            <h3 class="mt-5 text-lg font-semibold">Talk it over beside the passage</h3>
-            <p class="mt-2 leading-relaxed text-muted">Comment on the words you chose in a document, mention a colleague, and read what was done in the project lately.</p>
-          </div>
-          <!-- end comments -->
         </div>
       </section>
 
-      <section aria-labelledby="files-title" class="border-y border-line bg-surface">
-        <div class="mx-auto grid max-w-6xl gap-12 px-4 py-24 sm:px-6 lg:grid-cols-2 lg:items-center">
+      <section aria-labelledby="files-title">
+        <div class="mx-auto grid max-w-6xl gap-14 px-4 py-28 sm:px-6 lg:grid-cols-2 lg:items-center">
           <div>
-            <p class="text-sm font-semibold text-accent">Bring your files</p>
-            <h2 id="files-title" class="mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Works with the files you already have</h2>
-            <p class="mt-4 text-lg leading-relaxed text-pretty text-muted">No converting and no tidying first: Emudoc reads the formats your work arrives in.</p>
-            <ul aria-label="File types Emudoc reads" class="mt-8 flex flex-wrap gap-2 text-sm font-medium *:rounded-full *:border *:border-line *:bg-page *:px-3.5 *:py-1.5">$document_types</ul>
-            <p class="mt-5 flex items-start gap-2.5 text-muted">
-              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 size-5 shrink-0 text-accent"><path d="M3 7V5a2 2 0 0 1 2-2h2" /><path d="M17 3h2a2 2 0 0 1 2 2v2" /><path d="M21 17v2a2 2 0 0 1-2 2h-2" /><path d="M7 21H5a2 2 0 0 1-2-2v-2" /><path d="M7 12h10" /></svg>
-              <span>Scans and photos too: $image_types, read like any other file.</span>
+            <p class="text-sm font-semibold tracking-[0.18em] text-beak uppercase">Bring your files</p>
+            <h2 id="files-title" class="mt-4 font-display text-4xl leading-[1.08] font-semibold tracking-tight text-balance sm:text-5xl">Works with the files you already have</h2>
+            <p class="mt-5 text-lg leading-relaxed text-pretty text-stone">No converting and no tidying first: Emudoc reads the formats your work arrives in.</p>
+            <ul aria-label="File types Emudoc reads" class="mt-8 flex flex-wrap gap-2 font-display text-[15px] font-medium *:rounded-xl *:border *:border-paper-300 *:bg-white *:px-4 *:py-2 *:shadow-sm">$document_types</ul>
+            <p class="mt-6 flex items-start gap-3 text-stone">
+              <span aria-hidden="true" class="flex size-7 shrink-0 items-center justify-center rounded-full bg-night text-citron">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-4"><path d="M3 7V5a2 2 0 0 1 2-2h2" /><path d="M17 3h2a2 2 0 0 1 2 2v2" /><path d="M21 17v2a2 2 0 0 1-2 2h-2" /><path d="M7 21H5a2 2 0 0 1-2-2v-2" /><path d="M7 12h10" /></svg>
+              </span>
+              <span class="pt-0.5">Scans and photos too: $image_types, read like any other file.</span>
             </p>
           </div>
           <ul class="grid gap-4 sm:grid-cols-2">
-            <li class="rounded-2xl border border-line bg-page p-5">
-              <span class="font-semibold">Whole folders at once</span>
-              <span class="mt-1.5 block leading-relaxed text-muted">Drop a folder into the library, and its folders come with it.</span>
+            <li class="rounded-3xl border border-paper-300 bg-white p-6">
+              <span class="font-display text-lg font-medium">Whole folders at once</span>
+              <span class="mt-2 block leading-relaxed text-stone">Drop a folder into the library, and its folders come with it.</span>
             </li>
-            <li class="rounded-2xl border border-line bg-page p-5">
-              <span class="font-semibold">New versions in place</span>
-              <span class="mt-1.5 block leading-relaxed text-muted">Upload a document's new version, and the earlier ones stay to open.</span>
+            <li class="rounded-3xl border border-paper-300 bg-white p-6 sm:translate-y-8">
+              <span class="font-display text-lg font-medium">New versions in place</span>
+              <span class="mt-2 block leading-relaxed text-stone">Upload a document's new version, and the earlier ones stay to open.</span>
             </li>
-            <li class="rounded-2xl border border-line bg-page p-5">
-              <span class="font-semibold">Copies spotted</span>
-              <span class="mt-1.5 block leading-relaxed text-muted">Emudoc tells you when a file is in another project already, and links to it.</span>
+            <li class="rounded-3xl border border-paper-300 bg-white p-6">
+              <span class="font-display text-lg font-medium">Copies spotted</span>
+              <span class="mt-2 block leading-relaxed text-stone">Emudoc tells you when a file is in another project already, and links to it.</span>
             </li>
-            <li class="rounded-2xl border border-line bg-page p-5">
-              <span class="font-semibold">Tables kept as tables</span>
-              <span class="mt-1.5 block leading-relaxed text-muted">A price list's rows and a contract's schedule are read as the tables they are.</span>
+            <li class="rounded-3xl bg-beak p-6 text-white sm:translate-y-8">
+              <span class="font-display text-lg font-medium">Tables kept as tables</span>
+              <span class="mt-2 block leading-relaxed">A price list's rows and a contract's schedule are read as the tables they are.</span>
             </li>
             <!-- if email_in -->
-            <li class="rounded-2xl border border-line bg-page p-5">
-              <span class="font-semibold">Forward mail</span>
-              <span class="mt-1.5 block leading-relaxed text-muted">A project's own address turns what your suppliers send into documents.</span>
+            <li class="rounded-3xl border border-paper-300 bg-white p-6">
+              <span class="font-display text-lg font-medium">Forward mail</span>
+              <span class="mt-2 block leading-relaxed text-stone">A project's own address turns what your suppliers send into documents.</span>
             </li>
             <!-- end email_in -->
             <!-- if connectors -->
-            <li class="rounded-2xl border border-line bg-page p-5">
-              <span class="font-semibold">Connect a folder</span>
-              <span class="mt-1.5 block leading-relaxed text-muted">A folder of Google Drive, Dropbox or OneDrive, kept in step with a project.</span>
+            <li class="rounded-3xl border border-paper-300 bg-white p-6">
+              <span class="font-display text-lg font-medium">Connect a folder</span>
+              <span class="mt-2 block leading-relaxed text-stone">A folder of Google Drive, Dropbox or OneDrive, kept in step with a project.</span>
             </li>
             <!-- end connectors -->
             <!-- if share_links -->
-            <li class="rounded-2xl border border-line bg-page p-5">
-              <span class="font-semibold">Share by a link</span>
-              <span class="mt-1.5 block leading-relaxed text-muted">A document or an answer, for someone without an account, until the link expires.</span>
+            <li class="rounded-3xl border border-paper-300 bg-white p-6">
+              <span class="font-display text-lg font-medium">Share by a link</span>
+              <span class="mt-2 block leading-relaxed text-stone">A document or an answer, for someone without an account, until the link expires.</span>
             </li>
             <!-- end share_links -->
           </ul>
         </div>
       </section>
 
-      <section aria-labelledby="teams-title" class="mx-auto max-w-6xl px-4 py-24 sm:px-6">
-        <div class="mx-auto max-w-2xl text-center">
-          <p class="text-sm font-semibold text-accent">Who it is for</p>
-          <h2 id="teams-title" class="mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl">For the teams who answer to the paperwork</h2>
+      <section aria-labelledby="teams-title" class="bg-white">
+        <div class="mx-auto max-w-6xl px-4 py-28 sm:px-6">
+          <div class="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+            <div class="max-w-2xl">
+              <p class="text-sm font-semibold tracking-[0.18em] text-beak uppercase">Who it is for</p>
+              <h2 id="teams-title" class="mt-4 font-display text-4xl leading-[1.08] font-semibold tracking-tight text-balance sm:text-5xl">For the teams who answer to the paperwork</h2>
+            </div>
+          </div>
+          <ul class="mt-16 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            <li class="rounded-3xl border border-paper-300 bg-paper p-7">
+              <span aria-hidden="true" class="flex size-12 items-center justify-center rounded-2xl bg-gradient-to-br from-beak to-violet-600 text-white shadow-lg shadow-beak/30">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z" /><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" /><path d="M12 17.5v-11" /></svg>
+              </span>
+              <h3 class="mt-6 font-display text-xl font-medium">Finance and accounts payable</h3>
+              <p class="mt-2 leading-relaxed text-stone">Check an invoice against its contract and the price list before it is paid.</p>
+            </li>
+            <li class="rounded-3xl border border-paper-300 bg-paper p-7">
+              <span aria-hidden="true" class="flex size-12 items-center justify-center rounded-2xl bg-gradient-to-br from-beak to-violet-600 text-white shadow-lg shadow-beak/30">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="m7.5 4.27 9 5.15" /><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" /><path d="m3.3 7 8.7 5 8.7-5" /><path d="M12 22V12" /></svg>
+              </span>
+              <h3 class="mt-6 font-display text-xl font-medium">Procurement</h3>
+              <p class="mt-2 leading-relaxed text-stone">Hold suppliers to the prices, discounts and service levels they signed.</p>
+            </li>
+            <li class="rounded-3xl border border-paper-300 bg-paper p-7">
+              <span aria-hidden="true" class="flex size-12 items-center justify-center rounded-2xl bg-gradient-to-br from-beak to-violet-600 text-white shadow-lg shadow-beak/30">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" /><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" /><path d="M7 21h10" /><path d="M12 3v18" /><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2" /></svg>
+              </span>
+              <h3 class="mt-6 font-display text-xl font-medium">Legal and contracts</h3>
+              <p class="mt-2 leading-relaxed text-stone">Find the clause, the notice period or the cap, with the page it is on.</p>
+            </li>
+            <li class="rounded-3xl border border-paper-300 bg-paper p-7">
+              <span aria-hidden="true" class="flex size-12 items-center justify-center rounded-2xl bg-gradient-to-br from-beak to-violet-600 text-white shadow-lg shadow-beak/30">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2" /><path d="M15 18H9" /><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14" /><circle cx="17" cy="18" r="2" /><circle cx="7" cy="18" r="2" /></svg>
+              </span>
+              <h3 class="mt-6 font-display text-xl font-medium">Operations</h3>
+              <p class="mt-2 leading-relaxed text-stone">Reconcile delivery logs, emails and meeting notes without the spreadsheet marathon.</p>
+            </li>
+          </ul>
         </div>
-        <ul class="mt-16 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          <li class="rounded-2xl border border-line bg-surface p-6 shadow-sm">
-            <span aria-hidden="true" class="flex size-10 items-center justify-center rounded-xl bg-accent-soft text-accent">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z" /><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" /><path d="M12 17.5v-11" /></svg>
-            </span>
-            <h3 class="mt-5 font-semibold">Finance and accounts payable</h3>
-            <p class="mt-2 text-[15px] leading-relaxed text-muted">Check an invoice against its contract and the price list before it is paid.</p>
-          </li>
-          <li class="rounded-2xl border border-line bg-surface p-6 shadow-sm">
-            <span aria-hidden="true" class="flex size-10 items-center justify-center rounded-xl bg-accent-soft text-accent">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="m7.5 4.27 9 5.15" /><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" /><path d="m3.3 7 8.7 5 8.7-5" /><path d="M12 22V12" /></svg>
-            </span>
-            <h3 class="mt-5 font-semibold">Procurement</h3>
-            <p class="mt-2 text-[15px] leading-relaxed text-muted">Hold suppliers to the prices, discounts and service levels they signed.</p>
-          </li>
-          <li class="rounded-2xl border border-line bg-surface p-6 shadow-sm">
-            <span aria-hidden="true" class="flex size-10 items-center justify-center rounded-xl bg-accent-soft text-accent">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" /><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" /><path d="M7 21h10" /><path d="M12 3v18" /><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2" /></svg>
-            </span>
-            <h3 class="mt-5 font-semibold">Legal and contracts</h3>
-            <p class="mt-2 text-[15px] leading-relaxed text-muted">Find the clause, the notice period or the cap, with the page it is on.</p>
-          </li>
-          <li class="rounded-2xl border border-line bg-surface p-6 shadow-sm">
-            <span aria-hidden="true" class="flex size-10 items-center justify-center rounded-xl bg-accent-soft text-accent">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2" /><path d="M15 18H9" /><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14" /><circle cx="17" cy="18" r="2" /><circle cx="7" cy="18" r="2" /></svg>
-            </span>
-            <h3 class="mt-5 font-semibold">Operations</h3>
-            <p class="mt-2 text-[15px] leading-relaxed text-muted">Reconcile delivery logs, emails and meeting notes without the spreadsheet marathon.</p>
-          </li>
-        </ul>
       </section>
 
-      <section id="security" aria-labelledby="security-title" class="border-y border-line bg-surface">
-        <div class="mx-auto max-w-6xl px-4 py-24 sm:px-6">
-          <div class="grid gap-12 lg:grid-cols-[0.8fr_1.2fr]">
-            <div class="lg:sticky lg:top-24 lg:self-start">
-              <p class="text-sm font-semibold text-accent">Security and privacy</p>
-              <h2 id="security-title" class="mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Your documents stay yours</h2>
-              <p class="mt-4 text-lg leading-relaxed text-pretty text-muted">What you upload is seen by the people you choose, and used for nothing but your work.</p>
+      <section id="security" aria-labelledby="security-title" class="relative isolate overflow-hidden bg-night text-snow">
+        <div aria-hidden="true" class="absolute top-1/3 -left-40 -z-10 size-[30rem] rounded-full bg-beak/25 blur-[140px]"></div>
+        <div class="mx-auto max-w-6xl px-4 py-28 sm:px-6">
+          <div class="grid gap-14 lg:grid-cols-[0.8fr_1.2fr]">
+            <div class="lg:sticky lg:top-28 lg:self-start">
+              <p class="text-sm font-semibold tracking-[0.18em] text-beak-300 uppercase">Security and privacy</p>
+              <h2 id="security-title" class="mt-4 font-display text-4xl leading-[1.08] font-semibold tracking-tight text-balance text-white sm:text-5xl">Your documents stay yours</h2>
+              <p class="mt-5 text-lg leading-relaxed text-pretty text-mist">What you upload is seen by the people you choose, and used for nothing but your work.</p>
             </div>
-            <ul class="grid gap-x-8 gap-y-10 sm:grid-cols-2">
-              <li>
-                <span aria-hidden="true" class="flex size-10 items-center justify-center rounded-xl bg-accent-soft text-accent">
+            <ul class="grid gap-5 sm:grid-cols-2">
+              <li class="rounded-3xl border border-white/10 bg-white/[0.03] p-7">
+                <span aria-hidden="true" class="flex size-11 items-center justify-center rounded-2xl bg-citron text-ink">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" /><path d="m9 12 2 2 4-4" /></svg>
                 </span>
-                <h3 class="mt-4 font-semibold">Never used to train AI</h3>
-                <p class="mt-2 leading-relaxed text-muted">What you upload and ask is used to run the service for you and for nothing else: never sold, never shown to other customers, and never used to train AI models.</p>
+                <h3 class="mt-6 font-display text-xl font-medium text-white">Never used to train AI</h3>
+                <p class="mt-2 leading-relaxed text-mist">What you upload and ask is used to run the service for you and for nothing else: never sold, never shown to other customers, and never used to train AI models.</p>
               </li>
-              <li>
-                <span aria-hidden="true" class="flex size-10 items-center justify-center rounded-xl bg-accent-soft text-accent">
+              <li class="rounded-3xl border border-white/10 bg-white/[0.03] p-7">
+                <span aria-hidden="true" class="flex size-11 items-center justify-center rounded-2xl bg-white/10 text-white">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
                 </span>
-                <h3 class="mt-4 font-semibold">Seen by whom you choose</h3>
-                <p class="mt-2 leading-relaxed text-muted">Roles from owner to viewer, private projects, and chats private until shared. An organisation can require two-factor sign-in of everyone in it.</p>
+                <h3 class="mt-6 font-display text-xl font-medium text-white">Seen by whom you choose</h3>
+                <p class="mt-2 leading-relaxed text-mist">Roles from owner to viewer, private projects, and chats private until shared. An organisation can require two-factor sign-in of everyone in it.</p>
               </li>
-              <li>
-                <span aria-hidden="true" class="flex size-10 items-center justify-center rounded-xl bg-accent-soft text-accent">
+              <li class="rounded-3xl border border-white/10 bg-white/[0.03] p-7">
+                <span aria-hidden="true" class="flex size-11 items-center justify-center rounded-2xl bg-white/10 text-white">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><rect width="8" height="4" x="8" y="2" rx="1" /><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><path d="M12 11h4M12 16h4M8 11h.01M8 16h.01" /></svg>
                 </span>
-                <h3 class="mt-4 font-semibold">On the record</h3>
-                <p class="mt-2 leading-relaxed text-muted">The audit log keeps who did what in the organisation, and a project or an account can be exported whole, or deleted.</p>
+                <h3 class="mt-6 font-display text-xl font-medium text-white">On the record</h3>
+                <p class="mt-2 leading-relaxed text-mist">The audit log keeps who did what in the organisation, and a project or an account can be exported whole, or deleted.</p>
               </li>
-              <li>
-                <span aria-hidden="true" class="flex size-10 items-center justify-center rounded-xl bg-accent-soft text-accent">
+              <li class="rounded-3xl border border-white/10 bg-white/[0.03] p-7">
+                <span aria-hidden="true" class="flex size-11 items-center justify-center rounded-2xl bg-white/10 text-white">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><rect width="18" height="11" x="3" y="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
                 </span>
-                <h3 class="mt-4 font-semibold">Kept apart, and encrypted</h3>
-                <p class="mt-2 leading-relaxed text-muted">Every request is checked against the organisation it is for, and connections to the service, and from it to anything outside its own network, are encrypted.$kept</p>
+                <h3 class="mt-6 font-display text-xl font-medium text-white">Kept apart, and encrypted</h3>
+                <p class="mt-2 leading-relaxed text-mist">Every request is checked against the organisation it is for, and connections to the service, and from it to anything outside its own network, are encrypted.$kept</p>
               </li>
             </ul>
           </div>
         </div>
       </section>
 
-      <section aria-labelledby="start-title" class="mx-auto max-w-6xl px-4 py-24 sm:px-6">
-        <div class="relative isolate overflow-hidden rounded-3xl border border-line bg-surface px-6 py-16 text-center shadow-xl shadow-ink/5 sm:px-12 lg:py-20">
-          <div aria-hidden="true" class="site-grid absolute inset-0 -z-10"></div>
-          <div aria-hidden="true" class="absolute inset-0 -z-10 bg-[radial-gradient(60%_90%_at_50%_0%,var(--color-accent-soft),transparent)]"></div>
-          <h2 id="start-title" class="mx-auto max-w-2xl text-3xl font-semibold tracking-tight text-balance sm:text-5xl">See what Emudoc finds in your documents</h2>
+      <section aria-labelledby="start-title" class="px-4 py-24 sm:px-6">
+        <div class="relative isolate mx-auto max-w-6xl overflow-hidden rounded-[2.5rem] bg-night px-6 py-20 text-center text-snow sm:px-12 lg:py-28">
+          <div aria-hidden="true" class="dots absolute inset-0 -z-10"></div>
+          <div aria-hidden="true" class="absolute -top-32 left-1/2 -z-10 h-80 w-[44rem] -translate-x-1/2 rounded-full bg-beak/50 blur-[120px]"></div>
+          <div aria-hidden="true" class="absolute -right-24 -bottom-32 -z-10 size-80 rounded-full bg-citron/15 blur-[110px]"></div>
+          <h2 id="start-title" class="mx-auto max-w-3xl font-display text-4xl leading-[1.05] font-semibold tracking-tight text-balance text-white sm:text-6xl">See what Emudoc finds in <span class="text-glow">your documents</span></h2>
           <!-- if signup_closed -->
-          <p class="mx-auto mt-5 max-w-2xl text-lg leading-relaxed text-pretty text-muted">Emudoc is in a private beta, opening to a few teams at a time. Tell us about the documents you work with, and we will set your team up.$sample</p>
+          <p class="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-pretty text-mist">Emudoc is in a private beta, opening to a few teams at a time. Tell us about the documents you work with, and we will set your team up.$sample</p>
           <!-- end signup_closed -->
           <!-- if signup_open -->
-          <p class="mx-auto mt-5 max-w-2xl text-lg leading-relaxed text-pretty text-muted">Tell us about the documents you work with, and we will show you what Emudoc does with them.$sample</p>
+          <p class="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-pretty text-mist">Tell us about the documents you work with, and we will show you what Emudoc does with them.$sample</p>
           <!-- end signup_open -->
-          <div class="mt-9 flex flex-wrap justify-center gap-3">
-            <a href="$book" class="inline-flex items-center gap-2 rounded-xl bg-accent px-6 py-3.5 font-medium text-accent-ink shadow-lg shadow-accent/25 hover:bg-accent-hover">
+          <div class="mt-10 flex flex-wrap justify-center gap-3">
+            <a href="$book" class="group inline-flex items-center gap-3 rounded-full bg-white py-2 pr-2 pl-6 font-medium text-ink shadow-[0_0_60px_-12px] shadow-beak transition-colors hover:bg-citron">
               $book_label
-              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-4"><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></svg>
+              <span aria-hidden="true" class="flex size-9 items-center justify-center rounded-full bg-beak text-white transition-transform group-hover:translate-x-0.5">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-4"><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></svg>
+              </span>
             </a>
-            <a href="/login" class="rounded-xl border border-line bg-surface px-6 py-3.5 font-medium shadow-sm hover:bg-sunken">Sign in</a>
+            <a href="/login" class="inline-flex items-center rounded-full border border-white/15 bg-white/5 px-6 py-3 font-medium text-white transition-colors hover:bg-white/10">Sign in</a>
           </div>
         </div>
       </section>
