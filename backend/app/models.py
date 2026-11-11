@@ -128,7 +128,6 @@ JOB_KINDS = (
     "write_draft",
     "receive_mail",
     "deliver_webhook",
-    "suggest_questions",
     "run_question_set",
     "write_question_report",
     "send_digests",
@@ -148,7 +147,8 @@ MESSAGE_STATUSES = ("streaming", "done", "stopped", "failed")
 # count is in. The stored `usage` of a document, a message, a run of cross-checks or a draft
 # (`Document.usage`, `ChatMessage.usage`, `WorkflowRun.usage`, `Draft.usage`) is keyed by the same
 # kinds; a report of a question set's answers (`QuestionReport.usage`) is kept under `answer`,
-# since each of its answers is the agent's as a chat's is.
+# since each of its answers is the agent's as a chat's is. Nothing records `suggestions` since
+# 2026-11-11 (the model wrote a project's suggested questions), whose rows stay.
 USAGE_KINDS = (
     "answer",
     "upload",
@@ -999,13 +999,6 @@ class Project(Base):
     # The sample project a new account's organisation starts with (app/sample): its project and
     # documents count against nothing the plan holds, and nothing is uploaded into it.
     sample: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
-    # The questions an empty chat offers to ask about its documents; none offers the page's own.
-    # The sample's are its own, and the model writes every other project's from its catalogue
-    # once its documents settle (app/suggestions.py).
-    suggestions: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list, server_default="{}")
-    # When the model last wrote them, which it does again an hour after at the soonest; null
-    # for never.
-    suggested_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

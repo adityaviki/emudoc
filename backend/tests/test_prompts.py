@@ -16,7 +16,6 @@ from app.indexing.enrich import ENRICH_PROMPT_VERSION, SECTIONS_PROMPT_VERSION
 from app.llm import OCR_PROMPT_VERSION
 from app.prompts import DIGITS, prompt_version, untagged
 from app.question_reports import QUESTION_SET_PROMPT_VERSION
-from app.suggestions import SUGGESTIONS_PROMPT_VERSION
 
 
 def test_a_version_is_a_short_hash_that_any_edit_of_a_text_changes():
@@ -101,7 +100,6 @@ def test_each_kind_of_work_has_a_version_of_its_own():
         OCR_PROMPT_VERSION,
         SECTIONS_PROMPT_VERSION,
         ENRICH_PROMPT_VERSION,
-        SUGGESTIONS_PROMPT_VERSION,
         JUDGE_PROMPT_VERSION,
     ]
     assert len(set(versions)) == len(versions)

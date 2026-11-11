@@ -63,7 +63,7 @@ import { useOnline, useStatus } from '../hooks.ts'
 import { inviteNudgeOf, mayInvite } from '../onboarding.ts'
 import type { InviteNudge } from '../onboarding.ts'
 import { offersLinks } from '../shareLinks.ts'
-import { questionsFor, sameScope, scopeIn, scopeOf, scopeWords } from '../scopes.ts'
+import { sameScope, scopeIn, scopeOf, scopeWords } from '../scopes.ts'
 import { askForComposer, listHint, onMac, takeComposerAsk, useComposerAsks } from '../shortcuts.ts'
 import { askHeld } from '../status.ts'
 import { answerFileUrl, chatFileUrl } from '../textFiles.ts'
@@ -75,12 +75,6 @@ import { InviteTeam } from './InviteTeam.tsx'
 import { documentQuery } from './listing.ts'
 import { ShareDialog } from './ShareLinks.tsx'
 import { useWorkspace } from './state.ts'
-
-const SUGGESTIONS = [
-  'What documents are in this project?',
-  'Summarize each document in two sentences.',
-  'List every date and deadline, with the document it comes from.',
-]
 
 const NO_MESSAGES: Message[] = []
 // How many of the chats other members shared a new chat shows; the chat list holds them all.
@@ -487,11 +481,6 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
   useEffect(() => {
     if (takeComposerAsk(chatId)) composer.current?.focus()
   }, [composerAsks, chatId])
-  // The questions a new chat offers are written by the model once the project's documents
-  // settle, which may have been since the project was read: a new chat reads it again.
-  useEffect(() => {
-    if (chatId == null) void queryClient.invalidateQueries({ queryKey: ['project', project.id], exact: true })
-  }, [chatId, project.id, queryClient])
   // A chat is created with its first question, about what the URL says, and the URL then moves to it.
   const about = chatId == null ? workspace.url.about : null
   const create = useMutation({
@@ -590,8 +579,6 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
       .map((folder) => folder.name)
       .join('/')
   const scoped = scopeWords(scope, pathOf)
-  // A chat about part of the project offers questions about that part; one about all of it, the project's.
-  const offered = questionsFor(scope) ?? (project.suggestions.length ? project.suggestions : SUGGESTIONS)
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto px-5">
@@ -622,19 +609,6 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
                 citations open the document in the library. A model can misread a document or miss a passage,
                 so check the cited passages before you rely on an answer.
               </p>
-              <div className="mt-6 flex flex-col gap-2 text-left">
-                {offered.map((suggestion) => (
-                  <button
-                    key={suggestion}
-                    onClick={() => send(suggestion)}
-                    disabled={unavailable}
-                    className="flex items-center justify-between gap-3 rounded-lg border border-line bg-surface px-3.5 py-2.5 text-[13px] shadow-xs transition hover:border-ink/15 hover:bg-sunken/50 disabled:opacity-50"
-                  >
-                    {suggestion}
-                    <ArrowUp className="size-3.5 shrink-0 rotate-45 text-muted" />
-                  </button>
-                ))}
-              </div>
               {chatId == null && shared.length > 0 && <RecentlyShared chats={shared} />}
             </div>
           )}
@@ -926,7 +900,7 @@ function QuestionEditor({
   )
 }
 
-/** The latest chats other members shared with the project, offered beside a new chat's suggestions. */
+/** The latest chats other members shared with the project, offered in a new chat. */
 function RecentlyShared({ chats }: { chats: Chat[] }) {
   const workspace = useWorkspace()
   return (

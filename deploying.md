@@ -848,10 +848,9 @@ to end (`emudoc_parses{state="waiting"}`, and `waited` in the run's `parse` span
 ## The models
 
 `INDEX_MODEL` reads every document, to infer its sections, write summaries, pull out facts and
-transcribe scanned pages, and writes the questions an empty chat offers from each project's
-catalogue (a `suggest_questions` job with the indexers, once a project's documents settle and an
-hour after its last at the soonest, recorded as the usage kind `suggestions`); `AGENT_MODEL`
-answers in the Ask tab. Each is written
+transcribe scanned pages; `AGENT_MODEL` answers in the Ask tab. (Until 2026-11-11 the indexing
+model also wrote the questions an empty chat offered, recorded as the usage kind `suggestions`,
+whose rows stay in the costs.) Each is written
 `provider:model`, each may have a fallback, and every one of them is a company the documents
 are sent to ("What leaves the deployment").
 
@@ -940,7 +939,8 @@ mails on failure keeps a fallback from going stale unseen.
 members' questions worse than the one before it, and so can the agent after a change to its
 prompt or its tools. `python -m app.maintenance golden` asks the agent thirteen questions about
 the sample project ("The sample project", below) whose answers are known
-(`backend/app/golden.py`): the three an empty chat of the sample offers, a detail of each kind
+(`backend/app/golden.py`): three that read its invoices against the contract, the price list and
+the delivery log, a detail of each kind
 of document, two figures worked out from several (the three invoices' total, the end of the
 contract's term), and one the documents do not answer. It copies the sample into an
 organisation of its own, as a sign-up does, embeds it when the embeddings endpoint answers (the
@@ -1030,8 +1030,8 @@ instruction was followed or an answer was not right. Run it after a change to th
 indexing model's prompts and after changing either model.
 
 **The prompts' versions.** Each kind of model work (an answer, a question set's answer, a draft,
-a discrepancy report, reading a scan, finding a document's sections, enriching it, a project's
-suggested questions, the golden questions' judge) asks with prompts whose version is the first
+a discrepancy report, reading a scan, finding a document's sections, enriching it, the golden
+questions' judge) asks with prompts whose version is the first
 eight hex digits of a hash of what the model is told for it (`backend/app/prompts.py`): its
 instructions, the tools it is offered and the schema of its reply, never the documents or the
 member's words. Nobody bumps a version: an edit to any of them gives a new one with the release
@@ -1098,9 +1098,9 @@ found, or is served no longer".
 
 The organisation an account signs up with, by its link or through a provider, starts with a
 project named "Sample: Acme supplier contract": a supplier's contract, three of its invoices,
-the price list, the delivery log, an email and meeting notes, with three questions an empty
-chat offers, each asking the agent to read several of them against each other (an invoice that
-bills 340 pallets without the contract's discount, two late deliveries). A colleague who signs
+the price list, the delivery log, an email and meeting notes, which a question can read
+against each other (an invoice that bills 340 pallets without the contract's discount, two late
+deliveries). A colleague who signs
 up from an invitation joins an organisation instead and makes none; a member removed from
 their last organisation is given one without it. `SAMPLE_PROJECT=false` turns it off.
 
@@ -3522,7 +3522,8 @@ upload's last documents were ready within 24 minutes rather than two hours. From
 each document indexed asked whether its project had settled, to write its suggested questions,
 by a statement that scanned the queued jobs again for each of the project's documents: 22 s
 after each document at 22,000, run by the indexers side by side, and the indexing fell to 16 a
-minute. It looks the jobs up once now, in about 25 ms. The rest of the gap to 780 was not
+minute. It looked the jobs up once after that, in about 25 ms, until the suggested questions
+were taken out on 2026-11-11. The rest of the gap to 780 was not
 looked into.
 
 The vector ranking's 40 candidates for 100 of the searches, against the 40 nearest passages

@@ -10,7 +10,6 @@ const project = (id: number, name: string, changes: Partial<Project> = {}): Proj
   created_at: '2026-10-21T12:00:00Z',
   visibility: 'organization',
   sample: false,
-  suggestions: [],
   document_count: 0,
   partly_indexed_count: 0,
   unenriched_count: 0,

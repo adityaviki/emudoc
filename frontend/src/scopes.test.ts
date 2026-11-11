@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ChatScope } from './api.ts'
-import { SUMMARY_QUESTION, comparisonQuestion, questionsFor, sameScope, scopeIn, scopeOf, scopeWords } from './scopes.ts'
+import { comparisonQuestion, sameScope, scopeIn, scopeOf, scopeWords } from './scopes.ts'
 
 const project: ChatScope = { kind: 'project', folder: null, documents: [] }
 const folder: ChatScope = { kind: 'folder', folder: { id: 7, name: '2024' }, documents: [] }
@@ -62,14 +62,8 @@ describe('scopeIn and scopeOf', () => {
   })
 })
 
-describe('questionsFor', () => {
-  it("offers a folder's summary and two documents' comparison, the project its own", () => {
-    expect(questionsFor(project)).toBeNull()
-    expect(questionsFor(folder)).toEqual([SUMMARY_QUESTION])
-    expect(questionsFor(two)).toEqual([comparisonQuestion('contract.pdf', 'invoice.md')])
-    expect(questionsFor(two)).toEqual(['Compare contract.pdf and invoice.md: where do they agree, and where do they differ?'])
-    expect(questionsFor({ ...two, documents: two.documents.slice(1) })).toEqual(['Summarise invoice.md: what it is, and what it says.'])
-    expect(questionsFor({ ...folder, folder: null })).toEqual([])
-    expect(questionsFor({ ...two, documents: [] })).toEqual([])
+describe('comparisonQuestion', () => {
+  it('asks where two documents agree and differ, by their names', () => {
+    expect(comparisonQuestion('contract.pdf', 'invoice.md')).toBe('Compare contract.pdf and invoice.md: where do they agree, and where do they differ?')
   })
 })

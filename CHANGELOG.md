@@ -17,6 +17,9 @@ newest entry first.
 
 Members:
 
+- A new chat no longer offers questions to start from, in the sample project or your own: ask in
+  your own words. "Summarise this folder" and "Compare the two documents" stay in the library's
+  menus.
 - The home page has a look of its own: a dark hero with the app answering a question, headings
   in the logo's typeface, and citron marking what an answer cites.
 - The home page is new: an answer shown beside the passages it cites, the questions Emudoc
@@ -26,11 +29,14 @@ Members:
   addresses lead to the home page. The help menu keeps what's new, the service status and the
   form to write to us; the organisation page still offers the upload client, with how to run
   it, and says how a program checks a webhook's signature.
-- Answers no longer suggest questions to ask next under them. A new chat still suggests questions
-  written from the project's documents.
+- Answers no longer suggest questions to ask next under them.
 
 Operators:
 
+- The indexing model no longer writes the questions an empty chat offered: no `suggest_questions`
+  job is queued once a project's documents settle, and the migration deletes those jobs and drops
+  `projects.suggestions` and `projects.suggested_at`. The usage kind `suggestions` stays for the
+  rows already recorded, so the costs of the past days are unchanged.
 - The home page offers no sign-up, whether `SIGNUP_OPEN` is on or off: its button is "Book a
   demo" (`BOOKING_URL`), else "Request access", a mail to the support address. `/pricing`,
   `/help`, `/help/…` and `/api-reference` answer 302 to `/` and leave the sitemap, `GET
