@@ -28,6 +28,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from app.draft_export import (
+    CITATION,
     READER,
     Block,
     ExportFormat,
@@ -46,7 +47,6 @@ from app.draft_export import (
     source_label,
     writable,
 )
-from app.drafts import CITATION
 from app.models import ChatMessage
 from app.retention import day
 

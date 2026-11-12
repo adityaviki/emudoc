@@ -11,7 +11,8 @@ import { onlineManager } from '@tanstack/react-query'
 import type { QueryClient } from '@tanstack/react-query'
 import { useSyncExternalStore } from 'react'
 import { ApiError, api, isPlanLimit, streamEvents } from './api.ts'
-import type { AskResult, Chat, ChatDetail, ChatEvent, ChatMessage, Draft, DraftOffer, MessageStatus, PlanRefusal, ScopeIn, Source, Usage } from './api.ts'
+import type { AskResult, Chat, ChatDetail, ChatEvent, ChatMessage, Draft, DraftOffer, MessageStatus, PlanRefusal, ScopeIn, Source, StepFile, Usage } from './api.ts'
+import { myFileKey } from './myFiles.ts'
 
 export interface Step {
   id: string
@@ -20,6 +21,8 @@ export interface Step {
   // Undefined while the tool is still running.
   summary?: string
   is_error?: boolean
+  // The file of the asker's My files it wrote.
+  file?: StepFile | null
 }
 
 export interface Message {
@@ -137,7 +140,9 @@ export function applyEvent(message: Message, event: ChatEvent): Message {
         ...message,
         turnStart: message.content.length,
         steps: message.steps.map((step) =>
-          step.id === event.id ? { ...step, summary: event.summary, is_error: event.is_error } : step,
+          step.id === event.id
+            ? { ...step, summary: event.summary, is_error: event.is_error, ...(event.file ? { file: event.file } : {}) }
+            : step,
         ),
       }
     case 'sources':
@@ -336,7 +341,14 @@ type Edit = (change: (message: Message) => Message) => void
  * Read the answer's events into the message until the server says it is settled, from the start
  * or past the event with id `after`.
  */
-async function follow(chatId: number, messageId: number, update: Edit, signal: AbortSignal, after: number | null) {
+async function follow(
+  chatId: number,
+  messageId: number,
+  update: Edit,
+  signal: AbortSignal,
+  after: number | null,
+  heard: (event: ChatEvent) => void,
+) {
   let drops = 0
   for (;;) {
     // Stopped before it was followed, while its question was being saved.
@@ -354,6 +366,7 @@ async function follow(chatId: number, messageId: number, update: Edit, signal: A
         if (seq != null) after = seq
         drops = 0
         update((message) => applyEvent(message, event))
+        heard(event)
         if (event.type === 'end') return
       }
     } catch (error) {
@@ -398,7 +411,13 @@ async function run(
   changed()
   if (controller.signal.aborted) stopOnServer(chatId, messageId)
   try {
-    await follow(chatId, messageId, update, controller.signal, after)
+    await follow(chatId, messageId, update, controller.signal, after, (event) => {
+      // A file the agent wrote into the asker's My files: their list and the file show it at once.
+      if (event.type === 'tool_result' && event.file) {
+        void queryClient.invalidateQueries({ queryKey: ['my-files'] })
+        void queryClient.invalidateQueries({ queryKey: myFileKey(event.file.id) })
+      }
+    })
   } catch (error) {
     const stopped = controller.signal.aborted
     update((message) => ({

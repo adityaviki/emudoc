@@ -1292,6 +1292,13 @@ export interface Chat {
   updated_at: string
 }
 
+/** A file of the asker's My files that a step wrote (backend/app/agent/writing.py), which the step opens. */
+export interface StepFile {
+  id: number
+  name: string
+  version: number
+}
+
 /** One tool call the agent made while answering. */
 export interface ChatStep {
   id: string
@@ -1299,6 +1306,7 @@ export interface ChatStep {
   input: Record<string, unknown>
   summary: string
   is_error: boolean
+  file?: StepFile | null
 }
 
 /**
@@ -1367,7 +1375,7 @@ export type ChatEvent =
   | { type: 'retry' }
   | { type: 'restart' }
   | { type: 'tool_call'; id: string; name: string; input: Record<string, unknown> }
-  | { type: 'tool_result'; id: string; summary: string; is_error: boolean }
+  | { type: 'tool_result'; id: string; summary: string; is_error: boolean; file?: StepFile }
   | { type: 'sources'; sources: Source[] }
   | ({ type: 'draft' } & DraftAsked)
   | { type: 'notice'; message: string }

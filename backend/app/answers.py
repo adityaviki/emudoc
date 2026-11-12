@@ -29,6 +29,11 @@ An answer to a member who may have a draft written can offer one (`offers_drafts
 it is settled, and the member's press has it written (app/api/drafts.py), never the run itself,
 so a run that starts over or is tried again writes no draft twice.
 
+An answer to a member who may keep files in My files can write them (`offers_my_files`; the agent's
+file tools, app/agent/writing.py): the run writes into the asker's own files as it goes, each
+write a version they can go back on, and a run that starts over or is tried again writes the
+files the answer made before again rather than more of them.
+
 Whatever ends a run, the model calls it made are recorded as the organisation's usage
 (app/usage.py) before it returns: the loop counts them as they are answered, and the run
 records the count at its end, after a stop or a lost lease as much as after the answer. The
@@ -51,9 +56,10 @@ from sqlalchemy.exc import TimeoutError as PoolTimeout
 from sqlalchemy.orm import Session
 
 from app.agent.loop import AGENT_PROMPTS, run_agent
+from app.agent.tools import Writing
 from app.db import BUSY, SessionLocal
 from app.entitlements import read_only
-from app.flags import DRAFTS, flag_on
+from app.flags import DRAFTS, MY_FILES, flag_on
 from app.indexing.pipeline import Services
 from app.jobs import ANSWER_QUESTION, LIVE, Lease, LeaseLost, enqueue, renew
 from app.logs import about
@@ -178,6 +184,8 @@ class Reply:
                 for step in self.steps:
                     if step["id"] == event["id"]:
                         step.update(summary=event["summary"], is_error=event["is_error"])
+                        if "file" in event:
+                            step["file"] = event["file"]
             case "sources":
                 self.sources.update((source["id"], source) for source in event["sources"])
             case "draft":
@@ -259,6 +267,23 @@ def offers_drafts(session: Session, organization: Organization, user_id: int) ->
         )
     )
     if role is None or ROLES.index(role) > ROLES.index("member"):
+        return False
+    return organization.deletion_due_at is None and read_only(session, organization) is None
+
+
+def offers_my_files(session: Session, organization: Organization, user_id: int) -> bool:
+    """Whether an answer to the member may write their My files: the flag is on for the
+    organisation, and the member could keep a file there now, as the routes hold them to
+    (`get_writer` in app/api/deps.py): any role, a viewer's too, since My files change nothing the
+    members share, in an organisation that is neither set to be deleted nor past its plan."""
+    if not flag_on(organization, MY_FILES):
+        return False
+    member = session.scalar(
+        select(Membership.user_id).where(
+            Membership.org_id == organization.id, Membership.user_id == user_id
+        )
+    )
+    if member is None:
         return False
     return organization.deletion_due_at is None and read_only(session, organization) is None
 
@@ -408,6 +433,11 @@ def answer(
         about(user_id=chat.user_id)
         over = check_platform_spend(session) or check_spend(session, project.organization)
         drafting = offers_drafts(session, project.organization, chat.user_id)
+        writing = (
+            Writing(services, chat.user_id, chat.id, message_id, attempt)
+            if offers_my_files(session, project.organization, chat.user_id)
+            else None
+        )
         # What the chat is about as this try starts: a change meanwhile is the next answer's.
         scope = scope_of(chat)
         # Answers without text, such as failed ones, are left out of the conversation.
@@ -431,6 +461,7 @@ def answer(
                 history,
                 usage,
                 drafting=drafting,
+                writing=writing,
                 scope=scope,
             )
         else:

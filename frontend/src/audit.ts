@@ -524,6 +524,8 @@ function describeMyFile(action: AuditAction, detail: AuditEvent['detail']): stri
   const parts = [detail.kind === 'xlsx' ? 'an Excel workbook' : 'a Word document']
   if (typeof detail.version === 'number') parts.push(`version ${detail.version}`)
   if (action === 'my_file_copied') parts.push(detail.as_version === true ? 'as a new version of its document' : 'as a new document')
+  // Written by the agent in a chat (backend/app/agent/writing.py), as the member's.
+  if (detail.by_model === true) parts.push('by the agent in a chat')
   return parts.join(', ')
 }
 

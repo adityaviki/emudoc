@@ -251,6 +251,14 @@ describe('a row', () => {
     expect(describeDetail(event('chat_exported', { answers: 4, format: 'docx' }))).toBe('4 answers, as a Word document')
   })
 
+  it('words a file of My files by its kind and version, and says when the agent wrote it', () => {
+    expect(describeDetail(event('my_file_added', { kind: 'docx', size_bytes: 9 }))).toBe('a Word document')
+    expect(describeDetail(event('my_file_added', { kind: 'docx', by_model: true, chat: 4 }))).toBe('a Word document, by the agent in a chat')
+    expect(describeDetail(event('my_file_version_added', { kind: 'docx', version: 3, by_model: true }))).toBe(
+      'a Word document, version 3, by the agent in a chat',
+    )
+  })
+
   it('words a share link by its document, its days and its password', () => {
     const made = { filename: 'msa.pdf', link: 4, days: 1, password: true }
     expect(describeDetail(event('share_link_created', made))).toBe('msa.pdf · for 1 day · with a password')

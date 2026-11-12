@@ -13,6 +13,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -2458,6 +2459,8 @@ class MyFile(Base):
         _one_of("kind", MY_FILE_KINDS, "my_files"),
         # A member's files in a project, newest first, as their list shows them.
         Index("ix_my_files_owner", "project_id", "user_id", "updated_at"),
+        # An answer's n-th file, which a run of it that starts over writes again.
+        UniqueConstraint("answer_id", "answer_ordinal"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -2478,6 +2481,14 @@ class MyFile(Base):
     origin_document_id: Mapped[int | None] = mapped_column(
         ForeignKey("documents.id", ondelete="SET NULL"), index=True
     )
+    # The answer whose agent wrote it, and which of the answer's files it is, from 0, so that a
+    # run of the answer that starts over, or a try asked again, writes it again as a version
+    # rather than a second file (app/agent/writing.py); null for an upload, and once the chat is
+    # gone.
+    answer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="SET NULL")
+    )
+    answer_ordinal: Mapped[int | None] = mapped_column(SmallInteger)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

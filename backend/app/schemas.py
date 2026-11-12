@@ -1136,6 +1136,14 @@ class RegenerateIn(BaseModel):
     question: str | None = Field(None, min_length=1)
 
 
+class StepFile(BaseModel):
+    """A file of the asker's My files that a step wrote (app/agent/writing.py), which it opens."""
+
+    id: int
+    name: str
+    version: int
+
+
 class ChatStep(BaseModel):
     """One tool call the agent made while answering."""
 
@@ -1144,6 +1152,7 @@ class ChatStep(BaseModel):
     input: dict[str, Any]
     summary: str = ""
     is_error: bool = False
+    file: StepFile | None = None
 
 
 class SourceOut(BaseModel):

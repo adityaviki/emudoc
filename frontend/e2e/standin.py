@@ -20,6 +20,9 @@ the passages. It answers as a model would that does the least the app asks:
   search a draft of the kind the question names (a reply email unless it says dispute, memo,
   table or report) about the best passage's document, the question its instructions, then says
   that it is offered;
+- an agent turn offered `create_document`, for a question that begins "Write a Word document",
+  writes after its search a document, "Notes on the invoice", of the best passage's first sentence
+  and its reference into the member's My files, then says that it is there;
 - an embedding is the text's words hashed into EMBEDDING_DIM dimensions, so a passage and a
   question that share words are near each other.
 
@@ -80,6 +83,7 @@ DRAFT_WORDS = (
     ("report", "report"),
 )
 OFFERED = "The member is offered a"
+KEPT = "in the member's My files as file"
 
 # Google Drive's tree under /google: each item by its id, its name, its type, its parent, and a
 # file's bytes.
@@ -291,14 +295,24 @@ def text_of(content: Any) -> str:
 
 
 def agent_turn(messages: list[dict[str, Any]], tools: list[str]) -> dict[str, Any]:
-    """What the model does next: a search for the question, a draft offered from its results
-    when the question asks for one and the tool is offered, or the answer from them."""
+    """What the model does next: a search for the question, a draft offered or a file written
+    from its results when the question asks for one and the tool is offered, or the answer from
+    them."""
     results = [text_of(m.get("content")) for m in messages if m.get("role") == "tool"]
     question = next(
         text_of(m.get("content")) for m in reversed(messages) if m.get("role") == "user"
     )
     if not results:
         return {"tool": "search", "arguments": {"query": question}}
+    if "create_document" in tools and question.startswith("Write a Word document"):
+        if KEPT in results[-1]:
+            return {"text": "It is in your files."}
+        if found := CITED.search(results[-1]):
+            ref, passage = found.groups()
+            sentence = SENTENCE.match(passage.strip())
+            said = (sentence.group(1) if sentence else passage).strip()
+            arguments = {"title": "Notes on the invoice", "markdown": f"# Notes\n\n{said} {ref}"}
+            return {"tool": "create_document", "arguments": arguments}
     if "create_draft" in tools and question.startswith("Draft "):
         if OFFERED in results[-1]:
             return {"text": "It is offered below as a draft for the project's drafts."}

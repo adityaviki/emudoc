@@ -40,7 +40,7 @@ from app.agent.loop import run_agent
 from app.answers import ANSWER_PROMPT_VERSION, Reply
 from app.config import Settings, listing
 from app.db import SessionLocal
-from app.drafts import CITATION
+from app.draft_export import CITATION
 from app.embeddings import Embedder
 from app.indexing.pipeline import Services, process_document
 from app.llm import INDEX_SYSTEM, LLM, LLMError

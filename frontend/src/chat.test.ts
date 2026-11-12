@@ -105,6 +105,18 @@ describe('applyEvent', () => {
     expect(message.steps.map((step) => step.id)).toEqual(['call_1', 'call_2'])
   })
 
+  it('keeps the file of My files a step wrote, which the step opens', () => {
+    const file = { id: 12, name: 'Dispute.docx', version: 1 }
+    const message = fold([
+      { type: 'tool_call', id: 'call_1', name: 'create_document', input: { title: 'Dispute' } },
+      { type: 'tool_result', id: 'call_1', summary: 'Kept Dispute.docx', is_error: false, file },
+      { type: 'tool_call', id: 'call_2', name: 'list_my_files', input: {} },
+      { type: 'tool_result', id: 'call_2', summary: 'Nothing', is_error: false },
+    ])
+    expect(message.steps[0].file).toEqual(file)
+    expect(message.steps[1].file).toBeUndefined()
+  })
+
   it('passes over an event of a kind it does not know, such as the questions an older answer suggested', () => {
     const older = { type: 'follow_ups', questions: ['How is notice given?'] } as unknown as ChatEvent
     const message = fold([{ type: 'text', text: 'The notice period is 90 days.' }, older, { type: 'done', usage: USAGE }])
