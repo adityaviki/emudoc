@@ -158,11 +158,13 @@ def add_file(
     by_model: bool = False,
     note: str = UPLOADED,
     origin_document_id: int | None = None,
+    answer: tuple[int, int] | None = None,
 ) -> MyFile:
     """Keep `upload`, named `name`, as a new file of the member's My files in the project and
     commit; raises `Refused` with nothing written. `by_model` says the agent wrote it, which needs
     no scan; the member's upload is scanned when there is a `scanner`, and shown as it looks when
-    there is a `converter`, by the job this queues."""
+    there is a `converter`, by the job this queues. `answer` is the answer that made it and which
+    of its files it is (app/agent/writing.py)."""
     kind = kind_of(name)
     if kind is None:
         raise Refused(WRONG_KIND)
@@ -183,6 +185,8 @@ def add_file(
                 name=own_name(name, kind),
                 kind=kind,
                 origin_document_id=origin_document_id,
+                answer_id=answer[0] if answer else None,
+                answer_ordinal=answer[1] if answer else None,
             )
             session.add(file)
             session.flush()

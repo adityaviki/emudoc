@@ -63,7 +63,8 @@ from reportlab.platypus import (
 )
 from reportlab.platypus.doctemplate import LayoutError
 
-from app.drafts import CITATION
+# A passage the agent cites, as it writes the reference in an answer, a draft or a file.
+CITATION = re.compile(r"\[P(\d+)\]")
 
 ExportFormat = Literal["md", "docx", "pdf"]
 MEDIA_TYPES: dict[str, str] = {
@@ -327,6 +328,13 @@ def _grid(tokens: list[Token], at: int, notes: Mapping[int, Note]) -> tuple[Grid
             row = []
         at += 1
     return Grid(aligns, head, rows), at + 1
+
+
+def line_spans(text: str) -> list[Span]:
+    """One line of Markdown in its styles (bold, italic, struck, code; a link as its text and
+    address), as a paragraph the agent writes into a Word document is set (app/word_files.py)."""
+    (inline,) = READER.parseInline(writable(text)) or [Token("inline", "", 0)]
+    return _spans(inline, {})
 
 
 def _spans(inline: Token, notes: Mapping[int, Note]) -> list[Span]:

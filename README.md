@@ -281,7 +281,18 @@ needs the role that uploads. The bytes count toward the plan's storage, a member
 200 files in a project, and the files go when the member leaves the organisation, their account
 is deleted or the project goes; deleting one is for good. The library's "My files" lists them and
 opens each with its pages and versions. My files are behind the flag `my_files` while they are
-rolled out; the agent writes and edits files there in a later change.
+rolled out.
+
+Asked in a chat, the agent writes and edits Word documents in the asker's My files
+(`backend/app/agent/writing.py`): it writes a new one from what it found, its citations numbered
+notes naming the passages, reads one of theirs as numbered paragraphs with their styles and
+tables, changes it by those numbers (a paragraph replaced, paragraphs inserted or deleted, words
+found and replaced) keeping the formatting of everything it does not touch, and copies a Word
+document of the project's library into My files to change it there, the library's document
+staying as it was until the member copies the file back as its next version. Each write is a new
+version, which the answer's step names and opens; an answer written again writes the same file
+again rather than a second one. A document's text cannot have the agent write into the project:
+at most into the asker's own files, every version kept. Excel workbooks come in a later change.
 
 A project's question sets ask its documents the same questions on their own
 (`backend/app/question_sets.py`, `GET|POST /api/projects/{id}/question-sets`, `PUT|DELETE

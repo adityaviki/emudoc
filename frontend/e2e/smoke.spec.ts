@@ -1559,6 +1559,35 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('listitem').filter({ hasText: 'from a chat' })).toContainText('Reply email, about 1 document, from a chat')
   })
 
+  await test.step('ask in a chat for a Word document, which the agent writes into My files, and open it from its step', async () => {
+    // My files, being rolled out to none, turned on for the organisation by the operator's command.
+    chooseFlag(slug, 'my_files', 'on')
+    await page.goto('/')
+    await page.getByRole('link', { name: /^Supplier contracts/ }).click()
+    await expect(page).not.toHaveURL(/[?&]chat=/)
+    const composer = page.getByPlaceholder('Ask a question about these documents')
+    await composer.fill('Write a Word document about the invoice.')
+    await composer.press('Enter')
+    // The step names the file, written as it went, and opens it.
+    const open = page.getByRole('button', { name: 'Open Notes on the invoice.docx' })
+    await expect(open).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByText('Wrote "Notes on the invoice" into My files')).toBeVisible()
+    await expect(page.getByRole('paragraph').filter({ hasText: 'It is in your files.' })).toBeVisible()
+    await expectAccessible(page, 'a step that wrote a file of My files')
+    await open.click()
+
+    // In the library's place, its heading focused: the member's alone, written by the agent.
+    await expect(page.getByRole('heading', { name: 'Notes on the invoice.docx' })).toBeFocused()
+    await expect(page.getByRole('list', { name: 'Versions' })).toContainText('Written by the agent · From a chat')
+    await expectAccessible(page, 'a file of My files the agent wrote')
+    await page.getByRole('button', { name: 'Back to My files' }).click()
+    await expect(page.getByRole('list', { name: 'My files' })).toContainText('Notes on the invoice.docx')
+    await expectAccessible(page, 'My files')
+    await page.goto('/organization/audit')
+    await page.getByLabel('What').selectOption('my_file_added')
+    await expect(page.getByRole('listitem').filter({ hasText: 'by the agent in a chat' })).toContainText('a Word document, by the agent in a chat')
+  })
+
   await test.step("give the project an address, list a supplier's domain, whose mail becomes documents, and read what became of a stranger's", async () => {
     chooseFlag(slug, 'email_in', 'on')
     await page.goto('/')

@@ -17,7 +17,7 @@ from app.agent.tools import TOOLS
 from app.answers import ANSWER_PROMPT_VERSION
 from app.config import get_settings
 from app.db import SessionLocal
-from app.drafts import CITATION
+from app.draft_export import CITATION
 from app.golden import (
     CONTRACT,
     GOLDEN,

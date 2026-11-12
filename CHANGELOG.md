@@ -16,6 +16,11 @@ newest entry first.
 
 Members:
 
+- Where My files are on, the agent writes Word documents for you there: ask in a chat for a
+  letter, a memo or a report and it writes the file, its sources as numbered notes, and the
+  answer's step opens it. Ask it to change one of your files, or a Word document of the project,
+  which it copies into My files first, and it edits it in place, keeping the formatting of
+  everything it does not change. Each change is a new version you can go back to.
 - Where an operator turns them on, each member keeps their own Word documents and Excel workbooks
   in a project, under "My files" in the library, which only they see. A file shows its pages as
   it looks, keeps every version you upload after editing it, downloads any of them, and copies
@@ -42,6 +47,12 @@ Operators:
   job; its bytes count toward the plan's storage. The audit log gains `my_file_added`,
   `my_file_version_added`, `my_file_renamed`, `my_file_deleted`, `my_file_downloaded` and
   `my_file_copied`, by the file's kind and id, never its name.
+- Answers write Word documents into the asker's My files where `my_files` is on: five tools
+  (`list_my_files`, `read_file`, `create_document`, `edit_document`, `copy_to_my_files`) move
+  the answers' prompt version. A file the agent wrote names its answer (migration 920709903bf8),
+  so an answer written again writes it again as a version. Its rows in the audit log carry
+  `by_model` and the chat. The `injection` command also fails an answer that writes a file
+  nobody asked for.
 - The images are past the high CVEs Audit has found since 8 November: the app's image is built
   on the newer python:3.13 base (apt's CVE-2026-109518) and upgrades the base's Debian packages
   as it builds (zlib's CVE-2026-85091 and CVE-2026-76844, fixed after any base was), and the

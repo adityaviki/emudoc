@@ -3,10 +3,15 @@ import {
   ArrowUp,
   BookOpen,
   ChevronDown,
+  Copy,
   ExternalLink,
+  FilePen,
+  FilePlus,
+  FileSearch,
   FileText,
   Files,
   Folder,
+  FolderLock,
   Link2,
   ListTree,
   Lock,
@@ -29,7 +34,7 @@ import type { LucideIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import { api, organizations, pageLabel, sectionPath, sourceLabel } from '../api.ts'
-import type { Chat, ChatScope, DraftKind, ScopeIn, Source, TextFormat } from '../api.ts'
+import type { Chat, ChatScope, DraftKind, ScopeIn, Source, StepFile, TextFormat } from '../api.ts'
 import { useMe } from '../auth.ts'
 import {
   ask,
@@ -561,6 +566,13 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
     workspace.openDocument(source.document_id, { passage: source.id })
   }
 
+  // A file of My files a step wrote opens in the library's place: the button lets go of the focus, which the
+  // file's view then takes to its heading.
+  function openFile(file: StepFile) {
+    if (window.document.activeElement instanceof HTMLElement) window.document.activeElement.blur()
+    workspace.showMyFile(file.id)
+  }
+
   // An answer the page gave up following is read again from its first event, as after a reload.
   function reconnect(message: Message) {
     if (chatId != null && message.id != null) resume(queryClient, chatId, message.id)
@@ -644,6 +656,7 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
                     : undefined
                 }
                 fileOf={answerFileOf(chatId, message)}
+                onOpenFile={starter ? undefined : openFile}
                 offer={
                   message.draft && message.id != null && chatId != null && message.status !== 'streaming' ? (
                     <OfferedDraft chatId={chatId} messageId={message.id} offer={message.draft} own={!starter} />
@@ -946,6 +959,8 @@ interface AnswerProps {
   onShare?: () => void
   // Where an answer with words downloads as each file, once it is no longer being written.
   fileOf?: (format: TextFormat) => string
+  // Opens a file of My files a step wrote: the asker's alone, so offered in their own chat.
+  onOpenFile?: (file: StepFile) => void
 }
 
 /** Where the answer downloads as a file headed by its question; nowhere while it is written, or for one without words. */
@@ -955,7 +970,7 @@ function answerFileOf(chatId: number | null, message: Message): ((format: TextFo
   return (format) => answerFileUrl(chatId, id, format)
 }
 
-function Answer({ message, currency, onOpen, onReconnect, onRetry, onRegenerate, retryHeld, offer, onShare, fileOf }: AnswerProps) {
+function Answer({ message, currency, onOpen, onReconnect, onRetry, onRegenerate, retryHeld, offer, onShare, fileOf, onOpenFile }: AnswerProps) {
   // Number the cited passages in the order the answer first mentions them.
   const cited = [...new Set([...message.content.matchAll(/\[P(\d+)\]/g)].map((match) => Number(match[1])))]
     .filter((id) => message.sources[id])
@@ -982,7 +997,7 @@ function Answer({ message, currency, onOpen, onReconnect, onRetry, onRegenerate,
       {message.steps.length > 0 && (
         <ul className="space-y-1">
           {message.steps.map((step) => (
-            <StepLine key={step.id} step={step} />
+            <StepLine key={step.id} step={step} onOpenFile={onOpenFile} />
           ))}
         </ul>
       )}
@@ -1155,6 +1170,11 @@ const STEP_ICONS: Record<string, LucideIcon> = {
   query_facts: Table2,
   read: BookOpen,
   create_draft: PenLine,
+  list_my_files: FolderLock,
+  read_file: FileSearch,
+  create_document: FilePlus,
+  edit_document: FilePen,
+  copy_to_my_files: Copy,
 }
 
 function describeStep({ name, input }: Step): string {
@@ -1178,22 +1198,44 @@ function describeStep({ name, input }: Step): string {
       return input.page_from != null ? `Read from page ${input.page_from}` : 'Read a document'
     case 'create_draft':
       return `Offered a draft: ${KIND_LABELS[input.kind as DraftKind] ?? 'a draft'}`
+    // The asker's My files (backend/app/agent/writing.py), named alike for whoever reads the chat.
+    case 'list_my_files':
+      return 'Looked through My files'
+    case 'read_file':
+      return 'Read a file of My files'
+    case 'create_document':
+      return typeof input.title === 'string' ? `Wrote "${input.title}" into My files` : 'Wrote a document into My files'
+    case 'edit_document':
+      return 'Edited a file of My files'
+    case 'copy_to_my_files':
+      return `Copied document ${input.document_id} into My files`
     default:
       return name
   }
 }
 
-function StepLine({ step }: { step: Step }) {
+function StepLine({ step, onOpenFile }: { step: Step; onOpenFile?: (file: StepFile) => void }) {
   const Icon = STEP_ICONS[step.name] ?? Search
   const running = step.summary === undefined
+  const file = step.file
   return (
     <li className="flex items-start gap-2 text-[13px] text-muted">
       {running ? <Spinner className="mt-0.5 size-3.5 shrink-0" /> : <Icon className="mt-0.5 size-3.5 shrink-0" />}
       <span className="min-w-0">
         {describeStep(step)}
-        {step.summary && (
+        {step.summary && !file && (
           <span className={step.is_error ? 'text-bad' : undefined}> · {step.summary}</span>
         )}
+        {file && onOpenFile && (
+          <>
+            {' · '}
+            <button type="button" className="text-accent underline-offset-2 hover:underline" onClick={() => onOpenFile(file)}>
+              Open {file.name}
+            </button>
+            {file.version > 1 && ` (version ${file.version})`}
+          </>
+        )}
+        {file && !onOpenFile && ` · ${file.name}`}
       </span>
     </li>
   )

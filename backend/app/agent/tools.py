@@ -1,12 +1,15 @@
-"""The agent's tools: five that read the project's indexes, and `create_draft`, which offers the
+"""The agent's tools: five that read the project's indexes, `create_draft`, which offers the
 member a draft to have written (app/drafts.py) and is offered itself only to a member who may have
-one. Every query is scoped to one project by the server, not the model, to what is out of the
-project's trash (app/trash.py): nothing in it is listed, searched, counted or read, and in a chat
-about a folder or chosen documents to those (app/scopes.py).
+one, and those of the member's own My files (app/agent/writing.py), offered to an answer that may
+write there. Every query is scoped to one project by the server, not the model, to what is out of
+the project's trash (app/trash.py): nothing in it is listed, searched, counted or read, and in a
+chat about a folder or chosen documents to those (app/scopes.py).
 
-None of them changes anything. An offer of a draft is the answer's (app/answers.py), shown under
-it, and nothing is written until the member presses it, so a document whose text tells the model
-to make drafts makes none."""
+None of these changes anything the project's members share. An offer of a draft is the answer's
+(app/answers.py), shown under it, and nothing is written until the member presses it, so a
+document whose text tells the model to make drafts makes none; a file of My files is the asker's
+alone, every write of it a version they can go back on (indexing-approach.md, "What the documents
+say is data")."""
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -20,7 +23,7 @@ from sqlalchemy.orm import InstrumentedAttribute, Session
 from app.embeddings import Embedder
 from app.folders import PATH_SEPARATOR, folder_paths
 from app.indexing.enrich import parse_iso_date
-from app.indexing.pipeline import unfinished_stages
+from app.indexing.pipeline import Services, unfinished_stages
 from app.languages import WORDS_AS_WRITTEN, language_name, project_language
 from app.models import Document, Fact, Passage, Section
 from app.schemas import DRAFT_DOCUMENTS, INSTRUCTION_CHARS, DraftKind
@@ -40,6 +43,23 @@ FOLDER_HELP = (
 
 
 @dataclass
+class Writing:
+    """What an answer that may write its member's My files writes with (app/agent/writing.py):
+    the member, the services that keep a file, and the answer's chat, message and try, by which a
+    run that starts over or is tried again writes the files it wrote before again, as versions,
+    rather than more of them, and a run of a try no longer the answer's writes nothing. The
+    message is None for a run that is no answer's (the planted instructions' command)."""
+
+    services: Services
+    user_id: int
+    chat_id: int | None = None
+    message_id: int | None = None
+    attempt: int | None = None
+    # The files the run made so far, which numbers the next.
+    made: int = 0
+
+
+@dataclass
 class ToolContext:
     """What one tool call runs with: a session of its own, opened for the call by the agent
     loop and closed with it, what the chat is about, and the passages the answer has shown the
@@ -56,6 +76,11 @@ class ToolContext:
     # Whether the answer offers a draft already, and the draft this call offers, if it does.
     offered: bool = False
     offer: dict[str, Any] | None = None
+    # The member's My files, where the answer may write them; None where it may not.
+    writing: Writing | None = None
+    # The file of My files this call wrote, which the step names and opens: its id, name and
+    # version.
+    wrote: dict[str, Any] | None = None
     _folder_paths: dict[int, str] | None = field(default=None, repr=False)
     _within: list[int] | None = field(default=None, repr=False)
     _language: str | None = field(default=None, repr=False)
@@ -659,6 +684,12 @@ class Tool:
     description: str
     input_model: type[_Input]
     run: Callable[[ToolContext, Any], str]
+    # What the chat's step keeps of a call's input, where not all of it: a file's whole text is
+    # the file's, not the chat's, which the project's members may read once it is shared.
+    step: Callable[[dict[str, Any]], dict[str, Any]] | None = None
+
+    def stepped(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return arguments if self.step is None else self.step(arguments)
 
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
