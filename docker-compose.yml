@@ -53,7 +53,7 @@ services:
   # scan a file as large as MAX_UPLOAD_MB; raise them together. The tests never need it: they
   # run the pipeline against a fake scanner, and the clamd client against a fake daemon.
   clamav:
-    image: clamav/clamav:1.5@sha256:638d90201ee7ee6a82d249a2fc23b132e578673b5f1f2766852b127676ca1ef6
+    image: clamav/clamav:1.5@sha256:45fe5149fbee5a46509c9848ef20d0c354b7b2323c9369f285939a37cf33422a
     profiles: ["clamav"]
     environment:
       CLAMD_CONF_StreamMaxLength: 100M

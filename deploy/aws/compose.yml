@@ -50,7 +50,7 @@ services:
   # on the machine would, 127.0.0.1:8000, whose requests come from the gateway that
   # FORWARDED_ALLOW_IPS names.
   caddy:
-    image: caddy:2.11.7@sha256:685ae3d7c34d9b5f8caeddc5d14051db7bbd88ff1f5a2fa0c16bd8ca328fb7af
+    image: caddy:2.11.9@sha256:e40b94d0a43b5ff69cb20568d73f10c70703df7b0ffc2298eb3d723cdc9d0bd1
     network_mode: host
     environment:
       EMUDOC_DOMAIN: ${EMUDOC_DOMAIN:?set EMUDOC_DOMAIN to APP_URL's host}
@@ -72,7 +72,7 @@ services:
   # the services' names on this network. It holds no credentials. Its page answers on the host's
   # loopback alone, for Session Manager's port forwarding: the metrics never leave the instance.
   prometheus:
-    image: prom/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e
+    image: prom/prometheus:v3.16.0@sha256:e04987641b57704f408e31f6373ba4138ecf27cb4a165d24aabb6c38fddd0f06
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
@@ -101,7 +101,7 @@ services:
   # written over the words in @ of its configuration at each start. Its web page, for silences,
   # answers on the host's loopback alone.
   alertmanager:
-    image: prom/alertmanager:v0.34.1@sha256:e9733bafb1bdef9b00e25a21f8f99dc26a22224bf16641ad754d1649f4c3357a
+    image: prom/alertmanager:v0.35.0@sha256:e638797febd034838eca8b98cdbd46f951e9bf7f178777aa8669167406a9946c
     entrypoint:
       - /bin/sh
       - -euc

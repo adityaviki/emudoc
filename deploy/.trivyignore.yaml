@@ -10,142 +10,24 @@
 # `expired_at`, after which the morning run fails again: take the release Dependabot proposes,
 # or look again and move the date. An entry whose finding has gone is removed.
 
+
 vulnerabilities:
-  # Caddy 2.11.7 was built on 3 October with Go 1.26.8 and golang.org/x/net 0.59.0; Go 1.26.9
-  # and x/net 0.60.0 fixed these on 8 October. Caddy's next release should bring them.
-  - id: CVE-2026-78669
+  # golang.org/x/net 0.62.0 made its HTML parser's joining of text linear; Caddy 2.11.9 holds
+  # 0.60.0, Prometheus 3.16.0 and Alertmanager 0.35.0 0.61.0. A crafted page of many short texts
+  # between ignored end tags takes the parser quadratic time, so it matters only where one of
+  # them parses HTML a peer wrote.
+  - id: CVE-2026-78661
     paths: [usr/bin/caddy]
-    expired_at: 2026-11-17
+    expired_at: 2026-11-26
     statement: >-
-      A peer that floods HTTP/2 SETTINGS frames keeps the edge's CPU busy. It stops the service
-      and reads nothing, and the instance, with nothing in front of it, is as open to any other
-      flood.
+      Caddy parses HTML only in its templates handler, which deploy/aws/Caddyfile does not use:
+      it proxies to the app, compresses the pages and limits bodies, passing the app's HTML
+      through unread.
 
-  - id: CVE-2026-78667
-    paths: [usr/bin/caddy]
-    expired_at: 2026-11-17
+  - id: CVE-2026-78661
+    paths: [bin/prometheus, bin/promtool, bin/alertmanager, bin/amtool]
+    expired_at: 2026-11-26
     statement: >-
-      A Range header reaches the slow code (FileServer, ServeContent) through Caddy's
-      file_server alone; deploy/aws/Caddyfile only proxies.
-
-  - id: CVE-2026-97031
-    paths: [usr/bin/caddy]
-    expired_at: 2026-11-17
-    statement: >-
-      Caddy offers Encrypted Client Hello only with its `ech` global option, which
-      deploy/aws/Caddyfile does not set, so the server never decodes the extension.
-
-  # Prometheus 3.15.0 was built with Go 1.27.1 and Alertmanager 0.34.1 with Go 1.26.8, both with
-  # golang.org/x/net 0.58.0: the same three that Go 1.26.9, 1.27.2 and x/net 0.60.0 fixed. Their
-  # servers answer the compose network and the instance's loopback alone (deploy/aws/compose.yml),
-  # neither speaks TLS, and promtool and amtool are run by hand and by CI on the repository's own
-  # files, never as servers.
-  - id: CVE-2026-78669
-    paths: &prometheus [bin/prometheus, bin/promtool, bin/alertmanager, bin/amtool]
-    expired_at: 2026-11-18
-    statement: >-
-      A peer that floods HTTP/2 SETTINGS frames keeps the process busy: only the containers on
-      the instance and its root reach Prometheus and Alertmanager, and the peers they reach are
-      the app's own metrics ports and AWS's SNS.
-
-  - id: CVE-2026-78667
-    paths: *prometheus
-    expired_at: 2026-11-18
-    statement: >-
-      A Range header reaches the slow code through their web pages alone, which nobody outside
-      the instance reaches.
-
-  - id: CVE-2026-97031
-    paths: *prometheus
-    expired_at: 2026-11-18
-    statement: >-
-      Encrypted Client Hello is decoded by a TLS server, and neither serves TLS
-      (no --web.config.file).
-
-  # gRPC-Go 1.83.1 in Alertmanager 0.34.1; 1.83.2 fixed it.
-  - id: CVE-2026-84445
-    paths: [bin/alertmanager, bin/amtool]
-    expired_at: 2026-11-18
-    statement: >-
-      A malformed request reaches a gRPC server, and Alertmanager serves none: gRPC is linked for
-      the tracing exporter's client, which its configuration does not turn on.
-
-  # Go 1.26.10 and 1.27.3 (GO-2026-6809) added to Certificate.Verify a denylist of compromised
-  # intermediate certificates that trust stores may still chain to; Caddy 2.11.7 and
-  # Alertmanager 0.34.1 were built with Go 1.26.8, Prometheus 3.15.0 with 1.27.1. It matters
-  # only where a binary verifies a peer's chain, against a peer on the path holding a
-  # certificate from one of those intermediates.
-  - id: CVE-2026-111943
-    paths: [usr/bin/caddy]
-    expired_at: 2026-11-20
-    statement: >-
-      Caddy verifies a chain only as an ACME client: deploy/aws/Caddyfile proxies to the API
-      over plain HTTP on loopback and asks for no client certificates. A peer posing as the
-      certificate authority can hold up a renewal, which starts 30 days before the certificate
-      ends, but cannot make a certificate browsers trust.
-
-  - id: CVE-2026-111943
-    paths: [bin/prometheus, bin/promtool, bin/amtool]
-    expired_at: 2026-11-20
-    statement: >-
-      None of them verifies a chain: Prometheus scrapes the app's metrics over plain HTTP on the
-      compose network (deploy/prometheus/prometheus.yml), and promtool and amtool read the
-      repository's files.
-
-  - id: CVE-2026-111943
-    paths: [bin/alertmanager]
-    expired_at: 2026-11-20
-    statement: >-
-      Alertmanager verifies SNS's chain as it publishes. A peer posing as SNS on AWS's network
-      would read alert summaries, which name the environment and no member's data, or drop them;
-      the heartbeat it drops with them sets off CloudWatch's `silent` alarm, which pages without
-      Alertmanager.
-
-  # Alpine's brotli 1.2.1-r0 fixed this in its decoder, and Caddy's and ClamAV's images were last
-  # rebuilt (21 and 19 October) with 1.2.0. An OS package has no path in trivy's report, so each
-  # is named by its package and version (`purls`), which no other image beside the app holds.
-  - id: CVE-2026-111497
-    purls: [pkg:apk/alpine/brotli-libs@1.2.0-r0]
-    expired_at: 2026-11-14
-    statement: >-
-      In Caddy's image only curl links the library, and nothing in the deployment runs curl
-      there: Caddy is a Go binary of its own, which decodes no brotli.
-
-  - id: CVE-2026-111497
-    purls: [pkg:apk/alpine/brotli-libs@1.2.0-r1]
-    expired_at: 2026-11-14
-    statement: >-
-      In ClamAV's image libcurl links the library for freshclam, which downloads the signatures
-      from database.clamav.net over HTTPS checked against the image's certificates, and for
-      clamsubmit, which nothing runs. A crafted response could reach the decoder only from
-      ClamAV's own mirror, which already supplies what the scanner runs.
-
-  # go-jose 4.1.5 in Caddy 2.11.7; 4.1.6 fixed it. Caddy parses a peer's JWK only as an ACME
-  # server (its `acme_server` directive, the pki app), handing out certificates.
-  - id: CVE-2026-116587
-    paths: [usr/bin/caddy]
-    expired_at: 2026-11-14
-    statement: >-
-      deploy/aws/Caddyfile runs no ACME server: Caddy is the ACME client of its certificate
-      authority alone, which signs with its own key and parses no JWK a peer sends.
-
-  # Alpine's curl 8.23.0-r0 fixed this, and Caddy's and ClamAV's images were last rebuilt with
-  # 8.22.0-r0, which both hold, so one entry names it for the two.
-  - id: CVE-2026-92392
-    purls: [pkg:apk/alpine/curl@8.22.0-r0, pkg:apk/alpine/libcurl@8.22.0-r0]
-    expired_at: 2026-11-14
-    statement: >-
-      The fault is in an HTTP/2 upload. In Caddy's image nothing in the deployment runs curl; in
-      ClamAV's libcurl uploads only for clamsubmit, which nothing runs, while freshclam downloads
-      the signatures and clamd uses no curl.
-
-  # Ubuntu's brotli 1.1.0-2ubuntu0.1 fixed this in its decoder, and llama.cpp's server image of
-  # b11706 holds 1.1.0-2build2. The weekly digest Dependabot proposes should bring it.
-  - id: CVE-2026-111497
-    purls: [pkg:deb/ubuntu/libbrotli1@1.1.0-2build2]
-    expired_at: 2026-11-14
-    statement: >-
-      Only curl decodes brotli there, and only when asked to (--compressed): the weights'
-      download in deploy/compose.yml and the health check run curl without it, so it sends no
-      Accept-Encoding and decodes nothing; llama-server reads the weights from the volume and
-      downloads nothing.
+      None of them parses HTML: Prometheus scrapes the app's metrics in its text format over the
+      compose network (deploy/prometheus/prometheus.yml), Alertmanager takes Prometheus's alerts
+      as JSON and publishes them to SNS, and promtool and amtool read the repository's files.

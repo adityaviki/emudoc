@@ -200,7 +200,7 @@ EMUDOC_ENV=/dev/null EMUDOC_IMAGE=emudoc:app EMUDOC_DOMAIN=example.org \
   docker compose -f deploy/compose.yml -f deploy/aws/compose.yml config --images
 docker run --rm -v "$PWD:/src:ro" -w /src aquasec/trivy:0.73.0 image --image-src remote \
   --platform linux/amd64 --timeout 20m --scanners vuln,secret --severity HIGH,CRITICAL \
-  --ignore-unfixed --ignorefile deploy/.trivyignore.yaml caddy:2.11.7@sha256:…
+  --ignore-unfixed --ignorefile deploy/.trivyignore.yaml caddy:2.11.9@sha256:…
 ```
 
 `deploy/compose.yml` puts it together on one machine: the release step, the API, a worker,
@@ -2987,7 +2987,7 @@ scrape_configs:
 
 ```bash
 docker run -d --name prometheus --network emudoc-deploy_default -p 127.0.0.1:9090:9090 \
-  -v "$PWD/deploy/prometheus:/etc/prometheus:ro" prom/prometheus:v3.15.0
+  -v "$PWD/deploy/prometheus:/etc/prometheus:ro" prom/prometheus:v3.16.0
 ```
 
 (checked with Prometheus 3.15 against the image's API and worker under those names). The file
@@ -3182,12 +3182,12 @@ receivers:
 docker run -d --name alertmanager --network emudoc-deploy_default \
   -v "$PWD/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro" \
   -v "$PWD/smtp-password:/etc/alertmanager/smtp-password:ro" \
-  -v "$PWD/deadman-url:/etc/alertmanager/deadman-url:ro" prom/alertmanager:v0.34.1
+  -v "$PWD/deadman-url:/etc/alertmanager/deadman-url:ro" prom/alertmanager:v0.35.0
 ```
 
 (the rules checked with Prometheus 3.15 against a running API and worker: every rule evaluated
 without an error, and a stopped API put `EmudocProcessDown` and `EmudocNoApi` pending; the
-configuration with `amtool check-config` of Alertmanager 0.34.1). Alertmanager alone is quiet
+configuration with `amtool check-config` of Alertmanager 0.35.0). Alertmanager alone is quiet
 when Prometheus is down, and nothing on the machine reports the machine gone: the watchdog,
 `EmudocWatchdog`, is for a dead man's switch, a service that calls when it stops hearing it
 (a monitoring service's heartbeat check takes the webhook), whose address `deadman-url`
