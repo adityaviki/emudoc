@@ -70,7 +70,7 @@ from app.fact_checks import fact_out
 from app.flags import EXTRACTION_TEMPLATES, flag_on
 from app.indexing.pipeline import Services
 from app.jobs import LIVE, RUN_WORKFLOW, Lease, LeaseLost, enqueue, renew
-from app.mail import checks_run_email, in_organization
+from app.mail import checks_run_email
 from app.models import (
     Automation,
     CrossCheck,
@@ -632,7 +632,7 @@ def _tell_run(
             counts,
             run.report_status,
             run.report_error,
-            in_organization(f"{url}{page}", organization.id),
+            f"{url}{page}",
         )
         told += tell(session, user, organization.id, CHECKS_RUN, content, page, url)
     return told

@@ -33,7 +33,7 @@ from sqlalchemy import delete, exists, func, select
 from sqlalchemy.orm import Session
 
 from app.access import seeing
-from app.mail import in_organization, mentioned_email, thread_replied_email
+from app.mail import mentioned_email, thread_replied_email
 from app.models import (
     Block,
     Comment,
@@ -326,7 +326,7 @@ def _tell(
         document.filename,
         project.name,
         organization.name,
-        in_organization(f"{app_url}{page}", organization.id),
+        f"{app_url}{page}",
     )
     tell(session, user, organization.id, kind, content, page, app_url)
 

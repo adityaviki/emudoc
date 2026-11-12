@@ -12,7 +12,7 @@ from fastapi import Request
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select, update
 
-from app.accounts import LOCAL_OWNER_EMAIL, create_account, create_user
+from app.accounts import LOCAL_OWNER_EMAIL, add_member, create_account, create_user
 from app.api.auth import (
     ADDRESS_TAKEN,
     CODE_INVALID,
@@ -78,14 +78,24 @@ def finish_signup(
     )
 
 
-def signup(client, email="ada@example.com", password=PASSWORD, name="Ada", time_zone="") -> dict:
+def signup(
+    client,
+    email="ada@example.com",
+    password=PASSWORD,
+    name="Ada",
+    time_zone="",
+    joins: int | None = None,
+    role: str = "member",
+) -> dict:
     """An account with an organisation of its own, signed in on `client`, as signing up made
     one until 2026-11-12 and the setup makes an install's first (app/signups.py): the address
     confirmed, the current terms accepted, the sample project given, the same rows in the audit
-    log, and the session and the browser started as a sign-in starts them. Made directly, since
-    no route makes a second organisation's owner any more, so that a test may hold several
-    organisations, as development's database does; the ways in themselves are the setup's,
-    the sign-up's and the invitations' own tests."""
+    log, and the session and the browser started as a sign-in starts them. With `joins`, a
+    member of that organisation alone, with `role`, as one who accepted an invitation to the
+    workspace is, and no sample. Made directly, since no route makes a second organisation's
+    owner any more, so that a test may hold several organisations, as development's database
+    does; the ways in themselves are the setup's, the sign-up's and the invitations' own
+    tests."""
     # The request a sign-up came as, for the session's and the audit log's address and browser.
     request = Request(
         {
@@ -100,7 +110,8 @@ def signup(client, email="ada@example.com", password=PASSWORD, name="Ada", time_
         }
     )
     with SessionLocal() as session:
-        account = create_account(
+        made = create_account if joins is None else create_user
+        account = made(
             session,
             email.strip().lower(),
             name,
@@ -108,6 +119,8 @@ def signup(client, email="ada@example.com", password=PASSWORD, name="Ada", time_
             email_verified=True,
             time_zone=time_zone,
         )
+        if joins is not None:
+            account = add_member(session, session.get(Organization, joins), account, role)
         account.user.terms_version = TERMS_VERSION
         account.user.terms_accepted_at = now()
         user_session, token = start_session(session, account.user, request)
@@ -115,7 +128,8 @@ def signup(client, email="ada@example.com", password=PASSWORD, name="Ada", time_
         account = replace(account, session_id=user_session.id)
         audit(session, account, request, "sign_up", detail={"method": "password"})
         audit(session, account, request, "terms_accepted", detail={"version": TERMS_VERSION})
-        add_sample(session, account.organization, client.app.state.services.storage)
+        if joins is None:
+            add_sample(session, account.organization, client.app.state.services.storage)
         session.commit()
     # Whoever was signed in on the client before is not the new account.
     for cookie, value, path in (
@@ -190,7 +204,6 @@ def test_signup_mails_a_link_whose_page_makes_the_account(client, session, maile
     # A member of the install's workspace, and of no organisation of her own.
     assert account["identities"] == [] and account["role"] == "member"
     assert account["organization"]["id"] == open_signup
-    assert [organization["id"] for organization in account["organizations"]] == [open_signup]
     assert session.scalar(select(func.count()).select_from(Organization)) == 1
     assert me(other).json() == account and me(client).status_code == 401
     assert len(mailer.sent) == 1

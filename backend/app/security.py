@@ -2,30 +2,27 @@
 it, and how long after signing in a session may work in it.
 
 Both are the organisation's own (columns of `organizations`), chosen by its owners and admins on
-its page (app/api/organizations.py), and held at the request, since a session belongs to no
-organisation: it works in the one its user switched to, and a switch moves it
-(app/accounts.py).
+its page (app/api/organizations.py), and held at the request, in the organisation the session
+works in (app/accounts.py).
 
-Two-factor: a member whose account signs in without a second factor is held in that
-organisation alone, as an account that has not accepted the current terms is held everywhere
-(`get_secured_account` in app/api/deps.py). The page offers them the way to set up an
-authenticator app, to switch to another of their organisations, to leave this one, or to sign
-out, and the API refuses the rest with 403. An account that signs in through Google or
+Two-factor: a member whose account signs in without a second factor is held, as an account that
+has not accepted the current terms is (`get_secured_account` in app/api/deps.py). The page
+offers them the way to set up an authenticator app, or to sign out, and the API refuses the rest
+with 403. An account that signs in through Google or
 Microsoft sets one up too, since the provider's own second factor, if it asks one, is not seen
 by the app. Nobody turns the requirement on without signing in with two-factor themselves, so
 the owner or admin who asks is never held by their own choice; and every session of an account
 with two-factor on has had its code, since turning it on ends the others (`enable_mfa` in
 app/api/auth.py). An API key is held with its member (app/apikeys.py). The local account of
 development has no session and is never held. The notification centre leaves out the notices
-of an organisation that holds its user, which name its documents (app/api/notifications.py);
-their mail cannot be held back and still goes.
+of an organisation that holds its user, which name its documents: its routes take the account
+that is held (app/api/notifications.py); their mail cannot be held back and still goes.
 
 Sessions: a session that signed in longer ago than the organisation it works in allows ends at
 its next request, which is answered with 401 as an expired session's is, and its user signs in
-again (`get_account` in app/api/deps.py). One that works in another organisation goes on,
-whatever this one allows. The deployment's SESSION_DAYS is the most an organisation may choose,
-since no session lasts longer. An API key has no session to end: it runs out on its own day,
-or is rolled or revoked.
+again (`get_account` in app/api/deps.py). The deployment's SESSION_DAYS is the most an
+organisation may choose, since no session lasts longer. An API key has no session to end: it
+runs out on its own day, or is rolled or revoked.
 """
 
 import datetime as dt
@@ -53,7 +50,7 @@ def mfa_pending(organization: Organization) -> str:
     return (
         f"{organization.name} asks everyone who works in it to sign in with two-factor. Set up "
         "an authenticator app for your account to go on working in it: reload the page for the "
-        "way, or to switch to another organisation."
+        "way."
     )
 
 

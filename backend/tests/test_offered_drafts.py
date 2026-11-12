@@ -4,8 +4,6 @@ about the documents it found, and the member's press has it written into the pro
 once, counting no question beside the one asked. Nothing is written before the press, so a
 document cannot make drafts, and a member who could not have one written is offered none."""
 
-from datetime import UTC, datetime
-
 from pydantic_ai.messages import TextPart, ToolCallPart
 from sqlalchemy import func, select
 
@@ -14,7 +12,7 @@ from app.answers import answer
 from app.config import get_settings
 from app.flags import DRAFTS, FLAGS
 from app.jobs import WRITE_DRAFT
-from app.models import ChatMessage, Draft, Job, Organization
+from app.models import ChatMessage, Draft, Job
 from tests.conftest import FakeTurn
 from tests.test_api import create_project
 from tests.test_audit import actions
@@ -206,12 +204,6 @@ def test_a_member_who_could_not_have_a_draft_written_is_offered_none(
     refused = press(client, chat_id, message.id)
     assert refused.status_code == 403, refused.text
     client.app.dependency_overrides.clear()
-
-    # An organisation set to be deleted adds nothing to its projects, drafts among it.
-    organization = session.get(Organization, account.organization.id)
-    organization.deletion_due_at = datetime.now(UTC)
-    session.commit()
-    assert offers() == (False, None)
 
 
 def test_an_offer_waits_for_its_answer_and_goes_with_a_try(client, session, services, monkeypatch):

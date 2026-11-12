@@ -6,11 +6,9 @@ and admins choose on the organisation page): a row in their notification centre
 (`notifications`, app/api/notifications.py), and the mail through `post_notice`
 (app/postbox.py), which also leaves out an address the mail provider said to spare. Both are
 made in the transaction of the change that calls for them, so that the centre and the mail never
-disagree. The centre lists a member's notices of every organisation they belong to, and a
-notice's mail links to its page in the organisation it is about (`in_organization`), since they
-may work in another when they open it. A member who leaves an organisation, or is removed from
-it, loses its notices (`forget_notifications`), and the housekeeper removes those older than
-NOTIFICATION_DAYS (`prune_notifications`).
+disagree. The centre lists a member's notices of the workspace, and a notice's mail links to
+its page. A member removed from the workspace loses its notices (`forget_notifications`), and
+the housekeeper removes those older than NOTIFICATION_DAYS (`prune_notifications`).
 
 An upload. The files of one request are one upload (`uploads`, made by `record_upload` once the
 request has stored them all), and the member who sent them is told once the last of them is
@@ -66,7 +64,7 @@ from app.entitlements import (
     pages_this_month,
     questions_this_month,
 )
-from app.mail import Content, in_organization, quota_email, upload_indexed_email
+from app.mail import Content, quota_email, upload_indexed_email
 from app.models import (
     NOTICE_CHANNELS,
     NOTICE_KINDS,
@@ -161,7 +159,7 @@ def tell(
 ) -> bool:
     """Tell the user a notice of the kind about the organisation, whose page `path` it leads to,
     in the app and by email as they chose, in the caller's session; returns whether it was told
-    either way. The content's own link is the caller's, `in_organization` of the same page."""
+    either way. The content's own link is the caller's, to the same page."""
     told = False
     defaults = session.get(Organization, org_id).notices
     if user.wants(kind, IN_APP, defaults):
@@ -342,7 +340,7 @@ def _tell(session: Session, settled: Row, app_url: str) -> None:
         moment_words(settled.created_at, zone_of(user.time_zone)),
         len(documents) - len(failed),
         failed,
-        in_organization(f"{app_url}{page}", project.org_id),
+        f"{app_url}{page}",
     )
     tell(session, user, project.org_id, UPLOAD_INDEXED, content, page, app_url)
 
@@ -403,7 +401,7 @@ def note_quota(
             allowance,
             MONTHS[start.month - 1],
             MONTHS[following.month - 1],
-            in_organization(f"{app_url}{USAGE_PAGE}", organization.id),
+            f"{app_url}{USAGE_PAGE}",
             refused=refused,
         )
         told += tell(session, membership.user, organization.id, QUOTA, content, USAGE_PAGE, app_url)

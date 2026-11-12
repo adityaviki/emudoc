@@ -198,7 +198,7 @@ from sqlalchemy import text  # noqa: E402
 
 from app import config as app_config  # noqa: E402
 from app.accounts import Account, local_account  # noqa: E402
-from app.api.deps import SAME_APP_HEADER, SessionDep, get_account  # noqa: E402
+from app.api.deps import SAME_APP_HEADER, SessionDep, get_person  # noqa: E402
 from app.config import get_settings  # noqa: E402
 from app.db import Base, SessionLocal, alembic_config, engine  # noqa: E402
 from app.embeddings import EmbeddingError  # noqa: E402
@@ -1090,7 +1090,8 @@ def make_account(session):
 
 @pytest.fixture
 def act_as(client):
-    """Make the API act as the given account instead of the local one, as sign-in will."""
+    """Make the API act as the given account instead of the local one, as sign-in will: every
+    account dependency, `/me` among them, follows `get_person`."""
 
     def act_as(account: Account) -> None:
         org_id, user_id, role = account.organization.id, account.user.id, account.role
@@ -1098,10 +1099,10 @@ def act_as(client):
         def signed_in(session: SessionDep) -> Account:
             return Account(session.get(Organization, org_id), session.get(User, user_id), role)
 
-        client.app.dependency_overrides[get_account] = signed_in
+        client.app.dependency_overrides[get_person] = signed_in
 
     yield act_as
-    client.app.dependency_overrides.pop(get_account, None)
+    client.app.dependency_overrides.pop(get_person, None)
 
 
 @pytest.fixture

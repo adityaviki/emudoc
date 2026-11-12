@@ -43,7 +43,7 @@ from app.entitlements import check_question, check_question_sets
 from app.flags import QUESTION_SETS, flag_on
 from app.indexing.pipeline import Services
 from app.jobs import LIVE, WRITE_QUESTION_REPORT, Lease, LeaseLost, enqueue, renew
-from app.mail import in_organization, report_ready_email
+from app.mail import report_ready_email
 from app.models import Document, Project, QuestionReport, QuestionSet
 from app.notices import (
     MONTH_QUESTIONS,
@@ -515,7 +515,7 @@ def _tell(session: Session, report: QuestionReport, project: Project) -> int:
             arrived,
             len(report.answers),
             answered,
-            in_organization(f"{url}{page}", organization.id),
+            f"{url}{page}",
         )
         told += tell(session, user, organization.id, REPORT_READY, content, page, url)
     return told

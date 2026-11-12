@@ -1,13 +1,12 @@
-"""How people join an organisation: the invitations its owners and admins send, resend and
-revoke, the page an invitation's link opens, signed in, signing up or through a provider, and
-the domains whose confirmed addresses may join by themselves."""
+"""How people join the workspace: the invitations its owners and admins send, resend and revoke,
+and the page an invitation's link opens, signed in, signing up or through a provider."""
 
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
-from sqlalchemy import func, update
+from sqlalchemy import func, select, update
 
 from app.api.auth import (
     INVITATION_ELSEWHERE,
@@ -22,7 +21,7 @@ from app.config import get_settings
 from app.db import engine
 from app.entitlements import PLANS
 from app.legal import TERMS_VERSION
-from app.models import Invitation, User
+from app.models import Invitation, Membership, User
 from app.signups import SIGNUP_CLOSED
 from tests.test_audit import actions
 from tests.test_auth import (
@@ -104,10 +103,6 @@ def expire(session, email: str, ago: timedelta = timedelta(minutes=1)) -> None:
     session.commit()
 
 
-def joining(client, *domains: str, role: str = "member"):
-    return client.put("/api/organization/joining", json={"domains": list(domains), "role": role})
-
-
 # Invitations
 
 
@@ -146,7 +141,7 @@ def test_an_invitation_makes_a_new_account_a_member_and_nothing_more(client, ses
     account = made.json()
     assert (account["organization"]["id"], account["role"]) == (org_id, "viewer")
     # No organisation of his own: the one that invited him is his only one.
-    assert [o["name"] for o in account["organizations"]] == ["Ada's workspace"]
+    assert session.scalar(select(func.count()).select_from(Membership)) == 2
     assert account["email_verified"] is True and account["terms_due"] is False
     assert account["time_zone"] == "Europe/Berlin"
     assert me(bob).json()["organization"]["id"] == org_id
@@ -172,7 +167,7 @@ def test_the_account_with_the_address_accepts_signed_in_and_works_there(
 ):
     org_id = ada["organization"]["id"]
     bob = another_browser(client)
-    own = signup(bob, "bob@example.com", name="Bob")["organization"]["id"]
+    signup(bob, "bob@example.com", name="Bob")
     # An account that signed up through a provider which did not vouch for its address.
     session.execute(
         update(User).where(User.email == "bob@example.com").values(email_verified_at=None)
@@ -189,7 +184,6 @@ def test_the_account_with_the_address_accepts_signed_in_and_works_there(
     assert joined.status_code == 200, joined.text
     account = joined.json()
     assert (account["organization"]["id"], account["role"]) == (org_id, "admin")
-    assert {o["id"] for o in account["organizations"]} == {org_id, own}
     # Opening the link proved the address.
     assert account["email_verified"] is True
     # The session works there from now on, in every tab.
@@ -220,10 +214,8 @@ def test_only_the_invited_address_accepts(client, session, mailer, ada, monkeypa
 def test_owners_and_admins_invite_to_their_own_role_or_below(client, session, mailer, ada):
     org_id = ada["organization"]["id"]
     bob, cat = another_browser(client), another_browser(client)
-    join(session, org_id, signup(bob, "bob@example.com", name="Bob")["id"], "admin")
-    join(session, org_id, signup(cat, "cat@example.com", name="Cat")["id"], "member")
-    for browser in (bob, cat):
-        browser.post(f"/api/organizations/{org_id}/switch")
+    signup(bob, "bob@example.com", name="Bob", joins=org_id, role="admin")
+    signup(cat, "cat@example.com", name="Cat", joins=org_id)
 
     refused = bob.post(
         "/api/organization/invitations", json={"email": "x@example.com", "role": "owner"}
@@ -389,7 +381,6 @@ def test_a_new_account_through_a_provider_joins_the_organisation_that_invited_it
     assert arrived.headers["location"] == "/"
     account = me(grace).json()
     assert (account["organization"]["id"], account["role"]) == (org_id, "viewer")
-    assert [o["id"] for o in account["organizations"]] == [org_id]
     assert account["email_verified"] is True and account["terms_due"] is True
     assert actions(session, org_id)[-3:] == [
         ("sign_up", {"method": "google"}),
@@ -436,98 +427,7 @@ def test_the_sender_is_given_the_link_to_hand_on(client, mailer, ada, room, monk
     assert invite(client, "carol@example.com")["mailed"] is True
 
 
-# Joining by domain
-
-
-def test_everyone_at_an_admins_own_domain_is_offered_the_organisation(client, session, ada):
-    org_id = ada["organization"]["id"]
-    chosen = joining(client, "Acme.com", role="viewer")
-    assert chosen.status_code == 200, chosen.text
-    assert chosen.json()["organization"]["join_domains"] == ["acme.com"]
-    assert chosen.json()["organization"]["join_role"] == "viewer"
-    assert actions(session, org_id)[-1] == (
-        "joining_changed",
-        {"domains": "acme.com", "role": "viewer"},
-    )
-
-    bob = another_browser(client)
-    offered = signup(bob, "bob@acme.com", name="Bob")
-    assert offered["joinable"] == [{"id": org_id, "name": "Ada's workspace", "role": "viewer"}]
-    joined = bob.post(f"/api/organizations/{org_id}/join")
-    assert joined.status_code == 200, joined.text
-    assert (joined.json()["organization"]["id"], joined.json()["role"]) == (org_id, "viewer")
-    assert joined.json()["joinable"] == []
-    assert me(bob).json()["organization"]["id"] == org_id
-    assert actions(session, org_id)[-1] == (
-        "member_joined",
-        {"role": "viewer", "domain": "acme.com"},
-    )
-    again = bob.post(f"/api/organizations/{org_id}/join")
-    assert again.status_code == 409
-
-    # Someone at another domain is offered nothing, and finds nothing to join.
-    eve = another_browser(client)
-    assert signup(eve, "eve@globex.com")["joinable"] == []
-    assert eve.post(f"/api/organizations/{org_id}/join").status_code == 404
-
-
-def test_a_domain_is_added_only_by_someone_with_a_confirmed_address_at_it(client, session, ada):
-    for domain, sentence in (
-        ("gmail.com", "Anyone can have an address at gmail.com"),
-        ("globex.com", "Only someone whose own confirmed address is at globex.com"),
-        ("not a domain", "not a domain is not a domain."),
-    ):
-        refused = joining(client, domain)
-        assert refused.status_code == 400
-        assert refused.json()["detail"].startswith(sentence)
-    session.execute(update(User).where(User.email == "ada@acme.com").values(email_verified_at=None))
-    session.commit()
-    assert joining(client, "acme.com").status_code == 400
-
-    # A domain someone else added stays, and any may be taken off.
-    session.execute(
-        update(User).where(User.email == "ada@acme.com").values(email_verified_at=func.now())
-    )
-    session.commit()
-    assert joining(client, "acme.com").status_code == 200
-    bob = another_browser(client)
-    join(session, ada["organization"]["id"], signup(bob, "bob@acme.co.uk")["id"], "admin")
-    bob.post(f"/api/organizations/{ada['organization']['id']}/switch")
-    both = joining(bob, "acme.com", "acme.co.uk").json()["organization"]["join_domains"]
-    assert both == ["acme.co.uk", "acme.com"]
-    assert joining(client, "acme.co.uk").json()["organization"]["join_domains"] == ["acme.co.uk"]
-    assert joining(client).json()["organization"]["join_domains"] == []
-
-    # A member chooses nothing.
-    cat = another_browser(client)
-    join(session, ada["organization"]["id"], signup(cat, "cat@acme.com")["id"])
-    cat.post(f"/api/organizations/{ada['organization']['id']}/switch")
-    assert joining(cat, "acme.com").json()["detail"] == ADMINS_ONLY
-
-
-def test_an_unconfirmed_address_or_a_full_plan_joins_nothing(client, session, ada, room):
-    org_id = ada["organization"]["id"]
-    joining(client, "acme.com")
-    bob = another_browser(client)
-    signup(bob, "bob@acme.com")
-    session.execute(update(User).where(User.email == "bob@acme.com").values(email_verified_at=None))
-    session.commit()
-    assert me(bob).json()["joinable"] == []
-    assert bob.post(f"/api/organizations/{org_id}/join").status_code == 404
-
-    session.execute(
-        update(User).where(User.email == "bob@acme.com").values(email_verified_at=func.now())
-    )
-    session.commit()
-    room(1)
-    full = bob.post(f"/api/organizations/{org_id}/join")
-    assert full.status_code == 402
-    assert full.json()["detail"].startswith("Ada's workspace has as many members as its plan")
-
-
 def test_an_organisation_past_its_plan_invites_and_takes_nobody(client, session, ada, room):
-    org_id = ada["organization"]["id"]
-    joining(client, "acme.com")
     sent = invite(client, "bob@example.com")
     # Its members lowered under the member and the invitation it has.
     room(1)
@@ -544,15 +444,6 @@ def test_an_organisation_past_its_plan_invites_and_takes_nobody(client, session,
     }
     # The invitation still open is sent again, since it holds its place already.
     assert client.post(f"/api/organization/invitations/{sent['id']}/resend").status_code == 200
-
-    dan = another_browser(client)
-    signup(dan, "dan@acme.com")
-    refused = dan.post(f"/api/organizations/{org_id}/join")
-    assert (refused.status_code, refused.json()["detail"]) == (
-        402,
-        "Ada's workspace holds more than its plan allows, so nobody can join it until it is "
-        "within the plan. Ask one of its owners to make room, or to move it to a larger plan.",
-    )
 
     # Revoking it is the way back, and the next invitation goes out.
     assert client.delete(f"/api/organization/invitations/{sent['id']}").status_code == 204

@@ -11,7 +11,7 @@ Whoever may change a project, a member or better who sees it, chooses who sees i
 is not an owner or admin stays among a private project's members, since they could not open it
 again otherwise; a viewer may be chosen, to read it. Opening a project to everyone forgets its
 members, so making it private again starts the choice afresh. The choice is the membership's:
-leaving the organisation or being removed from it takes the user's rows with it, and a role
+being removed from the organisation takes the user's rows with it, and a role
 changed keeps them, so an admin made a member sees the private projects chosen for them alone.
 
 What a member did in a project they no longer see stays theirs: their chats in it are hidden

@@ -198,9 +198,9 @@ def privacy_policy(
                 if settings.inbound_domain
                 else "",
                 "- **A connected folder's grant and its record of the folder's files**, until "
-                "the folder is disconnected or its member leaves the organisation; one whose "
-                f"folder was never chosen, {CHOOSING_KEPT.days} day. The documents it brought, "
-                "as any document."
+                "the folder is disconnected or its member is removed from the organisation; one "
+                f"whose folder was never chosen, {CHOOSING_KEPT.days} day. The documents it "
+                "brought, as any document."
                 if providers(settings)
                 else "",
             )

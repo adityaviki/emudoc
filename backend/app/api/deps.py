@@ -1,28 +1,21 @@
 """What a request may touch: the account behind it, and the objects it may see or change.
 
 The account is the user the session cookie names, in the organisation the session works in
-(`account_for_user` in app/accounts.py). Without a valid session the request is refused, unless
-the local account is on for development, in which case it acts as the local owner. An account
+(`account_for_user` in app/accounts.py), the install's one workspace. Without a valid session the
+request is refused, unless the local account is on for development, in which case it acts as the
+local owner. A signed-in user who belongs to no workspace, since an admin removed them, is
+refused everything with 403 (`NoWorkspace`) but the two routes that take `PersonDep`: showing who
+is signed in, which says so, and accepting an invitation, which brings them back. An account
 set to be deleted (app/retention.py) is refused too, except by the three routes that take
 `AnyAccountDep`: the ones that show it, keep it and export its data. So is an account whose
 user has not accepted the current terms of service (app/legal/), except by those three and the
 two that take `LiveAccountDep`: accepting them, and asking for the account to be deleted
 instead. Signing out needs no account.
 
-An organisation's security settings (app/security.py) are held here too, since a session works
-in whichever of its user's organisations it switched to. One that signed in longer ago than its
-organisation allows ends at its next request, as an expired one; and in an organisation that
-requires two-factor sign-in, an account without it is refused everything that takes
-`AccountDep`, the routes it needs to set it up, switch, leave or sign out taking the
-dependencies before it.
-
-Every tab of a browser shares its session, and so the organisation it works in: once one tab
-switches, another still shows the organisation before, and whatever it asked would be done in
-the new one. So the app's own requests name the organisation the page shows (ORGANIZATION_HEADER)
-and `get_current_account`, behind `AccountDep`, refuses one that names another with 409 and the
-organisation the session works in, which the page takes to start again there. Showing who is
-signed in, switching and starting an organisation take the account whatever the page showed,
-since they are how a page catches up or moves on; a request without the header is not refused.
+The workspace's security settings (app/security.py) are held here too. A session that signed
+in longer ago than it allows ends at its next request, as an expired one; and where it requires
+two-factor sign-in, an account without it is refused everything that takes `AccountDep`, the
+routes it needs to set it up or sign out taking the dependencies before it.
 
 Every object is reached through the account's organisation: a project must belong to it and be
 one the account sees (a private project only its chosen members and the owners and admins,
@@ -37,9 +30,7 @@ Reading needs any role; changing something needs the member role or better, whic
 `Editable...` dependencies check after the object itself is found. They also hold the change
 to the organisation's plan: one that holds more than its plan allows, since the plan, its seats
 or its terms were lowered, is read-only until it is within it again (`read_only` in
-app/entitlements.py), and the change is refused with 402. An organisation an owner set to be
-deleted is held as it stands until the day, or until an owner keeps it (`held_for_deletion` in
-app/retention.py), and the change is refused with 409. Deleting is what such an
+app/entitlements.py), and the change is refused with 402. Deleting is what such an
 organisation may still do, to get within its plan, so the `Deletable...` dependencies check
 the role alone, as the `Trashed...` ones do for deleting for good from the trash; a restore
 from it adds to what the organisation holds, so its routes take `EditorDep` as well.
@@ -60,7 +51,8 @@ held to everything above as they are.
 An operator's session may view a member's account as Emudoc's support, with the member's leave
 (app/support.py): it acts as the member, in the organisation the leave is for, and only by the
 methods that change nothing; past that it is the member's account too. A view that may not go
-on ends at the request that finds it so, which is refused as a tab left behind by a switch is.
+on ends at the request that finds it so, which is refused with 409 and the organisation the
+operator's session works in again (ORGANIZATION_HEADER), which the page takes to start again.
 
 The routes that cost something or guard an account are held to a rate per caller
 (app/ratelimit.py): `limited(limit)` is the dependency for a route with an account, counted
@@ -79,7 +71,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.access import sees, visible_to
-from app.accounts import Account, account_for_user, local_account, zone_of
+from app.accounts import Account, Outsider, account_for_user, local_account, zone_of
 from app.apikeys import (
     CHALLENGE,
     ELSEWHERE,
@@ -123,7 +115,7 @@ from app.models import (
     WorkflowRun,
 )
 from app.ratelimit import API_REQUESTS, Key, Limit, by_key, by_user, hit
-from app.retention import deletion_pending, held_for_deletion
+from app.retention import deletion_pending
 from app.security import mfa_due, mfa_pending, sign_in_again, signed_in_too_long
 from app.support import READ_ONLY_VIEW, VIEW_OVER, stop, viewed
 from app.trash import DOCUMENT_IN_TRASH, NOT_IN_TRASH, PASSAGE_IN_TRASH
@@ -139,8 +131,9 @@ NOT_FOUND = "Not Found"
 # every answer it may stream in flight) tells the client to wait, in seconds, in the
 # Retry-After header of its 503 or 429.
 RETRY_AFTER = 5
-NO_ORGANISATION = (
-    "Your account is not a member of any organisation. Ask for an invitation, or contact support."
+NO_WORKSPACE = (
+    "You no longer belong to this server's workspace. Ask its admin to invite you again: the "
+    "invitation's link brings you back."
 )
 READ_ONLY = (
     "Your role in this organisation is viewer, which can only read. "
@@ -156,13 +149,9 @@ CROSS_SITE = (
     f"{SAME_APP_HEADER} header. If you call the API yourself, call it with an API key, which "
     "needs no such header."
 )
-# The id of the organisation the page that sent a request shows, which the app's own requests
-# carry (`send` in frontend/src/api.ts), and of the one the session works in on a refusal.
+# The organisation a session works in again once a view by support ends, which the page takes to
+# start again there (`send` in frontend/src/api.ts).
 ORGANIZATION_HEADER = "X-Organization"
-SWITCHED = (
-    "You switched to another organisation in another tab or window, so this page shows one you "
-    "are no longer working in. Reload it to continue in the organisation you switched to."
-)
 
 
 def get_services(request: Request) -> Services:
@@ -211,10 +200,11 @@ async def refuse_cross_site(request: Request) -> None:
         raise HTTPException(403, CROSS_SITE)
 
 
-def get_account(request: Request, session: SessionDep) -> Account:
+def get_person(request: Request, session: SessionDep) -> Account | Outsider:
     """The organisation and user a request acts as: the API key's member, the session's user,
-    the member an operator's session views as support, or the local account. What the request
-    logs from here on names them."""
+    the member an operator's session views as support, or the local account; or the session's
+    user alone, when they belong to no workspace. What the request logs from here on names
+    them."""
     if (secret := bearer(request)) is not None:
         return _key_account(request, session, secret)
     token = request.cookies.get(SESSION_COOKIE)
@@ -228,7 +218,7 @@ def get_account(request: Request, session: SessionDep) -> Account:
             about(user_id=user.id)
             account = account_for_user(session, user, user_session)
             if account is None:
-                raise HTTPException(403, NO_ORGANISATION)
+                return Outsider(user, user_session.id)
             about(org_id=account.organization.id)
             if signed_in_too_long(account.organization, user_session):
                 user_session.revoked_at = now()
@@ -287,6 +277,17 @@ def _key_account(request: Request, session: SessionDep, secret: str) -> Account:
     return Account(organization, user, role, key=key)
 
 
+PersonDep = Annotated[Account | Outsider, Depends(get_person)]
+
+
+def get_account(person: PersonDep) -> Account:
+    """The account a request acts as, refused for a signed-in user who belongs to no workspace:
+    there is nothing for them to see but that, until they are invited again."""
+    if isinstance(person, Outsider):
+        raise HTTPException(403, NO_WORKSPACE)
+    return person
+
+
 AnyAccountDep = Annotated[Account, Depends(get_account)]
 
 
@@ -314,22 +315,7 @@ def get_usable_account(account: LiveAccountDep) -> Account:
 UsableAccountDep = Annotated[Account, Depends(get_usable_account)]
 
 
-def get_current_account(request: Request, account: UsableAccountDep) -> Account:
-    """The account, provided the page that asks still shows the organisation the session works
-    in, when it says which: a tab left behind by a switch in another is refused rather than
-    shown, or let change, another organisation's projects."""
-    shown = request.headers.get(ORGANIZATION_HEADER, "")
-    if shown.isdecimal() and int(shown) != account.organization.id:
-        raise HTTPException(
-            409, SWITCHED, headers={ORGANIZATION_HEADER: str(account.organization.id)}
-        )
-    return account
-
-
-CurrentAccountDep = Annotated[Account, Depends(get_current_account)]
-
-
-def get_secured_account(account: CurrentAccountDep) -> Account:
+def get_secured_account(account: UsableAccountDep) -> Account:
     """The account, provided it signs in as its organisation requires: with two-factor, where
     the organisation asks for it. What the request answers shows what work cost to an owner or
     an admin alone (app/costs.py)."""
@@ -343,23 +329,18 @@ AccountDep = Annotated[Account, Depends(get_secured_account)]
 
 
 def get_editor(account: AccountDep, session: SessionDep) -> Account:
-    """The account, provided its role allows changing what the organisation holds, the
-    organisation is not set to be deleted and it holds no more than its plan allows."""
+    """The account, provided its role allows changing what the organisation holds and the
+    organisation holds no more than its plan allows."""
     _refuse_viewer(account)
-    if held := held_for_deletion(account.organization, zone_of(account.user.time_zone)):
-        raise HTTPException(409, held)
     if refusal := read_only(session, account.organization):
         raise PlanRefused(refusal)
     return account
 
 
 def get_writer(account: AccountDep, session: SessionDep) -> Account:
-    """The account, provided the organisation is not set to be deleted and holds no more than
-    its plan allows: whoever may keep things of their own in it, such as My files
-    (app/my_files.py), a viewer too, since those change nothing the organisation's members
-    share."""
-    if held := held_for_deletion(account.organization, zone_of(account.user.time_zone)):
-        raise HTTPException(409, held)
+    """The account, provided the organisation holds no more than its plan allows: whoever may
+    keep things of their own in it, such as My files (app/my_files.py), a viewer too, since
+    those change nothing the organisation's members share."""
     if refusal := read_only(session, account.organization):
         raise PlanRefused(refusal)
     return account

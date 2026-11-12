@@ -34,7 +34,6 @@ export interface OrganizationRow {
   members: number
   created_at: string
   subscription_status: string | null
-  deletion_due_at: string | null
   /** Its known model cost over the list's `cost_days`, null while none is known. */
   cost_micros: number | null
 }

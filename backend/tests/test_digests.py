@@ -117,7 +117,7 @@ def test_monday_morning_tells_what_arrived_over_the_week_in_the_projects_a_membe
         "Board: Minutes.pdf.\n\n"
         "Contracts: Lease.pdf." in notice.text
     )
-    assert f"{APP}/?organization={org_id}" in notice.text
+    assert f"{APP}/\n" in notice.text
     (row,) = session.scalars(select(Notification).where(Notification.kind == "weekly_digest"))
     assert (row.user_id, row.link) == (ann.user.id, "/")
     assert row.body.startswith("Over the past week, 5 documents arrived")

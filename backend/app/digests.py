@@ -23,7 +23,7 @@ from app.access import visible_to
 from app.accounts import Account, zone_of
 from app.db import SessionLocal
 from app.jobs import LIVE, SEND_DIGESTS, Lease, LeaseLost, enqueue, renew
-from app.mail import Arrivals, in_organization, weekly_digest_email
+from app.mail import Arrivals, weekly_digest_email
 from app.models import Document, Membership, Organization, Project, User
 from app.notices import IN_APP, WEEKLY_DIGEST, app_address, tell
 from app.postbox import BY_EMAIL
@@ -173,7 +173,7 @@ def _digest(session: Session, membership_id: int, now: datetime) -> int:
         organization.name,
         week,
         PROJECTS_LISTED,
-        in_organization(f"{url}{PROJECTS_PAGE}", organization.id),
+        f"{url}{PROJECTS_PAGE}",
     )
     return int(tell(session, user, organization.id, WEEKLY_DIGEST, content, PROJECTS_PAGE, url))
 

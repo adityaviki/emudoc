@@ -1,5 +1,4 @@
-"""Who may join the organisation: the invitations its owners and admins send, and the domains
-whose confirmed addresses may join it by themselves (app/invitations.py).
+"""Who may join the workspace: the invitations its owners and admins send (app/invitations.py).
 
 An owner or admin invites an address with a role no higher than their own, sees the invitations
 still open or expired, sends one again, which mails a new link and stops the one before, and
@@ -11,11 +10,8 @@ flooded from one organisation. The link is also the answer to whoever sent it, t
 on: an install may have no mail relay (app/signups.py), and then that is the only way it
 arrives, which the answer says (`mailed`). The address is then the sender's word rather than
 the mail's proof, which an owner or admin, who could invite any address, may give. Whoever
-opens the link accepts it on the invitation's page (app/api/auth.py).
-
-The domains are chosen by an owner or admin too, and one is added only by someone whose own
-confirmed address is at it. A user whose confirmed address is at one is offered the
-organisation (`MeOut.joinable`) and joins it here, with the role it chose, if its plan has room.
+opens the link accepts it on the invitation's page (app/api/auth.py), a member removed from the
+workspace among them.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -23,33 +19,26 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.accounts import Account, add_member, zone_of
-from app.api.auth import INVITATION_PAGE, mailed_link, me_out
-from app.api.deps import (
-    AccountDep,
-    SessionDep,
-    UsableAccountDep,
-    limited,
-    refuse_past,
-)
-from app.api.organizations import NO_SESSION, NOT_FOUND, locked
+from app.accounts import Account
+from app.api.auth import INVITATION_PAGE, mailed_link
+from app.api.deps import AccountDep, SessionDep, limited, refuse_past
+from app.api.organizations import locked
 from app.audit import audit
 from app.auth import now
 from app.config import get_settings
-from app.entitlements import PlanRefused, Refusal, check_member, read_only
-from app.invitations import INVITATION_TTL, domain_of, is_open, issue, joining_refusal
+from app.entitlements import PlanRefused, check_member, read_only
+from app.invitations import INVITATION_TTL, is_open, issue
 from app.mail import invitation_email, relay_set
-from app.models import Invitation, Membership, User, UserSession
+from app.models import Invitation, Membership, User
 from app.postbox import post
 from app.ratelimit import SIGN_INS, by_email
-from app.retention import held_for_deletion
-from app.schemas import InvitationIn, InvitationOut, InvitationSentOut, JoiningIn, MeOut
+from app.schemas import InvitationIn, InvitationOut, InvitationSentOut
 
 router = APIRouter(tags=["invitations"])
 
 ADMINS_ONLY = (
-    "Only the owners and admins of the organisation can invite people, see who is invited and "
-    "choose who may join. Ask one of them to."
+    "Only the owners and admins of the organisation can invite people and see who is invited. "
+    "Ask one of them to."
 )
 OWNERS_INVITE_OWNERS = "Only an owner can invite someone to be an owner, or send that again."
 INVITED_ALREADY = (
@@ -97,8 +86,6 @@ def invite(body: InvitationIn, account: AccountDep, request: Request, session: S
         raise HTTPException(
             409, f"{member.name or member.email} is a member of {organization.name} already."
         )
-    if held := held_for_deletion(organization, zone_of(account.user.time_zone)):
-        raise HTTPException(409, held)
     invitation = session.scalar(
         select(Invitation).where(Invitation.org_id == organization.id, Invitation.email == email)
     )
@@ -148,8 +135,6 @@ def resend_invitation(
     email = _invitation(session, account, invitation_id).email
     refuse_past(session, (SIGN_INS, by_email(email)))
     organization = locked(session, account.organization.id)
-    if held := held_for_deletion(organization, zone_of(account.user.time_zone)):
-        raise HTTPException(409, held)
     # Held, so that one accepted meanwhile is found gone rather than sent again.
     invitation = _invitation(session, account, invitation_id, lock=True)
     if not account.is_at_least(invitation.role):
@@ -190,86 +175,6 @@ def revoke_invitation(
     )
     session.delete(invitation)
     session.commit()
-
-
-@router.put("/organization/joining", response_model=MeOut)
-def set_joining(body: JoiningIn, account: AccountDep, request: Request, session: SessionDep):
-    """Choose the domains whose confirmed addresses may join the organisation, and the role
-    they join with. A domain is added only by someone whose own confirmed address is at it, and
-    any may be taken off."""
-    _refuse_unless_admin(account)
-    organization = account.organization
-    domains = sorted({domain.strip().lower().removeprefix("@") for domain in body.domains} - {""})
-    for domain in sorted(set(domains) - set(organization.join_domains)):
-        if refusal := joining_refusal(domain, account.user):
-            raise HTTPException(400, refusal)
-    if domains != sorted(organization.join_domains) or body.role != organization.join_role:
-        audit(
-            session,
-            account,
-            request,
-            "joining_changed",
-            detail={"domains": ", ".join(domains), "role": body.role},
-        )
-        organization.join_domains = domains
-        organization.join_role = body.role
-        session.commit()
-    return me_out(session, account)
-
-
-@router.post("/organizations/{org_id}/join", response_model=MeOut)
-def join_organization(
-    org_id: int, account: UsableAccountDep, request: Request, session: SessionDep
-):
-    """Join an organisation that lets everyone at the domain of the user's confirmed address
-    join, with the role it chose, and work in it from now on, in every tab of the browser."""
-    user = account.user
-    domain = domain_of(user.email)
-    organization = locked(session, org_id)
-    if (
-        organization is None
-        or user.email_verified_at is None
-        or domain not in organization.join_domains
-        or organization.deletion_due_at is not None
-    ):
-        raise HTTPException(404, NOT_FOUND)
-    if account.session_id is None:
-        raise HTTPException(409, NO_SESSION)
-    member = session.scalar(
-        select(Membership.id).where(Membership.org_id == org_id, Membership.user_id == user.id)
-    )
-    if member is not None:
-        raise HTTPException(
-            409, f"You are a member of {organization.name} already: switch to it instead."
-        )
-    if read_only(session, organization) is not None:
-        raise PlanRefused(
-            Refusal(
-                "members",
-                f"{organization.name} holds more than its plan allows, so nobody can join it "
-                "until it is within the plan. Ask one of its owners to make room, or to move it "
-                "to a larger plan.",
-            )
-        )
-    if check_member(session, organization) is not None:
-        raise PlanRefused(
-            Refusal(
-                "members",
-                f"{organization.name} has as many members as its plan allows. Ask one of its "
-                "owners to make room, or to move it to a larger plan.",
-            )
-        )
-    user_session = session.get(UserSession, account.session_id)
-    joined = add_member(session, organization, user, organization.join_role, user_session)
-    audit(
-        session,
-        joined,
-        request,
-        "member_joined",
-        detail={"role": joined.role, "domain": domain},
-    )
-    session.commit()
-    return me_out(session, joined)
 
 
 def _refuse_unless_admin(account: Account) -> None:

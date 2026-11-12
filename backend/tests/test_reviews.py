@@ -105,9 +105,7 @@ def test_a_member_puts_a_document_in_review_assigns_it_and_another_approves_it(
     assert notice.title == "A document was assigned to you"
     assert notice.body == "Owner assigned you inv-1.pdf in Payables in Local to review."
     [mail] = told(mailer, "bob@example.com")
-    assert f"/projects/{desk.project}/documents/{desk.first}?organization={desk.org_id}" in (
-        mail.text
-    )
+    assert f"/projects/{desk.project}/documents/{desk.first}" in (mail.text)
 
     act_as(desk.bob)
     approved = reviewed(client, desk.first, state="approved")

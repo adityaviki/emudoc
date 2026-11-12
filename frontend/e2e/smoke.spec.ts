@@ -17,15 +17,15 @@ import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, rele
 // answer while the model thinks and try it again, open the passage the answer
 // cites and print the contract as it reads, which the Free plan's chat follows with the way to a plan for a team, upload a folder,
 // whose panel follows each file while its request is held, and put it in the trash, export the project,
-// download it and open the bell's notice that it is ready, start a second
-// organisation, find its empty projects page, choose its settings, read them in its audit log and
-// download it, delete it and keep it, and switch back, and, on Team, invite a colleague as a
+// download it and open the bell's notice that it is ready, leave the account's menu by the
+// keyboard, choose the workspace's settings, read them in its audit log and download it, and, on
+// Team, invite a colleague as a
 // viewer from under that answer, who makes an account from the invitation's link, copied since the run mails nothing, ends her tour, finds
 // the project and is offered no change to it until made a member, write to support from the
 // help menu, which mails the page written from, make a read key, which reads the
 // versioned API and its contract, add a webhook, then make the project private, which she no longer finds until chosen for it, and share the chat, which the
 // colleague then reads but does not ask in, and last ask the question that uses the month's
-// questions, which the bell tells, and open that notice from the other organisation; then, made
+// questions, which the bell tells, and open that notice; then, made
 // an operator, read the organisation in the operator's area, which nobody else is sent, raise its
 // agreed questions there, turn its extraction templates on, which its audit log keeps, view the
 // colleague's account, which she let support see, and switch the model's provider off and on
@@ -616,27 +616,22 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('button', { name: 'Notifications', exact: true })).toBeVisible()
   })
 
-  await test.step('start a second organisation, choose its settings, delete it and keep it, and switch back while another tab shows it', async () => {
+  await test.step("leave the account's menu by the keyboard, and choose the workspace's settings, read them in its audit log and download it", async () => {
     // From the projects page: a menu closes when anything scrolls, as the passage still may.
     await page.getByRole('link', { name: 'Emudoc', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
-    const switcher = page.getByRole('button', { name: "Analytical Engines" })
-    await switcher.click()
+    const account = page.getByRole('button', { name: /, your account$/ })
+    await account.click()
     // Tab leaves a menu, closing it, and goes on from its button.
-    await expect(page.getByRole('menuitem', { name: "Analytical Engines" })).toBeFocused()
+    await expect(page.getByRole('menuitem').first()).toBeFocused()
     await page.keyboard.press('Shift+Tab')
     await expect(page.getByRole('menu')).toHaveCount(0)
-    await expect(switcher).toBeFocused()
-    await switcher.click()
-    await page.getByRole('menuitem', { name: 'New organisation' }).click()
-    await page.getByLabel('Name', { exact: true }).fill('Lovelace Legal')
-    await page.getByRole('button', { name: 'Create organisation' }).click()
-    // A new organisation's projects page, empty, with its own way on.
-    await expect(page.getByText('No projects yet')).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Create a project' })).toBeVisible()
+    await expect(account).toBeFocused()
+    // The header names the workspace, which opens its page.
+    await page.getByRole('link', { name: 'Analytical Engines' }).click()
+    await expect(page.getByRole('heading', { name: 'Analytical Engines', level: 1 })).toBeVisible()
     // Its settings: the language its documents are searched in, and chats kept for less time
     // than its plan keeps them, which says what it deletes before it is saved.
-    await page.goto('/organization')
     const language = page.getByLabel('Language of its documents')
     const changed = page.waitForResponse((response) => response.url().endsWith('/api/organization') && response.request().method() === 'PATCH')
     await language.selectOption('german')
@@ -668,33 +663,11 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     const [header, ...rows] = csv.trim().split(/\r?\n/)
     expect(header).toBe('occurred_at,action,user_id,user_name,user_email,ip,project_id,project_name,target_type,target_id,detail')
     expect(rows.map((row) => row.split(',')[1])).toEqual(['settings_changed', 'settings_changed'])
-    // An owner deletes it, confirmed by the password, which every page then says, until an owner keeps it.
+    // The language back to the default, so that the steps after search the documents as before.
     await page.goto('/organization')
-    const deletion = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Delete the organisation' }) })
-    await deletion.getByRole('button', { name: 'Delete…' }).click()
-    await deletion.getByLabel('Your password').fill('a sentence to remember')
-    await deletion.getByRole('button', { name: 'Delete Lovelace Legal' }).click()
-    await expect(page.getByText(/^Lovelace Legal is set to be deleted on .+; an owner can keep it\.$/)).toHaveCount(2)
-    await page.getByRole('link', { name: 'Emudoc' }).click()
-    await expect(page.getByRole('link', { name: 'Keep it' })).toBeVisible()
-    await page.getByRole('link', { name: 'Keep it' }).click()
-    await deletion.getByRole('button', { name: 'Keep Lovelace Legal' }).click()
-    await expect(page.getByText(/is set to be deleted/)).toHaveCount(0)
-    await page.goto('/')
-    const other = await page.context().newPage()
-    await other.goto('/')
-    await expect(other.getByRole('button', { name: 'Lovelace Legal' })).toBeVisible()
-
-    await page.getByRole('button', { name: 'Lovelace Legal' }).click()
-    await page.getByRole('menuitem', { name: "Analytical Engines" }).click()
-    await expect(page.getByText('Supplier contracts')).toBeVisible()
-    // The other tab still shows the new organisation: what it asks is refused, and it starts
-    // again in the one the session works in, with nothing made in the wrong one.
-    await other.getByRole('button', { name: 'New project' }).click()
-    await other.getByLabel('Name', { exact: true }).fill('Lost')
-    await other.getByRole('button', { name: 'Create project' }).click()
-    await expect(other.getByText('Supplier contracts')).toBeVisible()
-    await expect(other.getByText('Lost')).toHaveCount(0)
+    const restored = page.waitForResponse((response) => response.url().endsWith('/api/organization') && response.request().method() === 'PATCH')
+    await page.getByLabel('Language of its documents').selectOption('')
+    expect((await restored).status()).toBe(200)
   })
 
   await test.step('invite a viewer, who makes an account from the link, reads, and is made a member', async () => {
@@ -734,7 +707,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await grace.getByLabel(/I accept the terms of service/).check()
     await grace.getByRole('button', { name: 'Create account' }).click()
     await expect(grace.getByText('Supplier contracts')).toBeVisible()
-    await expect(grace.getByRole('button', { name: "Analytical Engines" })).toBeVisible()
+    await expect(grace.getByRole('link', { name: 'Analytical Engines' })).toBeVisible()
     // A viewer reads and asks: the pages offer no change the server would refuse.
     await expect(grace.getByRole('button', { name: 'New project' })).toHaveCount(0)
     await grace.getByText('Supplier contracts').click()
@@ -889,7 +862,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await theirs.close()
   })
 
-  await test.step("be told the month's questions are used, and open the notice from the other organisation", async () => {
+  await test.step("be told the month's questions are used, and open the notice from the bell", async () => {
     // Three questions a month: the third uses them all, which the owners are told as it is asked.
     movePlan(slug, 'team', '--set', 'questions_per_month=3')
     const asked = page.waitForResponse((response) => response.request().method() === 'POST' && /\/messages$/.test(response.url()))
@@ -899,16 +872,13 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     expect((await asked).status()).toBe(201)
 
     await page.getByRole('link', { name: 'Emudoc' }).click()
-    await page.getByRole('button', { name: "Analytical Engines" }).click()
-    await page.getByRole('menuitem', { name: 'Lovelace Legal' }).click()
-    await expect(page.getByText('No projects yet')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
     await page.getByRole('button', { name: 'Notifications, 1 unread' }).click()
     const notice = page.getByRole('dialog', { name: 'Notifications' }).getByRole('button', { name: /used all its questions for the month/ })
     await expect(notice).toContainText("Analytical Engines has used all the 3 questions it may ask")
-    // Opened in the organisation it is about, read.
+    // Opened at its page, read.
     await notice.click()
     await expect(page).toHaveURL(/\/organization\/usage$/)
-    await expect(page.getByRole('button', { name: "Analytical Engines" })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Notifications', exact: true })).toBeVisible()
   })
 

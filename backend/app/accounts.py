@@ -1,22 +1,21 @@
-"""Who is acting on a request, and how accounts and organisations come to be.
+"""Who is acting on a request, and how accounts and the workspace come to be.
 
 A signed-in request acts as the user named by its session cookie, in the organisation the
-session works in: the one its user last switched to (`sessions.org_id`), or while they have not,
-or have left that one since, the one they joined first. The choice is the session's, so every
-tab of a browser works in the same organisation; a tab that still shows the one before is
-refused until it catches up (`get_current_account` in app/api/deps.py).
+session works in: the one its user joined first, or the one an invitation they accepted last
+named (`sessions.org_id`). An install holds one, the team's workspace (S.1, 2026-11-12), so this
+is that one; a database that holds several, as development's and staging's do, keeps working,
+each user in theirs.
 
-An install's setup makes its first user and the workspace they own (app/signups.py), and a
-user may start more organisations (`create_organization`), each with its own plan. So that new
-organisations are no way past the free plan's limits, one user may own MAX_FREE_ORGANIZATIONS on
-it at most. Everyone else is made alone (`create_user`), a member of the organisation that
-invited them (`add_member`, app/invitations.py), or of the workspace when they signed up while
-sign-up is open. A user removed from their last organisation is given one of their own
-(`create_workspace`). `create_account`, a user with an organisation of their own, is what
-signing up made until 2026-11-12, and what the tests make each account they need with.
+An install's setup makes its first user and the workspace they own (app/signups.py). Everyone
+else is made alone (`create_user`), a member of the organisation that invited them
+(`add_member`, app/invitations.py), or of the workspace when they signed up while sign-up is
+open. A user removed from it keeps their account in none, which can do nothing but see that and
+accept an invitation again (`account_for_user` answers None, app/api/deps.py). `create_account`,
+a user with an organisation of their own, is what signing up made until 2026-11-12, and what the
+tests make each account they need with.
 
 For development on one machine, a request without a session can act as the local account
-instead: an organisation of one, created on first use, which has no session to switch in.
+instead: an organisation of one, created on first use.
 """
 
 import datetime as dt
@@ -26,12 +25,12 @@ from functools import cache
 from itertools import count
 from zoneinfo import ZoneInfo, available_timezones
 
-from sqlalchemy import case, func, select
+from sqlalchemy import case, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.models import PLANS, ROLES, ApiKey, Membership, Organization, User, UserSession
+from app.models import ROLES, ApiKey, Membership, Organization, User, UserSession
 
 LOCAL_ORG_SLUG = "local"
 # A reserved domain, so the address can never receive mail or clash with a real account.
@@ -67,6 +66,15 @@ class Account:
         return self.key is None or self.user.email == LOCAL_OWNER_EMAIL
 
 
+@dataclass(frozen=True)
+class Outsider:
+    """A signed-in user who belongs to no workspace, an admin having removed them: they may see
+    that, accept an invitation to come back, and sign out (`get_person` in app/api/deps.py)."""
+
+    user: User
+    session_id: int
+
+
 def account_for_user(
     session: Session, user: User, user_session: UserSession | None = None
 ) -> Account | None:
@@ -88,31 +96,6 @@ def account_for_user(
         return None
     organization, role = row
     return Account(organization, user, role, user_session.id if user_session else None)
-
-
-def organizations_of(session: Session, user: User) -> list[tuple[Organization, str]]:
-    """Every organisation the user is a member of, with their role there, by name."""
-    rows = session.execute(
-        select(Organization, Membership.role)
-        .join(Membership, Membership.org_id == Organization.id)
-        .where(Membership.user_id == user.id)
-        .order_by(func.lower(Organization.name), Organization.id)
-    ).all()
-    return [(organization, role) for organization, role in rows]
-
-
-def free_organizations_owned(session: Session, user: User) -> int:
-    """How many organisations on the plan a new one starts on the user owns."""
-    return session.scalar(
-        select(func.count())
-        .select_from(Membership)
-        .join(Organization, Organization.id == Membership.org_id)
-        .where(
-            Membership.user_id == user.id,
-            Membership.role == "owner",
-            Organization.plan == PLANS[0],
-        )
-    )
 
 
 def create_organization(
@@ -180,14 +163,9 @@ def create_account(
     email_verified: bool = False,
     time_zone: str = "",
 ) -> Account:
-    """A new user who owns a new organisation of their own. The caller commits."""
+    """A new user who owns a new organisation of their own, named after them. The caller
+    commits."""
     user = create_user(session, email, name, password_hash, email_verified, time_zone)
-    return create_workspace(session, user)
-
-
-def create_workspace(session: Session, user: User) -> Account:
-    """An organisation of the user's own, named after them: what a member removed from their
-    last organisation is given, since an account in none can do nothing. The caller commits."""
     stem = user.name or user.email.split("@")[0]
     return create_organization(session, user, f"{stem}'s workspace", stem)
 

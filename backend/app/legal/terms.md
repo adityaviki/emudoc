@@ -99,9 +99,7 @@ You can delete your account at any time on the account page; the last owner of a
 with other members first makes one of them an owner. It is deleted $deletion_days days after
 you ask, which leaves time to change your mind; if you are the only member of your
 organisation, the organisation goes with it, with its projects, documents and chats. Download a
-copy of your data first if you want one. An owner of an organisation can delete it on its page,
-once its subscription no longer renews: it is deleted with everything in it $deletion_days days
-after they ask, every member is told by email, and until then any owner can keep it. We may end the agreement, or suspend an account, for a
+copy of your data first if you want one. We may end the agreement, or suspend an account, for a
 serious or repeated breach of these terms or when the law requires it, and we tell you why.
 
 ## 8. Availability and liability

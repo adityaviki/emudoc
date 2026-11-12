@@ -1,24 +1,21 @@
-// The organisation the user works in: its name and region, its settings and security settings (its audit log is
-// AuditPage.tsx), the API keys its owners and admins make for its programs and the webhooks its programs hear of its
-// work at, its share links (ShareLinksSection.tsx), what its plan lets it keep and use (what it holds and used of it is the usage page's, UsagePage.tsx)
-// and buying one, its members, their roles and removing them, handing it over to another of them, the invitations its
-// owners and admins send and the domains whose addresses may join it, leaving it, and its owners deleting it or keeping it; the user's other organisations to switch to and those open to them; and the page that starts a new
-// one. A switch, a join, a new organisation and leaving one start the app again in the organisation the session then
-// works in (`startAgainInOrganization` in auth.ts).
+// The workspace: its name and region, its settings and security settings (its audit log is AuditPage.tsx), the API
+// keys its owners and admins make for its programs and the webhooks its programs hear of its work at, its share links
+// (ShareLinksSection.tsx), what its plan lets it keep and use (what it holds and used of it is the usage page's,
+// UsagePage.tsx) and buying one, its members, their roles and removing them, handing it over to another of them, and
+// the invitations its owners and admins send.
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Copy, CreditCard, History, KeyRound, LogOut, Plus, Trash2, UserMinus, UserPlus } from 'lucide-react'
+import { Check, Copy, CreditCard, History, KeyRound, UserMinus, UserPlus } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
-import { DELETION_GRACE_DAYS, PLAN_LABELS, REGION_NAMES, ROLES, ROLE_LABELS, isPlanLimit, isWithin, organizations } from '../api.ts'
+import { Link, useLocation, useSearchParams } from 'react-router'
+import { PLAN_LABELS, REGION_NAMES, ROLES, ROLE_LABELS, isPlanLimit, isWithin, organizations } from '../api.ts'
 import type {
   Allowance,
   ApiKey,
   ApiKeyMade,
   ApiKeyScope,
   Invitation,
-  JoinRole,
   Languages,
   Me,
   Member,
@@ -30,7 +27,7 @@ import type {
   WebhookMade,
 } from '../api.ts'
 import { KEY_DAYS, SCOPES, UPLOAD_CLIENT, callWith, daysOf, describeKey, mayRoll, uploadWith } from '../apiKeys.ts'
-import { ME_KEY, setSignedIn, startAgainInOrganization, useMe } from '../auth.ts'
+import { ME_KEY, setSignedIn, useMe } from '../auth.ts'
 import { describeBilling, describeChange, describeExcess, describeHeld, mayBuy, mayChange, thisMonth } from '../billing.ts'
 import { PasswordField } from '../account/shared.tsx'
 import { NoticeChoices } from '../components/NoticeChoices.tsx'
@@ -38,14 +35,12 @@ import { HandedLink, SentInvitation } from '../components/HandedLink.tsx'
 import { PlanLimitNotice, PlanOffer } from '../components/PlanLimit.tsx'
 import { Button, Checkbox, Chip, FIELD, InputField, LinkButton, Loading, Notice, Radio, Row, Section, SelectField } from '../components/ui.tsx'
 import { formatDate, formatDateTime, formatSize } from '../format.ts'
-import { INVITATIONS_SECTION, JOINING_SECTION } from '../onboarding.ts'
+import { INVITATIONS_SECTION } from '../onboarding.ts'
 import {
-  DELETION_SECTION,
   LANGUAGES_KEY,
   chatDayChoices,
   chosenLanguage,
   deletes,
-  deletionWords,
   heldByTwoFactor,
   keptWords,
   languageChoices,
@@ -61,7 +56,6 @@ const INVITATIONS_KEY = ['organization', 'invitations'] as const
 const KEYS_KEY = ['organization', 'keys'] as const
 const WEBHOOKS_KEY = ['organization', 'webhooks'] as const
 const WEBHOOK_URL = 'webhook-url'
-const JOIN_ROLES: JoinRole[] = ['member', 'viewer']
 
 const capitalised = (text: string) => text[0].toUpperCase() + text.slice(1)
 
@@ -80,7 +74,7 @@ export function OrganizationPage() {
       <div className="mx-auto max-w-2xl px-6 py-10">
         <div className="mb-6">
           <h1 className="text-2xl font-semibold tracking-tight">{me.organization.name}</h1>
-          <p className="mt-1 text-[13px] text-muted">The organisation you work in: its name and settings, how its members sign in, its API keys and webhooks, its plan, its members, who may join it, leaving it, and deleting it.</p>
+          <p className="mt-1 text-[13px] text-muted">The workspace: its name and settings, how its members sign in, its API keys and webhooks, its plan, and its members.</p>
         </div>
         <div className="space-y-5">
           <NameSection me={me} />
@@ -95,15 +89,7 @@ export function OrganizationPage() {
           )}
           <PlanSection me={me} />
           <MembersSection me={me} />
-          {isWithin('admin', me.role) && (
-            <>
-              <InvitationsSection me={me} />
-              <JoiningSection me={me} />
-            </>
-          )}
-          <OrganizationsSection me={me} />
-          <LeaveSection me={me} />
-          {(me.role === 'owner' || me.organization.deletion_due_at) && <DeleteSection me={me} />}
+          {isWithin('admin', me.role) && <InvitationsSection me={me} />}
         </div>
       </div>
     </div>
@@ -1569,287 +1555,5 @@ function InvitationRow({ me, invitation }: { me: Me; invitation: Invitation }) {
         </div>
       )}
     </li>
-  )
-}
-
-// Owners and admins only. The page offers the domain of the user's own confirmed address, which
-// is the one the server lets them add; any domain may be taken off.
-function JoiningSection({ me }: { me: Me }) {
-  const queryClient = useQueryClient()
-  const { join_domains: domains, join_role: role } = me.organization
-  const own = me.email.slice(me.email.lastIndexOf('@') + 1).toLowerCase()
-  const change = useMutation({
-    mutationFn: organizations.setJoining,
-    onSuccess: (account) => setSignedIn(queryClient, account),
-  })
-
-  return (
-    <Section
-      id={JOINING_SECTION}
-      title="Joining by email domain"
-      description="Everyone whose confirmed address is at one of these domains is offered the organisation, and joins it if they choose, with the role below. A domain is added by someone whose own confirmed address is at it."
-    >
-      {domains.length ? (
-        <ul className="divide-y divide-line">
-          {domains.map((domain) => (
-            <li key={domain} className="flex items-center gap-3 py-2 text-[13px]">
-              <span className="min-w-0 flex-1 truncate font-medium">@{domain}</span>
-              <Button
-                variant="ghost"
-                onClick={() => change.mutate({ domains: domains.filter((other) => other !== domain), role })}
-                disabled={change.isPending}
-              >
-                Remove
-              </Button>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="text-[13px] text-muted">Nobody joins without an invitation.</p>
-      )}
-      <div className="mt-3 flex flex-wrap items-end gap-3">
-        <SelectField
-          label="They join as"
-          value={role}
-          disabled={change.isPending}
-          onChange={(event) => change.mutate({ domains, role: event.target.value as JoinRole })}
-        >
-          {JOIN_ROLES.map((option) => (
-            <option key={option} value={option}>
-              {ROLE_LABELS[option]}
-            </option>
-          ))}
-        </SelectField>
-        {me.email_verified && !domains.includes(own) && (
-          <Button icon={<Plus className="size-4" />} onClick={() => change.mutate({ domains: [...domains, own], role })} disabled={change.isPending}>
-            Let everyone at @{own} join
-          </Button>
-        )}
-      </div>
-      {!me.email_verified && (
-        <p className="mt-3 text-[13px] text-muted">Confirm your email address to let everyone at its domain join.</p>
-      )}
-      {change.isError && (
-        <div className="mt-3">
-          <Notice tone="bad">{change.error.message}</Notice>
-        </div>
-      )}
-    </Section>
-  )
-}
-
-function OrganizationsSection({ me }: { me: Me }) {
-  const switching = useMutation({ mutationFn: organizations.switch, onSettled: startAgainInOrganization })
-  const joining = useMutation({ mutationFn: organizations.join, onSuccess: startAgainInOrganization })
-  return (
-    <Section title="Your organisations" description="Switching changes the organisation every tab of this browser works in.">
-      <ul className="divide-y divide-line">
-        {me.organizations.map((organization) => (
-          <li key={organization.id} className="flex items-center gap-3 py-2 text-[13px]">
-            <span className="min-w-0 flex-1 truncate font-medium">{organization.name}</span>
-            <Chip>{ROLE_LABELS[organization.role]}</Chip>
-            {organization.id === me.organization.id ? (
-              <span className="flex w-20 items-center justify-end gap-1 text-muted">
-                <Check className="size-3.5" /> Current
-              </span>
-            ) : (
-              <Button className="w-20 justify-center" onClick={() => switching.mutate(organization.id)} disabled={switching.isPending}>
-                Switch
-              </Button>
-            )}
-          </li>
-        ))}
-      </ul>
-      {me.joinable.length > 0 && (
-        <>
-          <p className="mt-4 text-xs font-medium text-muted">Open to everyone at your address's domain</p>
-          <ul className="divide-y divide-line">
-            {me.joinable.map((organization) => (
-              <li key={organization.id} className="flex items-center gap-3 py-2 text-[13px]">
-                <span className="min-w-0 flex-1 truncate font-medium">{organization.name}</span>
-                <Chip>{ROLE_LABELS[organization.role]}</Chip>
-                <Button className="w-20 justify-center" onClick={() => joining.mutate(organization.id)} disabled={joining.isPending}>
-                  Join
-                </Button>
-              </li>
-            ))}
-          </ul>
-          {joining.isError && <Notice tone="bad">{joining.error.message}</Notice>}
-        </>
-      )}
-      <div className="mt-3">
-        <Link to="/organizations/new" className="inline-flex items-center gap-1.5 text-[13px] font-medium text-accent hover:underline">
-          <Plus className="size-4" />
-          New organisation
-        </Link>
-      </div>
-    </Section>
-  )
-}
-
-function LeaveSection({ me }: { me: Me }) {
-  const [confirming, setConfirming] = useState(false)
-  const leave = useMutation({ mutationFn: organizations.leave, onSuccess: startAgainInOrganization })
-  return (
-    <Section
-      title="Leave the organisation"
-      description="You stop being a member: its projects and documents stay with it, and so do the chats you shared with a project. Your private chats in its projects go. Only an invitation lets you back in."
-    >
-      {confirming ? (
-        <div className="space-y-3">
-          <Notice tone="warn">Leave {me.organization.name}? You will work in another of your organisations.</Notice>
-          {leave.isError && <Notice tone="bad">{leave.error.message}</Notice>}
-          <div className="flex gap-2">
-            <Button variant="danger" icon={<LogOut className="size-4" />} onClick={() => leave.mutate()} disabled={leave.isPending}>
-              Leave {me.organization.name}
-            </Button>
-            <Button variant="ghost" onClick={() => setConfirming(false)}>
-              Cancel
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <Button variant="danger" onClick={() => setConfirming(true)}>
-          Leave…
-        </Button>
-      )}
-    </Section>
-  )
-}
-
-/**
- * An owner deletes the organisation, confirmed as handing it over is: it goes with everything in it once the grace
- * period is over, and until then any owner keeps it here. Anyone else reads when, and asks an owner.
- */
-function DeleteSection({ me }: { me: Me }) {
-  const queryClient = useQueryClient()
-  const [confirming, setConfirming] = useState(false)
-  const [confirmation, setConfirmation] = useState('')
-  const name = me.organization.name
-  const remove = useMutation({
-    mutationFn: () => organizations.delete(me.has_password ? { password: confirmation } : { email: confirmation }),
-    onSuccess: (account) => {
-      setSignedIn(queryClient, account)
-      setConfirming(false)
-      setConfirmation('')
-    },
-  })
-  const keep = useMutation({ mutationFn: organizations.keep, onSuccess: (account) => setSignedIn(queryClient, account) })
-  const due = me.organization.deletion_due_at
-  const owner = me.role === 'owner'
-
-  function submit(event: FormEvent) {
-    event.preventDefault()
-    if (confirmation.trim()) remove.mutate()
-  }
-
-  return (
-    <Section
-      id={DELETION_SECTION}
-      title="Delete the organisation"
-      description={`Everything in it goes: its projects, documents and chats, its members' places in it, its usage and its audit log. It is deleted ${DELETION_GRACE_DAYS} days after an owner asks, every member is told by email, and until then any owner can keep it. A subscription that still renews is cancelled first, under Manage billing.`}
-    >
-      {due ? (
-        <div className="space-y-3">
-          <Notice tone="warn">{deletionWords(me.organization, me.role, formatDate(due))}</Notice>
-          {keep.isError && <Notice tone="bad">{keep.error.message}</Notice>}
-          {owner && (
-            <Button variant="primary" onClick={() => keep.mutate()} disabled={keep.isPending}>
-              Keep {name}
-            </Button>
-          )}
-        </div>
-      ) : confirming ? (
-        <form onSubmit={submit} className="max-w-sm space-y-3">
-          <Notice tone="warn">
-            Delete {name}? Its members can read and download what it holds for {DELETION_GRACE_DAYS} days, and then it is gone for good.
-          </Notice>
-          {me.has_password ? (
-            <PasswordField
-              label="Your password"
-              autoComplete="current-password"
-              required
-              value={confirmation}
-              onChange={(event) => setConfirmation(event.target.value)}
-            />
-          ) : (
-            <InputField
-              label={`Type ${me.email} to confirm`}
-              autoComplete="off"
-              required
-              value={confirmation}
-              onChange={(event) => setConfirmation(event.target.value)}
-            />
-          )}
-          {remove.isError && <Notice tone="bad">{remove.error.message}</Notice>}
-          <div className="flex gap-2">
-            <Button type="submit" variant="danger" icon={<Trash2 className="size-4" />} disabled={!confirmation.trim() || remove.isPending}>
-              Delete {name}
-            </Button>
-            <Button variant="ghost" onClick={() => setConfirming(false)}>
-              Cancel
-            </Button>
-          </div>
-        </form>
-      ) : (
-        <Button variant="danger" onClick={() => setConfirming(true)}>
-          Delete…
-        </Button>
-      )}
-    </Section>
-  )
-}
-
-/** Starts an organisation the user owns, and works in it from then on. */
-export function NewOrganizationPage() {
-  const navigate = useNavigate()
-  const [name, setName] = useState('')
-  const start = useMutation({ mutationFn: () => organizations.start(name), onSuccess: startAgainInOrganization })
-
-  function submit(event: FormEvent) {
-    event.preventDefault()
-    if (name.trim()) start.mutate()
-  }
-
-  // Back to the page the user came from, or the front page when this one was opened directly.
-  function back() {
-    if (window.history.state?.idx) navigate(-1)
-    else navigate('/')
-  }
-
-  return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-2xl px-6 py-10">
-        <div className="mb-6">
-          <h1 className="text-2xl font-semibold tracking-tight">New organisation</h1>
-          <p className="mt-1 text-[13px] text-muted">
-            An organisation of its own, with its own projects, members and plan. It starts empty on the Free plan, with you
-            as its owner, and you work in it from then on; your other organisations stay as they are.
-          </p>
-        </div>
-        <form onSubmit={submit} className="rounded-xl border border-line bg-surface p-5 shadow-xs">
-          <div className="max-w-sm space-y-3">
-            <InputField
-              label="Name"
-              autoFocus
-              maxLength={200}
-              required
-              placeholder="e.g. Acme Legal"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
-            {start.isError && <Notice tone="bad">{start.error.message}</Notice>}
-          </div>
-          <div className="mt-4 flex justify-end gap-2">
-            <Button variant="ghost" onClick={back}>
-              Cancel
-            </Button>
-            <Button type="submit" variant="primary" disabled={!name.trim() || start.isPending}>
-              Create organisation
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
   )
 }

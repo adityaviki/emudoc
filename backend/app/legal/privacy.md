@@ -157,8 +157,8 @@ $region
 ## How long it is kept
 
 - **Documents**, their earlier versions and everything read from them, until a member deletes
-  them or the organisation is deleted, which happens $deletion_days days after an owner asks, with
-  everything else it holds, its usage records and audit log among them.
+  them or the organisation is deleted with everything else it holds, its usage records and audit
+  log among them.
 - **Project exports**: the file of a project's documents and chats that a member asks for is
   kept $export_days days after it is made, for that member alone, and goes sooner with the
   project, or with the member's place in the organisation.
@@ -168,7 +168,7 @@ $region
 - **Chats**, for as long as the organisation's plan keeps a chat after its last question
   ($chat_retention), or the terms agreed with the organisation in its place, or for less time
   where its owners or admins chose so, unless deleted sooner; the chats you did not share with
-  a project go when you leave the organisation or an owner or admin removes you from it. After
+  a project go when an owner or admin removes you from the organisation. After
   a move to a plan or terms that keep chats for less time, they are kept as before for
   $held_days days after the move, unless the organisation chose less.
 - **Runs of cross-checks**, with what they found and their reports, for as long as the
@@ -176,8 +176,8 @@ $region
   sooner.
 - **Drafts**, with their versions, for as long as the organisation keeps a chat, counted from
   when one was last asked for or saved, unless a member deletes it sooner.
-- **Your My files**, with their versions, until you delete them, leave the organisation, your
-  account is deleted or their project goes.
+- **Your My files**, with their versions, until you delete them, you are removed from the
+  organisation, your account is deleted or their project goes.
 - **Question sets**, until a member deletes them or their project goes; **the reports of their
   answers**, for as long as the organisation keeps a chat, counted from when the report was
   made, unless a member deletes them sooner.
@@ -187,19 +187,19 @@ $region
 - **Sessions and links**, until $credential_days days after they expired or were ended.
 - **Invitations**, until they are accepted or revoked, or $credential_days days after they
   expired.
-- **API keys**, until they are revoked or the member who made them leaves the organisation, or
-  $credential_days days after they ran out.
+- **API keys**, until they are revoked or the member who made them is removed from the
+  organisation, or $credential_days days after they ran out.
 - **Share links**, until they are revoked or expire, at most $share_days days after they were
-  made, or sooner when the member who made them leaves the organisation; the code of each
-  opening, $share_view_minutes minutes at most.
+  made, or sooner when the member who made them is removed from the organisation; the code of
+  each opening, $share_view_minutes minutes at most.
 - **The answers kept for a program's idempotency keys**, a day, or until its API key goes.
 - **Webhooks**, until an owner or admin removes them or the organisation goes; what was sent to
   each, $webhook_days days.
-- **Your leave for support**, until you withdraw it or leave the organisation, or
+- **Your leave for support**, until you withdraw it or are removed from the organisation, or
   $credential_days days after it ran out; the audit log keeps when support opened your account.
 - **The browsers you signed in with**, until $browser_days days after their last sign-in.
 - **The notices in your notification centre**, $notification_days days, read or not; those
-  about an organisation go when you leave it or an owner or admin removes you from it.
+  about an organisation go when an owner or admin removes you from it.
 - **Abuse protection counts**, at most $count_hours hours.
 - **Server logs**, $server_logs
 - **Usage records**, as long as the organisation exists.

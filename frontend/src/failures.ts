@@ -1,7 +1,7 @@
 // What a part of the page says once it rendered into an error (components/ErrorBoundary.tsx), and
 // when it starts afresh. The whole page has one boundary; inside it the shell's page and each of
 // the workspace's panes have their own, so that the header (the help menu, the way to support,
-// the organisation switcher) and the other panes stay while one part shows this.
+// the workspace's name) and the other panes stay while one part shows this.
 
 import type { LibraryView } from './workspace/url.ts'
 

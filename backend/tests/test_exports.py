@@ -25,11 +25,10 @@ from app.worker import Worker
 from tests.conftest import EICAR, FakeTurn
 from tests.test_api import create_project, upload
 from tests.test_audit import actions
-from tests.test_auth import PASSWORD, another_browser, signup
+from tests.test_auth import another_browser, signup
 from tests.test_chats import answered, new_chat
 from tests.test_folders import make_folder
 from tests.test_maintenance import age
-from tests.test_organizations import join
 
 
 def ask(client, project_id: int):
@@ -60,16 +59,15 @@ def archive_of(client, project_id: int, export_id: int) -> zipfile.ZipFile:
 @pytest.fixture
 def pair(client, session, signed_in_only):
     """Ada, signed in on `client`, the owner of her organisation on Team, and Bob on a browser of
-    his own, a member of it switched into it."""
+    his own, a member of it."""
     ada = signup(client, "ada@example.com", name="Ada")
-    bob_client = another_browser(client)
-    bob = signup(bob_client, "bob@example.com", name="Bob")
     org_id = ada["organization"]["id"]
     session.execute(
         update(Organization).where(Organization.id == org_id).values(plan="team", seats=5)
     )
-    join(session, org_id, bob["id"])
-    bob_client.post(f"/api/organizations/{org_id}/switch")
+    session.commit()
+    bob_client = another_browser(client)
+    bob = signup(bob_client, "bob@example.com", name="Bob", joins=org_id)
     return org_id, bob_client, bob
 
 
@@ -112,7 +110,7 @@ def test_a_member_exports_a_project_and_downloads_it(
     assert abs(expires - (datetime.now(UTC) + timedelta(days=EXPORT_DAYS))) < timedelta(minutes=1)
     ((to, subject, body),) = [sent for sent in mailer.sent if sent[1].startswith("Your project")]
     assert (to, subject) == ("ada@example.com", "Your project export is ready")
-    assert f"{app_address()}/?export={project['id']}&organization={org_id}" in body
+    assert f"{app_address()}/?export={project['id']}" in body
     told = session.scalars(select(Notification).where(Notification.kind == "project_export"))
     assert [(n.title, n.link) for n in told] == [
         ("Your project export is ready", f"/?export={project['id']}")
@@ -330,19 +328,12 @@ def test_a_quarantined_file_is_left_out_and_an_unscanned_one_has_no_original(
     assert f"documents/{flagged['id']}.json" not in archive.namelist()
 
 
-@pytest.mark.usefixtures("pair")
-def test_an_organisation_set_to_be_deleted_may_export(client):
-    project = create_project(client)
-    assert client.post("/api/organization/deletion", json={"password": PASSWORD}).status_code == 200
-    assert ask(client, project["id"]).status_code == 202
-
-
-def test_a_member_who_leaves_takes_their_exports_along(client, session, services, pair):
-    _, bob_client, _ = pair
+def test_a_member_removed_takes_their_exports_along(client, session, services, pair):
+    _, bob_client, bob = pair
     project = create_project(client)
     assert ask(bob_client, project["id"]).status_code == 202
     assert ask(client, project["id"]).status_code == 202
-    assert bob_client.post("/api/organization/leave").status_code == 200
+    assert client.delete(f"/api/organization/members/{bob['id']}").status_code == 204
     session.expire_all()
     assert [export.user_id for export in session.scalars(select(ProjectExport))] == [
         session.scalar(select(Membership.user_id).where(Membership.role == "owner"))

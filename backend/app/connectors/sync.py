@@ -24,8 +24,8 @@ queues the next at once while more wait, so that a large folder shares the worke
 Nothing goes to the trash unless the folder was read whole: a folder gone, a listing that
 failed or one past MAX_FILES leaves every document as it is, and the connector says why.
 
-What holds a sync back: the project in the trash, the plan (no connected folders, read-only,
-set to be deleted), and the member who connected it no longer one who may change the project,
+What holds a sync back: the project in the trash, the plan (no connected folders, read-only),
+and the member who connected it no longer one who may change the project,
 which pauses it, since the grant is theirs; so does a service that no longer accepts the grant,
 until its member connects it again. A service that does not answer leaves the rest to the next
 sync. Nothing of a file's name or the folder's reaches the log, which names the connector.
@@ -67,7 +67,6 @@ from app.models import (
     User,
 )
 from app.notices import app_address, record_upload, settle_upload
-from app.retention import held_for_deletion
 from app.storage import Storage
 from app.trash import trash_document
 from app.uploads import LOST_RACE, Incoming, take_files
@@ -250,8 +249,6 @@ def _held(
         return PROJECT_TRASHED
     if refusal := check_connectors(organization):
         return refusal.sentence
-    if held := held_for_deletion(organization):
-        return held
     if refusal := read_only(session, organization):
         return refusal.sentence
     member = session.get(User, connector.user_id)

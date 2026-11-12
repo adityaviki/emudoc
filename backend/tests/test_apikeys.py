@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select, text
 
-from app.api.deps import get_account
+from app.api.deps import get_person
 from app.apikeys import ELSEWHERE, KEY_UNKNOWN, READ_ONLY_KEY, ROLL_YOUR_OWN
 from app.auth import prune_credentials
 from app.billing import change_plan
@@ -175,7 +175,7 @@ def test_a_key_does_no_more_than_its_member(client, session, account, make_accou
     al = make_account("al@example.com", account.organization, role="admin")
     act_as(al)
     made = make_key(client, scope="write")
-    client.app.dependency_overrides.pop(get_account)
+    client.app.dependency_overrides.pop(get_person)
     elsewhere = make_account("eve@globex.com")
     theirs = Project(org_id=elsewhere.organization.id, name="Globex files")
     session.add(theirs)
@@ -214,7 +214,7 @@ def test_a_key_is_held_with_its_member(client, session, account, make_account, a
     al = make_account("al@example.com", account.organization, role="admin")
     act_as(al)
     api = program(client, make_key(client)["key"])
-    client.app.dependency_overrides.pop(get_account)
+    client.app.dependency_overrides.pop(get_person)
     assert api.get("/api/projects").status_code == 200
     user = session.get(User, al.user.id)
     user.terms_version = "2020-01-01"
@@ -247,7 +247,7 @@ def test_the_plan_must_include_the_api(client, session, make_account, act_as):
     change_plan(session, organization, "pro")
     session.commit()
     made = make_key(client)
-    client.app.dependency_overrides.pop(get_account)
+    client.app.dependency_overrides.pop(get_person)
     api = program(client, made["key"])
     assert api.get("/api/projects").status_code == 200
 

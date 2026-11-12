@@ -243,10 +243,6 @@ def test_only_an_organisation_made_at_sign_up_has_it(
     # One sample, Ada's, which Bob finds in the organisation he joined.
     assert len(session.scalars(select(Project).where(Project.sample.is_(True))).all()) == 1
     assert the_sample(bob)["document_count"] == FILE_COUNT
-    # An organisation started later is no sign-up.
-    started = client.post("/api/organizations", json={"name": "Second"})
-    assert started.status_code == 201, started.text
-    assert projects(client) == []
 
 
 def test_without_the_setting_a_sign_up_starts_with_nothing(client, signed_in_only):

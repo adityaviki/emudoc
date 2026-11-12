@@ -1,7 +1,7 @@
 // The notification centre's words and arithmetic: the kinds of notice as the account page names
 // them, the bell's count, how long ago a notice came, marking notices read in what the page
 // holds before the server answers, which notices arrived since the bell last looked, for the
-// browser's own notifications, and the organisation a link names, which the page switches to.
+// browser's own notifications.
 
 import type { NotificationItem, NotificationPage, NoticeKind } from './api.ts'
 
@@ -77,22 +77,6 @@ export function pageRead(page: NotificationPage, ids: number[] | undefined, now:
 /** The unread notices newer than the newest the bell had seen, oldest first: those the browser shows as they come. */
 export function arrived(items: NotificationItem[], seen: number): NotificationItem[] {
   return items.filter((item) => item.id > seen && !item.read_at).reverse()
-}
-
-/** The query a link names its organisation with, as the server writes it (`in_organization` in backend/app/mail.py). */
-export const ORGANIZATION_QUERY = 'organization'
-
-/**
- * The organisation a link to a page names, and the link without it; null when it names none. A
- * notice's mail names it, since its reader may work in another organisation when they open it.
- */
-export function linkedOrganization(path: string, search: string, hash: string): { id: number; rest: string } | null {
-  const params = new URLSearchParams(search)
-  const named = params.get(ORGANIZATION_QUERY)
-  if (named === null) return null
-  params.delete(ORGANIZATION_QUERY)
-  const query = params.toString()
-  return { id: Number(named), rest: `${path}${query ? `?${query}` : ''}${hash}` }
 }
 
 /** Where this browser keeps whether it shows the user's notices as they come: a choice of the browser's, not the account's. */

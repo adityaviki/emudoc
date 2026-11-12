@@ -236,7 +236,7 @@ def test_mentions_and_replies_tell_who_and_where_never_what(client, session, mai
         )
     ]
     [mail] = told(mailer, "bob@example.com")
-    assert f"{page}&organization={room.org_id}" in mail.text
+    assert f"{page}\n" in mail.text
     assert "fee" not in mail.text and "fee" not in mail.html
 
     act_as(room.bob)

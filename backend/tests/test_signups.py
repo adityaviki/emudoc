@@ -248,7 +248,6 @@ def test_an_open_sign_up_joins_the_workspace_as_a_member(client, session, opened
     assert made.status_code == 201, made.text
     account = made.json()
     assert account["role"] == "member" and account["organization"]["id"] == workspace["id"]
-    assert [m["id"] for m in account["organizations"]] == [workspace["id"]]
     # No organisation of her own, and no second sample: she finds the workspace's.
     assert session.scalar(select(func.count()).select_from(Organization)) == 1
     assert [project["sample"] for project in grace.get("/api/projects").json()] == [True]

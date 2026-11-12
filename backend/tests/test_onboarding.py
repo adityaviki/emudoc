@@ -140,10 +140,6 @@ def test_hiding_the_list_and_seeing_the_tour_are_the_accounts_own(client, sessio
 
     hidden = onboarding(client, checklist_hidden=True)
     assert (hidden["checklist_hidden"], hidden["tour_seen"]) == (True, True)
-    # For every organisation the user works in, a new one too.
-    started = client.post("/api/organizations", json={"name": "Lovelace Legal"})
-    assert started.status_code == 201, started.text
-    assert started.json()["checklist_hidden"] is True
     # The steps are still the organisation's, for a list shown again.
     assert steps(client) == {"upload": False, "ask": False, "invite": False}
 
@@ -180,9 +176,6 @@ def test_hiding_the_suggestion_to_invite_the_team_is_the_accounts_own(client, se
     assert user.invite_hidden_at == first
     # The step is still the organisation's, which the list goes on offering.
     assert steps(client)["invite"] is False
-    started = client.post("/api/organizations", json={"name": "Lovelace Legal"})
-    assert started.status_code == 201, started.text
-    assert started.json()["invite_hidden"] is True
     assert client.get("/api/auth/account/export").json()["account"]["invite_hidden_at"]
 
     shown = onboarding(client, invite_hidden=False)

@@ -42,7 +42,7 @@ from sqlalchemy.orm import Session
 
 from app.access import seeing
 from app.audit import audit_event
-from app.mail import automation_review_email, in_organization, review_assigned_email
+from app.mail import automation_review_email, review_assigned_email
 from app.models import (
     REVIEW_STATES,
     ROLES,
@@ -187,7 +187,7 @@ def tell_assigned(
         document.review,
         project.name,
         organization.name,
-        in_organization(f"{app_url}{page}", organization.id),
+        f"{app_url}{page}",
     )
     return tell(session, user, organization.id, REVIEW_ASSIGNED, content, page, app_url)
 
@@ -259,7 +259,7 @@ def put_in_review(
             [filename for _, filename in put],
             project.name,
             organization.name,
-            in_organization(f"{app_url}{page}", organization.id),
+            f"{app_url}{page}",
         )
         tell(session, user, organization.id, REVIEW_ASSIGNED, content, page, app_url)
     return [filename for _, filename in put]

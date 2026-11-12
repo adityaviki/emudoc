@@ -7,8 +7,6 @@ import type { Message } from './chat.ts'
 
 /** The id of the organisation page's section that invites people (`InvitationsSection`), which a link opens the page at. */
 export const INVITATIONS_SECTION = 'invitations'
-/** The id of its section that lets everyone at a domain join (`JoiningSection`). */
-export const JOINING_SECTION = 'joining'
 
 /** What of the account the suggestion to invite the team reads. */
 export type Inviter = Pick<Me, 'role' | 'invite_hidden'> & {

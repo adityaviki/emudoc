@@ -1,11 +1,9 @@
-"""The organisations a user belongs to: starting one, switching between them, and the current
-one's name, its settings, its members and their roles, handing it over to another of them,
-removing a member, and leaving it.
+"""The workspace a request works in: its name, its settings, its members and their roles,
+handing it over to another of them, and removing a member.
 
-The organisation a request works in is its session's (app/accounts.py), so starting one and
-switching set the session's choice, and every tab of the browser follows. Each answers with
-the account as `/auth/me` does, for the page to start again in the organisation it now shows.
-The local account has no session to keep a choice in, so it neither starts nor switches.
+An install holds one workspace (S.1, 2026-11-12), the organisation every request works in
+(app/accounts.py), so these routes name no organisation: nobody starts another, switches,
+leaves, joins one by their address's domain, or deletes it, which would be the install itself.
 
 Renaming and the organisation's settings are for owners and admins. Renaming keeps the slug,
 which the operator's commands name the organisation by (`usage <slug>`, `plan <slug>`). The
@@ -19,57 +17,35 @@ its own. The owners and admins also see which members sign in with two-factor.
 
 Handing it over makes another member an owner and its owner an admin, confirmed as deleting the
 account is, by the password or the address typed out, since a browser left signed in should not
-give an organisation away. Leaving takes the member's private chats in its projects with them,
-which nobody else could read, and their place among its private projects' members; their shared
-chats stay with the project. Nobody leaves an organisation that would be left without an owner,
-or with nobody, nor their last one, since an account in none can do nothing.
+give an organisation away: the way out for a team's admin who leaves the company.
 
 Owners and admins change the other members' roles and remove them: an admin anyone's but an
 owner's, and to any role but owner; an owner anyone's. Within the same bounds they make a member
 a link that sets the member's password, shown to copy and hand on, for a member who forgot it
-where the install mails nothing. Nobody changes their own role or removes
-themselves here, so the owner who asks is still one after. These two, handing over and leaving
-hold the organisation until they commit and read the asker's role again under it, so that two
-owners cannot take each other's role at once. A member removed loses what leaving loses; one
-removed from their last organisation is given one of their own, as at sign-up.
-
-An owner may delete the organisation, confirmed as handing it over is, once its subscription
-no longer renews: it goes with everything in it DELETION_GRACE later, every member is told by
-mail, and until then it is held as it stands and any owner may keep it (app/retention.py).
+where the install mails nothing. Nobody changes their own role or removes themselves here, so
+the owner who asks is still one after. These and handing over hold the organisation until they
+commit and read the asker's role again under it, so that two owners cannot take each other's
+role at once. A member removed loses their private chats in its projects, which nobody else
+could read, and their place among its private projects' members; their shared chats stay with
+the project. They keep their account, in no workspace, until it is invited again
+(app/api/deps.py).
 """
 
-from collections.abc import Callable
 from dataclasses import replace
-from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.access import forget_projects
-from app.accounts import (
-    Account,
-    account_for_user,
-    create_organization,
-    create_workspace,
-    free_organizations_owned,
-    zone_of,
-)
+from app.accounts import Account
 from app.api.auth import app_url, confirm_account, me_out
-from app.api.deps import AccountDep, CurrentAccountDep, SessionDep, UsableAccountDep, limited
-from app.audit import audit, audit_event
-from app.billing import ORGANIZATION_PAGE, renewal_refusal
+from app.api.deps import AccountDep, SessionDep, limited
+from app.audit import audit
 from app.config import get_settings
 from app.entitlements import entitlements_of
 from app.languages import UNKNOWN_LANGUAGE, known_languages, language_of, queue_language
-from app.mail import (
-    Content,
-    in_organization,
-    organization_deletion_email,
-    organization_kept_email,
-)
 from app.models import (
-    PLANS,
     ROLES,
     Chat,
     Membership,
@@ -81,9 +57,8 @@ from app.models import (
 )
 from app.my_files import drop_files
 from app.notices import IN_APP, forget_notifications
-from app.postbox import BY_EMAIL, post
+from app.postbox import BY_EMAIL
 from app.ratelimit import SIGN_INS
-from app.retention import DELETION_GRACE, day, organization_deletion_refusal
 from app.reviews import forget_assignments
 from app.schemas import (
     LanguagesOut,
@@ -91,8 +66,6 @@ from app.schemas import (
     MemberRoleIn,
     MeOut,
     OrganizationChangeIn,
-    OrganizationDeletionIn,
-    OrganizationIn,
     OwnershipIn,
     ResetLinkOut,
 )
@@ -101,10 +74,6 @@ from app.signups import handed_reset_link
 
 router = APIRouter(tags=["organizations"])
 
-NO_SESSION = (
-    "The local account works in its own organisation alone: without a session there is nothing "
-    "to keep another one in. Sign in with an account to start and switch between organisations."
-)
 NAME_NEEDED = "Give the organisation a name."
 NOT_FOUND = "Organisation not found"
 ADMINS_ONLY = (
@@ -125,21 +94,15 @@ YOUR_OWN_ROLE = (
     "Nobody changes their own role. Ask another owner of the organisation to change yours, or "
     "another admin if you are an admin."
 )
-REMOVE_YOURSELF = "To stop being a member of the organisation yourself, leave it instead."
+REMOVE_YOURSELF = (
+    "Nobody removes themselves. Ask another owner or admin of the organisation to remove you."
+)
 ADMINS_RESET = (
     "Only the owners and admins of the organisation can make a link that resets a member's "
     "password. Ask one of them to, or reset yours from the sign-in page."
 )
 OWNERS_RESET_OWNERS = "Only an owner can make a link that resets an owner's password."
 YOUR_OWN_PASSWORD = "Change your own password on your account page instead."
-LAST_ORGANISATION = (
-    "This is the only organisation you are a member of, and an account in none can do "
-    "nothing. Join or start another first, or delete your account instead."
-)
-OWNERS_DELETE = (
-    "Only an owner of the organisation can delete it, or keep it once it is set to be deleted. "
-    "Ask one of them to."
-)
 
 
 def longer_than_plan(plan: str, days: int) -> str:
@@ -149,53 +112,6 @@ def longer_than_plan(plan: str, days: int) -> str:
         f"organisation cannot keep one longer. Choose {days:,} days or fewer, or keep them as "
         "long as the plan does."
     )
-
-
-def too_many_free(allowed: int) -> str:
-    """What starting an organisation past MAX_FREE_ORGANIZATIONS is refused with."""
-    owned = "one organisation" if allowed == 1 else f"{allowed} organisations"
-    return (
-        f"You own {owned} on the {PLANS[0].title()} plan, which is as many as one person may. "
-        "Move one to a paid plan, or make another of its members its owner, to start another."
-    )
-
-
-@router.post("/organizations", response_model=MeOut, status_code=201)
-def start_organization(
-    body: OrganizationIn, account: UsableAccountDep, request: Request, session: SessionDep
-):
-    """Start an organisation the user owns, and work in it from now on."""
-    if account.session_id is None:
-        raise HTTPException(409, NO_SESSION)
-    name = _name(body.name)
-    allowed = get_settings().max_free_organizations
-    if allowed and free_organizations_owned(session, account.user) >= allowed:
-        raise HTTPException(409, too_many_free(allowed))
-    started = replace(
-        create_organization(session, account.user, name), session_id=account.session_id
-    )
-    session.get(UserSession, account.session_id).org_id = started.organization.id
-    audit(session, started, request, "organization_created", detail={"name": name})
-    session.commit()
-    return me_out(session, started)
-
-
-@router.post("/organizations/{org_id}/switch", response_model=MeOut)
-def switch_organization(org_id: int, account: UsableAccountDep, session: SessionDep):
-    """Work in another of the user's organisations from now on, in every tab of the browser."""
-    member = session.scalar(
-        select(Membership.id).where(
-            Membership.org_id == org_id, Membership.user_id == account.user.id
-        )
-    )
-    if member is None:
-        raise HTTPException(404, NOT_FOUND)
-    if account.session_id is None:
-        raise HTTPException(409, NO_SESSION)
-    user_session = session.get(UserSession, account.session_id)
-    user_session.org_id = org_id
-    session.commit()
-    return me_out(session, account_for_user(session, account.user, user_session))
 
 
 @router.patch("/organization", response_model=MeOut)
@@ -301,8 +217,8 @@ def change_role(
 
 @router.delete("/organization/members/{user_id}", status_code=204)
 def remove_member(user_id: int, account: AccountDep, request: Request, session: SessionDep):
-    """Remove another member from the organisation, with what leaving it takes; one who was in
-    no other organisation is given one of their own."""
+    """Remove another member from the organisation, with their private chats in its projects;
+    they keep their account, which can do nothing until it is invited again."""
     manager = _manager(session, account)
     if user_id == account.user.id:
         raise HTTPException(400, REMOVE_YOURSELF)
@@ -319,19 +235,6 @@ def remove_member(user_id: int, account: AccountDep, request: Request, session: 
         target=("user", user_id),
         detail={"role": role, "private_chats": chats},
     )
-    others = session.scalar(
-        select(func.count()).select_from(Membership).where(Membership.user_id == user_id)
-    )
-    if not others:
-        own = create_workspace(session, session.get(User, user_id)).organization
-        # The app made it, so the row names no member as its maker.
-        audit_event(
-            session,
-            "organization_created",
-            org_id=own.id,
-            target=("user", user_id),
-            detail={"name": own.name},
-        )
     session.commit()
 
 
@@ -399,144 +302,6 @@ def hand_over(body: OwnershipIn, account: AccountDep, request: Request, session:
     return me_out(session, replace(account, role="admin"))
 
 
-@router.post("/organization/leave", response_model=MeOut)
-def leave_organization(account: CurrentAccountDep, request: Request, session: SessionDep):
-    """Stop being a member of the organisation, and work in another of the user's from now on:
-    also the way out of one that holds the account until it signs in with two-factor."""
-    if account.session_id is None:
-        raise HTTPException(409, NO_SESSION)
-    account = _held(session, account)
-    if refusal := leaving_refusal(session, account):
-        raise HTTPException(409, refusal)
-    chats = _part(session, account.organization.id, account.user.id)
-    audit(
-        session,
-        account,
-        request,
-        "member_left",
-        detail={"role": account.role, "private_chats": chats},
-    )
-    session.commit()
-    user_session = session.get(UserSession, account.session_id)
-    return me_out(session, account_for_user(session, account.user, user_session))
-
-
-@router.post(
-    "/organization/deletion", response_model=MeOut, dependencies=[Depends(limited(SIGN_INS))]
-)
-def delete_organization(
-    body: OrganizationDeletionIn, account: AccountDep, request: Request, session: SessionDep
-):
-    """Set the organisation to be deleted with everything in it once the grace period is over,
-    and tell every member. The password confirms it, or the address typed out for an account
-    without one, so that a browser left signed in is not enough by itself. Asked again while
-    it is due, it changes nothing."""
-    if account.role != "owner":
-        raise HTTPException(403, OWNERS_DELETE)
-    confirm_account(session, account, request, body.password, body.email)
-    account = _owner_held(session, account)
-    organization = account.organization
-    if organization.deletion_due_at is None:
-        if refusal := organization_deletion_refusal(organization) or renewal_refusal(organization):
-            raise HTTPException(409, refusal)
-        organization.deletion_due_at = datetime.now(UTC) + DELETION_GRACE
-        audit(
-            session,
-            account,
-            request,
-            "organization_deletion_requested",
-            detail={"due_at": organization.deletion_due_at.isoformat()},
-        )
-        asker = account.user.name or account.user.email
-        link = in_organization(f"{app_url(request)}{ORGANIZATION_PAGE}", organization.id)
-        _tell_members(
-            session,
-            organization,
-            lambda user, role: organization_deletion_email(
-                user.name,
-                asker,
-                organization.name,
-                day(organization.deletion_due_at, zone_of(user.time_zone)),
-                link,
-                owner=role == "owner",
-            ),
-        )
-        session.commit()
-    return me_out(session, account)
-
-
-@router.delete("/organization/deletion", response_model=MeOut)
-def keep_organization(account: AccountDep, request: Request, session: SessionDep):
-    """Keep an organisation that was set to be deleted, and tell every member: nothing of it is
-    removed, and it can be changed again."""
-    if account.role != "owner":
-        raise HTTPException(403, OWNERS_DELETE)
-    account = _owner_held(session, account)
-    organization = account.organization
-    if organization.deletion_due_at is not None:
-        organization.deletion_due_at = None
-        audit(session, account, request, "organization_deletion_cancelled")
-        keeper = account.user.name or account.user.email
-        _tell_members(
-            session,
-            organization,
-            lambda user, role: organization_kept_email(user.name, keeper, organization.name),
-        )
-        session.commit()
-    return me_out(session, account)
-
-
-def _owner_held(session: Session, account: Account) -> Account:
-    """The account as `_held` reads it, refused unless it is an owner's, with its organisation
-    as it stands under the hold: another owner may have asked for its deletion, or kept it."""
-    account = _held(session, account)
-    if account.role != "owner":
-        raise HTTPException(403, OWNERS_DELETE)
-    session.refresh(account.organization)
-    return account
-
-
-def _tell_members(
-    session: Session, organization: Organization, content: Callable[[User, str], Content]
-) -> None:
-    """Post each member of the organisation the mail `content` writes for them and their role,
-    in the caller's session."""
-    for user, role in session.execute(
-        select(User, Membership.role)
-        .join(Membership, Membership.user_id == User.id)
-        .where(Membership.org_id == organization.id)
-        .order_by(User.id)
-    ):
-        post(session, user.email, content(user, role), org_id=organization.id)
-
-
-def leaving_refusal(session: Session, account: Account) -> str | None:
-    """Why the account's user cannot leave its organisation, or None when they can."""
-    name = account.organization.name
-    memberships = session.scalar(
-        select(func.count()).select_from(Membership).where(Membership.user_id == account.user.id)
-    )
-    if memberships == 1:
-        return LAST_ORGANISATION
-    others, owners = session.execute(
-        select(func.count(), func.count().filter(Membership.role == "owner")).where(
-            Membership.org_id == account.organization.id,
-            Membership.user_id != account.user.id,
-        )
-    ).one()
-    if not others:
-        return (
-            f"You are the only member of {name}, so leaving it would leave it with nobody. "
-            "Make another member its owner first, or stay."
-        )
-    if account.role == "owner" and not owners:
-        return (
-            f"You are the only owner of {name}, which has other members. Make one of them its "
-            "owner first."
-        )
-    return None
-
-
 def locked(session: Session, org_id: int) -> Organization | None:
     """The organisation, held until the commit, so that requests that change who is in it, or
     with what role, take their turns: two cannot both take the plan's last place, nor two
@@ -583,8 +348,8 @@ def _membership(session: Session, account: Account, user_id: int) -> Membership:
 
 
 def _part(session: Session, org_id: int, user_id: int) -> int:
-    """End the user's membership of the organisation, as leaving or being removed does, and
-    return how many of their chats went: the private ones in its projects, which nobody else
+    """End the user's membership of the organisation, as being removed does, and return how
+    many of their chats went: the private ones in its projects, which nobody else
     could read. Their place among its private projects' members goes too, so that joining
     again shows them none, and so do its notices in their notification centre, their exports
     of its projects, the reviews of its documents assigned to them and their My files in its
@@ -610,7 +375,8 @@ def _part(session: Session, org_id: int, user_id: int) -> int:
     session.execute(
         delete(Membership).where(Membership.org_id == org_id, Membership.user_id == user_id)
     )
-    # Every session that worked in it, in other browsers too, goes back to the first joined.
+    # Every session that worked in it, in other browsers too, works in none until the user is
+    # invited again.
     session.execute(
         update(UserSession)
         .where(UserSession.user_id == user_id, UserSession.org_id == org_id)
