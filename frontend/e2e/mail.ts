@@ -4,15 +4,8 @@ import { join } from 'node:path'
 
 // Where e2e/serve.sh keeps everything the server says (playwright.config.ts names it there). The
 // run has no mail relay, so the app's log mailer writes each message to the log ("Email to
-// <address>: <subject>" and the body), and the test follows a sign-up's link from there.
+// <address>: <subject>" and the body), and the test reads the mail it checks from there.
 export const SERVER_LOG = join(tmpdir(), 'emudoc-e2e-server.log')
-
-/** The first link of the newest message to `address` in the server's log, once it is there. */
-export async function linkMailedTo(address: string, timeout = 10_000): Promise<string> {
-  const link = /https?:\/\/\S+/.exec(await messageTo(address, timeout))
-  if (!link) throw new Error(`The newest message to ${address} in ${SERVER_LOG} has no link.`)
-  return link[0]
-}
 
 /** The newest message to `address` in the server's log, its subject first, once it is there. */
 export async function messageTo(address: string, timeout = 10_000): Promise<string> {

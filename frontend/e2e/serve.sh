@@ -5,8 +5,8 @@
 # embeddings endpoint and Google Drive being the stand-in (e2e/standin.py, started before this). Every
 # setting the run depends on is set here, so that a developer's .env changes none of them.
 # Everything the server says goes to LOG as well as to standard error, which Playwright shows:
-# the run has no mail relay, so the app logs each message it sends, and the test follows a
-# sign-up's link from there (e2e/mail.ts).
+# the run has no mail relay, so the app logs each message it sends, and the test reads the mail it
+# checks from there (e2e/mail.ts), and copies an invitation's link from the page that made it.
 #
 #   e2e/serve.sh PORT STANDIN_PORT LOG
 #
@@ -58,6 +58,7 @@ export EMBEDDING_DIM=768
 export DISABLED_PROVIDERS=
 export DATA_REGION=
 export SCANNER_URL=off
+export SIGNUP_OPEN=false
 export SMTP_URL=
 export RESEND_API_KEY=
 export RESEND_WEBHOOK_SECRET=

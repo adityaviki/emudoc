@@ -373,6 +373,7 @@ AUDIT_ACTIONS = (
     "my_file_deleted",
     "my_file_downloaded",
     "my_file_copied",
+    "reset_link_made",
 )
 
 

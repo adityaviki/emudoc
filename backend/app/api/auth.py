@@ -4,13 +4,17 @@ user holds, and the account itself: its user's name, time zone and email address
 they accepted (app/legal/), a copy of what is kept about them, and its deletion
 (app/retention.py).
 
-A sign-up asks for the address alone and mails it a link, and the page the link opens makes
-the account: whoever holds the address chooses its password and accepts the terms there. The
-answer to the form is the same whether the address has an account or not, and an address that
-has one is told so in a message instead, so that nobody learns from the app who uses it. An
-invitation's link (app/invitations.py) opens a page that does the same for a new account, which
-joins the organisation that invited it instead of starting one of its own, or lets the account
-with the address join once signed in; the address is the invitation's, which the link proves.
+An install starts at its setup, which makes the admin's account and the workspace while no user
+exists, and is refused once one does (app/signups.py). After that, an invitation's link
+(app/invitations.py) opens a page that makes a new account, a member of the workspace, or lets
+the account with the address join once signed in; the address is the invitation's, which the
+link stands for, mailed to it or handed on by the admin who made it.
+
+While sign-up is open (SIGNUP_OPEN, off by default), a sign-up asks for the address alone and
+mails it a link, and the page the link opens makes the account, a member of the workspace:
+whoever holds the address chooses its password and accepts the terms there. The answer to the
+form is the same whether the address has an account or not, and an address that has one is
+told so in a message instead, so that nobody learns from the app who uses it.
 
 An account moves to a new address through a link sent there, which works signed in or not, as
 a verification link does; until it is opened the account keeps its address. That request too
@@ -52,7 +56,6 @@ from app.accounts import (
     Account,
     account_for_user,
     add_member,
-    create_account,
     create_user,
     organizations_of,
     time_zones,
@@ -83,6 +86,7 @@ from app.billing import (
 from app.bounces import forget
 from app.config import get_settings
 from app.entitlements import (
+    PlanRefused,
     agreed_with,
     bought_this_month,
     entitlements_of,
@@ -175,6 +179,7 @@ from app.schemas import (
     RecoveryCodesOut,
     RetentionHeldOut,
     SessionOut,
+    SetupIn,
     SignupFinishIn,
     SignupIn,
     SignupLinkOut,
@@ -182,8 +187,20 @@ from app.schemas import (
     TermsIn,
 )
 from app.security import mfa_due
-from app.signups import SIGNUP_CLOSED, SIGNUP_PAGE, booking
-from app.storage import Storage, content_disposition
+from app.signups import (
+    NOT_SET_UP,
+    RESET_PAGE,
+    SET_UP_ALREADY,
+    SIGNUP_CLOSED,
+    NotSetUp,
+    SetUpAlready,
+    booking,
+    join_workspace,
+    needs_setup,
+    set_up,
+    workspace,
+)
+from app.storage import content_disposition
 from app.support import NOT_IN_A_VIEW, leave_of
 from app.support import end as end_view
 
@@ -192,8 +209,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 # Pages of the frontend (frontend/src/account/): the links in emails and the redirects after an
 # OAuth sign-in point at them.
 LOGIN_PAGE = "/login"
+SETUP_PAGE = "/setup"
+SIGNUP_PAGE = "/finish-signup"
 VERIFY_PAGE = "/verify"
-RESET_PAGE = "/reset-password"
 FORGOT_PAGE = "/forgot-password"
 EMAIL_PAGE = "/confirm-email"
 INVITATION_PAGE = "/invitation"
@@ -215,6 +233,7 @@ CODE_UNCHECKABLE = (
 MFA_FIRST = "Sign in with your password first."
 WRONG_PASSWORD = "The password is not right."
 TYPE_EMAIL = "Type the email address of your account to confirm."
+NAME_THE_WORKSPACE = "Give the workspace a name: your team's or your company's."
 UNKNOWN_ZONE = "Choose a time zone from the list, such as Europe/Berlin or UTC."
 SAME_ADDRESS = "That is your account's address already. Type the new one."
 LOCAL_ADDRESS = (
@@ -295,9 +314,10 @@ class SignInRefused(Exception):
 
 
 @router.get("/options", response_model=AuthOptions)
-def options():
-    """What the sign-in pages can offer: the identity providers that are set up, and whether
-    anyone may sign up, with the way to ask for an account while nobody may (app/signups.py)."""
+def options(session: SessionDep):
+    """What the sign-in pages can offer: the identity providers that are set up, whether
+    anyone may sign up, with the way to ask for an account while nobody may, and whether the
+    install has no account yet, so that every page sends to the setup (app/signups.py)."""
     settings = get_settings()
     book_url, book_label = booking(settings)
     return AuthOptions(
@@ -307,7 +327,56 @@ def options():
         signup_open=settings.signup_open,
         book_url=book_url,
         book_label=book_label,
+        setup_needed=needs_setup(session),
     )
+
+
+@router.post("/setup", response_model=MeOut, status_code=201)
+def setup(
+    body: SetupIn,
+    request: Request,
+    response: Response,
+    session: SessionDep,
+    http: HttpDep,
+    services: ServicesDep,
+    worker: WorkerDep,
+):
+    """Make the install's first account, its admin, an owner of the workspace named as typed,
+    which starts with the sample project, and sign it in (app/signups.py). Refused once any
+    user exists, so that nobody who finds the page later makes another admin. Whoever runs the
+    install types the address, so it starts confirmed; the password and the terms are checked
+    as at a sign-up."""
+    refuse_past(session, (ADDRESSES, by_address(request)))
+    _refuse_unaccepted(body.terms_version)
+    if not (name := body.workspace.strip()):
+        raise HTTPException(400, NAME_THE_WORKSPACE)
+    # Before the breach check's request, so that a page left open answers at once.
+    if not needs_setup(session):
+        raise HTTPException(409, SET_UP_ALREADY)
+    _refuse_breached(http, body.password)
+    try:
+        account = set_up(
+            session,
+            body.email.strip().lower(),
+            body.name.strip(),
+            auth.hash_password(body.password),
+            name,
+            body.time_zone,
+        )
+    except SetUpAlready:
+        raise HTTPException(409, SET_UP_ALREADY) from None
+    user_session, token = auth.start_session(session, account.user, request)
+    browser = auth.remember_browser(session, account.user, request)
+    audit(session, account, request, "sign_up", detail={"method": "password"})
+    audit(session, account, request, "organization_created", detail={"name": name})
+    _accept_terms(session, account, request)
+    sampled = add_sample(session, account.organization, services.storage) is not None
+    session.commit()
+    if sampled and worker:
+        worker.notify()
+    auth.set_session_cookie(response, request, token)
+    auth.set_browser_cookie(response, request, browser)
+    return me_out(session, replace(account, session_id=user_session.id))
 
 
 @router.post("/signup", status_code=202)
@@ -316,9 +385,12 @@ def signup(body: SignupIn, request: Request, session: SessionDep):
     is the same whether the address has an account or not, and so is the work behind it, a mail
     posted either way: an address with an account is told that someone tried, with the way to
     sign in, so that nobody learns from the app who uses it. While sign-up is closed every
-    address is refused alike, before anything is looked up (app/signups.py)."""
+    address is refused alike, before anything is looked up, and so is it before the setup made
+    the workspace a new account joins (app/signups.py)."""
     if not get_settings().signup_open:
         raise HTTPException(403, SIGNUP_CLOSED)
+    if workspace(session) is None:
+        raise HTTPException(409, NOT_SET_UP)
     email = body.email.strip().lower()
     user = session.scalar(select(User).where(User.email == email))
     guesser = _guesser(session, request, user, email)
@@ -338,6 +410,8 @@ def signup(body: SignupIn, request: Request, session: SessionDep):
 def signup_link(body: LinkTokenIn, session: SessionDep):
     """The address a sign-up link was sent to, for its page to show before anything is typed,
     without using the link up; refused as `finish_signup` would refuse it."""
+    if not get_settings().signup_open:
+        raise HTTPException(403, SIGNUP_CLOSED)
     link = auth.find_link_token(session, body.token, "sign_up")
     if link is None:
         raise HTTPException(400, LINK_INVALID)
@@ -348,20 +422,17 @@ def signup_link(body: LinkTokenIn, session: SessionDep):
 
 @router.post("/signup/finish", response_model=MeOut, status_code=201)
 def finish_signup(
-    body: SignupFinishIn,
-    request: Request,
-    response: Response,
-    session: SessionDep,
-    http: HttpDep,
-    services: ServicesDep,
-    worker: WorkerDep,
+    body: SignupFinishIn, request: Request, response: Response, session: SessionDep, http: HttpDep
 ):
-    """Make the account a sign-up link was sent for, with an organisation of its own that
-    starts with the sample project (app/sample), and sign it in. Opening the link proves the
-    address, so it starts confirmed, and whoever holds the address chooses the password and
-    accepts the terms, never whoever typed it into the form. The edition accepted must be the
-    current one. A refusal leaves the link working, since nothing is committed."""
+    """Make the account a sign-up link was sent for, a member of the install's workspace
+    (app/signups.py), and sign it in. Opening the link proves the address, so it starts
+    confirmed, and whoever holds the address chooses the password and accepts the terms, never
+    whoever typed it into the form. The edition accepted must be the current one. Refused once
+    sign-up has closed since the link was sent, and while the workspace's plan has no room. A
+    refusal leaves the link working, since nothing is committed."""
     refuse_past(session, (ADDRESSES, by_address(request)))
+    if not get_settings().signup_open:
+        raise HTTPException(403, SIGNUP_CLOSED)
     _refuse_unaccepted(body.terms_version)
     link = auth.redeem_link_token(session, body.token, "sign_up")
     if link is None:
@@ -371,7 +442,7 @@ def finish_signup(
         raise HTTPException(409, SIGNED_UP_ALREADY)
     _refuse_breached(http, body.password)
     try:
-        account = create_account(
+        user = create_user(
             session,
             link.email,
             body.name.strip(),
@@ -388,17 +459,18 @@ def finish_signup(
         raise
     # The audit log keeps the sign-up; its links would outlive a deletion of the account.
     auth.forget_sign_ups(session, link.email)
-    user_session, token = auth.start_session(session, account.user, request)
-    browser = auth.remember_browser(session, account.user, request)
+    user_session, token = auth.start_session(session, user, request)
+    try:
+        account = join_workspace(session, user, user_session)
+    except NotSetUp as refusal:
+        raise HTTPException(409, str(refusal)) from None
+    browser = auth.remember_browser(session, user, request)
     audit(session, account, request, "sign_up", detail={"method": "password"})
     _accept_terms(session, account, request)
-    sample = add_sample(session, account.organization, services.storage)
     session.commit()
-    if sample and worker:
-        worker.notify()
     auth.set_session_cookie(response, request, token)
     auth.set_browser_cookie(response, request, browser)
-    return me_out(session, replace(account, session_id=user_session.id))
+    return me_out(session, account)
 
 
 # Invitations (app/invitations.py)
@@ -1023,8 +1095,6 @@ def oauth_callback(
     request: Request,
     session: SessionDep,
     http: HttpDep,
-    services: ServicesDep,
-    worker: WorkerDep,
     code: str | None = None,
     state: str | None = None,
     error: str | None = None,
@@ -1040,9 +1110,7 @@ def oauth_callback(
         )
     try:
         claims = finish(found, code, _redirect_uri(request, found), handshake, http)
-        user, joined, sampled = _user_for_claims(
-            session, found, claims, request, handshake, services.storage
-        )
+        user, joined = _user_for_claims(session, found, claims, request, handshake)
     except (OidcError, SignInRefused) as refusal:
         session.rollback()
         return _back_to_login(request, error=str(refusal))
@@ -1051,8 +1119,6 @@ def oauth_callback(
         audit_sign_in(session, user, request, "sign_in", {"method": found.name})
         browser = auth.remember_browser(session, user, request)
     session.commit()
-    if sampled and worker:
-        worker.notify()
     if user.mfa_enabled:
         response = _back_to_login(request, mfa="1", next=handshake.next)
     else:
@@ -1065,23 +1131,18 @@ def oauth_callback(
 
 
 def _user_for_claims(
-    session: Session,
-    provider: Provider,
-    claims: Claims,
-    request: Request,
-    handshake: Handshake,
-    storage: Storage,
-) -> tuple[User, bool, bool]:
+    session: Session, provider: Provider, claims: Claims, request: Request, handshake: Handshake
+) -> tuple[User, bool]:
     """The user behind the provider's subject, linking or creating an account the first time,
-    whether a new account joined the organisation that invited its address, and whether one
-    that started its own got the sample project (app/sample), whose jobs are then queued.
+    and whether a new account joined the organisation that invited its address.
 
     An existing account is linked only when both sides vouch for the address: the provider
     says it is verified, and the account verified it too. Otherwise someone could sign up with
     another person's address and wait for them to sign in through a provider. A new account
-    whose sign-in started from an invitation's page for its address joins that organisation
-    instead of starting its own, its address proven by the link as on that page. While sign-up
-    is closed nothing else makes an account (app/signups.py).
+    whose sign-in started from an invitation's page for its address joins that organisation,
+    its address proven by the link as on that page. Any other new account is a sign-up: it
+    joins the install's workspace while sign-up is open, and is refused while it is closed
+    (app/signups.py).
     """
     identity = session.scalar(
         select(Identity).where(
@@ -1090,7 +1151,7 @@ def _user_for_claims(
     )
     if identity is not None:
         identity.email = claims.email
-        return identity.user, False, False
+        return identity.user, False
     if not claims.email:
         raise SignInRefused(
             f"{provider.label} did not share an email address for this account, which Emudoc "
@@ -1098,7 +1159,7 @@ def _user_for_claims(
         )
     user = session.scalar(select(User).where(User.email == claims.email))
     invitation = find_invitation(session, handshake.invitation) if handshake.invitation else None
-    joined = sampled = False
+    joined = False
     if user is None and invitation is not None and is_open(invitation):
         joined = invitation.email == claims.email
     if joined:
@@ -1112,16 +1173,18 @@ def _user_for_claims(
     elif user is None:
         if not get_settings().signup_open:
             raise SignInRefused(SIGNUP_CLOSED)
-        account = create_account(
+        user = create_user(
             session,
             claims.email,
             claims.name,
             email_verified=claims.email_verified,
             time_zone=handshake.time_zone,
         )
+        try:
+            account = join_workspace(session, user)
+        except (NotSetUp, PlanRefused) as refusal:
+            raise SignInRefused(str(refusal)) from None
         audit(session, account, request, "sign_up", detail={"method": provider.name})
-        sampled = add_sample(session, account.organization, storage) is not None
-        user = account.user
         if not claims.email_verified:
             _send_verification(session, user, request)
     elif not (claims.email_verified and user.email_verified_at is not None):
@@ -1135,7 +1198,7 @@ def _user_for_claims(
         )
     )
     session.flush()
-    return user, joined, sampled
+    return user, joined
 
 
 def _provider(name: str) -> Provider:

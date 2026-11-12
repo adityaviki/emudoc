@@ -22,9 +22,11 @@ from tests.test_auth import (
     finish_signup,
     login,
     me,
+    open_signup,  # noqa: F401 (a fixture)
     sign_up_link,
     signup,
 )
+from tests.test_signups import set_up
 
 BREACHED_ONE = "password1234"
 
@@ -42,12 +44,16 @@ def sha1(password: str) -> str:
 
 
 def test_sign_up_refuses_a_breached_password_and_tells_the_service_only_the_hashs_start(
-    client, session, checked, signed_in_only
+    client,
+    session,
+    checked,
+    open_signup,  # noqa: F811
 ):
     token = sign_up_link(client)
     response = finish_signup(client, token, password=BREACHED_ONE)
     assert response.status_code == 422 and response.json() == {"detail": BREACHED}
-    assert session.scalar(select(func.count()).select_from(User)) == 0
+    # The install's admin alone.
+    assert session.scalar(select(func.count()).select_from(User)) == 1
 
     (request,) = checked.requests
     assert request.method == "GET"
@@ -58,6 +64,13 @@ def test_sign_up_refuses_a_breached_password_and_tells_the_service_only_the_hash
     # The link was not used up by the refusal.
     assert finish_signup(client, token).status_code == 201
     assert me(client).status_code == 200
+
+
+def test_the_setup_refuses_a_breached_password_and_makes_nothing(client, checked, signed_in_only):
+    refused = set_up(client, password=BREACHED_ONE)
+    assert refused.status_code == 422 and refused.json() == {"detail": BREACHED}
+    assert client.get("/api/auth/options").json()["setup_needed"] is True
+    assert set_up(client).status_code == 201
 
 
 def test_a_reset_and_a_change_refuse_one_and_keep_the_password(
@@ -96,7 +109,7 @@ def test_a_service_that_does_not_answer_lets_the_password_through(
 ):
     checked.status = 503
     with caplog.at_level(logging.INFO):
-        signup(client, password=BREACHED_ONE)
+        assert set_up(client, password=BREACHED_ONE).status_code == 201
     assert "The breached-password check at https://pwned.test failed (it answered 503)" in (
         caplog.text
     )

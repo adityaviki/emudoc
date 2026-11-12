@@ -1639,6 +1639,21 @@ export interface Invitation {
   expired: boolean
 }
 
+/**
+ * An invitation just made or sent again, with its link for whoever sent it to copy and hand on: the one way it
+ * arrives where the install has no mail relay (`mailed` false). Never shown again, since only its hash is kept.
+ */
+export interface InvitationSent extends Invitation {
+  link: string
+  mailed: boolean
+}
+
+/** A link that sets a member's password, for an owner or admin to hand on, and when it stops working. */
+export interface ResetLink {
+  link: string
+  expires_at: string
+}
+
 /** What an invitation's link is for, as its page shows it. */
 export interface InvitationLink {
   organization: string
@@ -1808,6 +1823,8 @@ export interface AuthOptions {
   book_url: string
   /** The words of the button that leads there: "Book a demo" or "Request access". */
   book_label: string
+  /** The install has no account yet: every page sends to the setup, `/setup`. */
+  setup_needed: boolean
 }
 
 /** A signed-in browser or device. */
@@ -1962,6 +1979,7 @@ export type AuditAction =
   | 'my_file_deleted'
   | 'my_file_downloaded'
   | 'my_file_copied'
+  | 'reset_link_made'
 
 /** One row of the organisation's audit log, which its owners and admins read. */
 export interface AuditEvent {
@@ -2383,6 +2401,18 @@ export const auth = {
   },
   options: () => request<AuthOptions>('/auth/options'),
   /**
+   * Makes the install's first account, its admin, an owner of the workspace named `workspace`, and signs it in; a
+   * 409 once any account exists (backend/app/signups.py).
+   */
+  setup: (body: {
+    email: string
+    name: string
+    password: string
+    workspace: string
+    terms_version: string
+    time_zone: string
+  }) => request<Me>('/auth/setup', json('POST', body)),
+  /**
    * Mails `email` the link that makes the account. Answers alike whether or not the address has an
    * account; one that has is told so by mail instead.
    */
@@ -2507,6 +2537,8 @@ export const organizations = {
   changeRole: (userId: number, role: Role) => request<Member>(`/organization/members/${userId}`, json('PATCH', { role })),
   /** As `changeRole`; the member's private chats in its projects go, as when they leave. */
   removeMember: (userId: number) => request<void>(`/organization/members/${userId}`, { method: 'DELETE' }),
+  /** As `changeRole`, for another member: a link that sets their password, which stops their earlier ones. */
+  resetLink: (userId: number) => request<ResetLink>(`/organization/members/${userId}/reset-link`, { method: 'POST' }),
   /** Owners only, confirmed by the password, or by the email address for an account without one. */
   handOver: (body: { user_id: number; password?: string; email?: string }) =>
     request<Me>('/organization/owner', json('POST', body)),
@@ -2517,10 +2549,10 @@ export const organizations = {
   keep: () => request<Me>('/organization/deletion', { method: 'DELETE' }),
   /** Owners and admins only, as is everything about invitations and joining. */
   invitations: () => request<Invitation[]>('/organization/invitations'),
-  /** Mails the address its link; a 402 when the plan has no room, a 409 for a member or one invited already. */
-  invite: (body: { email: string; role: Role }) => request<Invitation>('/organization/invitations', json('POST', body)),
-  /** Mails a new link, which stops the one before. */
-  resendInvitation: (id: number) => request<Invitation>(`/organization/invitations/${id}/resend`, { method: 'POST' }),
+  /** Mails the address its link, also given back; a 402 when the plan has no room, a 409 for a member or one invited already. */
+  invite: (body: { email: string; role: Role }) => request<InvitationSent>('/organization/invitations', json('POST', body)),
+  /** Mails a new link, also given back, which stops the one before. */
+  resendInvitation: (id: number) => request<InvitationSent>(`/organization/invitations/${id}/resend`, { method: 'POST' }),
   revokeInvitation: (id: number) => request<void>(`/organization/invitations/${id}`, { method: 'DELETE' }),
   /** Owners and admins only, as is everything about API keys; none of these takes a key. */
   keys: () => request<ApiKey[]>('/organization/keys'),

@@ -348,6 +348,12 @@ def hide_addresses(text: str) -> str:
     return _ADDRESS.sub("<address>", text)
 
 
+def relay_set(settings: Settings) -> bool:
+    """Whether the deployment names a way to send mail; without one each message is only
+    logged (`LogMailer`), and the links the app mails are handed on by hand instead."""
+    return bool(settings.resend_api_key or settings.smtp_url)
+
+
 def mailer_from_settings(settings: Settings) -> Mailer:
     if settings.resend_api_key:
         return ResendMailer(settings.resend_api_key, settings.mail_from, httpx.Client())
@@ -392,23 +398,6 @@ def sign_up_email(link: str) -> Content:
             Link(link, "Finish creating your account"),
             "The link works for 24 hours. If you did not ask for this, ignore this message and "
             "no account will be made.",
-        ),
-    )
-
-
-def invited_to_sign_up_email(link: str, days: int) -> Content:
-    """To an address the operator sent a sign-up link (app/signups.py), as while sign-up is
-    closed for a private beta: the same page as the form's link, for longer."""
-    return Content(
-        "Your invitation to Emudoc",
-        (
-            "Hi,",
-            "You are invited to Emudoc, where you upload a piece of work's documents into a "
-            "project and ask about them, each answer citing the passage it rests on. Open this "
-            "link to choose your password and make your account:",
-            Link(link, "Create your account"),
-            f"The link works for {days} days. If you were not expecting this, ignore this "
-            "message and no account will be made.",
         ),
     )
 

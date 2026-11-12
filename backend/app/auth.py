@@ -40,6 +40,10 @@ SESSION_COOKIE = "emudoc_session"
 MFA_WINDOW = dt.timedelta(minutes=10)
 VERIFY_LINK_TTL = dt.timedelta(hours=24)
 RESET_LINK_TTL = dt.timedelta(hours=1)
+# A reset link an owner or admin, or the server's shell, makes to hand on by hand
+# (app/api/organizations.py, `reset-password`, `create-admin`): longer than a mailed one, since a
+# person carries it.
+HANDED_LINK_TTL = dt.timedelta(hours=24)
 # How often a session's last-seen time is written back; every request would turn each read
 # into a write.
 LAST_SEEN_RESOLUTION = dt.timedelta(minutes=5)

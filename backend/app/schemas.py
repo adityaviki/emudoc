@@ -1854,6 +1854,21 @@ Password = Annotated[str, Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSW
 TimeZone = Annotated[str, Field(max_length=64)]
 
 
+class SetupIn(BaseModel):
+    """What the setup page makes the install's first account and its workspace with
+    (app/signups.py)."""
+
+    email: Email
+    name: str = Field("", max_length=200)
+    password: Password
+    # The team's name, which the workspace takes as typed; the route refuses it blank.
+    workspace: str = Field(max_length=200)
+    # As at a sign-up: the edition of the terms the form showed and the admin ticked, and the
+    # browser's zone.
+    terms_version: str | None = Field(None, max_length=40)
+    time_zone: TimeZone = ""
+
+
 class SignupIn(BaseModel):
     """The address an account is asked for. The rest is chosen on the page its link opens, by
     whoever holds the address."""
@@ -2432,6 +2447,23 @@ class InvitationOut(BaseModel):
     expired: bool
 
 
+class InvitationSentOut(InvitationOut):
+    """An invitation just made or sent again, with its link for the owner or admin who sent it
+    to copy and hand on: the one way it reaches its address where the install has no mail
+    relay (`mailed` false), and never shown again, since only its hash is kept."""
+
+    link: str
+    mailed: bool
+
+
+class ResetLinkOut(BaseModel):
+    """A link that sets a member's password, made by an owner or admin for them to hand on,
+    and when it stops working."""
+
+    link: str
+    expires_at: dt.datetime
+
+
 # API_KEY_SCOPES in app/models.py, which the database's check constraint holds.
 ApiKeyScope = Literal["read", "write"]
 
@@ -2784,12 +2816,14 @@ class NotificationsReadIn(BaseModel):
 class AuthOptions(BaseModel):
     """What the sign-in pages can offer besides a password, and whether anyone may sign up:
     while nobody may, `book_url` is where a visitor asks for an account, under the button's
-    words `book_label` (app/signups.py)."""
+    words `book_label`; and `setup_needed` while the install has no account yet, which every
+    page then sends to the setup (app/signups.py)."""
 
     providers: list[OAuthProviderOut]
     signup_open: bool
     book_url: str
     book_label: str
+    setup_needed: bool
 
 
 class LLMStatus(BaseModel):
@@ -3750,19 +3784,6 @@ class RequeueOut(BaseModel):
     # How many documents were queued again, and what was done with each job, one line each.
     queued: int
     lines: list[str]
-
-
-class OperatorSignUpLinkIn(BaseModel):
-    """The address the operator sends a sign-up link, as `maintenance invite` does
-    (app/signups.py)."""
-
-    email: Email
-
-
-class OperatorSignUpLinkOut(BaseModel):
-    # The address the link went to, and when it stops working.
-    email: str
-    expires_at: dt.datetime
 
 
 class OperatorModelOut(BaseModel):

@@ -3,7 +3,9 @@ their roles, handing one over, removing a member and leaving, and the tab a swit
 leaves behind."""
 
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
 from typing import get_args
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from sqlalchemy import delete, select, update
@@ -12,24 +14,28 @@ from app.api.auth import WRONG_PASSWORD
 from app.api.deps import ORGANIZATION_HEADER, READ_ONLY, SWITCHED
 from app.api.organizations import (
     ADMINS_ONLY,
+    ADMINS_RESET,
     LAST_ORGANISATION,
     MANAGERS_ONLY,
     NAME_NEEDED,
     NO_SESSION,
     OWNERS_FOR_OWNERS,
     OWNERS_ONLY,
+    OWNERS_RESET_OWNERS,
     REMOVE_YOURSELF,
+    YOUR_OWN_PASSWORD,
     YOUR_OWN_ROLE,
     YOURS_ALREADY,
     too_many_free,
 )
+from app.auth import HANDED_LINK_TTL
 from app.config import get_settings
 from app.db import engine
-from app.models import ROLES, Chat, Membership, Organization, UserSession
+from app.models import ROLES, AuditEvent, Chat, Membership, Organization, UserSession
 from app.schemas import Role
 from tests.test_api import create_project
 from tests.test_audit import actions
-from tests.test_auth import PASSWORD, another_browser, login, me, signup
+from tests.test_auth import NEW_PASSWORD, PASSWORD, another_browser, login, me, signup
 from tests.test_chats import new_chat
 
 
@@ -425,6 +431,41 @@ def test_two_owners_cannot_take_each_others_role_at_once(client, session, team):
     # Bob's is refused as the admin he is by then, and the organisation keeps its owner.
     assert (refused.status_code, refused.json()["detail"]) == (403, OWNERS_FOR_OWNERS)
     assert roles(client) == {"Ada": "owner", "Bob": "admin"}
+
+
+def test_owners_and_admins_make_a_member_a_link_that_resets_their_password(client, session, team):
+    ada, bob, bob_client = team
+    org_id = ada["organization"]["id"]
+    made = client.post(f"/api/organization/members/{bob['id']}/reset-link")
+    assert made.status_code == 200, made.text
+    link = made.json()["link"]
+    assert link.startswith("http://testserver/reset-password#token=")
+    lasts = datetime.fromisoformat(made.json()["expires_at"]) - datetime.now(UTC)
+    assert HANDED_LINK_TTL - timedelta(minutes=1) < lasts <= HANDED_LINK_TTL
+    # Whoever Ada hands it to sets Bob's password, which signs him out everywhere, once.
+    token = parse_qs(urlsplit(link).fragment)["token"][0]
+    reset = {"token": token, "password": NEW_PASSWORD}
+    assert another_browser(client).post("/api/auth/password/reset", json=reset).status_code == 204
+    assert me(bob_client).status_code == 401
+    assert another_browser(client).post("/api/auth/password/reset", json=reset).status_code == 400
+    login(bob_client, "bob@example.com", NEW_PASSWORD)
+    made_row = session.scalars(
+        select(AuditEvent).where(AuditEvent.action == "reset_link_made")
+    ).one()
+    assert (made_row.org_id, made_row.user_id) == (org_id, ada["id"])
+    assert (made_row.target_type, made_row.target_id) == ("user", bob["id"])
+
+    # Nobody makes one for themselves.
+    yours = client.post(f"/api/organization/members/{ada['id']}/reset-link")
+    assert (yours.status_code, yours.json()["detail"]) == (400, YOUR_OWN_PASSWORD)
+    # An admin makes none for an owner, and a member none at all.
+    switch(bob_client, org_id)
+    set_role(session, org_id, bob["id"], "admin")
+    for_owner = bob_client.post(f"/api/organization/members/{ada['id']}/reset-link")
+    assert (for_owner.status_code, for_owner.json()["detail"]) == (403, OWNERS_RESET_OWNERS)
+    set_role(session, org_id, bob["id"], "member")
+    member = bob_client.post(f"/api/organization/members/{ada['id']}/reset-link")
+    assert (member.status_code, member.json()["detail"]) == (403, ADMINS_RESET)
 
 
 def test_a_member_removed_loses_their_private_chats_and_their_place(client, session, team):

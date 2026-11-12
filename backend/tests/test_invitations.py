@@ -4,6 +4,7 @@ the domains whose confirmed addresses may join by themselves."""
 
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from sqlalchemy import func, update
@@ -22,11 +23,13 @@ from app.db import engine
 from app.entitlements import PLANS
 from app.legal import TERMS_VERSION
 from app.models import Invitation, User
+from app.signups import SIGNUP_CLOSED
 from tests.test_audit import actions
 from tests.test_auth import (
     PASSWORD,
     another_browser,
     callback,
+    error_of,
     google_claims,
     me,
     signup,
@@ -63,6 +66,11 @@ def invitations(client) -> list[dict]:
     response = client.get("/api/organization/invitations")
     assert response.status_code == 200, response.text
     return response.json()
+
+
+def link_token(link: str) -> str:
+    """The token of an invitation's link, from the fragment it rides in."""
+    return parse_qs(urlsplit(link).fragment)["token"][0]
 
 
 def shown(client, token: str):
@@ -289,7 +297,7 @@ def test_sending_again_mails_a_new_link_and_stops_the_one_before(
     resent = client.post(f"/api/organization/invitations/{sent['id']}/resend")
     assert resent.status_code == 200, resent.text
     second = mailer.token()
-    assert second != first and len(mailer.sent) == 3
+    assert second != first and len(mailer.sent) == 2
     assert shown(client, first).json()["detail"] == INVITATION_GONE
     assert shown(client, second).json()["email"] == "bob@example.com"
     assert actions(session, org_id)[-1] == ("invitation_sent", {"role": "member", "again": True})
@@ -358,7 +366,7 @@ def test_invitations_are_held_to_a_rate_per_inviter_and_per_address(
     hurried = client.post("/api/organization/invitations", json={"email": "dan@example.com"})
     assert hurried.status_code == 429
     assert "from your account" in hurried.json()["detail"]
-    assert len(mailer.sent) == 3
+    assert len(mailer.sent) == 1
 
 
 def test_a_new_account_through_a_provider_joins_the_organisation_that_invited_it(
@@ -389,8 +397,8 @@ def test_a_new_account_through_a_provider_joins_the_organisation_that_invited_it
         ("sign_in", {"method": "google"}),
     ]
 
-    # A provider's account with another address starts one of its own, and the invitation
-    # waits on its page.
+    # A provider's account with another address is a sign-up, refused while sign-up is closed,
+    # and the invitation waits on its page.
     invite(client, "hopper@example.com")
     token = mailer.token()
     other = another_browser(client)
@@ -398,11 +406,34 @@ def test_a_new_account_through_a_provider_joins_the_organisation_that_invited_it
     identity_provider.claims = google_claims(
         handshake.nonce, sub="google-other", email="other@example.com"
     )
-    assert callback(other, code="the-code", state=handshake.state).headers["location"] == (
-        "/invitation"
-    )
-    assert me(other).json()["organization"]["id"] != org_id
+    assert error_of(callback(other, code="the-code", state=handshake.state)) == SIGNUP_CLOSED
+    assert me(other).status_code == 401
     assert shown(other, token).status_code == 200
+
+
+def test_the_sender_is_given_the_link_to_hand_on(client, mailer, ada, room, monkeypatch):
+    sent = invite(client, "bob@example.com")
+    # Where the install has no mail relay, the link is the one way the invitation arrives,
+    # which the answer says.
+    assert sent["mailed"] is False
+    assert sent["link"] == mailer.link()
+    assert sent["link"].startswith("http://testserver/invitation#token=")
+    # Sent again, a new one, and the one before stops working.
+    resent = client.post(f"/api/organization/invitations/{sent['id']}/resend").json()
+    assert resent["link"] == mailer.link() and resent["link"] != sent["link"]
+    assert shown(client, link_token(sent["link"])).json()["detail"] == INVITATION_GONE
+    # The list never shows it again: only its hash is kept.
+    assert "link" not in invitations(client)[0]
+    # The link handed on makes the account as the mailed one does.
+    made = sign_up_invited(another_browser(client), link_token(resent["link"]))
+    assert made.status_code == 201, made.text
+    assert (made.json()["organization"]["id"], made.json()["role"]) == (
+        ada["organization"]["id"],
+        "member",
+    )
+    # With a relay, the answer says the mail went too.
+    monkeypatch.setattr(get_settings(), "smtp_url", "smtp://relay.example:587")
+    assert invite(client, "carol@example.com")["mailed"] is True
 
 
 # Joining by domain
@@ -532,8 +563,8 @@ def test_an_organisation_past_its_plan_invites_and_takes_nobody(client, session,
 def test_an_invitation_still_brings_a_colleague_in_while_sign_up_is_closed(
     client, mailer, identity_provider, ada, monkeypatch
 ):
-    # A private beta (app/signups.py): a team let in brings its colleagues, by its password page
-    # or through a provider, though nobody may sign up with an organisation of their own.
+    # As an install starts (app/signups.py): the admin brings their colleagues in, by the
+    # password page or through a provider, though nobody may sign up.
     settings = get_settings()
     monkeypatch.setattr(settings, "signup_open", False)
     monkeypatch.setattr(settings, "google_oauth_client_id", "google-client")

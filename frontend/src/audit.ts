@@ -61,6 +61,7 @@ export const ACTIONS: Record<AuditAction, [label: string, kind: AuditKind]> = {
   member_joined: ['Joined by their address', 'members'],
   member_left: ['Left the organisation', 'members'],
   member_removed: ['Removed a member', 'members'],
+  reset_link_made: ["Made a link to reset a member's password", 'members'],
   project_access_changed: ['Changed who sees a project', 'members'],
   organization_created: ['Started the organisation', 'organization'],
   organization_renamed: ['Renamed the organisation', 'organization'],

@@ -11,6 +11,7 @@ import { TermsPending } from './account/TermsPending.tsx'
 import { LoginPage } from './account/LoginPage.tsx'
 import { MfaPending } from './account/MfaPending.tsx'
 import { ForgotPasswordPage, ResetPasswordPage } from './account/PasswordPages.tsx'
+import { SetupPage } from './account/SetupPage.tsx'
 import { FinishSignupPage, SignupPage } from './account/SignupPage.tsx'
 import { UnsubscribePage } from './account/UnsubscribePage.tsx'
 import { UserMenu } from './account/UserMenu.tsx'
@@ -108,6 +109,7 @@ function App() {
       <Routes>
         <Route element={<AuthLayout />}>
           <Route path="login" element={<LoginPage />} />
+          <Route path="setup" element={<SetupPage />} />
           <Route path="signup" element={<SignupPage />} />
           <Route path="finish-signup" element={<FinishSignupPage />} />
           <Route path="forgot-password" element={<ForgotPasswordPage />} />

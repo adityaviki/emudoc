@@ -13,6 +13,7 @@ import { Link } from 'react-router'
 import { ROLES, ROLE_LABELS, auth, isPlanLimit, isWithin, organizations } from '../api.ts'
 import type { Onboarding, Role } from '../api.ts'
 import { setSignedIn, useMe } from '../auth.ts'
+import { SentInvitation } from '../components/HandedLink.tsx'
 import { PlanLimitNotice, PlanOffer } from '../components/PlanLimit.tsx'
 import { Button, IconButton, InputField, Notice, SelectField } from '../components/ui.tsx'
 import { INVITATIONS_SECTION, JOINING_SECTION } from '../onboarding.ts'
@@ -65,17 +66,19 @@ export function InviteTeam({ room, onInvited }: { room: boolean; onInvited: () =
       </div>
       <div className="mt-3 text-[13px] sm:pl-11">
         {invite.isSuccess ? (
-          <p className="text-muted">
-            An invitation is on its way to {invite.data.email}.{' '}
-            <Link to={`/organization#${INVITATIONS_SECTION}`} className={LINK}>
-              See the invitations
-            </Link>{' '}
-            or{' '}
-            <button type="button" onClick={() => invite.reset()} className={LINK}>
-              invite someone else
-            </button>
-            .
-          </p>
+          <div className="space-y-2">
+            <SentInvitation sent={invite.data} />
+            <p className="text-muted">
+              <Link to={`/organization#${INVITATIONS_SECTION}`} className={LINK}>
+                See the invitations
+              </Link>{' '}
+              or{' '}
+              <button type="button" onClick={() => invite.reset()} className={LINK}>
+                invite someone else
+              </button>
+              .
+            </p>
+          </div>
         ) : room ? (
           <>
             <form onSubmit={submit} className="flex flex-wrap items-end gap-2">

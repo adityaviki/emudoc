@@ -52,7 +52,6 @@ ACTIONS = (
     ("PUT", "/api/operator/organizations/1/flags/early", {"on": True}),
     ("POST", "/api/operator/jobs/requeue", {"job_ids": []}),
     ("PUT", "/api/operator/providers/google", {"off": False}),
-    ("POST", "/api/operator/sign-up-links", {"email": "grace@example.com"}),
 )
 # What the area changes without a body: a view of a member's account as support, and its end.
 VIEWS = (

@@ -1,52 +1,73 @@
-"""Who may make an account: anyone while sign-up is open (SIGNUP_OPEN, the default), and while it
-is closed, as for a private beta, only whoever is invited.
+"""Who may make an account on an install, which holds one team's workspace.
 
-Closed, the sign-up form and a first sign-in through Google or Microsoft refuse to make an
-account with an organisation of its own (app/api/auth.py), and the sign-up page and the public
-site (app/site.py) offer the way to ask for one instead: BOOKING_URL, else the support address.
-Two ways in stay. An invitation into an organisation (app/invitations.py) makes an account that
-joins it, so that a team let in can bring its colleagues. And the operator sends a sign-up link
-(`send_sign_up_link`, from the operator's area or `maintenance invite`), the same link the form
-mails, which makes an account with an organisation of its own whether sign-up is open or not.
+An install starts with no account, and every page sends to the setup (`/setup`, `POST
+/api/auth/setup` in app/api/auth.py): it makes the first user, the admin, with their address
+confirmed, an owner of the workspace named as they typed it, which starts with the sample
+project, and signs them in. `python -m app.maintenance create-admin` does the same from a shell,
+for a scripted install. Once any user exists the setup is refused, under a lock (SETUP_LOCK),
+so that two browsers at once make one admin.
+
+After that people come in by invitation (app/invitations.py), whose link the owner or admin who
+made it is shown as well as mailed, since an install may have no mail relay; for the same reason
+a member who forgot their password is handed a link that sets it (`handed_reset_link`), made from
+the members list or the `reset-password` command. Sign-up is closed by default (SIGNUP_OPEN):
+the sign-up form and a first sign-in through Google or Microsoft are refused, and the pages say
+to ask the team's admin, with the way to ask (`booking`). Open, a sign-up joins the workspace as
+a member instead of making an organisation of its own, within the members its plan allows.
+
+A database that holds several organisations, as development's does, keeps working: the
+workspace a sign-up joins is the one made first, the local account's aside.
 """
 
-import datetime as dt
-import logging
+from datetime import datetime
 from urllib.parse import quote
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from app import auth
+from app.accounts import LOCAL_ORG_SLUG, Account, add_member, create_organization, create_user
+from app.auth import HANDED_LINK_TTL, issue_link_token, now
 from app.config import Settings
-from app.mail import invited_to_sign_up_email
-from app.models import User
-from app.postbox import post
+from app.db import MIGRATION_LOCK
+from app.entitlements import PlanRefused, Refusal, check_member, read_only
+from app.models import Organization, User, UserSession
 
-log = logging.getLogger(__name__)
-
-# The page a sign-up link opens, where whoever holds the address chooses the password.
-SIGNUP_PAGE = "/finish-signup"
-# How long the operator's sign-up link works: longer than the form's day, since the person it
-# is for did not just ask for it.
-INVITED_FOR = dt.timedelta(days=14)
+# Held while the setup looks for a user and makes the first, so that two at once make one.
+SETUP_LOCK = MIGRATION_LOCK + 7
+# The frontend's page a reset link opens (frontend/src/account/PasswordPages.tsx).
+RESET_PAGE = "/reset-password"
 
 SIGNUP_CLOSED = (
-    "Emudoc is in a private beta, so accounts are made by invitation for now. Ask us for one "
-    "from the home page, or open the link in the invitation you were sent."
+    "Accounts on this Emudoc are made by invitation. Ask your team's admin to invite you, or "
+    "open the link in the invitation you were sent."
 )
-HAS_AN_ACCOUNT = "{email} has an Emudoc account already, so it needs no sign-up link."
+SET_UP_ALREADY = (
+    "This Emudoc is set up already: its admin made the first account. Sign in, or ask the admin "
+    "for an invitation."
+)
+NOT_SET_UP = (
+    "This Emudoc is not set up yet. Its admin makes the first account on the setup page, which "
+    "opening it in a browser shows."
+)
+WORKSPACE_FULL = (
+    "{workspace} has as many members as its plan allows, so nobody can sign up until its admin "
+    "makes room. Ask them for an invitation."
+)
 
 
-class HasAnAccount(Exception):
-    """The address has an account already; the message says so."""
+class SetUpAlready(RuntimeError):
+    """The install has a user already, so the setup has nothing to make; the message says so."""
+
+
+class NotSetUp(RuntimeError):
+    """The install has no workspace for a sign-up to join yet; the message says so."""
 
 
 def booking(settings: Settings) -> tuple[str, str]:
     """Where a visitor asks for an account, and the words of the button that leads there: the
     home page's way in (app/site.py), and the sign-in pages' while sign-up is closed. The
-    booking page, else a message to the support address; without either, which only development
-    lacks, the sign-up page while it is open and the sign-in page while it is not."""
+    booking page, else a message to the support address; without either, the sign-up page
+    while it is open and the sign-in page while it is not."""
     if settings.booking_url:
         return settings.booking_url, "Book a demo"
     if support := settings.support_address:
@@ -56,22 +77,65 @@ def booking(settings: Settings) -> tuple[str, str]:
     return "/login", "Sign in"
 
 
-def send_sign_up_link(
-    session: Session, email: str, app_url: str, operator: int | None = None
-) -> dt.datetime:
-    """Mail `email` a link that makes an account with an organisation of its own, whether
-    sign-up is open or not, and return when it stops working. A link sent before to the address
-    stops working. Refused for an address that has an account. `operator` is the operator's
-    user from the area, None from the maintenance command. The caller commits."""
-    email = email.strip().lower()
-    if session.scalar(select(User.id).where(User.email == email)) is not None:
-        raise HasAnAccount(HAS_AN_ACCOUNT.format(email=email))
-    token = auth.issue_link_token(session, None, "sign_up", email, INVITED_FOR)
-    link = f"{app_url.rstrip('/')}{SIGNUP_PAGE}#token={quote(token)}"
-    post(session, email, invited_to_sign_up_email(link, INVITED_FOR.days))
-    # The operator by id: an address is never logged.
-    if operator is None:
-        log.info("The maintenance command sent a sign-up link.")
-    else:
-        log.info("Operator %s sent a sign-up link.", operator)
-    return auth.now() + INVITED_FOR
+def needs_setup(session: Session) -> bool:
+    """Whether the install has no user yet, so that its pages send to the setup."""
+    return session.scalar(select(User.id).limit(1)) is None
+
+
+def workspace(session: Session) -> Organization | None:
+    """The install's workspace, which a sign-up joins: the organisation made first, the local
+    account's aside; None before the setup."""
+    return session.scalar(
+        select(Organization)
+        .where(Organization.slug != LOCAL_ORG_SLUG)
+        .order_by(Organization.created_at, Organization.id)
+        .limit(1)
+    )
+
+
+def set_up(
+    session: Session,
+    email: str,
+    name: str,
+    password_hash: str | None,
+    workspace_name: str,
+    time_zone: str = "",
+) -> Account:
+    """Make the install's first user and its workspace, which they own, and return their
+    account; the caller then gives the workspace the sample project (`add_sample`), after the
+    audit log's rows for what it made. The address starts confirmed: the setup is the install's
+    own, typed by whoever runs it. `password_hash` None makes an account that signs in once a
+    reset link gives it a password (`create-admin`). Refused with `SetUpAlready` once any user
+    exists. The caller commits, which lets the lock go."""
+    session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": SETUP_LOCK})
+    if not needs_setup(session):
+        raise SetUpAlready(SET_UP_ALREADY)
+    user = create_user(
+        session, email, name, password_hash, email_verified=True, time_zone=time_zone
+    )
+    return create_organization(session, user, workspace_name)
+
+
+def join_workspace(
+    session: Session, user: User, user_session: UserSession | None = None
+) -> Account:
+    """Make a user who signed up a member of the install's workspace, while sign-up is open,
+    within the members its plan allows. Refused with `NotSetUp` before the setup and
+    `PlanRefused` when the workspace is full. The caller commits."""
+    organization = workspace(session)
+    if organization is None:
+        raise NotSetUp(NOT_SET_UP)
+    # Held, so that two sign-ups cannot both take the plan's last place.
+    session.refresh(organization, with_for_update=True)
+    if read_only(session, organization) or check_member(session, organization):
+        raise PlanRefused(Refusal("members", WORKSPACE_FULL.format(workspace=organization.name)))
+    return add_member(session, organization, user, "member", user_session)
+
+
+def handed_reset_link(session: Session, user: User, app_url: str) -> tuple[str, datetime]:
+    """A link to the page that sets the user's password, for an owner or admin, or whoever runs
+    `reset-password` or `create-admin`, to hand on where the install mails nothing, and when it
+    stops working (HANDED_LINK_TTL). Their earlier reset links stop working. The caller
+    commits."""
+    token = issue_link_token(session, user, "reset_password", user.email, HANDED_LINK_TTL)
+    return f"{app_url.rstrip('/')}{RESET_PAGE}#token={quote(token)}", now() + HANDED_LINK_TTL

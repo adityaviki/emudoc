@@ -63,7 +63,6 @@ class Refusing(FakeMailer):
 
 def test_a_link_is_queued_encrypted_and_sent_by_the_worker(client, session, mailer):
     signup(client)
-    assert mailer.sent
     counted = Counted(("emudoc_mail_sent_total", {"outcome": "sent"}))
     assert (
         client.post("/api/auth/password/forgot", json={"email": "ada@example.com"}).json() is None

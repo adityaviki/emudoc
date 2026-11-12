@@ -559,9 +559,7 @@ async def main(args: argparse.Namespace) -> None:
     deployment.start()
     run = Run(args, deployment)
     try:
-        account = await run.member.sign_up(
-            f"load-{int(time.time())}@example.com", deployment.link_mailed_to
-        )
+        account = await run.member.set_up(f"load-{int(time.time())}@example.com")
         # The plan's limits are not what the test is about: enterprise has none.
         deployment.maintenance("plan", account["organization"]["slug"], "enterprise")
         for phase in args.phases:

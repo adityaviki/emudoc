@@ -146,12 +146,6 @@ export interface UserList {
   more: boolean
 }
 
-/** A sign-up link sent: the address it went to, and when it stops working. */
-export interface SignUpLink {
-  email: string
-  expires_at: string
-}
-
 export interface OrganizationCost extends Cost {
   org_id: number
   slug: string
@@ -308,5 +302,4 @@ export const operatorApi = {
   viewAs: (orgId: number, userId: number) => request<Viewing>(`/organizations/${orgId}/members/${userId}/support`, 'POST'),
   endView: () => request<void>('/support', 'DELETE'),
   /** Mail an address the link that makes an account, which works while sign-up is closed. */
-  sendSignUpLink: (email: string) => request<SignUpLink>('/sign-up-links', 'POST', { email }),
 }

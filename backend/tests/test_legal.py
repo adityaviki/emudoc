@@ -26,6 +26,7 @@ from tests.test_auth import (
     finish_signup,
     google_claims,
     me,
+    open_signup,  # noqa: F401 (a fixture)
     sign_up_link,
     signup,
     start,
@@ -351,14 +352,19 @@ def test_the_documents_are_published_to_anyone(client, signed_in_only):
     assert f"up to {get_settings().session_days} days" in legal["privacy"]
 
 
-def test_sign_up_records_the_terms_its_form_showed(client, session, signed_in_only):
+def test_sign_up_records_the_terms_its_form_showed(
+    client,
+    session,
+    open_signup,  # noqa: F811
+):
     # The terms are accepted on the page the link opens, by whoever holds the address.
     token = sign_up_link(client)
     refused = finish_signup(client, token, terms_version=None)
     assert refused.status_code == 400 and refused.json()["detail"] == ACCEPT_TERMS
     stale = finish_signup(client, token, terms_version=OLDER)
     assert stale.status_code == 409 and stale.json()["detail"] == TERMS_CHANGED
-    assert session.scalars(select(User)).all() == []
+    # The install's admin alone.
+    assert session.scalars(select(User.email)).all() == ["admin@example.com"]
 
     account = finish_signup(client, token).json()
     assert account["terms_version"] == TERMS_VERSION and account["terms_due"] is False
@@ -394,7 +400,11 @@ def test_a_new_edition_is_accepted_before_anything_else(client, session, signed_
 
 
 def test_an_account_made_through_a_provider_accepts_before_it_starts(
-    client, session, identity_provider, signed_in_only, monkeypatch
+    client,
+    session,
+    identity_provider,
+    open_signup,  # noqa: F811
+    monkeypatch,
 ):
     monkeypatch.setattr(get_settings(), "google_oauth_client_id", "google-client")
     monkeypatch.setattr(get_settings(), "google_oauth_client_secret", "google-secret")
