@@ -32,11 +32,11 @@ from app.models import ROLES, Membership, Project, ProjectMember
 
 KEEP_YOURSELF = (
     "Keep yourself among the members of a private project: you would no longer see it, and only "
-    "an owner or admin of the organisation could open it again."
+    "an owner or admin of the workspace could open it again."
 )
 NOT_MEMBERS = (
-    "Choose a private project's members among the organisation's: someone chosen is not a "
-    "member of it. Invite them to the organisation first."
+    "Choose a private project's members among the workspace's: someone chosen is not a "
+    "member of it. Invite them to the workspace first."
 )
 
 

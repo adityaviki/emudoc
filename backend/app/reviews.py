@@ -64,7 +64,7 @@ REVIEWER_ROLES = ROLES[:3]
 OPEN = (TO_REVIEW, DISPUTED)
 
 NOT_A_REVIEWER = (
-    "Assign it to a member of the organisation who sees this project and may change it: a viewer "
+    "Assign it to a member of the workspace who sees this project and may change it: a viewer "
     "cannot move a review."
 )
 NOBODY_OUT_OF_REVIEW = (

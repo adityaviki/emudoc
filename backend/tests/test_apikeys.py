@@ -198,7 +198,7 @@ def test_a_key_does_no_more_than_its_member(client, session, account, make_accou
     session.commit()
     viewer = api.patch(f"/api/projects/{shared['id']}", json={"name": "Ours"})
     assert viewer.status_code == 403
-    assert viewer.json()["detail"].startswith("Your role in this organisation is viewer")
+    assert viewer.json()["detail"].startswith("Your role in this workspace is viewer")
 
     # Removed from the organisation, his key goes with his place in it.
     session.delete(role)

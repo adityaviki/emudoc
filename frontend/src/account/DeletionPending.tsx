@@ -35,8 +35,8 @@ export function DeletionPending({ me }: { me: Me }) {
           intro={
             <>
               On <span className="font-medium text-ink">{formatDate(me.deletion_due_at)}</span>, the account{' '}
-              <span className="font-medium text-ink">{me.email}</span> goes for good, and so does each organisation you
-              are the only member of, with its projects, documents and chats. Nothing is removed before then, and you
+              <span className="font-medium text-ink">{me.email}</span> goes for good, and so does the workspace if you
+              are its only member, with its projects, documents and chats. Nothing is removed before then, and you
               can keep the account.
             </>
           }

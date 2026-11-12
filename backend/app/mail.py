@@ -360,7 +360,7 @@ def invitation_email(inviter: str, organization: str, role: str, link: str, days
     repeats when a message cannot be sent."""
     article = "an" if role[0] in "aeiou" else "a"
     return Content(
-        "You are invited to join an organisation on Emudoc",
+        "You are invited to join a workspace on Emudoc",
         (
             "Hi,",
             f"{inviter} invited you to join {organization} on Emudoc as {article} {role}, to "
@@ -459,8 +459,8 @@ def account_deletion_email(name: str, due: str, link: str) -> Content:
         "Your account is set to be deleted",
         (
             _greeting(name),
-            f"Your Emudoc account is set to be deleted on {due}. Then it goes for good, with "
-            "every organisation you are the only member of and everything in it: projects, "
+            f"Your Emudoc account is set to be deleted on {due}. Then it goes for good, and so "
+            "does the workspace if you are its only member, with everything in it: projects, "
             "documents and chats. Every other browser and device was signed out.",
             "To keep the account, sign in before then and choose to keep it:",
             Link(link, "Sign in"),

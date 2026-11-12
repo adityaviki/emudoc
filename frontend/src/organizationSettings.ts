@@ -92,5 +92,5 @@ export function heldByTwoFactor(members: Member[]): string | null {
   if (without.length === 0) return null
   const names = without.length <= 3 ? without.join(', ') : `${without.slice(0, 3).join(', ')} and ${without.length - 3} more`
   const they = without.length === 1 ? 'They set it up' : 'Each sets it up'
-  return `${without.length === 1 ? 'One member signs' : `${without.length} members sign`} in without it: ${names}. ${they} before working in the organisation again.`
+  return `${without.length === 1 ? 'One member signs' : `${without.length} members sign`} in without it: ${names}. ${they} before working in the workspace again.`
 }

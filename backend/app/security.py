@@ -32,7 +32,7 @@ from app.models import Organization, UserSession
 
 MFA_YOURS_FIRST = (
     "Turn on two-factor sign-in for your own account first, on your account page: once it is "
-    "required, nobody works in the organisation without it, you included."
+    "required, nobody works in the workspace without it, you included."
 )
 
 
@@ -75,7 +75,7 @@ def sign_in_again(organization: Organization) -> str:
 def longer_than_sessions(days: int) -> str:
     """What choosing a session longer than the deployment keeps one is refused with."""
     return (
-        f"Emudoc signs everyone in again {every(days)} at the most, so the organisation cannot "
+        f"Emudoc signs everyone in again {every(days)} at the most, so the workspace cannot "
         f"let a session last longer. Choose {days:,} days or fewer."
     )
 

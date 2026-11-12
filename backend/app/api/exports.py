@@ -29,7 +29,7 @@ from app.storage import export_key
 router = APIRouter(prefix="/projects", tags=["exports"])
 
 MEMBERS_EXPORT = (
-    "Your role in this organisation is viewer, which reads a project's documents one at a time. "
+    "Your role in this workspace is viewer, which reads a project's documents one at a time. "
     "Ask an owner or admin to make you a member to export them together."
 )
 UNDER_WAY = (

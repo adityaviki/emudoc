@@ -54,7 +54,7 @@ export function AuditPage() {
           )}
         </div>
         {!admin ? (
-          <Notice tone="info">Only the owners and admins of the organisation read its audit log.</Notice>
+          <Notice tone="info">Only the owners and admins of the workspace read its audit log.</Notice>
         ) : (
           <>
             <div className="mb-4 grid gap-2 text-[13px] sm:grid-cols-[2fr_1fr_1fr]">

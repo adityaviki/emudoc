@@ -135,7 +135,7 @@ log = logging.getLogger(__name__)
 ABOUT = (
     "What Emudoc keeps about you: your account and the edition of the terms you accepted, how you "
     "are told each kind of notice and whether the mail provider said not to write to your "
-    "address, how you sign in, the organisations you belong to and the private projects you were "
+    "address, how you sign in, the workspace you belong to and the private projects you were "
     "chosen to see, the browsers and devices you signed in from in the last month and when each "
     "browser you signed in with did so first and last, the chats you started with every question "
     "and answer, the chats you pinned, the documents you starred and the ones you opened lately, "

@@ -116,7 +116,7 @@ def test_an_invitation_makes_a_new_account_a_member_and_nothing_more(client, ses
         False,
     )
     to, subject, body = mailer.sent[-1]
-    assert (to, subject) == ("bob@example.com", "You are invited to join an organisation on Emudoc")
+    assert (to, subject) == ("bob@example.com", "You are invited to join a workspace on Emudoc")
     assert body.startswith("Hi,\n\nAda invited you to join Ada's workspace on Emudoc as a viewer")
     assert "works for 7 days" in body
     # The token rides in the fragment, which no request carries to a server or its log.

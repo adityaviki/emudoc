@@ -55,7 +55,7 @@ describe('the details dialog', () => {
     expect(detailsChange(shown, { ...detailsForm(shown), language: '' }, new Set())).toEqual({ language: null })
     expect(readWords(document({ language: 'dutch' }), 'language')).toBe('You set this. The reading found German.')
     expect(readWords(document({ read_language: null }), 'language')).toBe(
-      'You set this. The reading could not tell its language, so it follows the organisation’s.',
+      'You set this. The reading could not tell its language, so it follows the workspace’s.',
     )
     expect(readWords(document({ read_language: 'simple' }), 'language')).toBe(
       'You set this. The reading found a language Emudoc searches by its words as written.',
@@ -66,14 +66,14 @@ describe('the details dialog', () => {
     const organization = (language: string | null) => ({ language }) as Organization
     const languages = { languages: ['dutch', 'english', 'german'], default: 'english' }
     expect(documentLanguageChoices(languages, organization('german'), '').map((choice) => choice.label)).toEqual([
-      'The organisation’s, now German',
+      'The workspace’s, now German',
       'Dutch',
       'English',
       'German',
     ])
-    expect(documentLanguageChoices(languages, organization(null), '')[0]).toEqual({ value: '', label: 'The organisation’s, now English' })
+    expect(documentLanguageChoices(languages, organization(null), '')[0]).toEqual({ value: '', label: 'The workspace’s, now English' })
     expect(documentLanguageChoices(undefined, organization(null), 'dutch')).toEqual([
-      { value: '', label: 'The organisation’s' },
+      { value: '', label: 'The workspace’s' },
       { value: 'dutch', label: 'Dutch' },
     ])
   })

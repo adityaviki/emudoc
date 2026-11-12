@@ -107,11 +107,11 @@ describe('security', () => {
     // A member the page was not told about is no member held.
     expect(heldByTwoFactor([member('Ada', true), member('Ann', null)])).toBeNull()
     expect(heldByTwoFactor([member('Ada', true), member('Bob', false)])).toBe(
-      'One member signs in without it: Bob. They set it up before working in the organisation again.',
+      'One member signs in without it: Bob. They set it up before working in the workspace again.',
     )
     const many = ['Bob', 'Cat', 'Dan', 'Eve', 'Fay'].map((name) => member(name, false))
     expect(heldByTwoFactor(many)).toBe(
-      '5 members sign in without it: Bob, Cat, Dan and 2 more. Each sets it up before working in the organisation again.',
+      '5 members sign in without it: Bob, Cat, Dan and 2 more. Each sets it up before working in the workspace again.',
     )
     expect(heldByTwoFactor([{ ...member('', false), email: 'zed@example.com' }])).toContain(': zed@example.com.')
   })

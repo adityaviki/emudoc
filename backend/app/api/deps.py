@@ -136,8 +136,8 @@ NO_WORKSPACE = (
     "invitation's link brings you back."
 )
 READ_ONLY = (
-    "Your role in this organisation is viewer, which can only read. "
-    "Ask an owner or admin of the organisation to make you a member."
+    "Your role in this workspace is viewer, which can only read. "
+    "Ask an owner or admin of the workspace to make you a member."
 )
 # The app sends this header with every request. A form on another site cannot add a header,
 # and a script there that adds one makes the browser ask first with a CORS preflight, which

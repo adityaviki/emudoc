@@ -38,7 +38,7 @@ from app.storage import content_disposition
 router = APIRouter(tags=["audit"])
 
 ADMINS_ONLY = (
-    "Only the owners and admins of the organisation can read its audit log. Ask one of them "
+    "Only the owners and admins of the workspace can read its audit log. Ask one of them "
     "for what you need."
 )
 # The rows the file is read in at a time.

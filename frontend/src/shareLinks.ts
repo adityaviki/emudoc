@@ -39,7 +39,7 @@ export function linksHeld(me: Me): 'plan' | 'off' | null {
 }
 
 export const LINKS_OFF =
-  "The organisation's owners and admins turned share links off, so every link it made has stopped. One of them turns them on again on the organisation page."
+  "The workspace's owners and admins turned share links off, so every link it made has stopped. One of them turns them on again on the workspace page."
 
 /** A link's line in a list: who made it, until when it runs, its password, and how often it was opened. */
 export function describeLink(link: ShareLink): string {

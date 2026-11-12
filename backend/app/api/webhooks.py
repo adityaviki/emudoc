@@ -34,12 +34,12 @@ from app.webhooks import MAX_WEBHOOKS, host_of, new_secret, url_problem
 router = APIRouter(tags=["webhooks"])
 
 ADMINS_ONLY = (
-    "Only the owners and admins of the organisation can see and change its webhooks. Ask one of "
+    "Only the owners and admins of the workspace can see and change its webhooks. Ask one of "
     "them to."
 )
 WEBHOOK_NOT_FOUND = "Webhook not found"
 TOO_MANY = (
-    f"The organisation holds {MAX_WEBHOOKS} webhooks, as many as it may. Remove one it no longer "
+    f"The workspace holds {MAX_WEBHOOKS} webhooks, as many as it may. Remove one it no longer "
     "uses to add another."
 )
 # How many deliveries a page of the log holds, unless asked for fewer.

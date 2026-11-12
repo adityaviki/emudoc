@@ -16,6 +16,9 @@ newest entry first.
 
 Members:
 
+- The app calls your team's place in Emudoc the workspace: the user menu's "Workspace" opens its
+  page, and its settings, members, invitations, keys, audit log and messages say workspace where
+  they said organisation. The invitation's mail asks you to join a workspace.
 - Emudoc holds one workspace, your team's. The header names it and opens its page, where its
   menu of organisations was: nobody starts another, switches, leaves it, joins it by their email
   address's domain or deletes it. A member an admin removes keeps their account, and signing in

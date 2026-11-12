@@ -70,7 +70,7 @@ export function InvitationPage() {
       <AuthCard title="This invitation has expired" intro={<Invited invitation={invitation} />} footer={me ? TO_PROJECTS : TO_SIGN_IN}>
         <p className="text-[13px] leading-relaxed text-muted">
           It ran out on {formatDate(invitation.expires_at)}. {invitation.invited_by || 'Whoever invited you'} can send it
-          again from the organisation's page: ask them to.
+          again from the workspace's page: ask them to.
         </p>
       </AuthCard>
     )

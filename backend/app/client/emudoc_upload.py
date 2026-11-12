@@ -763,7 +763,7 @@ class Sender:
         if None in refusals:
             raise Unusable(
                 "This Emudoc does not say which of the files it refused: download the client "
-                "again from the organisation's page, under API keys."
+                "again from the workspace's page, under API keys."
             )
         documents = iter(result["documents"])
         kept: list[str] = []
@@ -1240,7 +1240,7 @@ def main(
         if not key:
             raise Unusable(
                 f"Set {KEY_VARIABLE} to an API key that reads and writes: an owner or admin of "
-                "the organisation makes one on its page, under API keys."
+                "the workspace makes one on its page, under API keys."
             )
         server = address(arguments.server or environ.get(SERVER_VARIABLE, ""))
         api = Api(server, key, transport or over_http(), sleep, printer.say)

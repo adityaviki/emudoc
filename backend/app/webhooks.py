@@ -145,7 +145,7 @@ PAUSED = "The webhook was paused, so the event was not sent."
 NO_API = "The organisation's plan no longer includes the API, so the event was not sent."
 UNREADABLE = (
     "Emudoc could not read the webhook's secret to sign the event with, so it was not sent: "
-    "roll its secret on the organisation's page."
+    "roll its secret on the workspace's page."
 )
 
 _SPENT = text("UPDATE jobs SET payload = payload - 'body' WHERE id = :id")
