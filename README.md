@@ -475,11 +475,7 @@ add <address>` (in `backend/`) lets an account in, from an address `OPERATOR_NET
 (this machine alone in development) and, in production, with two-factor sign-in on; to anyone
 else the area is not there. From there an operator also queues failed documents again from the
 stage each stopped at, and switches a model provider off or on again without a restart; a
-document queued again is a row of the organisation's audit log, by Emudoc's operators. And when a member asks for help, the member lets Emudoc's support see
-their account in the organisation they work in for a day or a week from their account page
-(`backend/app/support.py`), and the operator opens it from the organisation's members, as the
-member sees it and read only, an hour at a time, under a banner saying so: the member is mailed,
-and the leave, its withdrawal and each view are rows of the organisation's audit log.
+document queued again is a row of the organisation's audit log, by Emudoc's operators.
 
 ## The workspace
 
@@ -880,8 +876,7 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   and with a versioned bucket that keeps a deleted file's earlier versions longer than
   `BACKUP_DAYS` (`deploying.md`, "Backups").
 - `SUPPORT_EMAIL` is where members write for help, from the app's help menu (Accounts, below);
-  unset, it is `OPERATOR_EMAIL`, for a deployment whose one address answers both.
-  `STATUS_PAGE_URL` names the status page outside the deployment that the help menu links to
+  unset, the help menu writes to the workspace's owners and admins. `STATUS_PAGE_URL` names the status page outside the deployment that the help menu links to
   (`deploying.md`, "The status page").
 - `ACCESS_LOG_DAYS` says how long the infrastructure keeps its records of connections, which
   hold members' addresses: a network's flow logs, and the access logs of the bucket their
@@ -1280,10 +1275,7 @@ so it shows no cookie banner. The chat pane says that answers are written by an 
 can be wrong, and a link in an answer shows its address without leading anywhere, since a
 document can steer what the model writes.
 
-The account page also lets Emudoc's support see the account in the organisation it works in, for
-a day or a week, as the member sees it and without changing anything, and withdraws that leave,
-which ends a view at once; the member is mailed each time support opens it (`backend/app/support.py`,
-`PUT|DELETE /api/auth/support-access`). It downloads "your data": one JSON file with everything kept about the user
+The account page downloads "your data": one JSON file with everything kept about the user
 as a person (the account, how it signs in, its organisations, the sessions of the last month,
 the chats it started with every message, the usage counted to it, and the audit log's rows that
 name it), without the password
@@ -1366,11 +1358,14 @@ a sentence that ends with the request's id as the reference to quote. The subpro
 and the privacy policy name the tracker when it is a company's. `deploying.md` ("Error
 tracking") has the details.
 
-The question mark in the header is the help menu, where a member writes to support: a problem, a
+The question mark in the header is the help menu, where a member writes for help: a problem, a
 question or an idea, in their own words (`frontend/src/help/`, `POST /api/feedback` in
 `backend/app/api/help.py`). With `STATUS_PAGE_URL` it also leads to the status page, which the
-page that cannot reach its server links to as well (`GET /api/help`). The app mails a message to support to `SUPPORT_EMAIL` with a `Reply-To` of the
-member's address and what support needs to find what they met: the account, the organisation,
+page that cannot reach its server links to as well (`GET /api/help`). The app mails the message
+to `SUPPORT_EMAIL` where the server names one, a team's helpdesk, and otherwise to each of the
+workspace's other owners and admins (a sole one is told the message would come back to them),
+with a `Reply-To` of the member's address and what its reader needs to find what they met: the
+account, the workspace,
 the page's path with the ids of what was open, the version, the browser, and the reference of
 the last request the page saw refused or failed, which the log is searched by. The member's
 words go into the mail alone, never into the log, the subject or a table; the menu answers with
@@ -1404,10 +1399,9 @@ Each organisation keeps an audit log (`backend/app/audit.py`): its members' sign
 failed ones for their accounts), profile, address, password, two-factor and session changes,
 exports and deletion requests, every upload, download and deletion of a document, folder or
 project and its restore from the trash or deletion for good there, who sees a project, chats
-shared, taken private, downloaded, deleted or restored, and answers downloaded, a member's leave for support to see their account
-and each view of it, and what the operator (a requeue) and the app (a quarantine,
-an account purge with the owner it promoted) did on their own; what was downloaded in support's
-view names the operator too. A row names the member, the project and the object, the client's address, and names or
+shared, taken private, downloaded, deleted or restored, and answers downloaded, and what the
+operator (a requeue) and the app (a quarantine, an account purge with the owner it promoted) did
+on their own. A row names the member, the project and the object, the client's address, and names or
 settings as they were (a file's name, a role before and after), never what a document, a
 question or a chat's title says, nor what a name or an address was changed to. Its owners and
 admins read it on its page (`/organization/audit`, from the organisation page's Security

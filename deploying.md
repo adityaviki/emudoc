@@ -2526,9 +2526,8 @@ shown here on four lines. `time` is UTC, and the ids say what the line was logge
 far as that was known when it was written; an id not known is left out:
 
 - **A request's** `request_id` and `trace_id`, and once the session was read its `user_id` and
-  `org_id` (and `api_key_id` for a request made with an API key, which acts as that user, or
-  `operator_id` for an operator's view of that user's account as support, "The operator's
-  area"), and once the project was found in that organisation its `project_id` (and a
+  `org_id` (and `api_key_id` for a request made with an API key, which acts as that user), and
+  once the project was found in that organisation its `project_id` (and a
   document's `document_id`, a question's or a followed answer's `message_id`). The id is the
   proxy's `X-Request-ID` when it sends a well-formed one (letters, digits and `-_.:`, 8 to 128
   of them), which both examples above do, so the proxy's access log and the app's lines name
@@ -3515,7 +3514,7 @@ the rules and, on AWS, CloudWatch back up:
 | The account, on AWS | The trail's alarms (`root`, `iam`, `keys` and the others of "The account's records") | `account_alert_email` |
 | The uptime service | `/api/health` missed from outside | Its own notifications, and its status page for the members ("The status page") |
 | GitHub | A scheduled workflow that failed: Audit's scans, the Models workflow's requests | Whoever last changed the schedule |
-| The members | A problem, a question or an idea from the app's help menu, with the page and the reference of the request that failed there; or by mail, quoting the error screen's reference ("Support") | `SUPPORT_EMAIL`, else `OPERATOR_EMAIL` |
+| The members | A problem, a question or an idea from the app's help menu, with the page and the reference of the request that failed there; or by mail, quoting the error screen's reference ("Support") | `SUPPORT_EMAIL`, else the workspace's owners and admins |
 
 How soon:
 
@@ -3570,16 +3569,16 @@ serves to anyone, without a key, with `APP_URL` as its server, is for whoever wr
 against the deployment: a tool that writes a client from it calls the deployment. It changes
 with a release, never by hand (the contract is `backend/app/api/v1/openapi.json`).
 
-Members write for help from that menu: a problem,
-a question or an idea, in their own words. The app mails it to `SUPPORT_EMAIL` (or
-`OPERATOR_EMAIL`, where one address answers both), from `MAIL_FROM`, with a `Reply-To` of the
-member's address, so a reply from the support mailbox or a help desk that reads it goes to
-them. The subject is the app's own words and a reference, "A member reports a problem,
-reference 3f9c…", and the body their words with what support needs to find what they met:
+Members write for help from that menu: a problem, a question or an idea, in their own words.
+Where `SUPPORT_EMAIL` names an address, a team's helpdesk, the app mails it there; otherwise
+it mails each of the workspace's owners and admins but the member who wrote, a mail each, and
+a sole owner or admin is told the message would come back to them. It goes from `MAIL_FROM`,
+with a `Reply-To` of the member's address, so a reply from whoever reads it goes to them. The
+subject is the app's own words and a reference, "A member reports a problem, reference
+3f9c…", and the body their words with what its reader needs to find what they met:
 
 - their name and address, whether the address is confirmed, their user id and role;
-- the workspace's name, slug and id, the member's role in it, and a link to it in the
-  operator's area;
+- the workspace's name, slug and id, and the member's role in it;
 - the page they wrote from, as its path with the ids its query names (an open chat's, a
   folder's), never a search's words;
 - the reference of the last request the page saw refused or failed, and its status;
@@ -3591,14 +3590,11 @@ organisation and anything it logged ("Logs"): `jq 'select(.request_id == "3f9c�
 same over `trace_id` for the job it queued. The message goes through the mail queue like the
 rest of the members' mail ("Mail"), and the queue gives it up once it is sent, so the app keeps
 nothing of it: no table, no audit row, no log line holds the member's words. The help menu
-answers with the reference and the address; a member writes `RATE_FEEDBACK` messages an hour
-(10), past which the menu says when to try again. Without either address (development alone,
-since production requires `OPERATOR_EMAIL`) the menu says where to set one. The privacy
-policy says what a message holds and where it goes.
-
-A member who needs support to see what they see lets it in from their account page, for a day
-or a week ("The operator's area" below): ask for that in the reply rather than for screenshots
-of their documents.
+answers with the reference and where the message went; a member writes `RATE_FEEDBACK`
+messages an hour (10), past which the menu says when to try again. The privacy policy says
+what a message holds and where it goes. Until 2026-11-13 a member could also let Emudoc's
+support see their account from the operator's area; a team that runs its own install asks its
+members what they see instead.
 
 ### The status page
 
@@ -3660,27 +3656,6 @@ It changes two things, as the commands do:
   belong to no organisation: each is a line of the log naming the operator's id, `Operator 7
   switched the model provider google off`. `maintenance models` asks every model whatever the
   page says, which is how to try a provider before switching it on.
-
-And it opens a member's account as support, which no command does:
-
-- **A member's account, as they see it.** A member lets Emudoc's support see their account in
-  the organisation they work in, for a day or a week, under "Emudoc's support" on their account
-  page, and withdraws it there whenever they like; each is a row of that organisation's audit
-  log. While the leave stands, the organisation's Members table offers "View as <member>",
-  which turns the operator's own session (never the member's) into a view of the member's
-  account in that organisation, and opens the app as they see it: their projects, chats,
-  documents and account page, the organisation alone, under a banner that says so. It changes
-  nothing: every request but a read is refused, the account's export too, since it holds every
-  organisation of theirs. A download is the member's row of the log with the operator's id in
-  `detail.support`; the view's start, with whom and until when, and its end by the operator are
-  rows of the organisation's log ("by Emudoc's operators"), and the member is mailed at once
-  that support opened their account, with the way to withdraw the leave. Every line the view
-  logs carries `operator_id` beside the member's `user_id` ("Logs"). A view lasts an hour at
-  most; it ends sooner when the operator ends it (the banner's "End the view", or the area's
-  header) or signs out, and at the first request after the member withdraws the leave, the leave
-  runs out, the member leaves the organisation, or the request would no longer be let into the
-  area (another address, no longer an operator, two-factor off in production), which starts
-  the page again as the operator's own. "View as" again opens a new view, and mails again.
 
 An operator is an account the `operators` command made one, by its id, whatever organisations it
 is a member of; nobody becomes one from a page, and an address that changes hands grants
@@ -4712,7 +4687,7 @@ and the like), named on its models' pages.
 | `RATE_SIGN_INS_PER_ADDRESS` | `60` | | Sign-in requests a minute, per client address |
 | `RATE_FAILED_SIGN_INS` | `20` | | Wrong passwords and codes an hour, past which those sign-ins pause ("Rates") |
 | `RATE_PAGE_ERRORS` | `10` | | The page's error reports a minute, per client address |
-| `RATE_FEEDBACK` | `10` | | Messages to support an hour, per member ("Support") |
+| `RATE_FEEDBACK` | `10` | | Messages from the help menu an hour, per member ("Support") |
 | `RATE_EXPORTS` | `10` | | Facts tables, drafts, answers and chats downloaded a minute, per member, each every row its conditions keep or the text laid out whole |
 | `RATE_SHARED_LINKS` | `30` | | Share links opened a minute, per client address ("Rates") |
 | `RATE_SHARED_PASSWORDS` | `10` | | Wrong passwords an hour per share link, from every address and from each, past which it opens with none ("Rates") |
@@ -4748,7 +4723,7 @@ and the like), named on its models' pages.
 | `HOSTING_PROVIDER` | none | required | Who runs the servers, first on `/subprocessors` |
 | `OPERATOR_NAME` | none | required | Who runs the deployment, as the terms name them |
 | `OPERATOR_EMAIL` | none | required | Where people write about their account and data |
-| `SUPPORT_EMAIL` | `OPERATOR_EMAIL` | | Where members write for help, from the app's help menu ("Support") |
+| `SUPPORT_EMAIL` | none | | Where members write for help, from the app's help menu, in place of the workspace's owners and admins ("Support"); the closed sign-up's "Request access" and the mail to an address an account left name it, else `OPERATOR_EMAIL` |
 | `STATUS_PAGE_URL` | none | | The status page outside the deployment that the help menu links to ("The status page") |
 | `BACKUP_DAYS` | none | required | How long the backups are kept ("Backups") |
 | `SERVER_LOG_DAYS` | none | required | How long the server logs are kept ("How long they are kept") |

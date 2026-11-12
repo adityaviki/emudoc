@@ -132,7 +132,11 @@ def privacy_policy(
         # A count is pruned at the first housekeeping after it is HISTORY old.
         count_hours=str(round((HISTORY.total_seconds() + HOUSEKEEPING_INTERVAL) / 3600)),
         deletion_days=str(DELETION_GRACE.days),
-        support=_address(settings.support_address, "OPERATOR_EMAIL"),
+        support=(
+            _address(settings.support_email, "SUPPORT_EMAIL")
+            if settings.support_email
+            else "the organisation's other owners and admins"
+        ),
         backups=_backups(settings.backup_days),
         server_logs=_server_logs(settings.server_log_days),
         session_cookie=SESSION_COOKIE,

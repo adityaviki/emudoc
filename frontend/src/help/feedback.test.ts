@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_FEEDBACK_CHARS, attachedWords, feedbackOf, feedbackPage } from './feedback.ts'
+import { MAX_FEEDBACK_CHARS, attachedWords, feedbackOf, feedbackPage, sentTo, writeHeading } from './feedback.ts'
 
 describe('feedbackPage', () => {
   it('keeps the path and the ids of what is open, in the order the workspace names them', () => {
@@ -38,7 +38,16 @@ describe('feedbackOf', () => {
 
 describe('attachedWords', () => {
   it('names the failed request only when there was one', () => {
-    expect(attachedWords(null)).toBe("Sent with your name and address, this page's address and Emudoc's version, so that support can find what you met.")
+    expect(attachedWords(null)).toBe("Sent with your name and address, this page's address and Emudoc's version, so that whoever answers can find what you met.")
     expect(attachedWords({ reference: 'x'.repeat(32), status: 500 })).toContain('and the reference of the last request that failed here')
+  })
+})
+
+describe('whom the help menu writes to', () => {
+  it("is the server's address for help where it names one, else the workspace's owners and admins", () => {
+    expect(writeHeading('help@example.com')).toBe('Write to support')
+    expect(writeHeading(null)).toBe("Write to your workspace's admins")
+    expect(sentTo('help@example.com')).toBe('help@example.com')
+    expect(sentTo(null)).toBe("your workspace's admins")
   })
 })

@@ -156,7 +156,7 @@ NO_DOMAIN = (
 )
 NO_DOMAIN_MEMBERS = (
     "Email in is not set up on this deployment yet, so a project cannot have an address. Ask "
-    "Emudoc's support."
+    "whoever runs it."
 )
 SAMPLE_MAILBOX = "The sample project takes no documents, so it has no address. Make a project."
 TOO_MANY_SENDERS = f"An address can take mail from {MAX_SENDERS} senders at most."

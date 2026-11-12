@@ -39,8 +39,7 @@ export function setSignedIn(queryClient: QueryClient, me: SignedIn | null) {
 }
 
 /**
- * Start the app again in the organisation the session works in now, after an invitation accepted or a view by
- * support ended: a page load, so that nothing fetched before stays in the cache, in a component's state or in an
+ * Start the app again in the organisation the session works in now, after an invitation accepted: a page load, so that nothing fetched before stays in the cache, in a component's state or in an
  * answer being followed, and the page starts from the front.
  */
 export function startAgainInOrganization() {

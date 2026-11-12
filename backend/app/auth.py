@@ -172,16 +172,13 @@ _PRUNE_LINKS = text("DELETE FROM auth_tokens WHERE expires_at < :before")
 _PRUNE_INVITATIONS = text("DELETE FROM invitations WHERE expires_at < :before")
 _PRUNE_BROWSERS = text("DELETE FROM browsers WHERE signed_in_at < :before")
 _PRUNE_KEYS = text("DELETE FROM api_keys WHERE expires_at < :before")
-# A member's leave for support that ran out, which the audit log outlives.
-_PRUNE_LEAVES = text("DELETE FROM support_grants WHERE expires_at < :before")
 
 
 def prune_credentials(connection: Connection, age: dt.timedelta = CREDENTIAL_HISTORY) -> int:
-    """Remove the sessions, one-time links, invitations, API keys and leaves for support that
-    ended longer ago than `age`, and the browsers that have not signed in for
-    BROWSER_KNOWN_FOR; returns how many."""
+    """Remove the sessions, one-time links, invitations and API keys that ended longer ago than
+    `age`, and the browsers that have not signed in for BROWSER_KNOWN_FOR; returns how many."""
     before = now() - age
-    statements = (_PRUNE_SESSIONS, _PRUNE_LINKS, _PRUNE_INVITATIONS, _PRUNE_KEYS, _PRUNE_LEAVES)
+    statements = (_PRUNE_SESSIONS, _PRUNE_LINKS, _PRUNE_INVITATIONS, _PRUNE_KEYS)
     pruned = sum(
         connection.execute(statement, {"before": before}).rowcount for statement in statements
     )

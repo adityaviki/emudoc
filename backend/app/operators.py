@@ -21,8 +21,6 @@ told why they are refused, since the address and the session already show who th
 
 What the area shows is what the commands print: names, settings and figures, a member's name
 and address where support needs them, never what a document, a question or an answer says.
-What a member sees is shown only when they let support see their account, from the operator's
-own session, read only (app/support.py), which these same rules hold.
 Reading changes nothing, so it writes nothing to an organisation's audit log; the access log
 names the operator by id with every path they read.
 """

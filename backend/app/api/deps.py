@@ -43,12 +43,6 @@ what the projects hold (KEYED in app/main.py), only by the methods that change n
 scope is `write`, and it is held to a rate of its own, besides its member's; past that it is its
 member's account, held to everything above as they are.
 
-An operator's session may view a member's account as Emudoc's support, with the member's leave
-(app/support.py): it acts as the member, in the organisation the leave is for, and only by the
-methods that change nothing; past that it is the member's account too. A view that may not go
-on ends at the request that finds it so, which is refused with 409 and the organisation the
-operator's session works in again (ORGANIZATION_HEADER), which the page takes to start again.
-
 The routes that cost something or guard an account are held to a rate per caller
 (app/ratelimit.py): `limited(limit)` is the dependency for a route with an account, counted
 per user, and `refuse_past` is what a sign-in route calls with the keys it has.
@@ -101,13 +95,11 @@ from app.models import (
     QuestionReport,
     QuestionSet,
     User,
-    UserSession,
     WorkflowRun,
 )
 from app.ratelimit import API_REQUESTS, Key, Limit, by_key, by_user, hit
 from app.retention import deletion_pending
 from app.security import mfa_due, mfa_pending, sign_in_again, signed_in_too_long
-from app.support import READ_ONLY_VIEW, VIEW_OVER, stop, viewed
 from app.trash import DOCUMENT_IN_TRASH, NOT_IN_TRASH, PASSAGE_IN_TRASH
 from app.worker import Worker
 
@@ -139,9 +131,6 @@ CROSS_SITE = (
     f"{SAME_APP_HEADER} header. If you call the API yourself, call it with an API key, which "
     "needs no such header."
 )
-# The organisation a session works in again once a view by support ends, which the page takes to
-# start again there (`send` in frontend/src/api.ts).
-ORGANIZATION_HEADER = "X-Organization"
 
 
 def get_services(request: Request) -> Services:
@@ -191,10 +180,9 @@ async def refuse_cross_site(request: Request) -> None:
 
 
 def get_person(request: Request, session: SessionDep) -> Account | Outsider:
-    """The organisation and user a request acts as: the API key's member, the session's user,
-    the member an operator's session views as support, or the local account; or the session's
-    user alone, when they belong to no workspace. What the request logs from here on names
-    them."""
+    """The organisation and user a request acts as: the API key's member, the session's user, or
+    the local account; or the session's user alone, when they belong to no workspace. What the
+    request logs from here on names them."""
     if (secret := bearer(request)) is not None:
         return _key_account(request, session, secret)
     token = request.cookies.get(SESSION_COOKIE)
@@ -202,8 +190,6 @@ def get_person(request: Request, session: SessionDep) -> Account | Outsider:
         user_session = find_session(session, token)
         # A session that still waits for the authenticator code grants nothing yet.
         if user_session is not None and not user_session.needs_mfa:
-            if user_session.support_ends_at is not None:
-                return _viewed_account(request, session, user_session)
             user = session.get(User, user_session.user_id)
             about(user_id=user.id)
             account = account_for_user(session, user, user_session)
@@ -221,29 +207,6 @@ def get_person(request: Request, session: SessionDep) -> Account | Outsider:
         about(user_id=account.user.id, org_id=account.organization.id)
         return account
     raise HTTPException(401, SIGN_IN)
-
-
-def _viewed_account(request: Request, session: Session, user_session: UserSession) -> Account:
-    """The member's account an operator views as support from their own session, provided the
-    request changes nothing. A view that may no longer go on ends, and the request is refused
-    with the organisation the session works in again, so that the page starts again as the
-    operator's own; the organisation's own limit on a session's age is the operator's view's
-    hour instead."""
-    operator = session.get(User, user_session.user_id)
-    about(operator_id=operator.id)
-    account = viewed(session, request, user_session, operator)
-    if account is None:
-        stop(user_session)
-        session.commit()
-        own = account_for_user(session, operator, user_session)
-        raise HTTPException(
-            409, VIEW_OVER, headers={ORGANIZATION_HEADER: str(own.organization.id) if own else ""}
-        )
-    about(user_id=account.user.id, org_id=account.organization.id)
-    if request.method not in SAFE_METHODS:
-        raise HTTPException(403, READ_ONLY_VIEW)
-    touch_session(session, user_session)
-    return account
 
 
 def _key_account(request: Request, session: SessionDep, secret: str) -> Account:

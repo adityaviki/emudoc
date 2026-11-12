@@ -20,12 +20,11 @@ import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, rele
 // download it and open the bell's notice that it is ready, leave the account's menu by the
 // keyboard, choose the workspace's settings, read them in its audit log and download it, invite a colleague as a
 // viewer from under that answer, who makes an account from the invitation's link, copied since the run mails nothing, ends her tour, finds
-// the project and is offered no change to it until made a member, write to support from the
+// the project and is offered no change to it until made a member, write for help from the
 // help menu, which mails the page written from, make a read key, which reads the
 // versioned API and its contract, add a webhook, then make the project private, which she no longer finds until chosen for it, and share the chat, which the
 // colleague then reads but does not ask in; then, made
-// an operator, read the organisation in the operator's area, which nobody else is sent, turn its extraction templates on, which its audit log keeps, view the
-// colleague's account, which she let support see, and switch the model's provider off and on
+// an operator, read the organisation in the operator's area, which nobody else is sent, and switch the model's provider off and on
 // again; and last, make the project's own invoice template from the built-in one, a field
 // added, and delete it, then upload an invoice, read for the built-in one, and find its facts in
 // the project's facts table, sorted, kept by a condition and opened where they were found, the
@@ -736,10 +735,12 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expectAccessible(page, 'the usage page')
   })
 
-  await test.step('write to support from the help menu, which mails the page the member wrote from', async () => {
+  await test.step('write for help from the help menu, which mails the page the member wrote from', async () => {
     await page.getByRole('button', { name: 'Help', exact: true }).click()
     const help = page.getByRole('dialog', { name: 'Help' })
     await expectAccessible(page, 'the help menu')
+    // This run names SUPPORT_EMAIL, which takes the messages in place of the workspace's admins.
+    await expect(help.getByText('Write to support', { exact: true })).toBeVisible()
     await help.getByRole('button', { name: 'A question' }).click()
     await help.getByLabel('Message').fill('Can one project hold two price lists?')
     await help.getByRole('button', { name: 'Send' }).click()
@@ -842,18 +843,10 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(grace.getByText('Ada Lovelace shared this chat with the project.', { exact: false })).toBeVisible()
     await expect(grace.getByPlaceholder('Ask a question about these documents')).toHaveCount(0)
     await expect(grace.getByRole('button', { name: 'Share', exact: true })).toHaveCount(0)
-
-    // She asks for help, and lets Emudoc's support see her account here for a day.
-    await grace.goto('/account')
-    const support = grace.locator('section').filter({ has: grace.getByRole('heading', { name: "Emudoc's support" }) })
-    await expect(support).toContainText("Emudoc's support cannot see your account in Analytical Engines.")
-    await support.getByRole('button', { name: 'Let support in for a day' }).click()
-    await expect(support).toContainText("Emudoc's support may see your account in Analytical Engines until")
-    await expect(support.getByRole('button', { name: 'Withdraw' })).toBeVisible()
     await theirs.close()
   })
 
-  await test.step("be made an operator, read the organisation in the operator's area, view a member's account as support, and switch a provider", async () => {
+  await test.step("be made an operator, read the organisation in the operator's area, and switch a provider", async () => {
     // A member is sent the members' page at the area's address, as for any page there is not.
     await page.goto('/operator')
     await expect(page.getByText('Page not found.')).toBeVisible()
@@ -871,13 +864,6 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     // What it holds and used, as its members read it, with no plan beside it.
     await expect(page.getByRole('heading', { name: 'Plan', exact: true })).toHaveCount(0)
     await expectAccessible(page, "an organisation in the operator's area")
-
-    // Grace let support in: her account, as she sees it, read only, until the view ends.
-    await members.getByRole('button', { name: 'View as Grace Hopper' }).click()
-    await expect(page.getByText(/^You are viewing Grace Hopper's account in Analytical Engines as Emudoc's support, read only/)).toBeVisible()
-    await expect(page.getByText('Supplier contracts')).toBeVisible()
-    await page.getByRole('button', { name: 'End the view' }).click()
-    await expect(page.getByRole('heading', { name: 'Organisations', exact: true })).toBeVisible()
 
     // Its owner's audit log, read whole, holds every kind of row the workspace has, its export's among them.
     await page.goto('/organization/audit')

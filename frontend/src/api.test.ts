@@ -6,7 +6,6 @@ import {
   api,
   auth,
   handleForbidden,
-  handleSwitched,
   isWithin,
   mayChange,
   oauthStartUrl,
@@ -31,32 +30,15 @@ const refused = (status: number, headers: Record<string, string> = {}) =>
 
 afterEach(() => {
   vi.unstubAllGlobals()
-  handleSwitched(null)
   handleForbidden(null)
 })
 
-describe('the organisation the session works in', () => {
-  it('is named by no request, which carries the app\'s header alone', async () => {
+describe('every request', () => {
+  it('names no organisation, and carries the app\'s header', async () => {
     const sent = serve(() => new Response('[]', { headers: { 'Content-Type': 'application/json' } }))
     await api.projects()
     expect(sent.map((headers) => headers.get('X-Organization'))).toEqual([null])
     expect(sent.every((headers) => headers.get('X-Requested-With') === 'fetch')).toBe(true)
-  })
-
-  it('starts the page again when a refusal names another, as a view by support ended does', async () => {
-    const switched = vi.fn()
-    handleSwitched(switched)
-    serve(() => refused(409, { 'X-Organization': '9' }))
-    await expect(api.projects()).rejects.toBeInstanceOf(ApiError)
-    expect(switched).toHaveBeenCalledOnce()
-  })
-
-  it('takes any other conflict for what it is', async () => {
-    const switched = vi.fn()
-    handleSwitched(switched)
-    serve(() => refused(409))
-    await expect(api.projects()).rejects.toMatchObject({ status: 409, message: 'Refused.' })
-    expect(switched).not.toHaveBeenCalled()
   })
 })
 

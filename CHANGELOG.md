@@ -16,6 +16,11 @@ newest entry first.
 
 Members:
 
+- The help menu now writes to your workspace's owners and admins, or to the address whoever runs
+  Emudoc set for help, rather than to Emudoc's support. Its answer says where your message went,
+  and replies come to your address as before.
+- The account page no longer offers to let Emudoc's support see your account, and nobody views
+  it as you see it any more.
 - Every part of Emudoc is now on for every workspace: extraction templates and the facts table,
   cross-checks, their runs and automations, reviews, drafts, My files, question sets, comments
   and the project's activity, and share links. Every new document's facts are read for its kind's
@@ -32,6 +37,15 @@ Members:
 
 Operators:
 
+- Support's view of an account is gone: the account page's consent, the operator's area's "View
+  as" and its banner, `PUT|DELETE /api/auth/support-access`, `POST
+  /api/operator/organizations/{id}/members/{id}/support`, `DELETE /api/operator/support`, the
+  mail that told a member support opened their account, the logs' `operator_id`, and
+  `support_grants` with `sessions.support_grant_id` and `support_ends_at` (dropped by the
+  migration). The audit log's rows of a leave or a view from before still read. The help menu's
+  messages go to `SUPPORT_EMAIL` where it is set, and otherwise to each of the workspace's other
+  owners and admins, never to `OPERATOR_EMAIL`; `GET /api/help` names `SUPPORT_EMAIL` alone, and
+  the mail no longer links to the operator's area.
 - The feature flags are gone: the `flags` command, the operator's area's Flags view and each
   organisation's "Feature flags", and `organizations.flags` (dropped by the migration). Every
   feature is on. Email in shows while `INBOUND_DOMAIN` is set and connected folders while a

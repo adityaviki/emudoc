@@ -48,9 +48,6 @@ class Account:
     session_id: int | None = None
     # The API key the request came with instead (app/apikeys.py), which acts as its member.
     key: ApiKey | None = None
-    # The operator viewing the member's account as support from their own session
-    # (app/support.py), read only; None for the member's own requests.
-    operator_id: int | None = None
 
     def is_at_least(self, role: str) -> bool:
         """Whether the account's role grants everything `role` grants."""

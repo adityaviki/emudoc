@@ -1,6 +1,6 @@
-// The question mark in the header: the way to the status page, and to write to support from
-// wherever the member is, with the page and the last request that failed attached
-// (src/help/feedback.ts, backend/app/api/help.py). What they typed is kept while the panel is
+// The question mark in the header: the way to the status page, and to write for help from
+// wherever the member is, to SUPPORT_EMAIL or the workspace's owners and admins, with the page
+// and the last request that failed attached (src/help/feedback.ts, backend/app/api/help.py). What they typed is kept while the panel is
 // closed, which a click elsewhere or a switch to another window does, until it is sent.
 
 import { useMutation } from '@tanstack/react-query'
@@ -14,9 +14,10 @@ import { useMe } from '../auth.ts'
 import { Floating } from '../components/Menu.tsx'
 import { Button, FIELD, Notice, Segmented } from '../components/ui.tsx'
 import { useHelp } from '../hooks.ts'
-import { FEEDBACK_KINDS, MAX_FEEDBACK_CHARS, attachedWords, feedbackOf } from './feedback.ts'
+import { FEEDBACK_KINDS, MAX_FEEDBACK_CHARS, attachedWords, feedbackOf, sentTo, writeHeading } from './feedback.ts'
 
 export function HelpMenu() {
+  const help = useHelp()
   const [anchor, setAnchor] = useState<DOMRect | null>(null)
   const button = useRef<HTMLButtonElement>(null)
   const [kind, setKind] = useState<FeedbackKind>('problem')
@@ -45,7 +46,7 @@ export function HelpMenu() {
         <Floating anchor={anchor} alignEnd onClose={() => setAnchor(null)} ignore={button} className="w-96 max-w-[calc(100vw-16px)]">
           <div role="dialog" aria-label="Help">
             <StatusPageLink />
-            <p className="px-3 pt-3 text-[13px] font-medium">Write to support</p>
+            <p className="px-3 pt-3 text-[13px] font-medium">{writeHeading(help.data?.support_email ?? null)}</p>
             {send.isSuccess ? (
               <Sent reference={send.data.reference} to={send.data.to} onAgain={() => send.reset()} />
             ) : (
@@ -102,9 +103,6 @@ function WriteForm({ kind, onKind, message, onMessage, sending, error, onSend }:
     words.current?.focus()
   }, [])
   const address = help.data?.support_email
-  if (address === null) {
-    return <p className="px-3 py-4 text-[13px] leading-relaxed text-muted">This deployment names no address for support: set SUPPORT_EMAIL or OPERATOR_EMAIL.</p>
-  }
 
   function submit(event: FormEvent) {
     event.preventDefault()
@@ -149,7 +147,7 @@ function WriteForm({ kind, onKind, message, onMessage, sending, error, onSend }:
   )
 }
 
-function Sent({ reference, to, onAgain }: { reference: string; to: string; onAgain: () => void }) {
+function Sent({ reference, to, onAgain }: { reference: string; to: string | null; onAgain: () => void }) {
   const me = useMe()
   // The keyboard goes on from the way to write again, the form's place.
   const panel = useRef<HTMLDivElement>(null)
@@ -159,7 +157,7 @@ function Sent({ reference, to, onAgain }: { reference: string; to: string; onAga
   return (
     <div ref={panel} className="space-y-3 p-3">
       <p role="status" className="text-[13px] leading-relaxed">
-        Sent to {to}. The answer comes to {me.email}; if you write about it again, give the reference{' '}
+        Sent to {sentTo(to)}. The answer comes to {me.email}; if you write about it again, give the reference{' '}
         <span className="font-mono wrap-break-word select-all">{reference}</span>.
       </p>
       <Button onClick={onAgain}>
