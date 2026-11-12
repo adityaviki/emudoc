@@ -5,7 +5,6 @@ reading disagrees with first."""
 
 import datetime as dt
 
-import pytest
 from sqlalchemy import select, update
 
 from app.fact_changes import MAX_VALUES, Read, changes_of
@@ -15,7 +14,7 @@ from app.models import Document, FactChange
 from tests.test_api import create_project
 from tests.test_fact_checks import check, priced, read_again, read_contract
 from tests.test_fact_table import invoice
-from tests.test_templates import fact, listed, turn_on
+from tests.test_templates import fact, listed
 
 # A project's own contract template: the built-in one's party, price and governing law, and the
 # liability cap its members added.
@@ -29,11 +28,6 @@ CONTRACT = {
         {"name": "liability_cap", "type": "text"},
     ],
 }
-
-
-@pytest.fixture
-def templates_on(monkeypatch):
-    turn_on(monkeypatch)
 
 
 def queue(client, project_id: int, **body) -> int:
@@ -65,20 +59,8 @@ def fields_of(shown: dict) -> list[tuple]:
     ]
 
 
-def test_the_routes_are_behind_the_flag(client):
-    project = create_project(client)["id"]
-    assert (
-        client.get(f"/api/projects/{project}/fact-changes", params={"kind": "invoice"}).status_code
-        == 404
-    )
-    response = client.post(
-        f"/api/projects/{project}/templates/read-again", json={"kind": "invoice"}
-    )
-    assert response.status_code == 404
-
-
 def test_a_template_changed_and_its_documents_read_again_show_what_changed(
-    client, session, services, sample_pdf, templates_on
+    client, session, services, sample_pdf
 ):
     project, document = read_contract(client, services, sample_pdf)
     # The first reading had none before it to change.
@@ -126,7 +108,7 @@ def test_a_template_changed_and_its_documents_read_again_show_what_changed(
 
 
 def test_a_document_read_for_another_kind_is_listed_under_both(
-    client, session, services, sample_pdf, templates_on
+    client, session, services, sample_pdf
 ):
     project, document = read_contract(client, services, sample_pdf)
     made = client.post(f"/api/projects/{project}/templates", json=CONTRACT).json()
@@ -155,7 +137,7 @@ def test_a_document_read_for_another_kind_is_listed_under_both(
 
 
 def test_nothing_is_kept_for_a_first_reading_or_one_after_the_outline(
-    client, session, services, sample_pdf, templates_on
+    client, session, services, sample_pdf
 ):
     project, document = read_contract(client, services, sample_pdf)
     rows = select(FactChange.document_id)
@@ -170,7 +152,7 @@ def test_nothing_is_kept_for_a_first_reading_or_one_after_the_outline(
     assert changes(client, project, "contract")["read"] == 0
 
 
-def test_reading_again_takes_the_kind_s_documents_alone(client, session, templates_on):
+def test_reading_again_takes_the_kind_s_documents_alone(client, session):
     project = create_project(client)["id"]
     read_for = invoice(session, project, "read-for.pdf", invoice_number="INV-1")
     before = invoice(session, project, "before.pdf", invoice_number="INV-2")
@@ -230,7 +212,7 @@ def test_a_field_of_many_values_names_a_few_and_counts_the_rest():
     ]
 
 
-def test_the_pages_of_changes_go_on_whatever_comes_between(client, session, templates_on):
+def test_the_pages_of_changes_go_on_whatever_comes_between(client, session):
     project = create_project(client)["id"]
     other = create_project(client)["id"]
     now = dt.datetime.now(dt.UTC)

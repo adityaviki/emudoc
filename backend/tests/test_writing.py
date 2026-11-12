@@ -5,7 +5,6 @@ a private copy. Each write is a version the member alone sees; an answer started
 file again rather than a second one, and a try no longer the answer's writes nothing."""
 
 import io
-from dataclasses import replace
 
 import pytest
 from docx import Document as WordDocument
@@ -28,7 +27,6 @@ from app.agent.writing import (
     read_file,
 )
 from app.answers import answer, offers_my_files
-from app.flags import FLAGS, MY_FILES
 from app.indexing.pipeline import process_document
 from app.models import (
     ChatMessage,
@@ -46,12 +44,6 @@ from tests.test_audit import actions
 from tests.test_my_files import kept, shown, view, word, workbook
 from tests.test_offered_drafts import asked, the_answer
 from tests.test_regenerate import regenerate
-from tests.test_templates import turn_on
-
-
-@pytest.fixture(autouse=True)
-def flag_on(monkeypatch):
-    turn_on(monkeypatch, MY_FILES)
 
 
 @pytest.fixture
@@ -443,9 +435,7 @@ def test_a_try_that_is_no_longer_the_answers_writes_nothing(client, session, ser
     assert (written, files(session)) == (STOPPED, 0)
 
 
-def test_the_file_tools_are_offered_to_whoever_may_keep_a_file(
-    client, session, services, account, project, monkeypatch
-):
+def test_the_file_tools_are_offered_to_whoever_may_keep_a_file(session, account):
     organization = session.get(Organization, account.organization.id)
     assert offers_my_files(session, organization, account.user.id)
     # A viewer keeps files of their own too.
@@ -457,14 +447,6 @@ def test_the_file_tools_are_offered_to_whoever_may_keep_a_file(
     assert offers_my_files(session, organization, account.user.id)
     # Not someone of another organisation.
     assert not offers_my_files(session, organization, account.user.id + 1000)
-    membership.role = "owner"
-    session.commit()
-
-    # Nor anyone while the flag is off: the answer is offered the reading tools alone.
-    monkeypatch.setitem(FLAGS, MY_FILES, replace(FLAGS[MY_FILES], share=0))
-    asked(client, services, project["id"], "Write me a memo.", FakeTurn(TextPart("No.")))
-    assert "create_document" not in services.llm.agent_tools[-1]
-    assert WRITING not in services.llm.agent_prompts[-1]
 
 
 def test_my_files_refusals_reach_the_agent(

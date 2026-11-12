@@ -1,14 +1,14 @@
 """A project's address (app/inbound.py): whose mail becomes its documents, from whom it takes it,
 and what became of the messages it received lately, which the library's "Email in" shows.
 
-Every route is behind the flag `email_in` (app/flags.py). Whoever may change the project gives
-it an address, changes whom it takes mail from and where what arrives goes, gives it a new
-address in place of the old one, which then reaches nothing, and takes it away; each a row of
-the organisation's audit log that counts the senders and never names them. Anyone who sees the
-project reads its address and its messages.
+The address needs INBOUND_DOMAIN: without it the mailbox says it is not available, and the page
+offers none. Whoever may change the project gives it an address, changes whom it takes mail from and
+where what arrives goes, gives it a new address in place of the old one, which then reaches nothing,
+and takes it away; each a row of the organisation's audit log that counts the senders and never
+names them. Anyone who sees the project reads its address and its messages.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -17,11 +17,9 @@ from app.api.deps import (
     EditableProjectDep,
     ProjectDep,
     SessionDep,
-    flagged,
 )
 from app.audit import audit
 from app.config import get_settings
-from app.flags import EMAIL_IN
 from app.folders import folder_paths
 from app.inbound import (
     INBOUND_DAYS,
@@ -39,7 +37,7 @@ from app.inbound import (
 from app.models import Folder, InboundMessage, Project, ProjectMailbox, User
 from app.schemas import InboundMessageOut, InboundRejectedOut, MailboxIn, MailboxOut
 
-router = APIRouter(tags=["mailbox"], dependencies=[Depends(flagged(EMAIL_IN))])
+router = APIRouter(tags=["mailbox"])
 
 
 @router.get("/projects/{project_id}/mailbox", response_model=MailboxOut)

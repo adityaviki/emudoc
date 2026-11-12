@@ -6,7 +6,7 @@ import { expect, test } from '@playwright/test'
 import type { BrowserContext, Page } from '@playwright/test'
 import { expectAccessible } from './axe.ts'
 import { messageTo } from './mail.ts'
-import { INBOUND_DOMAIN, chooseFlag, makeOperator, receiveMail } from './operator.ts'
+import { INBOUND_DOMAIN, makeOperator, receiveMail } from './operator.ts'
 import { printed } from './print.ts'
 import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, releaseTurns } from './standin.ts'
 
@@ -853,7 +853,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await theirs.close()
   })
 
-  await test.step("be made an operator, read the organisation in the operator's area, change its flags, and switch a provider", async () => {
+  await test.step("be made an operator, read the organisation in the operator's area, view a member's account as support, and switch a provider", async () => {
     // A member is sent the members' page at the area's address, as for any page there is not.
     await page.goto('/operator')
     await expect(page.getByText('Page not found.')).toBeVisible()
@@ -870,15 +870,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(members.getByRole('row').filter({ hasText: 'Grace Hopper' })).toContainText('member')
     // What it holds and used, as its members read it, with no plan beside it.
     await expect(page.getByRole('heading', { name: 'Plan', exact: true })).toHaveCount(0)
-    // A feature being rolled out to none, the extraction templates, turned on for it alone.
-    const flags = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Feature flags', exact: true }) })
-    const preview = flags.getByRole('row').filter({ hasText: 'extraction_templates' })
-    await expect(preview).toContainText('off, as rolled out')
     await expectAccessible(page, "an organisation in the operator's area")
-    const chosen = page.waitForResponse((response) => response.url().endsWith('/flags/extraction_templates') && response.ok())
-    await preview.getByLabel('Feature flag extraction_templates').selectOption('on')
-    await chosen
-    await expect(preview).toContainText('on, chosen here')
 
     // Grace let support in: her account, as she sees it, read only, until the view ends.
     await members.getByRole('button', { name: 'View as Grace Hopper' }).click()
@@ -887,15 +879,9 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.getByRole('button', { name: 'End the view' }).click()
     await expect(page.getByRole('heading', { name: 'Organisations', exact: true })).toBeVisible()
 
-    // The flag across the deployment: on for this organisation alone, which its owner reads in its audit log.
-    await page.getByRole('navigation', { name: 'Views' }).getByRole('link', { name: 'Flags' }).click()
-    const rollout = page.getByRole('row').filter({ hasText: 'extraction_templates' })
-    await expect(rollout.getByRole('link', { name: "Analytical Engines" })).toBeVisible()
+    // Its owner's audit log, read whole, holds every kind of row the workspace has, its export's among them.
     await page.goto('/organization/audit')
-    // The whole log first, which holds every kind of row this organisation has, its export's among them.
     await expect(page.getByRole('listitem').filter({ hasText: 'Exported a project' })).toContainText('Supplier contracts')
-    await page.getByLabel('What').selectOption('flag_changed')
-    await expect(page.getByRole('listitem').filter({ hasText: 'Feature flag changed' })).toContainText("extraction templates: on · by Emudoc's operators")
     await page.goto('/operator/jobs')
     await expect(page.getByRole('heading', { name: 'Jobs', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Ask again' })).toBeVisible()
@@ -919,7 +905,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   })
 
   await test.step("make the project's own invoice template from the built-in one, then delete it", async () => {
-    // The flag turned on above shows the library's extraction templates, the built-in ones among them.
+    // The library's extraction templates, the built-in ones among them, as every workspace has them.
     await page.goto('/')
     await page.getByRole('link', { name: /^Supplier contracts/ }).click()
     await page.getByRole('button', { name: 'Extraction templates' }).click()
@@ -1364,8 +1350,6 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   })
 
   await test.step('dispute the invoice from its tab, have the model draft the dispute letter, edit it into a second version, download it and read the first again', async () => {
-    // Drafts, being rolled out to none, turned on for the organisation by the operator's command.
-    chooseFlag(slug, 'drafts', 'on')
     await page.goto('/')
     await page.getByRole('link', { name: /^Supplier contracts/ }).click()
     await page.getByRole('treeitem', { name: 'invoice.md', exact: true }).click()
@@ -1503,8 +1487,6 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   })
 
   await test.step('ask in a chat for a Word document, which the agent writes into My files, and open it from its step', async () => {
-    // My files, being rolled out to none, turned on for the organisation by the operator's command.
-    chooseFlag(slug, 'my_files', 'on')
     await page.goto('/')
     await page.getByRole('link', { name: /^Supplier contracts/ }).click()
     await expect(page).not.toHaveURL(/[?&]chat=/)
@@ -1532,7 +1514,6 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   })
 
   await test.step("give the project an address, list a supplier's domain, whose mail becomes documents, and read what became of a stranger's", async () => {
-    chooseFlag(slug, 'email_in', 'on')
     await page.goto('/')
     await page.getByRole('link', { name: /^Supplier contracts/ }).click()
     await page.getByRole('button', { name: 'Email in' }).click()
@@ -1596,7 +1577,6 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
 
     // And a folder of the member's Google Drive, the stand-in's, kept in step with the project:
     // its consent page sends the browser straight back, where the folder is chosen.
-    chooseFlag(slug, 'connectors', 'on')
     await page.goto('/')
     await page.getByRole('link', { name: /^Supplier contracts/ }).click()
     await page.getByRole('button', { name: 'Connected folders' }).click()
@@ -1625,7 +1605,6 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   })
 
   await test.step('share the invoice by a link with a password, which someone with no account opens, then revoke it, and share an answer about it', async () => {
-    chooseFlag(slug, 'share_links', 'on')
     await page.goto('/')
     await page.getByRole('link', { name: /^Supplier contracts/ }).click()
     await page.getByRole('treeitem', { name: 'invoice.md', exact: true }).click()
@@ -2118,7 +2097,6 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   })
 
   await test.step('save a question set in its form, run it now and read its report, whose answer opens the passage it cites', async () => {
-    chooseFlag(slug, 'question_sets', 'on')
     await page.goto('/')
     await page.getByRole('link', { name: /^Supplier contracts/ }).click()
     await page.getByRole('button', { name: 'Question sets' }).click()
@@ -2165,8 +2143,6 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   })
 
   await test.step("comment on words chosen in the invoice, mentioning the colleague, whose mail leads to the thread, reply, resolve it and read it in the project's activity", async () => {
-    // Comments, being rolled out to none, turned on for the organisation by the operator's command.
-    chooseFlag(slug, 'comments', 'on')
     await page.goto('/')
     await page.getByRole('link', { name: /^Supplier contracts/ }).click()
     await page.getByRole('treeitem', { name: 'invoice.md', exact: true }).click()

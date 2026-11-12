@@ -48,7 +48,6 @@ from app.connectors.base import TIMEOUT, ConnectorError, Provider, RemoteFile
 from app.db import MIGRATION_LOCK, SessionLocal
 from app.encrypted import CONNECTOR_TOKENS, decrypt, encrypt
 from app.errors import shown
-from app.flags import CONNECTORS, flag_on
 from app.folders import folder_names
 from app.jobs import BULK, SYNC_CONNECTOR, Lease, LeaseLost, enqueue, renew
 from app.keyring import Undecryptable
@@ -195,10 +194,6 @@ def run_sync(
         # Set before anything is asked of the service, so that a sync that fails is not queued
         # again at the next round of the heartbeat.
         connector.next_sync_at = datetime.now(UTC) + SYNC_INTERVAL
-        if not flag_on(organization, CONNECTORS):
-            _commit(session, lease)
-            CONNECTOR_SYNCS.labels("off").inc()
-            return None
         provider = providers(get_settings()).get(connector.provider)
         if held := _held(session, connector, project, organization, provider):
             connector.problem = held

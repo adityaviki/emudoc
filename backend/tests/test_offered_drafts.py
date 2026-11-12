@@ -10,7 +10,6 @@ from sqlalchemy import func, select
 from app.agent.loop import DRAFTING
 from app.answers import answer
 from app.config import get_settings
-from app.flags import DRAFTS, FLAGS
 from app.jobs import WRITE_DRAFT
 from app.models import ChatMessage, Draft, Job
 from tests.conftest import FakeTurn
@@ -19,7 +18,6 @@ from tests.test_audit import actions
 from tests.test_chats import ask, follow, new_chat, questions_counted, try_again
 from tests.test_check_runs import invoices
 from tests.test_drafts import shown, write
-from tests.test_templates import turn_on
 
 OFFER = {"kind": "dispute_letter", "instructions": "Ask Acme for a credit note of 5 EUR."}
 
@@ -60,9 +58,8 @@ def draft_jobs(session) -> int:
 
 
 def test_an_answer_offers_a_draft_the_member_has_written_with_a_press(
-    client, session, services, account, monkeypatch
+    client, session, services, account
 ):
-    turn_on(monkeypatch, DRAFTS)
     project = create_project(client)
     docs = invoices(session, project["id"])
     chat_id, message_id = asked(
@@ -130,10 +127,7 @@ def test_an_answer_offers_a_draft_the_member_has_written_with_a_press(
     assert refused.json()["detail"].startswith("The draft written from this answer was deleted.")
 
 
-def test_an_answer_offers_one_draft_of_documents_in_the_project(
-    client, session, services, monkeypatch
-):
-    turn_on(monkeypatch, DRAFTS)
+def test_an_answer_offers_one_draft_of_documents_in_the_project(client, session, services):
     project = create_project(client)
     docs = invoices(session, project["id"])
     chat_id, message_id = asked(
@@ -163,7 +157,7 @@ def test_an_answer_offers_one_draft_of_documents_in_the_project(
 
 
 def test_a_member_who_could_not_have_a_draft_written_is_offered_none(
-    client, session, services, account, make_account, act_as, monkeypatch
+    client, session, services, account, make_account, act_as
 ):
     project = create_project(client)
     docs = invoices(session, project["id"])
@@ -186,9 +180,6 @@ def test_a_member_who_could_not_have_a_draft_written_is_offered_none(
             assert shown["steps"][0]["summary"] == "Unknown tool 'create_draft'."
         return "create_draft" in tools, shown["draft"]
 
-    # Drafts off for the organisation.
-    assert offers() == (False, None)
-    turn_on(monkeypatch, DRAFTS)
     assert offers()[0] is True
 
     # A viewer, who may not have one written, nor press one an answer offers.
@@ -207,7 +198,6 @@ def test_a_member_who_could_not_have_a_draft_written_is_offered_none(
 
 
 def test_an_offer_waits_for_its_answer_and_goes_with_a_try(client, session, services, monkeypatch):
-    turn_on(monkeypatch, DRAFTS)
     project = create_project(client)
     docs = invoices(session, project["id"])
     chat = new_chat(client, project["id"])
@@ -241,11 +231,3 @@ def test_an_offer_waits_for_its_answer_and_goes_with_a_try(client, session, serv
     no_offer = press(client, chat["id"], message_id)
     assert no_offer.status_code == 404
     assert no_offer.json()["detail"].startswith("This answer offers no draft.")
-
-
-def test_drafts_off_hide_the_route(client, session, services, monkeypatch):
-    project = create_project(client)
-    chat = new_chat(client, project["id"])
-    message_id = ask(client, chat["id"], "What is due?")["answer"]["id"]
-    assert FLAGS[DRAFTS].share == 0
-    assert press(client, chat["id"], message_id).status_code == 404

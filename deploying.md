@@ -828,7 +828,10 @@ sentence the member reads:
   sections after them have no summary, and its enrich stage says how far it went, as "312
   section summaries, 1,840 facts, from pages 1 to 640 of 980: the model reads no more of one
   document, and the rest is searched without summaries or facts" (or "the first 61 % of the
-  document" without pages). The day's spending cap is checked before the stage ("The models
+  document" without pages). The first request also lists the project's extraction templates,
+  each field described while the listing is short and by name and type alone past 16,000
+  characters, a few thousand tokens more a document, so that its facts are read for its kind
+  (README, "How it works"). The day's spending cap is checked before the stage ("The models
   are spending fast"), so this is the most one document spends past it.
 - **Its vectors.** The embed stage keeps each vector as the column stores it, 4-byte floats (3 KB
   at 768 dimensions, where the endpoint's reply as Python floats is 25 KB), and writes them 500
@@ -1134,8 +1137,8 @@ plain HTML of the frontend's build (`frontend/home.html`, `vite build --mode sit
 build` runs), with no script, so that a search engine reads it whole, and the app fills it in as
 it serves it (`backend/app/site.py`): the file types the parsers take, the operator's name
 (`OPERATOR_NAME`), the region, the scanner and the sample project. A part of the page about a
-feature behind a flag is shown only once its flag is on for every organisation, so that the site
-offers nothing a new organisation would not find.
+feature that needs an outside service (email in, connected folders) is shown only once the
+deployment has that service, so that the site offers nothing a new workspace would not find.
 
 The page offers no sign-up of its own. Its way in is "Book a demo", which opens `BOOKING_URL`, a
 booking page of Cal.com, Calendly or the like; unset, "Request access" mails the support address
@@ -1866,8 +1869,8 @@ and `EmudocMailBounces` ("Rules on the metrics").
 ## Mail in
 
 A project may have an address of its own, `<token>@INBOUND_DOMAIN`, whose mail becomes its
-documents (`backend/app/inbound.py`; behind the flag `email_in`, "The operator's area"): the
-message's text as a `.txt` document named by its subject, with its From, To, Date and Subject
+documents (`backend/app/inbound.py`; the library offers "Email in" only while `INBOUND_DOMAIN`
+is set): the message's text as a `.txt` document named by its subject, with its From, To, Date and Subject
 above it as an email reads, and each attachment as an uploaded file, through the checks an
 upload's files go through (its type, its size, bytes the project holds already), into the
 folder the address names or the project's root. Images an HTML message shows by their
@@ -1895,7 +1898,7 @@ documents kept, the files that were not and why, or why the whole message was tu
 message a provider delivers twice is kept once, by the provider's id for it. Nothing of a
 message's text reaches the log, which names the project and the provider's id and what became
 of it; `emudoc_inbound_messages_total` counts each by its `outcome` ("Metrics"), mail to no
-project's address and mail that came while the flag was off for the organisation among them.
+project's address among them.
 
 `INBOUND_DOMAIN` is a domain of its own for this, such as `in.example.com`, whose MX names the
 provider that receives it: no mailbox of anyone's is there, and the domain's mail is the
@@ -1953,9 +1956,8 @@ it ("On AWS").
 ## Connected folders
 
 A project may keep in step with a folder of a member's Google Drive, Dropbox, OneDrive or
-SharePoint (`backend/app/connectors/`;
-behind the flag `connectors`, "The operator's area", and none on the sample project). In the library's "Connected
-folders", a member who may change the project connects a service: the browser goes to it for
+SharePoint (`backend/app/connectors/`; offered only for the services the deployment has an OAuth
+client for, and none on the sample project). In the library's "Connected folders", a member who may change the project connects a service: the browser goes to it for
 their consent to read their files and comes back with a code, which the app redeems for a
 refresh token, kept encrypted with `ENCRYPTION_KEYS` ("The encryption keys"); the member then
 browses their own folders there and chooses one, once, and where its files go in the project.
@@ -2818,8 +2820,8 @@ across the instances, `sum without (instance)`):
 | `emudoc_rate_limited_total` | Requests refused for a rate, by the limit's `scope` ("Rates") |
 | `emudoc_mail_sent_total` | Tries of the mail the app posted, by `outcome`: `sent`, `retried` (refused for now and queued again), `failed` (refused for good, or for the last time); the operator's own reports are not counted ("Mail") |
 | `emudoc_mail_events_total` | Addresses the mail provider said not to write to, by `kind`: `bounce`, `complaint`; counted by the API for Resend's, by the worker for SES's ("Mail") |
-| `emudoc_inbound_messages_total` | Messages sent to projects' addresses, by `outcome`: `kept`, `empty` (nothing in it to keep), `refused_sender`, `unauthenticated`, `unreadable`, `too_large`, `refused_project`, `unknown_address` (no project's), `off` (the flag off) ("Mail in") |
-| `emudoc_connector_syncs_total` | Syncs of connected folders, by `outcome`: `synced`, `unchanged` (nothing changed since the last), `failed` (stopped partway, or the folder gone), `paused` (the grant or the member), `held` (the project), `off` (the flag off) ("Connected folders") |
+| `emudoc_inbound_messages_total` | Messages sent to projects' addresses, by `outcome`: `kept`, `empty` (nothing in it to keep), `refused_sender`, `unauthenticated`, `unreadable`, `too_large`, `refused_project`, `unknown_address` (no project's) ("Mail in") |
+| `emudoc_connector_syncs_total` | Syncs of connected folders, by `outcome`: `synced`, `unchanged` (nothing changed since the last), `failed` (stopped partway, or the folder gone), `paused` (the grant or the member), `held` (the project) ("Connected folders") |
 | `emudoc_webhook_deliveries_total` | Tries of the events posted to the organisations' webhooks, by `outcome`: `delivered` (a 2xx), `retried` (answered otherwise or not at all, and queued again), `failed` (the last try), `refused` (not sent: an address on the deployment's own network or over plain HTTP, a secret no key decrypts) ("Webhooks") |
 | `emudoc_connector_files_total` | Files of connected folders the syncs read, by `outcome`: `kept`, `rejected`, `trashed` (its file gone), `replaced` (its document given the file's new version) ("Connected folders") |
 | `emudoc_renders_total`, `emudoc_render_seconds` | PDF pages drawn as images, by `purpose` (`pane`, `thumbnail`, `ocr`, `ahead`) and `outcome`: `drawn`, `refused` (a page that cannot be drawn), `timeout` (`RENDER_TIMEOUT`), `out_of_memory` (`RENDER_MEMORY_MB`), `crashed` or `unstarted` (no process could draw it); the seconds include the wait for a free process ("Drawing pages") |
@@ -3638,51 +3640,12 @@ with a warning when none runs (`jobs`, `failed-jobs`); and the
 models and services: the models each variable names, the providers and which are switched off,
 the embeddings endpoint, the scanner, the storage, the database, and everything the worker's
 watch sees wrong now, asked afresh, with since when it has been mailing each ("What the worker
-mails"); and the feature flags, each with how far it is rolled out, how many organisations it is
-on for and those it was turned on or off for (`flags`). What it shows is what the commands
+mails"). What it shows is what the commands
 print, a member's name and address among it, never what a document, a question or an answer
 says.
 
-It changes four things, as the commands do:
+It changes two things, as the commands do:
 
-- **A feature flag, for one organisation.** A feature being rolled out is behind a flag
-  (`FLAGS` in `backend/app/flags.py`: its name, what it turns on, and its share, the percentage
-  of organisations it is on for), and the organisation's page lists each under "Feature flags",
-  on or off for it and why, with a choice: "On" or "Off" whatever the rollout, or "As rolled
-  out". The choice takes effect at the organisation's next request, and its next page load for
-  what the page shows; each change is a row of its audit log ("Feature flag changed", by
-  Emudoc's operators), as `flags <slug> <flag> on|off|rollout` does. The share is the code's,
-  moved by a release: which organisations it takes is a hash of the flag's name and the
-  organisation's id, so raising it keeps those it took. A rollout goes: the flag at 0 and on
-  for the organisations that asked for the feature, then a share that grows release by
-  release, then 100, then the flag taken out of the code with its reads. "Off" holds an
-  organisation back whatever the share, and is the way to take a feature away from one at once;
-  from every organisation at once, the share back to 0 in a release. A flag's route answers
-  404 where the flag is off, as a path no route takes. The Flags view and `flags` list every
-  flag across the deployment:
-
-  ```bash
-  maintenance flags                           # each flag: its rollout, on for how many, chosen for whom
-  maintenance flags acme                      # how each stands for one organisation
-  maintenance flags acme extraction_templates on      # or off, or rollout for the share's again
-  ```
-
-  The flags today: `extraction_templates`, a project's extraction templates and the facts
-  table of each kind's documents (README, "How it works"), at 0. Where it is on, the enrich stage lists the project's templates in every
-  document's first request (each field described while the listing is short, by name and type
-  alone past 16,000 characters), a few thousand tokens more per document; where it is off, the
-  stage asks as it always did. Turned off again, the documents keep the facts they were read
-  for until they are indexed again, and the templates made meanwhile stay, unread. `drafts`,
-  the drafts the model writes from a project's documents, their templates and their files
-  (README, "How it works"), at 0: each writing is a run of the agent, counted as a question and
-  held to the day's spending as one, and each file is laid out in the API's process (a PDF of a
-  long draft in about half a second). Turned off again, the drafts and the templates stay,
-  unread. `email_in`, a project's address whose mail becomes its documents ("Mail in"), at 0,
-  which needs `INBOUND_DOMAIN` too: turned off again, the addresses stay and take nothing, a
-  message to one counted as `off` and kept nowhere, and turned on, they take mail again.
-  `connectors`, the folders of the members' Google Drive projects keep in step with ("Connected
-  folders"), at 0, which needs `GOOGLE_DRIVE_CLIENT_ID` too: turned off again, the connectors
-  stay, their syncs counted as `off` and doing nothing, and turned on, they sync again.
 - **Failed documents queued again.** Under Jobs, "Run again" on a failed index job, or "Run
   every failed document again", queues each document from the stage it stopped at, as
   `failed-jobs --requeue` does, once the cause is fixed; the jobs of other kinds are left. Each

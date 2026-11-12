@@ -66,7 +66,6 @@ from app.cross_checks import (
 from app.db import SessionLocal, unbounded
 from app.extraction import Template, templates_for
 from app.fact_checks import fact_out
-from app.flags import EXTRACTION_TEMPLATES, flag_on
 from app.indexing.pipeline import Services
 from app.jobs import LIVE, RUN_WORKFLOW, Lease, LeaseLost, enqueue, renew
 from app.mail import checks_run_email
@@ -262,7 +261,6 @@ def run_automation(automation_id: int, lease: Lease | None = None) -> str | None
             or not checks
             or not automation.enabled
             or project.deleted_at is not None
-            or not flag_on(organization, EXTRACTION_TEMPLATES)
         ):
             # Nothing to run, or nothing it may run now: what arrived goes with this job, the
             # automation's page saying why when the cause is its own.

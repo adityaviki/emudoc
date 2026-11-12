@@ -509,6 +509,9 @@ def test_a_deployments_status_names_nothing_of_how_it_is_set_up(client, services
         },
         # Whether files are shown as they look, which says nothing of where the converter is.
         "views": False,
+        # Whether projects take mail and folders connect: neither says where the service is.
+        "email_in": False,
+        "connectors": False,
     }
 
     services.embedder.fail = True

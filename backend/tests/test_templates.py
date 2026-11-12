@@ -3,14 +3,11 @@ of each kind are read for, the built-in ones and the project's own, and the enri
 reads a document for the one it is."""
 
 import json
-from dataclasses import replace
 
-import pytest
 from sqlalchemy import select
 
 from app.api import templates as routes
 from app.extraction import BUILT_IN, kind_of, templates_for
-from app.flags import EXTRACTION_TEMPLATES, FLAGS
 from app.indexing import enrich
 from app.indexing.enrich import ExtractedFact
 from app.indexing.pipeline import process_document
@@ -47,17 +44,6 @@ INVOICE = {
 }
 
 
-def turn_on(monkeypatch, name: str = EXTRACTION_TEMPLATES) -> None:
-    """The feature on for every organisation, as once it is rolled out to all; another flag's
-    when named (tests/test_drafts.py)."""
-    monkeypatch.setitem(FLAGS, name, replace(FLAGS[name], share=100))
-
-
-@pytest.fixture
-def templates_on(monkeypatch):
-    turn_on(monkeypatch)
-
-
 def listed(client, project_id) -> list[dict]:
     response = client.get(f"/api/projects/{project_id}/templates")
     assert response.status_code == 200, response.text
@@ -91,18 +77,7 @@ def facts_of(session, document_id: int) -> dict[str, Fact]:
 # The routes
 
 
-def test_the_templates_are_hidden_while_the_flag_is_off(client):
-    project = create_project(client)
-    for method, path in (
-        ("GET", f"/api/projects/{project['id']}/templates"),
-        ("POST", f"/api/projects/{project['id']}/templates"),
-        ("PUT", "/api/templates/1"),
-        ("DELETE", "/api/templates/1"),
-    ):
-        assert client.request(method, path, json=INVOICE).status_code == 404, (method, path)
-
-
-def test_a_project_starts_with_the_built_in_templates(client, templates_on):
+def test_a_project_starts_with_the_built_in_templates(client):
     project = create_project(client)
     shown = listed(client, project["id"])
     assert [t["doc_type"] for t in shown] == BUILT_IN_KINDS
@@ -136,9 +111,7 @@ def test_the_built_in_templates_keep_to_what_a_member_s_template_may_be():
         assert any(field.required for field in template.fields), template.doc_type
 
 
-def test_a_project_s_own_template_replaces_the_built_in_one_of_its_kind(
-    client, session, account, templates_on
-):
+def test_a_project_s_own_template_replaces_the_built_in_one_of_its_kind(client, session, account):
     project = create_project(client)
     made = make(client, project["id"])
     # The kind in lowercase words, the fields named as their facts are, each example once.
@@ -170,7 +143,7 @@ def test_a_project_s_own_template_replaces_the_built_in_one_of_its_kind(
     ]
 
 
-def test_a_template_of_a_kind_of_the_members_own_is_listed_first(client, templates_on):
+def test_a_template_of_a_kind_of_the_members_own_is_listed_first(client):
     project = create_project(client)
     made = make(
         client,
@@ -185,9 +158,7 @@ def test_a_template_of_a_kind_of_the_members_own_is_listed_first(client, templat
     assert [t["doc_type"] for t in listed(client, project["id"])] == ["timesheet", *BUILT_IN_KINDS]
 
 
-def test_a_change_writes_the_template_anew_and_says_what_changed(
-    client, session, account, templates_on
-):
+def test_a_change_writes_the_template_anew_and_says_what_changed(client, session, account):
     project = create_project(client)
     made = make(client, project["id"])
     changed = {
@@ -225,7 +196,7 @@ def test_a_change_writes_the_template_anew_and_says_what_changed(
     ) == 1
 
 
-def test_a_template_is_refused_what_it_cannot_be(client, templates_on, monkeypatch):
+def test_a_template_is_refused_what_it_cannot_be(client, monkeypatch):
     project = create_project(client)
     path = f"/api/projects/{project['id']}/templates"
 
@@ -261,9 +232,7 @@ def test_a_template_is_refused_what_it_cannot_be(client, templates_on, monkeypat
     assert made["id"] != other["id"]
 
 
-def test_a_viewer_reads_the_templates_and_changes_none(
-    client, account, make_account, act_as, templates_on
-):
+def test_a_viewer_reads_the_templates_and_changes_none(client, account, make_account, act_as):
     project = create_project(client)
     made = make(client, project["id"])
     act_as(make_account("vic@example.com", account.organization, role="viewer"))
@@ -276,24 +245,7 @@ def test_a_viewer_reads_the_templates_and_changes_none(
 # The enrich stage
 
 
-def test_without_the_flag_a_document_is_read_as_it_always_was(
-    client, session, services, sample_pdf
-):
-    project = create_project(client)
-    document = upload(client, project["id"], sample_pdf)["documents"][0]
-    services.llm.template = "contract"
-    process_document(document["id"], services)
-
-    [(kind, prompt)] = [call for call in services.llm.calls if "Analysis" in call[0]]
-    assert kind == "DocumentAnalysis"
-    assert "<templates>" not in prompt and "- template:" not in prompt
-    assert enrich.FACT_INSTRUCTIONS in prompt
-    assert session.get(Document, document["id"]).template is None
-
-
-def test_a_document_is_read_for_the_template_it_is(
-    client, session, services, sample_pdf, templates_on
-):
+def test_a_document_is_read_for_the_template_it_is(client, session, services, sample_pdf):
     project = create_project(client)
     document = upload(client, project["id"], sample_pdf)["documents"][0]
     services.llm.template = "Contract"
@@ -325,9 +277,7 @@ def test_a_document_is_read_for_the_template_it_is(
     }
 
 
-def test_a_document_of_no_listed_kind_keeps_its_own(
-    client, session, services, sample_pdf, templates_on
-):
+def test_a_document_of_no_listed_kind_keeps_its_own(client, session, services, sample_pdf):
     project = create_project(client)
     document = upload(client, project["id"], sample_pdf)["documents"][0]
     services.llm.template = "letter"
@@ -338,7 +288,7 @@ def test_a_document_of_no_listed_kind_keeps_its_own(
 
 
 def test_index_again_reads_the_documents_for_the_project_s_own_template(
-    client, session, services, sample_pdf, templates_on
+    client, session, services, sample_pdf
 ):
     project = create_project(client)
     document = upload(client, project["id"], sample_pdf)["documents"][0]
@@ -380,7 +330,7 @@ def test_index_again_reads_the_documents_for_the_project_s_own_template(
 
 
 def test_a_long_document_names_its_template_in_its_first_part(
-    session, services, account, make_document, sample_pdf, templates_on, monkeypatch
+    session, services, account, make_document, sample_pdf, monkeypatch
 ):
     monkeypatch.setattr(enrich, "WINDOW_CHARS", 150)
     services.llm.template = "contract"
@@ -402,7 +352,7 @@ def test_a_long_document_names_its_template_in_its_first_part(
 
 
 def test_a_long_listing_names_each_field_with_its_type_alone(
-    session, services, account, make_document, sample_pdf, templates_on, monkeypatch
+    session, services, account, make_document, sample_pdf, monkeypatch
 ):
     monkeypatch.setattr(enrich, "LISTING_CHARS", 500)
     document = make_document(sample_pdf)
@@ -414,7 +364,7 @@ def test_a_long_listing_names_each_field_with_its_type_alone(
     assert len(templates_for(session, document.project_id)) == len(BUILT_IN)
 
 
-def test_a_project_s_export_holds_its_own_templates(client, services, sample_pdf, templates_on):
+def test_a_project_s_export_holds_its_own_templates(client, services, sample_pdf):
     project = create_project(client)
     document = upload(client, project["id"], sample_pdf)["documents"][0]
     services.llm.template = "contract"

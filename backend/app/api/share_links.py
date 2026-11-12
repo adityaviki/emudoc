@@ -1,12 +1,11 @@
 """Share links' routes (app/share_links.py): the members', who make a document's or an answer's
 links, list them and revoke them, and the visitor's, who opens one and reads what it shows.
 
-The members' are behind the flag, and take the document or the chat as any route of it does, so
-another organisation's, a private project's the member is not chosen for, or another member's
-private chat, is not found; making one takes the role that may change the project, and its owners
-and admins list every link of the organisation to revoke any. The visitor's take no account and no
-flag of their own: the link is checked as its maker's at each request (`shown`), and a document's
-page or file needs the cookie of a view the opening made.
+The members' take the document or the chat as any route of it does, so another organisation's, a
+private project's the member is not chosen for, or another member's private chat, is not found;
+making one takes the role that may change the project, and its owners and admins list every link of
+the organisation to revoke any. The visitor's take no account: the link is checked as its maker's at
+each request (`shown`), and a document's page or file needs the cookie of a view the opening made.
 """
 
 from typing import Annotated
@@ -26,14 +25,12 @@ from app.api.deps import (
     EditableDocumentDep,
     ServicesDep,
     SessionDep,
-    flagged,
     get_editor,
     refuse_past,
 )
 from app.api.documents import original_response, page_response
 from app.audit import audit, audit_event
 from app.auth import now, verify_password
-from app.flags import SHARE_LINKS
 from app.models import Block, ChatMessage, Document, Project, ShareLink, User
 from app.ratelimit import SHARED_LINKS, SHARED_PASSWORDS, by_address, by_link, held, tally
 from app.schemas import (
@@ -76,7 +73,7 @@ from app.share_links import (
     viewed,
 )
 
-router = APIRouter(tags=["share links"], dependencies=[Depends(flagged(SHARE_LINKS))])
+router = APIRouter(tags=["share links"])
 public = APIRouter(tags=["share links"])
 
 ADMINS_ONLY = "Only the workspace's owners and admins can see all of its share links."

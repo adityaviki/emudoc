@@ -27,14 +27,12 @@ from app.connectors.sync import (
 )
 from app.db import engine
 from app.encrypted import CONNECTOR_TOKENS, decrypt
-from app.flags import CONNECTORS
 from app.jobs import SYNC_CONNECTOR
 from app.models import AuditEvent, Connector, ConnectorFile, Document, Job, Membership, Upload
 from tests.test_api import create_project
 from tests.test_automations import next_job
 from tests.test_folders import make_folder
 from tests.test_metrics import Counted
-from tests.test_templates import turn_on
 from tests.test_versions import versions
 
 BASE = "https://drive.test"
@@ -449,9 +447,8 @@ class FakeGraph:
 
 
 def serving(monkeypatch, client, fake, **settings) -> None:
-    """The service set up by `settings`, the flag on, and the fake answering both the API's
+    """The service set up by `settings`, and the fake answering both the API's
     client and the worker's."""
-    turn_on(monkeypatch, CONNECTORS)
     for name, value in {**settings, "connector_base_url": BASE}.items():
         monkeypatch.setattr(get_settings(), name, value)
     client.app.state.http = httpx.Client(transport=fake.transport)

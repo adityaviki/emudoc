@@ -195,17 +195,12 @@ export function Library() {
   const stoppedByMember = stopped && isAbort(stopped.error) ? uploadStopped(stopped.unsent.length) : null
   const me = useMe()
   const changes = mayChange(me.role)
-  // Behind its flag while it is rolled out (backend/app/flags.py).
-  const templates = me.organization.flags_on.includes('extraction_templates')
-  const drafts = me.organization.flags_on.includes('drafts')
-  const myFiles = me.organization.flags_on.includes('my_files')
-  const mail = me.organization.flags_on.includes('email_in')
-  const connectors = me.organization.flags_on.includes('connectors')
-  const questionSets = me.organization.flags_on.includes('question_sets')
-  const commenting = me.organization.flags_on.includes('comments')
   // The sample project takes no uploads: it is the app's own (backend/app/sample).
   const uploads = changes && !project.sample
   const health = useStatus()
+  // Email in and connected folders need a service of the deployment's, without which they are not offered.
+  const mail = health.data?.email_in === true
+  const connectors = health.data?.connectors === true
   const fileInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
   const photoInput = useRef<HTMLInputElement>(null)
@@ -258,23 +253,23 @@ export function Library() {
   const partlyHeld = restHeld(project.unenriched_count ? ['enrich', 'embed'] : ['embed'], health.data)
 
   if (workspace.url.library.trash) return <TrashView />
-  if (workspace.url.library.templates && templates) return <TemplatesView />
-  if (workspace.url.library.facts && templates) return <FactsView kind={workspace.url.library.facts} />
-  if (workspace.url.library.changes && templates) return <ChangesView kind={workspace.url.library.changes} />
-  if (workspace.url.library.checks && templates) return <CrossChecksView />
-  if (workspace.url.library.check != null && templates) return <FindingsView checkId={workspace.url.library.check} />
-  if (workspace.url.library.run != null && templates) return <RunView runId={workspace.url.library.run} />
-  if (workspace.url.library.questionSets && questionSets) return <QuestionSetsView />
-  if (workspace.url.library.report != null && questionSets) return <ReportView reportId={workspace.url.library.report} />
-  if (workspace.url.library.reviews && templates) return <ReviewsView whose={workspace.url.library.reviews} />
-  if (workspace.url.library.activity && commenting) return <ActivityView />
-  if (workspace.url.library.drafts && drafts) return <DraftsView />
-  if (workspace.url.library.draft != null && drafts) return <DraftView draftId={workspace.url.library.draft} />
-  if (workspace.url.library.draftTemplates && drafts) return <DraftTemplatesView />
+  if (workspace.url.library.templates) return <TemplatesView />
+  if (workspace.url.library.facts) return <FactsView kind={workspace.url.library.facts} />
+  if (workspace.url.library.changes) return <ChangesView kind={workspace.url.library.changes} />
+  if (workspace.url.library.checks) return <CrossChecksView />
+  if (workspace.url.library.check != null) return <FindingsView checkId={workspace.url.library.check} />
+  if (workspace.url.library.run != null) return <RunView runId={workspace.url.library.run} />
+  if (workspace.url.library.questionSets) return <QuestionSetsView />
+  if (workspace.url.library.report != null) return <ReportView reportId={workspace.url.library.report} />
+  if (workspace.url.library.reviews) return <ReviewsView whose={workspace.url.library.reviews} />
+  if (workspace.url.library.activity) return <ActivityView />
+  if (workspace.url.library.drafts) return <DraftsView />
+  if (workspace.url.library.draft != null) return <DraftView draftId={workspace.url.library.draft} />
+  if (workspace.url.library.draftTemplates) return <DraftTemplatesView />
   if (workspace.url.library.mail && mail) return <MailboxView />
   if (workspace.url.library.connectors && connectors) return <ConnectorsView />
-  if (workspace.url.library.myFiles && myFiles) return <MyFilesView />
-  if (workspace.url.library.myFile != null && myFiles) return <MyFileView fileId={workspace.url.library.myFile} />
+  if (workspace.url.library.myFiles) return <MyFilesView />
+  if (workspace.url.library.myFile != null) return <MyFileView fileId={workspace.url.library.myFile} />
   // The files of the whole project a search finds are no place of their own: "All files", pressed, says where they are.
   const placeLabel = flat && !allNamed(place) ? placeName(place) : null
   const searchResults = search && (
@@ -316,71 +311,57 @@ export function Library() {
         </div>
         {/* The library's buttons, then what it shows and how, then the project's search. */}
         <div className="flex flex-col gap-2 px-3 pb-2.5">
-        {/* With every feature on, its buttons take a second line rather than run under the pane beside it; none, no line. */}
-        <div className="flex flex-wrap items-center gap-2 empty:hidden">
-          {templates && (
-            <Button
-              icon={<TableProperties className="size-4" />}
-              onClick={workspace.showTemplates}
-              title="Extraction templates: the fields each kind of document is read for"
-              aria-label="Extraction templates"
-              className="px-2"
-            />
-          )}
-          {templates && (
-            <Button
-              icon={<ListChecks className="size-4" />}
-              onClick={workspace.showChecks}
-              title="Cross-checks: rules that compare the facts of one kind of document with another's"
-              aria-label="Cross-checks"
-              className="px-2"
-            />
-          )}
-          {templates && (
-            <Button
-              icon={<ClipboardCheck className="size-4" />}
-              onClick={() => workspace.showReviews()}
-              title="Reviews: the documents put in review, approved or disputed, and whom each is assigned to"
-              aria-label="Reviews"
-              className="px-2"
-            />
-          )}
-          {commenting && (
-            <Button
-              icon={<ActivityIcon className="size-4" />}
-              onClick={workspace.showActivity}
-              title="Activity: what was done in the project lately, its uploads, reviews, comments and runs"
-              aria-label="Activity"
-              className="px-2"
-            />
-          )}
-          {myFiles && (
-            <Button
-              icon={<FolderLock className="size-4" />}
-              onClick={workspace.showMyFiles}
-              title="My files: your own Word and Excel files in this project, which only you see"
-              aria-label="My files"
-              className="px-2"
-            />
-          )}
-          {drafts && (
-            <Button
-              icon={<PenLine className="size-4" />}
-              onClick={workspace.showDrafts}
-              title="Drafts: letters, emails, memos, tables and reports the model writes from the documents"
-              aria-label="Drafts"
-              className="px-2"
-            />
-          )}
-          {questionSets && (
-            <Button
-              icon={<CalendarClock className="size-4" />}
-              onClick={workspace.showQuestionSets}
-              title="Question sets: questions asked of the documents on a schedule or as they arrive, their answers kept as reports"
-              aria-label="Question sets"
-              className="px-2"
-            />
-          )}
+        {/* Its buttons take a second line rather than run under the pane beside it. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            icon={<TableProperties className="size-4" />}
+            onClick={workspace.showTemplates}
+            title="Extraction templates: the fields each kind of document is read for"
+            aria-label="Extraction templates"
+            className="px-2"
+          />
+          <Button
+            icon={<ListChecks className="size-4" />}
+            onClick={workspace.showChecks}
+            title="Cross-checks: rules that compare the facts of one kind of document with another's"
+            aria-label="Cross-checks"
+            className="px-2"
+          />
+          <Button
+            icon={<ClipboardCheck className="size-4" />}
+            onClick={() => workspace.showReviews()}
+            title="Reviews: the documents put in review, approved or disputed, and whom each is assigned to"
+            aria-label="Reviews"
+            className="px-2"
+          />
+          <Button
+            icon={<ActivityIcon className="size-4" />}
+            onClick={workspace.showActivity}
+            title="Activity: what was done in the project lately, its uploads, reviews, comments and runs"
+            aria-label="Activity"
+            className="px-2"
+          />
+          <Button
+            icon={<FolderLock className="size-4" />}
+            onClick={workspace.showMyFiles}
+            title="My files: your own Word and Excel files in this project, which only you see"
+            aria-label="My files"
+            className="px-2"
+          />
+          <Button
+            icon={<PenLine className="size-4" />}
+            onClick={workspace.showDrafts}
+            title="Drafts: letters, emails, memos, tables and reports the model writes from the documents"
+            aria-label="Drafts"
+            className="px-2"
+          />
+          <Button
+            icon={<CalendarClock className="size-4" />}
+            onClick={workspace.showQuestionSets}
+            title="Question sets: questions asked of the documents on a schedule or as they arrive, their answers kept as reports"
+            aria-label="Question sets"
+            className="px-2"
+          />
           {mail && (
             <Button
               icon={<Mail className="size-4" />}
@@ -593,7 +574,6 @@ export function Library() {
             onCreatingChange={setCreating}
             mutations={mutations}
             changes={changes}
-            reviews={templates}
             dragging={dragging}
             onDragChange={(payload) => {
               dragging.current = payload
@@ -789,8 +769,6 @@ interface ListingProps {
   mutations: LibraryMutations
   /** Whether the member's role may change the library; a viewer opens, downloads and selects only. */
   changes: boolean
-  /** Whether documents' reviews are rolled out to the organisation (backend/app/flags.py): each row's mark and menu. */
-  reviews: boolean
   dragging: DragRef
   onDragChange: (payload: DragPayload | null) => void
   onUploadDropped: Uploads
@@ -812,7 +790,6 @@ function Listing({
   onCreatingChange,
   mutations,
   changes,
-  reviews,
   dragging,
   onDragChange,
   onUploadDropped,
@@ -1108,15 +1085,12 @@ function Listing({
       },
     ]
     if (!changes) return reading
-    // A document's review moves from its menu, while reviews are rolled out to the organisation.
-    const moves: MenuItem[] = reviews
-      ? stateMoves(item.document.review).map(({ state, label }) => ({
-          label,
-          icon: state ? MOVE_ICONS[state] : ClipboardX,
-          onSelect: () =>
-            review.mutate({ id: item.document.id, change: { state } }, { onError: (error) => mutations.setNotice(error.message) }),
-        }))
-      : []
+    // A document's review moves from its menu.
+    const moves: MenuItem[] = stateMoves(item.document.review).map(({ state, label }) => ({
+      label,
+      icon: state ? MOVE_ICONS[state] : ClipboardX,
+      onSelect: () => review.mutate({ id: item.document.id, change: { state } }, { onError: (error) => mutations.setNotice(error.message) }),
+    }))
     const unfinished = unfinishedStages(item.document)
     // A partly indexed document runs what it went without, once the services for it are back.
     const rest: MenuItem[] = unfinished.length

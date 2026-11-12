@@ -6,7 +6,7 @@ import copy
 import hashlib
 import json
 import re
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -22,7 +22,6 @@ from app.apikeys import READ_ONLY_KEY, issue
 from app.check_runs import run_workflow
 from app.config import get_settings
 from app.db import engine
-from app.flags import FLAGS, QUESTION_SETS
 from app.idempotency import (
     ABANDONED,
     BAD_KEY,
@@ -42,7 +41,6 @@ from tests.test_authorization import QUESTION_SET
 from tests.test_chats import questions_counted
 from tests.test_check_runs import TOTAL, invoices, work
 from tests.test_cross_checks import CROSS_CHECK, DUE
-from tests.test_templates import turn_on
 
 Route = tuple[str, str, dict]
 
@@ -477,10 +475,7 @@ def test_the_events_send_what_the_answer_became():
     assert list(follower.changes(reply)) == [("reset", {"content": "", "sources": []})]
 
 
-def test_a_run_of_the_cross_checks_followed_to_its_findings(
-    client, api, session, services, monkeypatch
-):
-    turn_on(monkeypatch)
+def test_a_run_of_the_cross_checks_followed_to_its_findings(client, api, session, services):
     project = made(api, "/api/v1/projects", {"name": "Invoices"})
     docs = invoices(session, project["id"])
     for rule in (DUE, TOTAL):
@@ -515,19 +510,7 @@ def test_a_run_of_the_cross_checks_followed_to_its_findings(
     assert len(every_one) == got(api, f"/api/v1/check-runs/{run['id']}/findings", rule=0)["total"]
 
 
-def test_the_workflows_are_behind_the_flag(api, monkeypatch):
-    project = made(api, "/api/v1/projects", {"name": "Invoices"})
-    for path in (
-        f"/api/v1/projects/{project['id']}/cross-checks",
-        f"/api/v1/projects/{project['id']}/check-runs",
-    ):
-        assert api.get(path).status_code == 404, path
-
-
-def test_a_program_reads_the_reports_of_a_projects_question_sets(
-    client, api, services, monkeypatch
-):
-    turn_on(monkeypatch, QUESTION_SETS)
+def test_a_program_reads_the_reports_of_a_projects_question_sets(client, api, services):
     project = made(api, "/api/v1/projects", {"name": "Invoices"})
     question_set = client.post(f"/api/projects/{project['id']}/question-sets", json=QUESTION_SET)
     report = client.post(f"/api/question-sets/{question_set.json()['id']}/run").json()
@@ -550,9 +533,6 @@ def test_a_program_reads_the_reports_of_a_projects_question_sets(
             "error": None,
         }
     ]
-    # Behind the flag, as the page's routes are.
-    monkeypatch.setitem(FLAGS, QUESTION_SETS, replace(FLAGS[QUESTION_SETS], share=0))
-    assert api.get(f"/api/v1/reports/{report['id']}").status_code == 404
 
 
 def test_a_program_gives_a_document_a_new_version_once_and_downloads_the_earlier_file(
@@ -604,8 +584,7 @@ class World:
 
 
 @pytest.fixture
-def world(client, api, session, services, sample_pdf, monkeypatch) -> World:
-    turn_on(monkeypatch)
+def world(client, api, session, services, sample_pdf) -> World:
     project = made(api, "/api/v1/projects", {"name": "Contracts"})
     folder = made(api, f"/api/v1/projects/{project['id']}/folders", {"name": "Signed"})
     # The contract came in as a draft first, the version kept to download.
@@ -625,7 +604,6 @@ def world(client, api, session, services, sample_pdf, monkeypatch) -> World:
     )
     run = made(api, f"/api/v1/projects/{project['id']}/check-runs", {})
     run_workflow(run["id"], services)
-    turn_on(monkeypatch, QUESTION_SETS)
     question_set = client.post(f"/api/projects/{project['id']}/question-sets", json=QUESTION_SET)
     report = client.post(f"/api/question-sets/{question_set.json()['id']}/run").json()
     services.llm.agent_turns.append(FakeTurn(TextPart("Nothing is due.")))

@@ -58,7 +58,6 @@ from sqlalchemy.orm import Session
 from app.agent.loop import AGENT_PROMPTS, run_agent
 from app.agent.tools import Writing
 from app.db import BUSY, SessionLocal
-from app.flags import DRAFTS, MY_FILES, flag_on
 from app.indexing.pipeline import Services
 from app.jobs import ANSWER_QUESTION, LIVE, Lease, LeaseLost, enqueue, renew
 from app.logs import about
@@ -253,12 +252,10 @@ def _queue(session: Session, project: Project, answer: ChatMessage) -> None:
 
 
 def offers_drafts(session: Session, organization: Organization, user_id: int) -> bool:
-    """Whether an answer to the member may offer a draft: drafts are on for the organisation, and
-    the member could have one written there now, as the route that writes it holds them to
-    (`get_editor` in app/api/deps.py): a role that changes what the organisation holds. The
-    route checks again when the member presses the offer."""
-    if not flag_on(organization, DRAFTS):
-        return False
+    """Whether an answer to the member may offer a draft: the member could have one written there
+    now, as the route that writes it holds them to (`get_editor` in app/api/deps.py): a role that
+    changes what the organisation holds. The route checks again when the member presses the
+    offer."""
     role = session.scalar(
         select(Membership.role).where(
             Membership.org_id == organization.id, Membership.user_id == user_id
@@ -268,11 +265,8 @@ def offers_drafts(session: Session, organization: Organization, user_id: int) ->
 
 
 def offers_my_files(session: Session, organization: Organization, user_id: int) -> bool:
-    """Whether an answer to the member may write their My files: the flag is on for the
-    organisation, and the member is one there now: any role, a viewer's too, since My files
-    change nothing the members share."""
-    if not flag_on(organization, MY_FILES):
-        return False
+    """Whether an answer to the member may write their My files: the member is one there now: any
+    role, a viewer's too, since My files change nothing the members share."""
     member = session.scalar(
         select(Membership.user_id).where(
             Membership.org_id == organization.id, Membership.user_id == user_id

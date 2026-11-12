@@ -52,14 +52,13 @@ export function ReviewMark({
 
 /**
  * Where a document's review stands and, for a role that may change it, its state and its assignee to choose, each
- * saved as it is chosen, and once disputed, the way to the letter that disputes it where drafts are on. `onChanged`
+ * saved as it is chosen, and once disputed, the way to the letter that disputes it. `onChanged`
  * follows a change the server kept, for a list the document may have left.
  */
 export function ReviewControls({ document, onChanged }: { document: Document; onChanged?: (document: Document) => void }) {
   const me = useMe()
   const { project } = useWorkspace()
   const changes = mayChange(me.role)
-  const drafts = me.organization.flags_on.includes('drafts')
   const id = useId()
   const change = useReviewChange(project.id)
   const reviewers = useQuery({
@@ -129,7 +128,7 @@ export function ReviewControls({ document, onChanged }: { document: Document; on
         </select>
       </span>
       {changed && <span className="text-muted">{changed}</span>}
-      {drafts && document.review === 'disputed' && !change.isPending && <WriteDisputeLetter document={document} />}
+      {document.review === 'disputed' && !change.isPending && <WriteDisputeLetter document={document} />}
       {change.isError && (
         <span role="alert" className="text-bad">
           {change.error.message}

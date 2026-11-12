@@ -2,7 +2,6 @@
 senders its members allow, proven by the provider, becomes its documents, its text as one and
 each attachment as an upload's file, and what became of each message kept for its members."""
 
-from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from email import message_from_bytes, policy
 from email.message import EmailMessage
@@ -12,7 +11,6 @@ from sqlalchemy import select, text, update
 
 from app.config import get_settings
 from app.db import engine
-from app.flags import EMAIL_IN, FLAGS
 from app.inbound import (
     INBOUND_DAYS,
     MAX_SENDERS,
@@ -34,7 +32,6 @@ from app.models import AuditEvent, Document, InboundMessage, Upload, User
 from tests.test_api import create_project
 from tests.test_folders import make_folder
 from tests.test_metrics import Counted
-from tests.test_templates import turn_on
 
 DOMAIN = "in.emudoc.test"
 APP = "https://emudoc.example.com"
@@ -45,8 +42,7 @@ INBOUND = "emudoc_inbound_messages_total"
 
 @pytest.fixture(autouse=True)
 def email_in(monkeypatch):
-    """The feature on for every organisation, and the deployment's inbound domain."""
-    turn_on(monkeypatch, EMAIL_IN)
+    """The deployment's inbound domain."""
     monkeypatch.setattr(get_settings(), "inbound_domain", DOMAIN)
 
 
@@ -286,22 +282,14 @@ def test_a_sender_not_listed_or_not_proven_is_turned_away(client, session, servi
     )
 
 
-def test_mail_for_no_project_or_with_email_in_off_takes_nothing(
-    client, session, services, monkeypatch
-):
+def test_mail_for_no_project_takes_nothing(client, session, services):
     project = create_project(client)
-    address = mailbox(client, project["id"], [SUPPLIER])["address"]
+    mailbox(client, project["id"], [SUPPLIER])
     unknown = counting("unknown_address")
     assert deliver(session, services, message(f"nobody@{DOMAIN}"), f"nobody@{DOMAIN}") == []
     assert unknown() == 1
     # Another domain's address is not looked for at all.
     assert deliver(session, services, message("x@elsewhere.test"), "x@elsewhere.test") == []
-
-    monkeypatch.setitem(FLAGS, EMAIL_IN, replace(FLAGS[EMAIL_IN], share=0))
-    off = counting("off")
-    assert deliver(session, services, message(address), address) == []
-    assert off() == 1
-    assert client.get(f"/api/projects/{project['id']}/mailbox").status_code == 404
     assert session.scalar(select(InboundMessage)) is None
 
 

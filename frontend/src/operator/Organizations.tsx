@@ -1,8 +1,8 @@
 // The organisations, the newest first and found by name, slug, id or a member's address, and
 // one of them as the `usage` command shows it, with its usage page as its members read it, its
-// members and what its work cost, and its feature flags turned on or off as `flags` does.
+// members and what its work cost.
 
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
 import type { FormEvent } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router'
@@ -10,9 +10,9 @@ import type { UsagePage } from '../api.ts'
 import { Button, FIELD, Loading, Notice, Row, Section } from '../components/ui.tsx'
 import { formatDate, formatDateTime, formatSize } from '../format.ts'
 import { operatorApi } from './api.ts'
-import type { FlagState, OrganizationDetail } from './api.ts'
+import type { OrganizationDetail } from './api.ts'
 import { Cell, Heading, Table } from './Table.tsx'
-import { amount, choiceOf, chosenOf, count, flagWords, known, rolledOut, tokensOf, topDay } from './words.ts'
+import { amount, count, known, tokensOf, topDay } from './words.ts'
 
 export function OrganizationsPage({ currency }: { currency: string }) {
   const [search, setSearch] = useSearchParams()
@@ -174,20 +174,6 @@ function Organization({ detail, currency }: { detail: OrganizationDetail; curren
           )}
         </Section>
         <Section
-          title="Feature flags"
-          description="The features being rolled out: each is on for the share of organisations its rollout takes, unless it is turned on or off here. Every change is a row of its audit log."
-        >
-          {detail.flags.length === 0 ? (
-            <Notice tone="info">No feature is behind a flag: FLAGS in backend/app/flags.py names none.</Notice>
-          ) : (
-            <Table columns={[{ label: 'Flag' }, { label: 'Rolled out to' }, { label: 'Here' }, { label: 'Choice' }]}>
-              {detail.flags.map((flag) => (
-                <FlagRow key={flag.name} orgId={organization.id} flag={flag} />
-              ))}
-            </Table>
-          )}
-        </Section>
-        <Section
           title="Members"
           description="A member who lets Emudoc's support see their account, on their account page, can be viewed here as they see it, read only, an hour at a time. They are emailed, and the organisation's audit log records it."
         >
@@ -214,42 +200,6 @@ function Organization({ detail, currency }: { detail: OrganizationDetail; curren
         </Section>
       </div>
     </>
-  )
-}
-
-/** A feature flag for the organisation, which the select turns on or off whatever its rollout, or back to it, at once. */
-function FlagRow({ orgId, flag }: { orgId: number; flag: FlagState }) {
-  const queryClient = useQueryClient()
-  const save = useMutation({
-    mutationFn: (on: boolean | null) => operatorApi.chooseFlag(orgId, flag.name, on),
-    onSuccess: (changed) => {
-      queryClient.setQueryData(['operator', 'organization', orgId], changed)
-      queryClient.invalidateQueries({ queryKey: ['operator', 'flags'] })
-    },
-  })
-  return (
-    <tr>
-      <Cell>
-        <span className="font-mono text-xs">{flag.name}</span>
-        <span className="block text-muted">{flag.title}</span>
-      </Cell>
-      <Cell className="text-muted">{rolledOut(flag.share)}</Cell>
-      <Cell className="whitespace-nowrap">{flagWords(flag)}</Cell>
-      <Cell>
-        <select
-          aria-label={`Feature flag ${flag.name}`}
-          value={choiceOf(save.isPending ? save.variables : flag.chosen)}
-          onChange={(event) => save.mutate(chosenOf(event.target.value))}
-          disabled={save.isPending}
-          className={FIELD}
-        >
-          <option value="rollout">As rolled out</option>
-          <option value="on">On</option>
-          <option value="off">Off</option>
-        </select>
-        {save.isError && <span className="mt-1 block text-bad">{save.error.message}</span>}
-      </Cell>
-    </tr>
   )
 }
 

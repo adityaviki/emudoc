@@ -13,8 +13,8 @@ named alike whichever way they were read.
 
 Which template a document is for is the model's to say, since a document's kind is known only
 once it is read: the stage lists the project's templates and the reply names the one the
-document is (indexing-approach.md, "Extraction templates"). The feature is behind the flag
-`extraction_templates` (app/flags.py): with it off, the stage lists none and asks as before.
+document is (indexing-approach.md, "Extraction templates"). Every project has the built-in ones
+at least, so every document is read for one, or found to be of none of their kinds.
 """
 
 import re

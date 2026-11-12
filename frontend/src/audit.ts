@@ -320,7 +320,7 @@ function describeSetting(detail: AuditEvent['detail']): string {
   return `${String(setting)}: ${word(from)} → ${word(to)}`
 }
 
-/** A feature flag turned on or off for the organisation whatever its rollout, or back to it, and whether it is on now. */
+/** A feature flag turned on or off for the organisation whatever its rollout, or back to it, and whether it was on then: the rows from before the flags went (S.2), which nothing writes now. */
 function describeFlag(detail: AuditEvent['detail']): string {
   const flag = String(detail.flag).replaceAll('_', ' ')
   const now = detail.on ? 'on' : 'off'

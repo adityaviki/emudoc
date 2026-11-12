@@ -4,7 +4,6 @@ documents arrive, or by a member there and then, each answered by the agent and 
 of the month's questions, the report kept and told to whom the set names."""
 
 import uuid
-from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -16,7 +15,6 @@ from sqlalchemy import delete, select, update
 from app.api.question_sets import NO_WEEKDAY, NOTHING_RUNS_IT, STILL_RUNNING, STILL_WRITTEN
 from app.config import get_settings
 from app.db import engine
-from app.flags import FLAGS, QUESTION_SETS
 from app.jobs import RUN_QUESTION_SET, WRITE_QUESTION_REPORT
 from app.models import (
     AuditEvent,
@@ -43,7 +41,6 @@ from tests.test_api import create_project
 from tests.test_automations import APP, arrive, at_once, next_job  # noqa: F401 (a fixture)
 from tests.test_chats import questions_counted
 from tests.test_notices import told
-from tests.test_templates import turn_on
 
 BERLIN = ZoneInfo("Europe/Berlin")
 SET = {
@@ -52,12 +49,6 @@ SET = {
     "schedule": "daily",
     "hour": 8,
 }
-
-
-@pytest.fixture(autouse=True)
-def question_sets_on(monkeypatch):
-    """The flag on."""
-    turn_on(monkeypatch, QUESTION_SETS)
 
 
 @pytest.fixture
@@ -313,15 +304,6 @@ def test_a_member_runs_a_set_there_and_then_and_alone_is_told(
     assert shown_set["running"] is False and shown_set["last_report_at"] is not None
     (row,) = audited(session, "question_set_run")
     assert (row.user_id, row.detail["trigger"]) == (ann.user.id, "member")
-
-
-def test_the_flag_holds_question_sets(client, session, ann, monkeypatch):
-    project = create_project(client)
-    make(client, project["id"])
-    # Off for the organisation, none of it is there.
-    monkeypatch.setitem(FLAGS, QUESTION_SETS, replace(FLAGS[QUESTION_SETS], share=0))
-    assert client.get(f"/api/projects/{project['id']}/question-sets").status_code == 404
-    assert client.get(f"/api/projects/{project['id']}/reports").status_code == 404
 
 
 def test_a_report_stops_asking_once_the_days_spending_is_reached(

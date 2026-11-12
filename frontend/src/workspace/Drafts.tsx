@@ -223,7 +223,6 @@ export function DraftView({ draftId }: { draftId: number }) {
   const workspace = useWorkspace()
   const me = useMe()
   const changes = mayChange(me.role)
-  const runs = me.organization.flags_on.includes('extraction_templates')
   const queryClient = useQueryClient()
   const currency = useStatus().data?.currency
   const id = useId()
@@ -345,7 +344,7 @@ export function DraftView({ draftId }: { draftId: number }) {
                 </p>
               )}
               {data.instructions && <p className="break-words">Asked: {data.instructions}</p>}
-              {data.run_id != null && runs && (
+              {data.run_id != null && (
                 <button type="button" onClick={() => workspace.showRun(data.run_id!)} className="inline-flex items-center gap-1 rounded text-ink underline-offset-2 hover:underline">
                   <ListChecks aria-hidden className="size-3.5" />
                   The run of the cross-checks it was written with

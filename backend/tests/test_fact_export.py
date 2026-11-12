@@ -20,15 +20,9 @@ from tests.test_apikeys import make_key, program
 from tests.test_audit import actions, read_csv
 from tests.test_fact_checks import cell, check
 from tests.test_fact_table import invoice, invoices, table
-from tests.test_templates import turn_on
 
 INVOICE_FIELDS = [field.name for field in BUILT_IN[0].fields]
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-
-
-@pytest.fixture
-def templates_on(monkeypatch):
-    turn_on(monkeypatch)
 
 
 @pytest.fixture
@@ -58,14 +52,7 @@ def exported(session) -> list[dict]:
     return [detail for action, detail in actions(session) if action == "facts_exported"]
 
 
-def test_the_export_is_hidden_while_the_flag_is_off(client):
-    project = create_project(client)
-    assert export(client, project["id"]).status_code == 404
-
-
-def test_the_csv_is_the_table_as_the_page_shows_it(
-    client, session, monkeypatch, templates_on, three
-):
+def test_the_csv_is_the_table_as_the_page_shows_it(client, session, monkeypatch, three):
     # Read a batch at a time, the batches crossed.
     monkeypatch.setattr(app.fact_export, "BATCH", 2)
     response = export(client, three)
@@ -97,7 +84,7 @@ def test_the_csv_is_the_table_as_the_page_shows_it(
     assert acme["Review"] == ""
 
 
-def test_the_csv_holds_the_table_s_sort_conditions_and_words(client, templates_on, three):
+def test_the_csv_holds_the_table_s_sort_conditions_and_words(client, three):
     rows = read_csv(
         export(client, three, sort="total_amount", order="desc", filter=["vendor_name:has"])
     )
@@ -107,7 +94,7 @@ def test_the_csv_holds_the_table_s_sort_conditions_and_words(client, templates_o
     assert [row["Document"] for row in rows] == ["acme-10.pdf"]
 
 
-def test_the_file_says_what_the_members_checked_and_corrected(client, session, templates_on, three):
+def test_the_file_says_what_the_members_checked_and_corrected(client, session, three):
     shown = table(client, three)
     for field in ("invoice_number", "vendor_name"):
         check(client, cell(shown, "globex.pdf", field)[0]["id"])
@@ -132,9 +119,7 @@ def test_the_file_says_what_the_members_checked_and_corrected(client, session, t
     assert [row["Document"] for row in rows] == ["acme-2.pdf", "acme-10.pdf"]
 
 
-def test_the_workbook_types_each_lone_value_and_lists_every_fact(
-    client, session, account, templates_on, three
-):
+def test_the_workbook_types_each_lone_value_and_lists_every_fact(client, session, account, three):
     session.execute(update(Fact).where(Fact.name == "total_amount").values(currency="EUR"))
     session.commit()
     shown = table(client, three)
@@ -197,7 +182,7 @@ def test_the_workbook_types_each_lone_value_and_lists_every_fact(
     assert (unchecked["Checked by"], unchecked["Checked at (UTC)"]) == (None, None)
 
 
-def test_nothing_in_either_file_runs_as_a_formula(client, session, templates_on):
+def test_nothing_in_either_file_runs_as_a_formula(client, session):
     project = create_project(client)["id"]
     invoice(session, project, "+1.pdf", invoice_number='=HYPERLINK("https://example.com")')
     [row] = read_csv(export(client, project))
@@ -208,9 +193,7 @@ def test_nothing_in_either_file_runs_as_a_formula(client, session, templates_on)
     assert (number.value, number.data_type) == ('=HYPERLINK("https://example.com")', "s")
 
 
-def test_a_sheet_past_what_excel_holds_says_the_rest_are_left_out(
-    client, monkeypatch, templates_on, three
-):
+def test_a_sheet_past_what_excel_holds_says_the_rest_are_left_out(client, monkeypatch, three):
     monkeypatch.setattr(app.fact_export, "SHEET_ROWS", 4)
     book = workbook(export(client, three, format="xlsx"))
     left_out = "Excel holds 4 rows a sheet: the rest are left out. The CSV file holds them."
@@ -221,9 +204,7 @@ def test_a_sheet_past_what_excel_holds_says_the_rest_are_left_out(
     assert len(read_csv(export(client, three))) == 3
 
 
-def test_each_download_is_a_row_of_the_audit_log_without_a_value(
-    client, session, templates_on, three
-):
+def test_each_download_is_a_row_of_the_audit_log_without_a_value(client, session, three):
     read_csv(export(client, three))
     workbook(
         export(
@@ -251,7 +232,7 @@ def test_each_download_is_a_row_of_the_audit_log_without_a_value(
     ]
 
 
-def test_what_the_table_refuses_the_export_refuses(client, session, templates_on, three):
+def test_what_the_table_refuses_the_export_refuses(client, session, three):
     assert export(client, three, kind="receipt", format="pdf").status_code == 422
     assert export(client, three, kind="purchase order and more").status_code == 404
     refused = export(client, three, sort="colour")
@@ -268,7 +249,7 @@ def test_what_the_table_refuses_the_export_refuses(client, session, templates_on
 
 
 @pytest.mark.usefixtures("one_minute")
-def test_downloads_are_held_to_a_rate_of_their_own(client, monkeypatch, templates_on, three):
+def test_downloads_are_held_to_a_rate_of_their_own(client, monkeypatch, three):
     monkeypatch.setattr(get_settings(), "rate_exports", 1)
     assert export(client, three).status_code == 200
     refused = export(client, three, format="xlsx")
@@ -278,9 +259,7 @@ def test_downloads_are_held_to_a_rate_of_their_own(client, monkeypatch, template
     table(client, three)
 
 
-def test_a_viewer_and_a_program_download_the_table(
-    client, account, templates_on, three, make_account, act_as
-):
+def test_a_viewer_and_a_program_download_the_table(client, account, three, make_account, act_as):
     api = program(client, make_key(client)["key"])
     rows = read_csv(api.get(f"/api/projects/{three}/fact-table/export", params={"kind": "invoice"}))
     assert len(rows) == 3

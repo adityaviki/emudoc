@@ -19,7 +19,6 @@ from app.comments import (
     NOT_YOURS_TO_DELETE,
     PASSAGE_ELSEWHERE,
 )
-from app.flags import COMMENTS
 from app.models import Notification, User
 from app.schemas import QUOTE_LENGTH
 from tests.test_access import access
@@ -27,7 +26,6 @@ from tests.test_api import create_project
 from tests.test_audit import actions
 from tests.test_exports import archive_of, ask, run_export
 from tests.test_notices import told
-from tests.test_templates import turn_on
 from tests.test_trash import restore
 from tests.test_versions import given, text_document
 
@@ -40,11 +38,10 @@ TERMS = (
 
 
 @pytest.fixture
-def room(client, session, services, account, make_account, monkeypatch) -> SimpleNamespace:
+def room(client, session, services, account, make_account) -> SimpleNamespace:
     """The local owner's organisation with comments on and room for its members: an admin, two
     members and a viewer, and a member of another organisation; a project with the services
     agreement indexed, and another document beside it."""
-    turn_on(monkeypatch, COMMENTS)
     org = account.organization
     org.plan = "enterprise"
     session.commit()
@@ -397,12 +394,3 @@ def test_the_exports_hold_the_threads_and_the_writer_s_own_comments(
     assert kept["resolver"] is None
     [own] = client.get("/api/auth/account/export").json()["comments"]
     assert own["text"] == "@someone right?"
-
-
-def test_comments_are_behind_their_flag(client, services, account):
-    project = create_project(client)["id"]
-    document = text_document(client, services, project, TERMS)["id"]
-    assert start(client, document, "Hello").status_code == 404
-    assert client.get(f"/api/documents/{document}/threads").status_code == 404
-    assert client.get(f"/api/projects/{project}/mentionable").status_code == 404
-    assert client.get(f"/api/projects/{project}/activity").status_code == 404

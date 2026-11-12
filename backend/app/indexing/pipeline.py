@@ -31,7 +31,6 @@ from app.fact_changes import facts_read, read_now
 from app.fact_changes import record as record_changes
 from app.fact_checks import apply_checks
 from app.fact_checks import hold as hold_checks
-from app.flags import EXTRACTION_TEMPLATES, flag_on_for
 from app.indexing.enrich import (
     ENRICH_PROMPT_VERSION,
     SECTIONS_PROMPT_VERSION,
@@ -49,7 +48,7 @@ from app.llm import LLM, OCR_PROMPT_VERSION, LLMError, OcrBlock
 from app.locales import Writing, read_date, read_number, reading_line, writing_of
 from app.mail import Mailer
 from app.metrics import DOCUMENT_READY, INDEX_RUNS, PARSES, STAGE_RUNS, STAGE_SECONDS
-from app.models import STAGES, Block, Document, Fact, FactChange, Passage, Project, Section
+from app.models import STAGES, Block, Document, Fact, FactChange, Passage, Section
 from app.parsing import (
     IMAGE_TYPES,
     PAGE_TYPES,
@@ -965,7 +964,7 @@ def _enrich(session: Session, document: Document, services: Services, meter: Met
     sections = session.scalars(
         select(Section).where(Section.document_id == document.id).order_by(Section.ordinal)
     ).all()
-    templates = _templates(session, document)
+    templates = templates_for(session, document.project_id)
     # How its dates and numbers are written: its own language's way, which settles what a value
     # leaves open, or where it has no language of its own, the way of the one its organisation
     # chose, which the model is told of and nothing is read by (app/locales.py).
@@ -1031,15 +1030,6 @@ def _enrich(session: Session, document: Document, services: Services, meter: Met
     if analysis.reading is not None:
         detail += _partly_read(analysis.reading, document.page_count)
     return detail
-
-
-def _templates(session: Session, document: Document) -> list[Template]:
-    """The extraction templates the document's facts may be read for (app/extraction.py): those
-    in force for its project, where its organisation has the feature, else none."""
-    org_id = session.scalar(select(Project.org_id).where(Project.id == document.project_id))
-    if org_id is None or not flag_on_for(session, org_id, EXTRACTION_TEMPLATES):
-        return []
-    return templates_for(session, document.project_id)
 
 
 def _read_for(template: Template, facts: Sequence[Fact]) -> str:

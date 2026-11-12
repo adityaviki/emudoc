@@ -28,7 +28,6 @@ from tests.test_audit import actions
 from tests.test_chats import questions_counted
 from tests.test_cross_checks import DUE, read
 from tests.test_spending import refusal, spend
-from tests.test_templates import turn_on
 
 TOTAL = {
     "title": "Total within its purchase order",
@@ -41,11 +40,6 @@ TOTAL = {
     "right_key": "po_number",
     "comparison": "at_most",
 }
-
-
-@pytest.fixture(autouse=True)
-def templates_on(monkeypatch):
-    turn_on(monkeypatch)
 
 
 def invoices(session, project_id: int) -> dict[str, int]:
@@ -448,7 +442,6 @@ def test_a_run_that_breaks_or_is_lost_ends_failed(client, session, services, mon
     assert session.scalar(select(func.count()).select_from(WorkflowFinding)) == 0
 
     monkeypatch.undo()
-    turn_on(monkeypatch)
     lost = run(client, project["id"])
     abandon_run(lost["id"], 3)
     assert shown(client, lost["id"])["error"] == (
@@ -495,11 +488,3 @@ def test_runs_are_kept_as_long_as_chats(client, session, services, account):
     session.expire_all()
     assert session.get(WorkflowRun, old["id"]) is None
     assert session.get(WorkflowRun, queued["id"]) is not None
-
-
-def test_runs_are_behind_the_extraction_templates_flag(client, session, monkeypatch):
-    project = create_project(client)
-    made(client, project["id"], TOTAL)
-    monkeypatch.undo()
-    assert client.post(f"/api/projects/{project['id']}/check-runs", json={}).status_code == 404
-    assert client.get(f"/api/projects/{project['id']}/check-runs").status_code == 404

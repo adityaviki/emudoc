@@ -16,6 +16,11 @@ newest entry first.
 
 Members:
 
+- Every part of Emudoc is now on for every workspace: extraction templates and the facts table,
+  cross-checks, their runs and automations, reviews, drafts, My files, question sets, comments
+  and the project's activity, and share links. Every new document's facts are read for its kind's
+  template. Email in and connected folders show once whoever runs Emudoc has set them up.
+
 - Nothing in Emudoc is held to a plan any more, and nothing is sold: the workspace's page has no
   Plan section, no banner says the workspace is past a limit, and no project, upload, invitation,
   question, link, key or connected folder is refused for one. The usage page shows what the
@@ -27,6 +32,12 @@ Members:
 
 Operators:
 
+- The feature flags are gone: the `flags` command, the operator's area's Flags view and each
+  organisation's "Feature flags", and `organizations.flags` (dropped by the migration). Every
+  feature is on. Email in shows while `INBOUND_DOMAIN` is set and connected folders while a
+  service's client is, which `/api/status` reports as `email_in` and `connectors`. The enrich
+  stage lists the project's extraction templates in every document's first request, a few
+  thousand tokens more a document. The inbound and connector metrics lose the outcome `off`.
 - Plans and billing are gone: the `plan` command, Stripe's routes and webhook, `STRIPE_*`,
   `BILLING_GRACE_DAYS` and `RATE_BILLING` (left in `.env`, they are ignored), the plans' columns,
   the packs and Stripe's events (dropped by the migration), the 402 refusals, the plan's mails and

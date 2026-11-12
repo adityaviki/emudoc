@@ -3,11 +3,10 @@ some of them, which the worker works out over the documents as they read then an
 what they found, asks the agent for a discrepancy report from that, and the project's members
 read the runs, newest first, what each rule of one found, and its report.
 
-Every route is behind the flag `extraction_templates` (app/flags.py), as the rules are. Whoever
-may change the project runs its checks, asks for a report and deletes a run, each a row of the
-organisation's audit log naming the rules, never a value; anyone who sees the project reads them.
-A report is a run of the agent, so asking for one is held to what holds a question: the agent's
-runs in flight and the day's spending; it counts as one of the workspace's questions.
+Whoever may change the project runs its checks, asks for a report and deletes a run, each a row of
+the organisation's audit log naming the rules, never a value; anyone who sees the project reads
+them. A report is a run of the agent, so asking for one is held to what holds a question: the
+agent's runs in flight and the day's spending; it counts as one of the workspace's questions.
 """
 
 from typing import Annotated
@@ -25,13 +24,11 @@ from app.api.deps import (
     ProjectDep,
     RunDep,
     SessionDep,
-    flagged,
     limited,
 )
 from app.audit import audit
 from app.check_runs import gone_documents, queue_run, start_run
 from app.cross_checks import OUTCOMES
-from app.flags import EXTRACTION_TEMPLATES
 from app.models import CrossCheck, Project, User, WorkflowFinding, WorkflowRun
 from app.ratelimit import QUESTIONS, SEARCHES
 from app.schemas import (
@@ -48,7 +45,7 @@ from app.schemas import (
 )
 from app.usage import ANSWER, record
 
-router = APIRouter(tags=["check-runs"], dependencies=[Depends(flagged(EXTRACTION_TEMPLATES))])
+router = APIRouter(tags=["check-runs"])
 
 NOTHING_TO_RUN = "This project has no cross-checks to run. Add one first."
 STILL_RUNNING = (

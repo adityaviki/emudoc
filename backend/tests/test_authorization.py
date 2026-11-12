@@ -13,15 +13,6 @@ from app.check_runs import run_workflow
 from app.config import get_settings
 from app.drafts import write_draft
 from app.encrypted import CONNECTOR_TOKENS, encrypt
-from app.flags import (
-    COMMENTS,
-    CONNECTORS,
-    DRAFTS,
-    EMAIL_IN,
-    MY_FILES,
-    QUESTION_SETS,
-    SHARE_LINKS,
-)
 from app.indexing.pipeline import process_document
 from app.models import Connector
 from app.question_reports import write_report
@@ -30,7 +21,7 @@ from tests.test_api import create_project
 from tests.test_chats import answered, ask, new_chat
 from tests.test_cross_checks import CROSS_CHECK
 from tests.test_folders import make_folder
-from tests.test_templates import INVOICE, turn_on
+from tests.test_templates import INVOICE
 
 Route = tuple[str, str, dict]
 # An automation of the world's project (tests/test_automations.py imports this module).
@@ -58,10 +49,7 @@ class World:
     invitation to the organisation and an API key of it, all made by the local owner in the local
     organisation, and another member of it; the project has an address, a folder of the
     owner's Google Drive connected, and its document a share link and a thread of the owner's
-    comment. The extraction
-    templates are on for every organisation, and so are the drafts, email in, connected folders,
-    share links, question sets and comments, so that what refuses another organisation is the
-    project's scope, not the flag."""
+    comment."""
 
     org_id: int
     project_id: int
@@ -98,14 +86,6 @@ class World:
 
 @pytest.fixture
 def world(client, session, services, sample_pdf, account, make_account, monkeypatch) -> World:
-    turn_on(monkeypatch)
-    turn_on(monkeypatch, DRAFTS)
-    turn_on(monkeypatch, EMAIL_IN)
-    turn_on(monkeypatch, CONNECTORS)
-    turn_on(monkeypatch, SHARE_LINKS)
-    turn_on(monkeypatch, QUESTION_SETS)
-    turn_on(monkeypatch, COMMENTS)
-    turn_on(monkeypatch, MY_FILES)
     monkeypatch.setattr(get_settings(), "inbound_domain", "in.emudoc.test")
     monkeypatch.setattr(get_settings(), "google_drive_client_id", "drive-client")
     monkeypatch.setattr(get_settings(), "google_drive_client_secret", "drive-secret")

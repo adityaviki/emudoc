@@ -22,7 +22,6 @@ from app.drafts import (
     WRITE_FAILED,
     abandon_draft,
 )
-from app.flags import DRAFTS
 from app.jobs import WRITE_DRAFT, claim
 from app.models import Draft, Passage, UsageEvent
 from app.retention import prune_drafts
@@ -33,15 +32,8 @@ from tests.test_audit import actions
 from tests.test_chats import questions_counted
 from tests.test_check_runs import TOTAL, cite, invoices, made, run, work
 from tests.test_spending import refusal, spend
-from tests.test_templates import turn_on
 
 LETTER = {"kind": "dispute_letter", "instructions": "Ask for a credit note."}
-
-
-@pytest.fixture(autouse=True)
-def flags_on(monkeypatch):
-    turn_on(monkeypatch)
-    turn_on(monkeypatch, DRAFTS)
 
 
 def ask(client, project_id: int, **body) -> dict:
@@ -442,14 +434,3 @@ def test_drafts_are_kept_as_long_as_chats(client, session, services, account):
     session.expire_all()
     assert session.get(Draft, old["id"]) is None
     assert session.get(Draft, queued["id"]) is not None
-
-
-def test_drafts_are_behind_their_flag(client, monkeypatch):
-    project = create_project(client)
-    monkeypatch.undo()
-    turn_on(monkeypatch)
-    assert (
-        client.post(f"/api/projects/{project['id']}/drafts", json={"kind": "report"}).status_code
-        == 404
-    )
-    assert client.get(f"/api/projects/{project['id']}/drafts").status_code == 404

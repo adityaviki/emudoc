@@ -39,7 +39,6 @@ from app.agent.loop import AGENT_PROMPTS, run_agent
 from app.answers import Reply
 from app.audit import audit_event
 from app.db import SessionLocal
-from app.flags import QUESTION_SETS, flag_on
 from app.indexing.pipeline import Services
 from app.jobs import LIVE, WRITE_QUESTION_REPORT, Lease, LeaseLost, enqueue, renew
 from app.mail import report_ready_email
@@ -187,8 +186,8 @@ def run_question_set(set_id: int, lease: Lease | None = None) -> str | None:
 
 
 def _make(session: Session, row: QuestionSet, trigger: str, landed: list[int]) -> None:
-    """The report the set's job is due for, unless the set may not run now: off, its project in
-    the trash or the flag off. What arrived goes with the job either way."""
+    """The report the set's job is due for, unless the set may not run now: off, or its project in
+    the trash. What arrived goes with the job either way."""
     project = session.get(Project, row.project_id)
     organization = project.organization
     live = set(
@@ -203,11 +202,7 @@ def _make(session: Session, row: QuestionSet, trigger: str, landed: list[int]) -
     landed = [document_id for document_id in landed if document_id in live]
     if trigger == "arrivals" and not landed:
         return
-    if (
-        not row.enabled
-        or project.deleted_at is not None
-        or not flag_on(organization, QUESTION_SETS)
-    ):
+    if not row.enabled or project.deleted_at is not None:
         log.info("Question set %s was due and not run: it may not run now", row.id)
         return
     report = start_report(session, project, row, trigger, None, landed)

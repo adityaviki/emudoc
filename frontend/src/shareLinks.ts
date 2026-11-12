@@ -25,8 +25,8 @@ export function daysWords(days: number): string {
   return `${days} day${days === 1 ? '' : 's'}`
 }
 
-/** Whether the page offers the member a document's links: while they are rolled out, to a role that may make one. */
-export const offersLinks = (me: Me) => me.organization.flags_on.includes('share_links') && mayChange(me.role)
+/** Whether the page offers the member a document's links: to a role that may make one. */
+export const offersLinks = (me: Me) => mayChange(me.role)
 
 /** Why a member cannot make a link in the organisation as it stands, or null when they can. */
 export function linksHeld(me: Me): 'off' | null {

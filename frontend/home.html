@@ -9,8 +9,8 @@
     <meta name="description" content="Emudoc reads your contracts, invoices and reports, then answers questions about them with every claim cited to the passage it comes from. One click opens the page." />
     <!--
       The public site's home page (backend/app/site.py), shown at / to a visitor without a session.
-      The backend fills in each placeholder, and keeps a part marked "if" and "end" with a flag's name
-      only once that feature's flag is on for every organisation (backend/app/flags.py), and a part
+      The backend fills in each placeholder, and keeps a part marked "if" and "end" with a feature's
+      name (email_in, connectors) only once the deployment has the service it needs, and a part
       marked signup_open or signup_closed by whether anyone may sign up (backend/app/signups.py).
       The answers shown are the sample project's own (backend/app/sample). The page has a look of
       its own, apart from the app's (src/site/site.css), and loads no script.
@@ -418,7 +418,6 @@
               <h3 class="mt-6 font-display text-xl font-medium text-white">Work on it as a team</h3>
               <p class="mt-2 leading-relaxed text-mist">Invite colleagues as owners, admins, members or viewers, keep a project private to the people you choose, and share a chat with the project when it is ready.</p>
             </div>
-            <!-- if extraction_templates -->
             <div class="rounded-3xl border border-white/10 bg-ink-800/70 p-7 transition-colors hover:border-white/20">
               <span aria-hidden="true" class="flex size-11 items-center justify-center rounded-2xl bg-white/5 text-beak-300 ring-1 ring-white/10">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 10h18M9 10v10" /></svg>
@@ -433,8 +432,6 @@
               <h3 class="mt-6 font-display text-xl font-medium text-white">Check one document against another</h3>
               <p class="mt-2 leading-relaxed text-mist">Cross-checks compare an invoice with its purchase order or a price with the price list, and say where they differ. Automations run them as documents arrive, and reviews keep who approved what.</p>
             </div>
-            <!-- end extraction_templates -->
-            <!-- if drafts -->
             <div class="rounded-3xl border border-white/10 bg-ink-800/70 p-7 transition-colors hover:border-white/20">
               <span aria-hidden="true" class="flex size-11 items-center justify-center rounded-2xl bg-white/5 text-beak-300 ring-1 ring-white/10">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="M4 20h4L19 9l-4-4L4 16z" /></svg>
@@ -442,8 +439,6 @@
               <h3 class="mt-6 font-display text-xl font-medium text-white">Write from what you found</h3>
               <p class="mt-2 leading-relaxed text-mist">A dispute letter, a reply or a memo, drafted from the project's documents with its citations, edited in versions and downloaded.</p>
             </div>
-            <!-- end drafts -->
-            <!-- if question_sets -->
             <div class="rounded-3xl border border-white/10 bg-ink-800/70 p-7 transition-colors hover:border-white/20">
               <span aria-hidden="true" class="flex size-11 items-center justify-center rounded-2xl bg-white/5 text-beak-300 ring-1 ring-white/10">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" /></svg>
@@ -451,8 +446,6 @@
               <h3 class="mt-6 font-display text-xl font-medium text-white">Ask the same questions every week</h3>
               <p class="mt-2 leading-relaxed text-mist">Save a project's questions as a set, asked on a schedule or as documents arrive, each run a report of the answers.</p>
             </div>
-            <!-- end question_sets -->
-            <!-- if comments -->
             <div class="rounded-3xl border border-white/10 bg-ink-800/70 p-7 transition-colors hover:border-white/20">
               <span aria-hidden="true" class="flex size-11 items-center justify-center rounded-2xl bg-white/5 text-beak-300 ring-1 ring-white/10">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="M7 8h10M7 12h6" /><path d="M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-6l-5 4v-4H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" /></svg>
@@ -460,7 +453,6 @@
               <h3 class="mt-6 font-display text-xl font-medium text-white">Talk it over beside the passage</h3>
               <p class="mt-2 leading-relaxed text-mist">Comment on the words you chose in a document, mention a colleague, and read what was done in the project lately.</p>
             </div>
-            <!-- end comments -->
           </div>
         </div>
       </section>
@@ -508,12 +500,10 @@
               <span class="mt-2 block leading-relaxed text-stone">A folder of Google Drive, Dropbox or OneDrive, kept in step with a project.</span>
             </li>
             <!-- end connectors -->
-            <!-- if share_links -->
             <li class="rounded-3xl border border-paper-300 bg-white p-6">
               <span class="font-display text-lg font-medium">Share by a link</span>
               <span class="mt-2 block leading-relaxed text-stone">A document or an answer, for someone without an account, until the link expires.</span>
             </li>
-            <!-- end share_links -->
           </ul>
         </div>
       </section>

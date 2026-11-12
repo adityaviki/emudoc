@@ -33,7 +33,7 @@ function member(role: Me['role'], organization: Partial<Me['organization']> = {}
   return {
     id: 8,
     role,
-    organization: { flags_on: ['share_links'], share_links: true, ...organization },
+    organization: { share_links: true, ...organization },
   } as Me
 }
 
@@ -55,10 +55,10 @@ describe('share links', () => {
     expect(describeLink({ ...opened, views: 3 })).toContain('opened 3 times')
   })
 
-  it('offers links to a role that may change the project, while they are rolled out', () => {
+  it('offers links to a role that may change the project', () => {
     expect(offersLinks(member('member'))).toBe(true)
+    expect(offersLinks(member('owner'))).toBe(true)
     expect(offersLinks(member('viewer'))).toBe(false)
-    expect(offersLinks(member('owner', { flags_on: [] }))).toBe(false)
   })
 
   it('says why no link can be made: the organisation turned them off', () => {

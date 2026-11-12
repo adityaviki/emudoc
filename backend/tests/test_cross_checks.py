@@ -6,7 +6,6 @@ the facts on both sides."""
 import datetime as dt
 import uuid
 from base64 import urlsafe_b64encode
-from dataclasses import replace
 
 import pytest
 
@@ -19,11 +18,10 @@ from app.cross_checks import (
     numbers_in,
     same_numbers,
 )
-from app.flags import EXTRACTION_TEMPLATES, FLAGS
 from app.models import Document, Fact
 from tests.test_api import create_project
 from tests.test_audit import rows as audit_rows
-from tests.test_templates import make, turn_on
+from tests.test_templates import make
 
 Value = str | tuple[str, float | dt.date] | tuple[str, float, str]
 
@@ -86,11 +84,6 @@ TERMS = {
     "pairing": "every",
     "comparison": "same_numbers",
 }
-
-
-@pytest.fixture(autouse=True)
-def templates_on(monkeypatch):
-    turn_on(monkeypatch)
 
 
 def read(session, project_id: int, filename: str, kind: str, **fields) -> int:
@@ -624,12 +617,6 @@ def test_findings_are_paged_differing_first_and_a_page_not_given_is_refused(clie
     bad = urlsafe_b64encode(b'["x", 1]').decode()
     response = client.get(f"/api/cross-checks/{check['id']}/findings", params={"after": bad})
     assert (response.status_code, response.json()["detail"]) == (422, BAD_CURSOR)
-
-
-def test_the_rules_are_behind_the_flag(client, monkeypatch):
-    project = create_project(client)["id"]
-    monkeypatch.setitem(FLAGS, EXTRACTION_TEMPLATES, replace(FLAGS[EXTRACTION_TEMPLATES], share=0))
-    assert client.get(f"/api/projects/{project}/cross-checks").status_code == 404
 
 
 def test_a_line_s_item_is_its_words_without_its_figures():

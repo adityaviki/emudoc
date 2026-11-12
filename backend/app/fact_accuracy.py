@@ -10,16 +10,15 @@ document's labels is not scored, where what is right is a matter of reading: the
 notes are of no built-in kind, so their facts' names move from run to run, and are not scored
 either.
 
-A run indexes the sample's files as an upload is, by the models INDEX_MODEL names with extraction
-templates on, in an organisation made for it and deleted after with what it recorded
-(`indexed_sample` in app/sample), and scores each field over the documents of its kind: its
-recall, the labelled values some fact of the field holds, and its precision, the field's facts
-that hold a labelled value. A fact holds a value by what it is rather than how it is put: a
-number or an amount by its figure, a date by its day, and words by one of the ways they may be
-written, read as the golden questions read an answer (`plain` and `holds` in app/golden.py). A
-right reading written in a way the labels do not list fails, and the way joins its value's list;
-the value is never dropped for it. Each value is what the document says, which the suite holds to
-the text of `index.json` (tests/test_fact_accuracy.py).
+A run indexes the sample's files as an upload is, by the models INDEX_MODEL names, in an
+organisation made for it and deleted after with what it recorded (`indexed_sample` in app/sample),
+and scores each field over the documents of its kind: its recall, the labelled values some fact of
+the field holds, and its precision, the field's facts that hold a labelled value. A fact holds a
+value by what it is rather than how it is put: a number or an amount by its figure, a date by its
+day, and words by one of the ways they may be written, read as the golden questions read an answer
+(`plain` and `holds` in app/golden.py). A right reading written in a way the labels do not list
+fails, and the way joins its value's list; the value is never dropped for it. Each value is what the
+document says, which the suite holds to the text of `index.json` (tests/test_fact_accuracy.py).
 """
 
 from collections import Counter
@@ -32,7 +31,6 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings, listing
 from app.db import SessionLocal
-from app.flags import EXTRACTION_TEMPLATES
 from app.golden import CONTRACT, INVOICES, PRICE_LIST, holds, plain
 from app.llm import LLM
 from app.models import Document, Fact, UsageEvent
@@ -278,11 +276,10 @@ class FactRun:
 
 
 def run_facts(settings: Settings, llm: LLM | None = None) -> FactRun:
-    """Index the sample's files with extraction templates on, by `llm` or the models the settings
-    name, and score what was read against the labels. Refused with `RuntimeError` without a
-    model."""
-    flags = {EXTRACTION_TEMPLATES: True}
-    with indexed_sample(settings, llm, "Fact accuracy", flags) as (org_id, ids):
+    """Index the sample's files, read for the built-in templates, by `llm` or the models the
+    settings name, and score what was read against the labels. Refused with `RuntimeError`
+    without a model."""
+    with indexed_sample(settings, llm, "Fact accuracy") as (org_id, ids):
         with SessionLocal() as session:
             documents = [_read(session, document_id) for document_id in ids]
             spent = spent_in(session, org_id)

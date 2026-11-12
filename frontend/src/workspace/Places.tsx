@@ -132,8 +132,6 @@ interface FilterFieldsProps {
   /** The types the model gave the project's documents, to choose from. */
   types: DocumentType[]
   folders: Folder[]
-  /** Whether documents' reviews are rolled out to the organisation, which a filter may then narrow by. */
-  reviews: boolean
 }
 
 const toggled = <T,>(list: T[], value: T, on: boolean) => (on ? [...list, value] : list.filter((other) => other !== value))
@@ -173,7 +171,7 @@ export function DatesField({ after, before, onChange }: { after: string | null; 
 }
 
 /** The parts of a filter, each its own fields: types, the documents' dates, their reviews, a folder and the words they mention. */
-function FilterFields({ filter, onChange, types, folders, reviews }: FilterFieldsProps) {
+function FilterFields({ filter, onChange, types, folders }: FilterFieldsProps) {
   const [words, setWords] = useState('')
   const wordsInput = useRef<HTMLInputElement>(null)
   const set = (change: Partial<DocumentFilter>) => onChange({ ...filter, ...change })
@@ -188,19 +186,17 @@ function FilterFields({ filter, onChange, types, folders, reviews }: FilterField
     <>
       <TypesField types={types} chosen={filter.types} onChange={(chosen) => set({ types: chosen })} />
       <DatesField after={filter.after} before={filter.before} onChange={set} />
-      {reviews && (
-        <fieldset className="space-y-1.5">
-          <legend className="mb-1 text-xs font-medium text-muted">In review</legend>
-          {REVIEW_STATES.map((state) => (
-            <Checkbox
-              key={state}
-              checked={filter.reviews.includes(state)}
-              onChange={(event) => set({ reviews: toggled(filter.reviews, state, event.target.checked) })}
-              label={REVIEW_LABELS[state]}
-            />
-          ))}
-        </fieldset>
-      )}
+      <fieldset className="space-y-1.5">
+        <legend className="mb-1 text-xs font-medium text-muted">In review</legend>
+        {REVIEW_STATES.map((state) => (
+          <Checkbox
+            key={state}
+            checked={filter.reviews.includes(state)}
+            onChange={(event) => set({ reviews: toggled(filter.reviews, state, event.target.checked) })}
+            label={REVIEW_LABELS[state]}
+          />
+        ))}
+      </fieldset>
       <SelectField label="In" value={filter.folder_id ?? ''} onChange={(event) => set({ folder_id: event.target.value ? Number(event.target.value) : null })}>
         <option value="">Anywhere in the project</option>
         {folderChoices(folders).map((choice) => (

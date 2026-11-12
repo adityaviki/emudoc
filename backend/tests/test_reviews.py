@@ -21,16 +21,14 @@ from tests.test_fact_export import export
 from tests.test_fact_table import invoice, table
 from tests.test_notices import told
 from tests.test_organizations import set_role
-from tests.test_templates import turn_on
 from tests.test_trash import restore
 
 
 @pytest.fixture
-def desk(client, session, account, make_account, monkeypatch) -> SimpleNamespace:
+def desk(client, session, account, make_account) -> SimpleNamespace:
     """The local owner's organisation on a plan with room for its members, with the feature on:
     an admin, two members and a viewer, a project of three invoices, and a member of another
     organisation."""
-    turn_on(monkeypatch)
     org = account.organization
     org.plan = "enterprise"
     session.commit()
@@ -286,14 +284,6 @@ def test_a_project_s_export_names_each_document_s_review(client, services, desk)
     assert (by_name["inv-1.pdf"]["review"], by_name["inv-1.pdf"]["assignee"]) == ("approved", "Bob")
     assert by_name["inv-1.pdf"]["review_changed_at"] is not None
     assert by_name["inv-2.pdf"]["review"] is None
-
-
-def test_reviews_are_hidden_while_the_flag_is_off(client, session):
-    project = create_project(client)["id"]
-    document = invoice(session, project, "inv.pdf")
-    assert client.get(f"/api/projects/{project}/reviews").status_code == 404
-    assert client.get(f"/api/projects/{project}/reviewers").status_code == 404
-    assert review(client, document, state="approved").status_code == 404
 
 
 def test_the_notice_names_who_assigned_which_document_and_where_it_stands():

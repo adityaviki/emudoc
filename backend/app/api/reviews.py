@@ -2,22 +2,20 @@
 library's reviews view lists, the members they may be assigned to, and the change of one
 document's review, which the library's row and the document's tab make.
 
-Every route is behind the flag `extraction_templates` (app/flags.py), as the cross-checks are.
 Anyone who sees the project reads where its documents' reviews stand; whoever may change it moves
 them, each change a row of the organisation's audit log.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.api.auth import app_url
-from app.api.deps import AccountDep, EditableDocumentDep, ProjectDep, SessionDep, flagged
+from app.api.deps import AccountDep, EditableDocumentDep, ProjectDep, SessionDep
 from app.audit import audit
-from app.flags import EXTRACTION_TEMPLATES
 from app.models import Project
 from app.reviews import ReviewRefused, change_review, read_reviews, reviewers, tell_assigned
 from app.schemas import DocumentOut, ReviewerOut, ReviewIn, ReviewsOut, ReviewState
 
-router = APIRouter(tags=["reviews"], dependencies=[Depends(flagged(EXTRACTION_TEMPLATES))])
+router = APIRouter(tags=["reviews"])
 
 # How many documents a page of the reviews holds unless the request asks for another number.
 PAGE_SIZE = 50

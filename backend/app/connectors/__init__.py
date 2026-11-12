@@ -1,5 +1,5 @@
 """Connected folders: a folder of a member's Google Drive, Dropbox or OneDrive that a project keeps
-in step with (deploying.md, "Connected folders"; behind the flag `connectors`).
+in step with (deploying.md, "Connected folders"), from the services `providers` finds set up.
 
 A member who may change a project connects a service from the library's "Connected folders": the
 browser goes to the service for the member's consent and comes back with a code, which the app
