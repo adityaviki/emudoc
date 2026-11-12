@@ -1,13 +1,12 @@
 """Rate limits: how many requests of a kind one user, one address or one email address may
 make in a minute, counted in the database so that every API replica counts the same.
 
-The plan's quotas (app/entitlements.py) and the spending limits (app/spending.py) bound what
-an organisation uses over a month or a day; these bound how fast one caller may go, so that a
+The daily spending cap (app/spending.py) bounds what the install spends on models in a day;
+these bound how fast one caller may go, so that a
 script cannot flood the routes that cost something (uploads, questions, searches) or guess
 at the ones that guard an account (sign-in, sign-up, the reset and verification mails, the
 authenticator code). The limits are settings, the same for every organisation (`RATE_*` in
-app/config.py, each the requests a minute, zero for none); a rate that differs by plan is an
-entitlement.
+app/config.py, each the requests a minute, zero for none).
 
 A request is counted under a limit for a key: the user when there is an account (and the API
 key, when it came with one, under a limit of its own), and for the sign-in routes, which have
@@ -123,8 +122,6 @@ FAILED_SIGN_INS = Limit("failed_sign_in", "rate_failed_sign_ins", "failed sign-i
 # The page's error reports (app/tracking.py), which a page on a sign-in form sends too, so per
 # client address.
 PAGE_ERRORS = Limit("page_error", "rate_page_errors", "error reports")
-# A member's requests to billing (app/api/billing.py), each a session made or read at Stripe.
-BILLING = Limit("billing", "rate_billing", "billing requests")
 # Every request an API key makes (app/apikeys.py), on top of its member's own rates.
 API_REQUESTS = Limit("api_key", "rate_api_requests", "requests")
 # A member's messages to support (app/api/help.py), each a mail to the support address, an hour.
@@ -146,7 +143,6 @@ for _limit in (
     ADDRESSES,
     FAILED_SIGN_INS,
     PAGE_ERRORS,
-    BILLING,
     API_REQUESTS,
     FEEDBACK,
     EXPORTS,

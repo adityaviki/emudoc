@@ -98,7 +98,12 @@ def test_an_operator_views_the_member_read_only_as_the_member_sees_it(
     for org in (org_id, own_org):
         session.add(
             Notification(
-                user_id=bob["id"], org_id=org, kind="quota", title="A notice", body="", link="/"
+                user_id=bob["id"],
+                org_id=org,
+                kind="checks_run",
+                title="A notice",
+                body="",
+                link="/",
             )
         )
     session.commit()

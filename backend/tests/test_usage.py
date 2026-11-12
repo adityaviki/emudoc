@@ -3,9 +3,9 @@ organisation's usage whatever ends the run, an upload and a render are the membe
 outlive the project and the user and go with the organisation, the answer and the document
 show what they used with its cost by the configured prices, and the daily rollup groups the
 rows by day in UTC, which the `usage` command prints; the `costs` command sums every
-organisation's rows, costliest first, against its plan's daily limit; and the usage page shows
-every member what the organisation holds and used of its plan, as the checks count it, with
-its pages and questions by day and by month."""
+organisation's rows, costliest first, and all of them against DAILY_SPEND_CAP; and the usage
+page shows every member what the workspace holds, with its pages, questions and costs by day
+and by month, the costs to its owners and admins alone."""
 
 import threading
 from datetime import UTC, date, datetime, timedelta
@@ -19,19 +19,18 @@ import app.answers as answers_module
 import app.indexing.pipeline as pipeline
 from app.agent.tools import TOOLS
 from app.answers import ANSWER_PROMPT_VERSION, answer
-from app.billing import change_plan
 from app.config import get_settings
-from app.entitlements import CHARS_PER_PAGE, month_of
 from app.indexing.enrich import ENRICH_PROMPT_VERSION, SECTIONS_PROMPT_VERSION
 from app.indexing.pipeline import StageFailure, process_document, reset_stages
 from app.jobs import ANSWER_QUESTION, INDEX_DOCUMENT, LeaseLost, claim
 from app.llm import OCR_PROMPT_VERSION, LLMError
 from app.maintenance import main
-from app.models import AllowancePack, ChatMessage, Document, Organization, Passage, UsageEvent, User
+from app.models import Block, ChatMessage, Document, Organization, Passage, UsageEvent, User
 from app.schemas import UsageOut
 from app.spending import day_of, spent_since
 from app.usage import (
     ANSWER,
+    CHARS_PER_PAGE,
     CHAT_MESSAGE,
     DOCUMENT,
     EMBED,
@@ -50,10 +49,13 @@ from app.usage import (
     daily,
     metered,
     model_costs,
+    month_of,
     organization_costs,
     prompt_costs,
     record,
+    size_label,
     summed,
+    text_pages,
 )
 from app.worker import HANDLERS
 from tests.conftest import FakeEmbedder, FakeTurn
@@ -784,7 +786,7 @@ def test_the_metered_rollup_has_every_day_and_month_with_the_pages_and_questions
     add(org, "upload", {"pages": 2}, datetime(2026, 10, 2, 8, tzinfo=UTC))
     add(org, "answer", {"questions": 1}, datetime(2026, 10, 2, 9, tzinfo=UTC))
     add(org, "answer", {"questions": 1}, datetime(2026, 10, 2, 23, 59, tzinfo=UTC))
-    # What the plan does not count against the month: an answer's calls, the pages rendered.
+    # Neither pages brought in nor questions: an answer's calls, the pages rendered.
     add(org, "answer", {"calls": 4}, datetime(2026, 10, 2, 9, tzinfo=UTC))
     add(org, "render", {"pages": 9}, datetime(2026, 10, 2, 9, tzinfo=UTC))
     add(other, "answer", {"questions": 5}, datetime(2026, 10, 2, 9, tzinfo=UTC))
@@ -821,17 +823,7 @@ def usage_page(client) -> dict:
     return response.json()
 
 
-FIGURES = (
-    "projects",
-    "documents",
-    "storage_bytes",
-    "members",
-    "pages_per_month",
-    "questions_per_month",
-)
-
-
-def test_the_usage_page_counts_what_the_plan_allows_as_its_checks_do(
+def test_the_usage_page_shows_what_the_workspace_holds_and_used_and_what_it_cost(
     client, session, make_account, act_as, sample_pdf
 ):
     owner = make_account("ann@globex.example")
@@ -841,12 +833,11 @@ def test_the_usage_page_counts_what_the_plan_allows_as_its_checks_do(
     upload(client, project["id"], sample_pdf)
     ask(client, new_chat(client, project["id"])["id"], "Notice period?")
     start, following = month_of()
-    # The pages the first parse counted, and a pack of questions bought for the month.
+    # The pages the first parse counted, and an answer's calls that cost 0.25.
     record(session, org_id=org, project_id=None, user_id=None, kind=UPLOAD, measures={"pages": 3})
-    session.add(
-        AllowancePack(org_id=org, unit="questions", quantity=100, month=start, checkout_id="cs_1")
-    )
-    # Last month's questions are in the history, not the month.
+    calls = {"calls": 1, "input_tokens": 100}
+    charge(session, org, ANSWER, calls, datetime.now(UTC), model=PRICED, cost="0.25")
+    # Last month's questions are in the history, not this month.
     last = start - timedelta(hours=1)
     record(
         session,
@@ -868,65 +859,92 @@ def test_the_usage_page_counts_what_the_plan_allows_as_its_checks_do(
     assert (page["month"], page["next_month"]) == (str(start.date()), str(following.date()))
     # What the page says a document without pages counts by.
     assert page["chars_per_page"] == CHARS_PER_PAGE
-    assert {name: page[name] for name in FIGURES} == {
-        "projects": {"used": 1, "allowed": 1, "bought": 0},
-        "documents": {"used": 1, "allowed": 25, "bought": 0},
-        "storage_bytes": {"used": sample_pdf.stat().st_size, "allowed": 100_000_000, "bought": 0},
-        "members": {"used": 1, "allowed": 1, "bought": 0},
-        "pages_per_month": {"used": 3, "allowed": 200, "bought": 0},
-        "questions_per_month": {"used": 1, "allowed": 50, "bought": 100},
+    held = {name: page[name] for name in ("projects", "documents", "storage_bytes", "members")}
+    assert held == {
+        "projects": 1,
+        "documents": 1,
+        "storage_bytes": sample_pdf.stat().st_size,
+        "members": 1,
     }
+    # Nothing beside them says how much may be held or used.
+    assert not {"allowed", "bought", "pages_per_month", "questions_per_month"} & set(page)
 
     today = datetime.now(UTC).date()
     days = page["days"]
     assert [day["start"] for day in days] == [
         str(today - timedelta(days=back)) for back in range(29, -1, -1)
     ]
-    used = {day["start"]: (day["pages"], day["questions"]) for day in days}
-    assert used.pop(str(today)) == (3, 1)
+    used = {day["start"]: (day["pages"], day["questions"], day["cost_micros"]) for day in days}
+    assert used.pop(str(today)) == (3, 1, 250_000)
     if str(last.date()) in used:
-        assert used.pop(str(last.date())) == (0, 4)
-    assert set(used.values()) == {(0, 0)}
+        assert used.pop(str(last.date())) == (0, 4, None)
+    assert set(used.values()) == {(0, 0, None)}
 
     months = page["months"]
     assert len(months) == 12 and months[-1] == {
         "start": str(start.date()),
         "pages": 3,
         "questions": 1,
-        "pages_bought": 0,
-        "questions_bought": 100,
+        "cost_micros": 250_000,
     }
     assert months[-2] == {
         "start": str(last.date().replace(day=1)),
         "pages": 0,
         "questions": 4,
-        "pages_bought": 0,
-        "questions_bought": 0,
+        "cost_micros": None,
     }
     first = date(start.year - (start.month < 12), start.month % 12 + 1, 1)
     assert months[0]["start"] == str(first)
     assert all(month["pages"] == month["questions"] == 0 for month in months[:-2])
 
-    # A viewer reads it too; the seats bought and the figures agreed are what it is held to.
+    # A viewer reads it too, without what the work cost.
     viewer = make_account("vic@globex.example", owner.organization, "viewer")
-    change_plan(
-        session,
-        session.get(Organization, org),
-        "team",
-        seats=4,
-        overrides={"questions_per_month": 10},
-    )
-    session.commit()
     act_as(viewer)
     page = usage_page(client)
-    assert page["members"] == {"used": 2, "allowed": 4, "bought": 0}
-    assert page["questions_per_month"] == {"used": 1, "allowed": 10, "bought": 100}
-    assert page["projects"] == {"used": 1, "allowed": 50, "bought": 0}
+    assert page["members"] == 2
+    assert page["months"][-1]["cost_micros"] is None
+    assert {day["cost_micros"] for day in page["days"]} == {None}
 
 
-def test_the_usage_page_has_no_limits_for_the_local_account(client):
-    page = usage_page(client)
-    assert {name: page[name]["allowed"] for name in FIGURES} == dict.fromkeys(FIGURES)
+@pytest.mark.parametrize("sample", ["sample_docx", "sample_xlsx", "sample_csv"])
+def test_a_word_file_a_sheet_and_a_csv_count_the_pages_of_their_text(
+    session, services, account, make_document, sample, request
+):
+    document = make_document(request.getfixturevalue(sample))
+    assert process_document(document.id, services) == []
+    characters = session.scalar(
+        select(func.sum(func.length(Block.text))).where(Block.document_id == document.id)
+    )
+    rows = rows_of(session, (DOCUMENT, document.id))
+    pages = [row.quantity for row in rows if (row.kind, row.unit) == (UPLOAD, "pages")]
+    assert pages == [text_pages(characters)] and pages[0] >= 1
+
+    # Counted once: "Index again" counts the text's pages no more.
+    reset_stages(document, "parse")
+    session.commit()
+    assert process_document(document.id, services) == []
+    rows = rows_of(session, (DOCUMENT, document.id))
+    assert [row.quantity for row in rows if (row.kind, row.unit) == (UPLOAD, "pages")] == pages
+
+
+def test_text_is_counted_a_page_for_every_so_many_characters_begun():
+    assert [text_pages(n) for n in (1, CHARS_PER_PAGE, CHARS_PER_PAGE + 1)] == [1, 1, 2]
+    assert text_pages(0) == 0
+
+
+def test_sizes_and_months_read_well():
+    assert [size_label(n) for n in (999, 12_000, 2_500_000, 100_000_000, 10**10)] == [
+        "999 bytes",
+        "12 kB",
+        "2.5 MB",
+        "100 MB",
+        "10 GB",
+    ]
+    start, following = month_of(datetime(2026, 12, 31, 23, 59, tzinfo=UTC))
+    assert (start, following) == (
+        datetime(2026, 12, 1, tzinfo=UTC),
+        datetime(2027, 1, 1, tzinfo=UTC),
+    )
 
 
 def test_the_usage_command_prints_the_rollup(session, account, capsys):
@@ -1174,7 +1192,7 @@ def test_the_costs_of_every_organisation_add_up_costliest_first(
     assert organization_costs(session, date(2026, 10, 12), date(2026, 10, 31)) == []
 
 
-def test_the_costs_command_holds_each_organisation_to_its_plans_daily_limit(
+def test_the_costs_command_holds_every_organisation_together_to_the_daily_cap(
     session, account, make_account, monkeypatch, capsys
 ):
     monkeypatch.setattr(get_settings(), "daily_spend_cap", Decimal("2"))
@@ -1186,7 +1204,6 @@ def test_the_costs_command_holds_each_organisation_to_its_plans_daily_limit(
     now = datetime.now(UTC)
     yesterday = now - timedelta(days=1)
 
-    # The free plan's limit is 1.00 a day: Globex went past it yesterday.
     tokens = {"calls": 3, "input_tokens": 1000}
     read = {"model": PRICED, "prompts": "cccc3333", "ref": (DOCUMENT, 1), "cost": "1.20"}
     charge(session, globex, OCR, tokens, yesterday, **read)
@@ -1194,7 +1211,6 @@ def test_the_costs_command_holds_each_organisation_to_its_plans_daily_limit(
     tokens = {"calls": 1, "input_tokens": 100}
     asked = {"model": PRICED, "prompts": "bbbb2222", "ref": (CHAT_MESSAGE, 1), "cost": "0.40"}
     charge(session, globex, ANSWER, tokens, now, **asked)
-    # The enterprise plan has no limit.
     tokens = {"calls": 2, "input_tokens": 50}
     asked = {"model": PRICED, "prompts": "bbbb2222", "ref": (CHAT_MESSAGE, 2), "cost": "0.05"}
     charge(session, local, ANSWER, tokens, now, **asked)
@@ -1211,20 +1227,16 @@ def test_the_costs_command_holds_each_organisation_to_its_plans_daily_limit(
         "USD, costliest first:"
     )
     assert lines[1:] == [
-        "  organisation  plan            cost   limit         top day  at limit  answers  calls"
-        "  pages",
-        "  globex        free          1.6000  1.0000  1.2000 (120 %)         1        1      4"
-        "      4  Globex",
-        "  local         enterprise    0.0500    none          0.0500                  1      2"
-        "      0  Local",
-        "  initech       free        unpriced  1.0000        unpriced         0        1      1"
-        "      0  Initech",
-        # The platform's line holds its days to DAILY_SPEND_CAP.
-        "  platform                    1.6500  2.0000   1.2000 (60 %)         0        3      7"
-        "      4  3 organisations",
+        "  organisation      cost   limit        top day  at limit  answers  calls  pages",
+        "  globex          1.6000                 1.2000                  1      4      4  Globex",
+        "  local           0.0500                 0.0500                  1      2      0  Local",
+        "  initech       unpriced               unpriced                  1      1      0  Initech",
+        # All of them together, held to DAILY_SPEND_CAP.
+        "  all             1.6500  2.0000  1.2000 (60 %)         0        3      7      4"
+        "  3 organisations",
         "1 other organisation used nothing.",
-        "The top day is the costliest, with its share of the daily limit: the plan's, or the",
-        "platform's DAILY_SPEND_CAP. At limit counts the days that reached it.",
+        "The top day is the costliest; all of them together are held to DAILY_SPEND_CAP, the",
+        "top day's share of it beside it. At limit counts the days that reached it.",
         "",
         "By kind of work and model:",
         "  kind    model                cost  calls  tokens in  tokens out",
@@ -1244,10 +1256,11 @@ def test_the_costs_command_holds_each_organisation_to_its_plans_daily_limit(
         "  google:unpriced  30 tokens  (answer)",
     ]
 
-    # Only today: Globex is within its limit.
+    # Only today: the day's whole is within the cap.
     main(["costs", "--days", "1"])
     lines = capsys.readouterr().out.splitlines()
-    assert " ".join(lines[2].split()) == "globex free 0.4000 1.0000 0.4000 (40 %) 0 1 1 0 Globex"
+    assert " ".join(lines[2].split()) == "globex 0.4000 0.4000 1 1 0 Globex"
+    assert " ".join(lines[5].split()) == "all 0.4500 2.0000 0.4500 (22 %) 0 3 4 0 3 organisations"
 
     session.execute(UsageEvent.__table__.delete())
     session.commit()

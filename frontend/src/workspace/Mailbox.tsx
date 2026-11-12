@@ -1,12 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Check, Copy, Mail, Plus, X } from 'lucide-react'
 import { useId, useRef, useState } from 'react'
-import { api, isPlanLimit, mayChange } from '../api.ts'
-import type { Mailbox, MailboxInput, PlanRefusal } from '../api.ts'
+import { api, mayChange } from '../api.ts'
+import type { Mailbox, MailboxInput } from '../api.ts'
 import { useMe } from '../auth.ts'
 import { folderChoices } from '../automations.ts'
 import { Confirm } from '../components/Confirm.tsx'
-import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, EmptyState, FIELD, IconButton, Loading, Notice, SelectField } from '../components/ui.tsx'
 import { useFolders } from '../hooks.ts'
 import { NEW_ADDRESS, TAKE_AWAY, mailboxKey, outcomeWords, senderEntry, senderProblem, sendersWords, sentWords } from '../mailbox.ts'
@@ -25,12 +24,12 @@ export function MailboxView() {
   const changes = mayChange(useMe().role) && !project.sample
   const queryClient = useQueryClient()
   const mailbox = useQuery({ queryKey: mailboxKey(project.id), queryFn: () => api.mailbox(project.id) })
-  const [refused, setRefused] = useState<PlanRefusal | string | null>(null)
+  const [refused, setRefused] = useState<string | null>(null)
   const [asking, setAsking] = useState<'address' | 'away' | null>(null)
   // Taking the address away takes its buttons with the focus: the keyboard goes on from the heading.
   const heading = useRef<HTMLHeadingElement>(null)
   const fail = (error: Error) =>
-    setRefused(isPlanLimit(error) ? { message: error.message, limit: error.limit } : error.message)
+    setRefused(error.message)
   // A change answers the address as it is now, which the view shows at once.
   const changed = {
     onMutate: () => setRefused(null),
@@ -62,7 +61,7 @@ export function MailboxView() {
         </h2>
       </div>
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3">
-        {typeof refused === 'string' && (
+        {refused && (
           <Notice tone="bad">
             <div className="flex items-start justify-between gap-3">
               <span>{refused}</span>
@@ -72,7 +71,6 @@ export function MailboxView() {
             </div>
           </Notice>
         )}
-        {refused && typeof refused !== 'string' && <PlanLimitNotice refusal={refused} onDismiss={() => setRefused(null)} />}
         {mailbox.isPending && <Loading />}
         {mailbox.isError && <Notice tone="bad">Could not load the project’s address: {mailbox.error.message}</Notice>}
         {data && !data.available && (

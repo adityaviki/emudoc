@@ -17,8 +17,8 @@ There are two kinds of figure:
   requests a rate refused, and the process's own CPU and memory (the library's). Each replica
   counts its own, and the scraper adds them up.
 - What the database holds, the same whichever process reads it (`Holdings`): the documents by
-  status, the queue by kind, the answers being written, the organisations and the bytes they
-  keep by plan, and the day's spend; and how the server itself keeps up (app/postgres.py): the
+  status, the queue by kind, the answers being written, the bytes of the originals kept, and the
+  day's spend; and how the server itself keeps up (app/postgres.py): the
   live and dead rows of each table, the oldest open transaction, and the archiving of the
   write-ahead log the backups rest on. Only a worker serves them, reading them when asked and
   at most once every MEASURE_SECONDS, so the queries grow with the workers and not with the
@@ -28,7 +28,7 @@ There are two kinds of figure:
 No label names an organisation, a user, a document or anything a member typed. A series per
 organisation would grow with every sign-up, and one organisation's figures are its usage
 events' (app/usage.py, the `usage` command). A label holds the app's own words: a model's
-configured name, a kind of work, a stage, a job's kind, a plan, a status, a route's pattern, a
+configured name, a kind of work, a stage, a job's kind, a status, a route's pattern, a
 rate limit's scope.
 
 The library is prometheus_client rather than OpenTelemetry's SDK on purpose: a global meter or
@@ -146,11 +146,11 @@ JOB_OUTCOMES = ("done", "failed", "crashed", "abandoned", "lost", "unsettled")
 MAIL_OUTCOMES = ("sent", "retried", "failed")
 MAIL_EVENT_KINDS = ("bounce", "complaint")
 # How a try of a webhook's delivery ended (app/webhooks.py): answered with a 2xx, tried again
-# later, given up, or refused by the app itself (the address, the plan, the secret).
+# later, given up, or refused by the app itself (the address, the secret).
 WEBHOOK_OUTCOMES = ("delivered", "retried", "failed", "refused")
 # What became of a message sent to a project's address (app/inbound.py): kept, with nothing in it
 # to keep, or turned away by its sender (not listed, not proven, unreadable), its size, the
-# project's trash or the plan; for no project's address; or come while email in was off.
+# project's trash; for no project's address; or come while email in was off.
 INBOUND_OUTCOMES = (
     "kept",
     "empty",
@@ -159,19 +159,17 @@ INBOUND_OUTCOMES = (
     "unreadable",
     "too_large",
     "refused_project",
-    "refused_plan",
     "unknown_address",
     "off",
 )
 # How a connected folder's sync went (app/connectors/sync.py): files taken or noted, nothing
 # changed since the last, stopped partway or before it began (the service, the folder), paused
-# (the grant, the member), held back (the project, the plan), or the flag off; and what became of
+# (the grant, the member), held back (the project), or the flag off; and what became of
 # each file it read: kept, rejected, its document to the trash, or replaced by a new version.
 SYNC_OUTCOMES = ("synced", "unchanged", "failed", "paused", "held", "off")
 SYNCED_FILE_OUTCOMES = ("kept", "rejected", "trashed", "replaced")
 UPLOAD_REFUSALS = (
     "too_many",
-    "plan",
     "unsupported",
     "empty",
     "too_large",
@@ -294,7 +292,7 @@ UPLOAD_BYTES = Histogram(
 UPLOAD_REJECTIONS = Counter(
     "emudoc_upload_rejections",
     "Uploaded files the API refused, by why: too_many (a request past MAX_UPLOAD_FILES or "
-    "MAX_UPLOAD_REQUEST_MB, counted once), plan (the plan has no room), unsupported, empty, "
+    "MAX_UPLOAD_REQUEST_MB, counted once), unsupported, empty, "
     "too_large (past MAX_UPLOAD_MB), wrong_type (the bytes are not what the name says), "
     "duplicate, folder (a folder of its path that cannot be made), unopened (a message or an "
     "archive the page uploaded that cannot be opened, or one inside another, or a file of an "
@@ -314,7 +312,7 @@ WEBHOOK_DELIVERIES = Counter(
     "Tries of the events posted to the organisations' webhooks, by how each ended: delivered, "
     "answered with a 2xx; retried, answered otherwise or not at all and queued again; failed, "
     "the last try; refused, not sent, for an address on the deployment's own network or over "
-    "plain HTTP, a plan without the API, or a secret no key decrypts.",
+    "plain HTTP, or a secret no key decrypts.",
     ["outcome"],
 )
 MAIL_EVENTS = Counter(
@@ -566,13 +564,11 @@ class Lanes:
 # A document in the trash (app/trash.py), by itself or in a project there, counts as `trashed`
 # whatever its status: it waits there unindexed, and its bytes are still held.
 _DOCUMENTS = text(
-    "SELECT o.plan, CASE WHEN d.deleted_at IS NOT NULL OR p.deleted_at IS NOT NULL "
+    "SELECT CASE WHEN d.deleted_at IS NOT NULL OR p.deleted_at IS NOT NULL "
     "THEN 'trashed' ELSE d.status END AS status, "
     "count(*) AS documents, coalesce(sum(d.size_bytes), 0) AS bytes "
-    "FROM documents d JOIN projects p ON p.id = d.project_id "
-    "JOIN organizations o ON o.id = p.org_id GROUP BY 1, 2"
+    "FROM documents d JOIN projects p ON p.id = d.project_id GROUP BY 1"
 )
-_ORGANIZATIONS = text("SELECT plan, count(*) FROM organizations GROUP BY plan")
 # Served by the partial index on the messages being written.
 _ANSWERING = text("SELECT count(*) FROM chat_messages WHERE status = 'streaming'")
 
@@ -618,12 +614,7 @@ class Holdings:
                 labels=["status"],
             ),
             "stored": GaugeMetricFamily(
-                "emudoc_stored_bytes",
-                "The bytes of the uploaded originals the organisations keep, by plan.",
-                labels=["plan"],
-            ),
-            "organizations": GaugeMetricFamily(
-                "emudoc_organizations", "Organisations by plan.", labels=["plan"]
+                "emudoc_stored_bytes", "The bytes of the uploaded originals the workspace keeps."
             ),
             "jobs": GaugeMetricFamily(
                 "emudoc_jobs",
@@ -685,14 +676,13 @@ class Holdings:
     def _measure(self) -> list[Metric]:
         families = self._families()
         documents = dict.fromkeys(DOCUMENT_STATUSES, 0)
-        stored: dict[str, int] = {}
+        stored = 0
         jobs = {(kind, state): 0 for kind in JOBS for state in JOB_STATES}
         oldest = dict.fromkeys(JOBS, 0.0)
         with SessionLocal() as session:
-            for plan, status, count, size in session.execute(_DOCUMENTS):
+            for status, count, size in session.execute(_DOCUMENTS):
                 documents[status] = documents.get(status, 0) + count
-                stored[plan] = stored.get(plan, 0) + size
-            organizations = dict(session.execute(_ORGANIZATIONS).all())
+                stored += size
             for kind, state, count, waited in session.execute(QUEUE_BY_STATE):
                 jobs[kind, state] = count
                 if state == "due":
@@ -704,9 +694,7 @@ class Holdings:
             archiving = archive(connection)
         for status, count in documents.items():
             families["documents"].add_metric([status], count)
-        for plan in organizations.keys() | stored.keys():
-            families["stored"].add_metric([plan], stored.get(plan, 0))
-            families["organizations"].add_metric([plan], organizations.get(plan, 0))
+        families["stored"].add_metric([], stored)
         for (kind, state), count in jobs.items():
             families["jobs"].add_metric([kind, state], count)
         for kind, waited in oldest.items():

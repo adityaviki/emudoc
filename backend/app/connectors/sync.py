@@ -17,18 +17,17 @@ and the project's automations follow as any upload's do.
 
 A file is read once per version: one the project keeps, rejects or deleted is not read again
 until its version changes, so a document a member deleted stays deleted while its file stays as
-it was. A refusal by the plan is the organisation's, not the file's: those files are left for
-the next sync, which takes them once there is room. A sync takes at most ROUND_FILES files and
+it was. A sync takes at most ROUND_FILES files and
 queues the next at once while more wait, so that a large folder shares the workers.
 
 Nothing goes to the trash unless the folder was read whole: a folder gone, a listing that
 failed or one past MAX_FILES leaves every document as it is, and the connector says why.
 
-What holds a sync back: the project in the trash, the plan (no connected folders, read-only),
-and the member who connected it no longer one who may change the project,
-which pauses it, since the grant is theirs; so does a service that no longer accepts the grant,
-until its member connects it again. A service that does not answer leaves the rest to the next
-sync. Nothing of a file's name or the folder's reaches the log, which names the connector.
+What holds a sync back: the project in the trash, and the member who connected it no longer one who
+may change the project, which pauses it, since the grant is theirs; so does a service that no longer
+accepts the grant, until its member connects it again. A service that does not answer leaves the
+rest to the next sync. Nothing of a file's name or the folder's reaches the log, which names the
+connector.
 """
 
 import logging
@@ -48,7 +47,6 @@ from app.connectors import LABELS, providers
 from app.connectors.base import TIMEOUT, ConnectorError, Provider, RemoteFile
 from app.db import MIGRATION_LOCK, SessionLocal
 from app.encrypted import CONNECTOR_TOKENS, decrypt, encrypt
-from app.entitlements import check_connectors, read_only
 from app.errors import shown
 from app.flags import CONNECTORS, flag_on
 from app.folders import folder_names
@@ -247,10 +245,6 @@ def _held(
         )
     if project.deleted_at is not None:
         return PROJECT_TRASHED
-    if refusal := check_connectors(organization):
-        return refusal.sentence
-    if refusal := read_only(session, organization):
-        return refusal.sentence
     member = session.get(User, connector.user_id)
     if member is None or not may_change(session, organization, project, member):
         connector.status = "paused"
@@ -371,9 +365,6 @@ class Sync:
                     raise
                 stopped = self._shown(error)
                 break
-            except PlanFull as full:
-                stopped = str(full)
-                break
             taken += 1
         left = len(waiting) - taken
         # Only the sync that took the folder whole removes: a file of a gone one's bytes may
@@ -463,7 +454,6 @@ class Sync:
                 self.session,
                 self.storage,
                 self.project,
-                self.organization,
                 self._target(),
                 [Incoming(file.name, folder_names("/".join(file.folders)), download)],
                 user_id=self.connector.user_id,
@@ -483,8 +473,6 @@ class Sync:
             CONNECTOR_FILES.labels("kept").inc()
             return
         refused = rejected[0]
-        if refused.limit is not None:
-            raise PlanFull(refused.reason)
         if refused.reason == LOST_RACE:
             # Another upload of the same bytes was being kept: the next sync sees which.
             return
@@ -525,7 +513,6 @@ class Sync:
                 self.session,
                 self.storage,
                 self.project,
-                self.organization,
                 document,
                 file.name,
                 download,
@@ -535,8 +522,6 @@ class Sync:
             )
         except VersionRefused as refused:
             self.session.rollback()
-            if refused.limit is not None:
-                raise PlanFull(refused.reason) from None
             if refused.label == "indexing":
                 self.held_back = True
             elif refused.duplicate_of == document.id:
@@ -636,10 +621,6 @@ class Sync:
         self.commit()
         if upload_id is not None:
             settle_upload(self.session, upload_id, app_address())
-
-
-class PlanFull(Exception):
-    """The plan refused a file: the sync stops, and the files left wait for room."""
 
 
 def _commit(session: Session, lease: Lease) -> None:

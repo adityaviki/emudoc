@@ -1,11 +1,10 @@
-"""Retention and deletion: a chat is kept for its organisation's plan's retention after its last
-question, and as before for a while after a move to a plan that keeps it for less time; an ended
-session or link for a month; an account is deleted after a grace period,
-confirmed by its password or its address, during which it can only be kept, exported or signed
-out of; the purge takes every organisation the account was the only member of, with its rows
-and files, leaves the rest of a shared one with an owner, and leaves a record by which an
-account that a restore brings back is purged again; and the export holds what is kept about its
-user and nothing of anyone else's."""
+"""Retention and deletion: a chat is kept until it is deleted, or for the days its organisation
+chose after its last question; an ended session or link for a month; an account is deleted after a
+grace period, confirmed by its password or its address, during which it can only be kept, exported
+or signed out of; the purge takes every organisation the account was the only member of, with its
+rows and files, leaves the rest of a shared one with an owner, and leaves a record by which an
+account that a restore brings back is purged again; and the export holds what is kept about its user
+and nothing of anyone else's."""
 
 import logging
 from datetime import UTC, datetime, timedelta
@@ -24,9 +23,7 @@ from app.auth import (
     new_token,
     token_hash,
 )
-from app.billing import change_plan
 from app.db import SessionLocal
-from app.entitlements import PLANS
 from app.maintenance import housekeeping
 from app.models import (
     AuthToken,
@@ -48,14 +45,11 @@ from app.retention import (
     DELETION_GRACE,
     ERASURES,
     LOCAL_ACCOUNT,
-    RETENTION_HELD,
-    Kept,
     day,
     deletion_pending,
     erasure_key,
     purge_due_accounts,
     reapply_erasures,
-    retention_held,
 )
 from app.storage import StorageError, organization_prefix
 from app.usage import ANSWER, record
@@ -108,123 +102,47 @@ def org_of(account: dict) -> Organization:
 # Retention
 
 
-def test_chats_past_their_plans_retention_go_and_the_rest_stay(
+def test_chats_past_their_organisations_days_go_and_the_rest_stay(
     session, services, account, make_account
 ):
-    kept_for = PLANS["free"].retention_days
-    free = make_account("ann@globex.example")
-    pro = make_account("bo@initech.example")
-    session.execute(update(Organization).where(Organization.slug == "initech").values(plan="pro"))
+    kept_for = 30
+    month = make_account("ann@globex.example")
+    month.organization.chat_days = kept_for
+    year = make_account("bo@initech.example")
+    year.organization.chat_days = 365
     session.commit()
     projects = {}
-    for name, owner in (("free", free), ("pro", pro), ("enterprise", account)):
+    for name, owner in (("month", month), ("year", year), ("for good", account)):
         projects[name] = Project(org_id=owner.organization.id, name=name)
         session.add(projects[name])
     session.commit()
 
-    make_chat(session, projects["free"], free.user, "free, quiet too long", kept_for + 1)
-    make_chat(session, projects["free"], free.user, "free, asked lately", kept_for - 1)
+    make_chat(session, projects["month"], month.user, "month, quiet too long", kept_for + 1)
+    make_chat(session, projects["month"], month.user, "month, asked lately", kept_for - 1)
     # An old chat whose answer is still being written is left until the answer is settled.
-    streaming = make_chat(session, projects["free"], free.user, "free, answering", kept_for + 5)
+    streaming = make_chat(session, projects["month"], month.user, "month, answering", kept_for + 5)
     session.add(ChatMessage(chat_id=streaming.id, role="assistant", content="", status="streaming"))
     # Created long ago, but asked in lately: the last question counts, not the first.
-    old = make_chat(session, projects["free"], free.user, "free, revived", kept_for - 2)
+    old = make_chat(session, projects["month"], month.user, "month, revived", kept_for - 2)
     old.created_at = NOW - timedelta(days=kept_for * 3)
-    make_chat(session, projects["pro"], pro.user, "pro, a quarter old", 100)
-    make_chat(session, projects["pro"], pro.user, "pro, over a year old", 366)
-    make_chat(session, projects["enterprise"], account.user, "enterprise, ancient", 4000)
+    make_chat(session, projects["year"], year.user, "year, a quarter old", 100)
+    make_chat(session, projects["year"], year.user, "year, over a year old", 366)
+    # Kept until deleted where nothing was chosen.
+    make_chat(session, projects["for good"], account.user, "for good, ancient", 4000)
     session.commit()
     messages = session.scalar(select(func.count()).select_from(ChatMessage))
 
     housekeeping(services.storage)
 
     assert chat_titles(session) == {
-        "free, asked lately",
-        "free, answering",
-        "free, revived",
-        "pro, a quarter old",
-        "enterprise, ancient",
+        "month, asked lately",
+        "month, answering",
+        "month, revived",
+        "year, a quarter old",
+        "for good, ancient",
     }
     # Their messages went with them.
     assert session.scalar(select(func.count()).select_from(ChatMessage)) == messages - 2
-
-
-def test_the_days_agreed_with_an_organisation_keep_its_chats_in_place_of_its_plans(
-    session, services, account, make_account
-):
-    pro = make_account("bo@initech.example")
-    pro.organization.plan, pro.organization.overrides = "pro", {"retention_days": None}
-    account.organization.overrides = {"retention_days": 30}
-    session.commit()
-    projects = {}
-    for name, owner in (("pro", pro), ("enterprise", account)):
-        projects[name] = Project(org_id=owner.organization.id, name=name)
-        session.add(projects[name])
-    session.commit()
-    make_chat(session, projects["pro"], pro.user, "pro, kept for good", 400)
-    make_chat(session, projects["enterprise"], account.user, "enterprise, a month and more", 31)
-    make_chat(session, projects["enterprise"], account.user, "enterprise, asked lately", 29)
-
-    housekeeping(services.storage)
-
-    assert chat_titles(session) == {"pro, kept for good", "enterprise, asked lately"}
-
-
-def test_a_lower_plan_keeps_the_chats_it_would_take_as_before_for_a_while(
-    session, services, make_account
-):
-    organization = make_account("ann@globex.example").organization
-    change_plan(session, organization, "team", seats=3)
-    session.commit()
-    # A move up holds nothing.
-    assert organization.retention_held_until is None
-    project = Project(org_id=organization.id, name="contracts")
-    session.add(project)
-    session.commit()
-    user = session.scalar(select(User).where(User.email == "ann@globex.example"))
-    make_chat(session, project, user, "a year and more", 400)
-    make_chat(session, project, user, "two months", 60)
-    make_chat(session, project, user, "lately", 5)
-
-    change_plan(session, organization, "free", because="subscription_ended")
-    session.commit()
-    held = retention_held(organization)
-    assert held.kept == Kept(None, 365)
-    assert abs(held.until - (datetime.now(UTC) + RETENTION_HELD)) < timedelta(minutes=1)
-
-    housekeeping(services.storage)
-    assert chat_titles(session) == {"a year and more", "two months", "lately"}
-
-    # Once the hold is over, Free's 30 days take what is older.
-    organization.retention_held_until = datetime.now(UTC) - timedelta(minutes=1)
-    session.commit()
-    housekeeping(services.storage)
-    assert chat_titles(session) == {"lately"}
-
-
-def test_a_hold_ends_with_a_plan_that_keeps_as_long_and_a_second_move_keeps_the_longest(
-    session, make_account
-):
-    organization = make_account("ann@globex.example").organization
-    change_plan(session, organization, "team", seats=3)
-    # Team keeps chats for good and Pro for a year: Team's hold.
-    change_plan(session, organization, "pro")
-    first = organization.retention_held_until
-    assert retention_held(organization).kept == Kept(None, 365)
-    # What Pro alters but keeps as long leaves the hold as it was.
-    change_plan(session, organization, "pro", overrides={"projects": 20})
-    assert organization.retention_held_until == first
-    # Down again within it: the longest of the hold and Pro's, from now.
-    change_plan(session, organization, "free")
-    assert retention_held(organization).kept == Kept(None, 365)
-    assert organization.retention_held_until >= first
-    # Back on a plan that keeps everything as long: nothing is held.
-    change_plan(session, organization, "team", seats=3)
-    assert organization.retention_held_until is None and retention_held(organization) is None
-    # Days agreed lower are a lower plan too.
-    change_plan(session, organization, "team", seats=3, overrides={"retention_days": 7})
-    assert retention_held(organization).kept == Kept(None, 365)
-    session.commit()
 
 
 def test_ended_sessions_and_links_are_removed_after_a_month(client, session, services):
@@ -268,7 +186,7 @@ def test_ended_sessions_and_links_are_removed_after_a_month(client, session, ser
 
 def test_the_account_says_how_long_its_chats_are_kept(client, signed_in_only):
     account = signup(client)
-    assert org_of(account)["chat_retention_days"] == PLANS["free"].retention_days
+    assert org_of(account)["chat_days"] is None
     assert account["has_password"] is True and account["deletion_due_at"] is None
 
 

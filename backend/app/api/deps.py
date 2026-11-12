@@ -26,27 +26,22 @@ share it with the project. What is in the trash (app/trash.py) is found only by 
 dependencies, the trash's own routes, and a document or passage asked for as if it were live is
 told where it went.
 
-Reading needs any role; changing something needs the member role or better, which the
-`Editable...` dependencies check after the object itself is found. They also hold the change
-to the organisation's plan: one that holds more than its plan allows, since the plan, its seats
-or its terms were lowered, is read-only until it is within it again (`read_only` in
-app/entitlements.py), and the change is refused with 402. Deleting is what such an
-organisation may still do, to get within its plan, so the `Deletable...` dependencies check
-the role alone, as the `Trashed...` ones do for deleting for good from the trash; a restore
-from it adds to what the organisation holds, so its routes take `EditorDep` as well.
+Reading needs any role; changing or deleting something needs the member role or better, which
+the `Editable...` dependencies check after the object itself is found, so that another
+organisation's id stays 404 and a viewer's is 403; the `Trashed...` ones do the same for
+restoring from the trash and deleting for good.
 
 A request that changes something must also carry the header the app's own requests send.
 The browser attaches the session cookie to a request from any site, so without that proof a
 page elsewhere could act as the signed-in user; `refuse_cross_site` runs on every route.
 
-A program calls the API with an API key instead of a session (app/apikeys.py): a request that
-names one in its `Authorization: Bearer` header acts as the member who made the key, in the
-organisation it was made in, and is judged by the key alone. It needs no header of the app's,
-since a browser sends a Bearer token with no request by itself. The key reaches only the routes
-that read and change what the projects hold (KEYED in app/main.py), only by the methods that
-change nothing unless its scope is `write`, only while the organisation's plan includes the API,
-and it is held to a rate of its own, besides its member's; past that it is its member's account,
-held to everything above as they are.
+A program calls the API with an API key instead of a session (app/apikeys.py): a request that names
+one in its `Authorization: Bearer` header acts as the member who made the key, in the organisation
+it was made in, and is judged by the key alone. It needs no header of the app's, since a browser
+sends a Bearer token with no request by itself. The key reaches only the routes that read and change
+what the projects hold (KEYED in app/main.py), only by the methods that change nothing unless its
+scope is `write`, and it is held to a rate of its own, besides its member's; past that it is its
+member's account, held to everything above as they are.
 
 An operator's session may view a member's account as Emudoc's support, with the member's leave
 (app/support.py): it acts as the member, in the organisation the leave is for, and only by the
@@ -87,7 +82,6 @@ from app.auth import SESSION_COOKIE, find_session, now, touch_session
 from app.config import get_settings
 from app.costs import show_costs
 from app.db import get_session
-from app.entitlements import PlanRefused, check_api, read_only
 from app.fact_checks import CHECK_GONE, FACT_GONE
 from app.flags import flag, flag_on
 from app.indexing.pipeline import Services
@@ -258,7 +252,7 @@ def _viewed_account(request: Request, session: Session, user_session: UserSessio
 
 def _key_account(request: Request, session: SessionDep, secret: str) -> Account:
     """The account an API key acts as, counted for the key, provided the route is one a key
-    reaches and the key's scope and the organisation's plan allow the request."""
+    reaches and the key's scope allows the request."""
     found = find_key(session, secret)
     if found is None:
         raise HTTPException(401, KEY_UNKNOWN, headers=CHALLENGE)
@@ -271,8 +265,6 @@ def _key_account(request: Request, session: SessionDep, secret: str) -> Account:
         raise HTTPException(403, ELSEWHERE)
     if key.scope == "read" and request.method not in SAFE_METHODS:
         raise HTTPException(403, READ_ONLY_KEY)
-    if refusal := check_api(organization):
-        raise PlanRefused(refusal)
     touch_key(session, key)
     return Account(organization, user, role, key=key)
 
@@ -328,21 +320,9 @@ def get_secured_account(account: UsableAccountDep) -> Account:
 AccountDep = Annotated[Account, Depends(get_secured_account)]
 
 
-def get_editor(account: AccountDep, session: SessionDep) -> Account:
-    """The account, provided its role allows changing what the organisation holds and the
-    organisation holds no more than its plan allows."""
+def get_editor(account: AccountDep) -> Account:
+    """The account, provided its role allows changing what the organisation holds."""
     _refuse_viewer(account)
-    if refusal := read_only(session, account.organization):
-        raise PlanRefused(refusal)
-    return account
-
-
-def get_writer(account: AccountDep, session: SessionDep) -> Account:
-    """The account, provided the organisation holds no more than its plan allows: whoever may
-    keep things of their own in it, such as My files (app/my_files.py), a viewer too, since
-    those change nothing the organisation's members share."""
-    if refusal := read_only(session, account.organization):
-        raise PlanRefused(refusal)
     return account
 
 
@@ -352,7 +332,6 @@ def _refuse_viewer(account: Account) -> None:
 
 
 EditorDep = Annotated[Account, Depends(get_editor)]
-WriterDep = Annotated[Account, Depends(get_writer)]
 
 
 def refuse_past(session: Session, *hits: tuple[Limit, Key]) -> None:
@@ -619,61 +598,48 @@ MyFileDep = Annotated[MyFile, Depends(get_my_file)]
 CommentDep = Annotated[Comment, Depends(get_comment)]
 
 
-def get_editable_project(project: ProjectDep, account: AccountDep, session: SessionDep) -> Project:
-    get_editor(account, session)
+def get_editable_project(project: ProjectDep, account: AccountDep) -> Project:
+    _refuse_viewer(account)
     return project
 
 
-def get_editable_document(
-    document: DocumentDep, account: AccountDep, session: SessionDep
-) -> Document:
-    get_editor(account, session)
+def get_editable_document(document: DocumentDep, account: AccountDep) -> Document:
+    _refuse_viewer(account)
     return document
 
 
-def get_editable_folder(folder: FolderDep, account: AccountDep, session: SessionDep) -> Folder:
-    get_editor(account, session)
+def get_editable_folder(folder: FolderDep, account: AccountDep) -> Folder:
+    _refuse_viewer(account)
     return folder
 
 
 def get_editable_template(
     template: Annotated[ExtractionTemplate, Depends(get_template)],
     account: AccountDep,
-    session: SessionDep,
 ) -> ExtractionTemplate:
-    get_editor(account, session)
+    _refuse_viewer(account)
     return template
 
 
 def get_editable_cross_check(
     check: Annotated[CrossCheck, Depends(get_cross_check)],
     account: AccountDep,
-    session: SessionDep,
 ) -> CrossCheck:
-    get_editor(account, session)
+    _refuse_viewer(account)
     return check
 
 
 def get_editable_automation(
     automation: Annotated[Automation, Depends(get_automation)],
     account: AccountDep,
-    session: SessionDep,
 ) -> Automation:
-    get_editor(account, session)
+    _refuse_viewer(account)
     return automation
 
 
 def get_editable_run(
-    run: Annotated[WorkflowRun, Depends(get_run)], account: AccountDep, session: SessionDep
-) -> WorkflowRun:
-    get_editor(account, session)
-    return run
-
-
-def get_deletable_run(
     run: Annotated[WorkflowRun, Depends(get_run)], account: AccountDep
 ) -> WorkflowRun:
-    """The run, for deleting it: by role alone, as a document is."""
     _refuse_viewer(account)
     return run
 
@@ -681,70 +647,33 @@ def get_deletable_run(
 def get_editable_question_set(
     row: Annotated[QuestionSet, Depends(get_question_set)],
     account: AccountDep,
-    session: SessionDep,
 ) -> QuestionSet:
-    get_editor(account, session)
-    return row
-
-
-def get_deletable_question_set(
-    row: Annotated[QuestionSet, Depends(get_question_set)], account: AccountDep
-) -> QuestionSet:
-    """The set, for deleting it: by role alone, as a document is."""
     _refuse_viewer(account)
     return row
 
 
-def get_deletable_report(
+def get_editable_report(
     report: Annotated[QuestionReport, Depends(get_report)], account: AccountDep
 ) -> QuestionReport:
-    """The report, for deleting it: by role alone, as a run of cross-checks is."""
     _refuse_viewer(account)
     return report
 
 
-def get_editable_draft(
-    draft: Annotated[Draft, Depends(get_draft)], account: AccountDep, session: SessionDep
-) -> Draft:
-    get_editor(account, session)
-    return draft
-
-
-def get_deletable_draft(draft: Annotated[Draft, Depends(get_draft)], account: AccountDep) -> Draft:
-    """The draft, for deleting it: by role alone, as a document is."""
+def get_editable_draft(draft: Annotated[Draft, Depends(get_draft)], account: AccountDep) -> Draft:
     _refuse_viewer(account)
     return draft
 
 
-def get_editable_fact(
-    fact: Annotated[Fact, Depends(get_fact)], account: AccountDep, session: SessionDep
-) -> Fact:
-    get_editor(account, session)
+def get_editable_fact(fact: Annotated[Fact, Depends(get_fact)], account: AccountDep) -> Fact:
+    _refuse_viewer(account)
     return fact
 
 
 def get_editable_fact_check(
-    check: Annotated[FactCheck, Depends(get_fact_check)], account: AccountDep, session: SessionDep
+    check: Annotated[FactCheck, Depends(get_fact_check)], account: AccountDep
 ) -> FactCheck:
-    get_editor(account, session)
+    _refuse_viewer(account)
     return check
-
-
-def get_deletable_project(project: ProjectDep, account: AccountDep) -> Project:
-    """The project, for deleting it: by role alone, since deleting is how an organisation past
-    its plan gets within it."""
-    _refuse_viewer(account)
-    return project
-
-
-def get_deletable_document(document: DocumentDep, account: AccountDep) -> Document:
-    _refuse_viewer(account)
-    return document
-
-
-def get_deletable_folder(folder: FolderDep, account: AccountDep) -> Folder:
-    _refuse_viewer(account)
-    return folder
 
 
 def get_own_chat(chat: ChatDep, account: AccountDep) -> Chat:
@@ -764,22 +693,16 @@ CrossCheckDep = Annotated[CrossCheck, Depends(get_cross_check)]
 EditableCrossCheckDep = Annotated[CrossCheck, Depends(get_editable_cross_check)]
 RunDep = Annotated[WorkflowRun, Depends(get_run)]
 EditableRunDep = Annotated[WorkflowRun, Depends(get_editable_run)]
-DeletableRunDep = Annotated[WorkflowRun, Depends(get_deletable_run)]
 DraftDep = Annotated[Draft, Depends(get_draft)]
 EditableDraftDep = Annotated[Draft, Depends(get_editable_draft)]
-DeletableDraftDep = Annotated[Draft, Depends(get_deletable_draft)]
 AutomationDep = Annotated[Automation, Depends(get_automation)]
 EditableAutomationDep = Annotated[Automation, Depends(get_editable_automation)]
 QuestionSetDep = Annotated[QuestionSet, Depends(get_question_set)]
 EditableQuestionSetDep = Annotated[QuestionSet, Depends(get_editable_question_set)]
-DeletableQuestionSetDep = Annotated[QuestionSet, Depends(get_deletable_question_set)]
 ReportDep = Annotated[QuestionReport, Depends(get_report)]
-DeletableReportDep = Annotated[QuestionReport, Depends(get_deletable_report)]
+EditableReportDep = Annotated[QuestionReport, Depends(get_editable_report)]
 EditableFactDep = Annotated[Fact, Depends(get_editable_fact)]
 EditableFactCheckDep = Annotated[FactCheck, Depends(get_editable_fact_check)]
-DeletableProjectDep = Annotated[Project, Depends(get_deletable_project)]
-DeletableDocumentDep = Annotated[Document, Depends(get_deletable_document)]
-DeletableFolderDep = Annotated[Folder, Depends(get_deletable_folder)]
 OwnChatDep = Annotated[Chat, Depends(get_own_chat)]
 
 

@@ -32,7 +32,6 @@ from app.accounts import Account
 from app.api.auth import app_url
 from app.api.deps import (
     AccountDep,
-    DeletableDocumentDep,
     DocumentDep,
     EditableDocumentDep,
     EditableProjectDep,
@@ -49,7 +48,6 @@ from app.config import Settings, get_settings
 from app.conversion import converts, queue_view
 from app.costs import costs_shown
 from app.details import edit_details
-from app.entitlements import PlanRefused, check_upload, size_label
 from app.fact_checks import fact_out
 from app.folders import (
     folder_names,
@@ -100,7 +98,7 @@ from app.selection import NOT_CHOSEN, chosen_documents
 from app.storage import Storage
 from app.trash import trash_document
 from app.uploads import Incoming, take_files
-from app.usage import DOCUMENT, RENDER, record
+from app.usage import DOCUMENT, RENDER, record, size_label
 from app.version import VERSION
 
 router = APIRouter(tags=["documents"])
@@ -421,15 +419,13 @@ def upload_documents(
     itself) when the request gives one per file, as an upload of a folder does: a folder is made
     where none of its name is, and one that is goes on holding what it held.
 
-    The request is refused whole, before anything is stored, when it carries more files or
-    more bytes than one upload may (413, naming the limit), and when the organisation's plan
-    has no room for a document at all (402, which the app shows as the way to upgrade); each
-    file is then checked for its own size, for whether its bytes are the type its name claims
-    (app/parsing/signatures.py) and against the plan, and one that fails is rejected with the
-    sentence while the others go in (app/entitlements.py). The sample project takes none (409),
-    since it counts against nothing the plan holds (app/sample). A message saved from a mail
-    program (.eml) that the page uploads is opened, its text and attachments taken in its place;
-    one a program sends with an API key is refused as any other type the parsers do not read
+    The request is refused whole, before anything is stored, when it carries more files or more
+    bytes than one upload may (413, naming the limit); each file is then checked for its own size
+    and for whether its bytes are the type its name claims (app/parsing/signatures.py), and one that
+    fails is rejected with the sentence while the others go in (app/uploads.py). The sample project
+    takes none (409), since it is the app's own (app/sample). A message saved from a mail program
+    (.eml) that the page uploads is opened, its text and attachments taken in its place; one a
+    program sends with an API key is refused as any other type the parsers do not read
     (app/unpacking.py).
     """
     if project.sample:
@@ -440,10 +436,6 @@ def upload_documents(
         raise HTTPException(413, reason)
     if paths is not None and len(paths) != len(files):
         raise HTTPException(422, ONE_PATH_A_FILE)
-    organization = account.organization
-    if refusal := check_upload(session, organization):
-        UPLOAD_REJECTIONS.labels("plan").inc(len(files))
-        raise PlanRefused(refusal)
     folder = resolve_folder(session, project, folder_id)
 
     def audited(document: Document, size: int) -> None:
@@ -461,7 +453,6 @@ def upload_documents(
         session,
         services.storage,
         project,
-        organization,
         folder.id if folder else None,
         (
             Incoming(
@@ -616,7 +607,7 @@ def renamed(current: str, requested: str) -> str:
 
 @router.delete("/documents/{document_id}", status_code=204)
 def delete_document(
-    document: DeletableDocumentDep, session: SessionDep, account: AccountDep, request: Request
+    document: EditableDocumentDep, session: SessionDep, account: AccountDep, request: Request
 ):
     """Put the document in the project's trash, where nothing reads it until it is restored."""
     audit(

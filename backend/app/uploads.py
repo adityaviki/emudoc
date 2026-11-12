@@ -5,10 +5,9 @@ folder (app/connectors/sync.py), each through the same checks.
 A file is refused with a sentence about it, while the others go in: a type the app does not
 read, nothing in it, more bytes than one file may have, bytes that are not the type its name
 claims (app/parsing/signatures.py), bytes the project holds already (in its library or its
-trash, which the sentence names), or no room left on the organisation's plan
-(app/entitlements.py). A file kept is a document, stored before its row is committed, with the
-job that indexes it, the member's usage of its bytes and its audit row in the same commit, one
-file at a time, so that each one committed fills the plan for the next.
+trash, which the sentence names). A file kept is a document, stored before its row is
+committed, with the job that indexes it, the member's usage of its bytes and its audit row in the
+same commit, one file at a time.
 """
 
 import hashlib
@@ -23,7 +22,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.entitlements import check_upload
 from app.folders import (
     MAX_DEPTH,
     NAME_LENGTH,
@@ -34,7 +32,7 @@ from app.folders import (
 )
 from app.jobs import Lease, LeaseLost, queue_index, renew
 from app.metrics import UPLOAD_BYTES, UPLOAD_REJECTIONS
-from app.models import STAGES, Document, Folder, Organization, Project
+from app.models import STAGES, Document, Folder, Project
 from app.parsing import MIME_TYPES, SUPPORTED_EXTENSIONS
 from app.parsing.signatures import wrong_type
 from app.restore import place_taken
@@ -72,7 +70,6 @@ def take_files(
     session: Session,
     storage: Storage,
     project: Project,
-    organization: Organization,
     target: int | None,
     files: Iterable[Incoming],
     *,
@@ -143,19 +140,6 @@ def take_files(
                 rejected.append(duplicate)
                 UPLOAD_REJECTIONS.labels("duplicate").inc()
                 return
-            # Counted again per file: each one committed above fills the plan a little more.
-            if refusal := check_upload(session, organization, size):
-                rejected.append(
-                    RejectedFile(
-                        filename=filename,
-                        reason=refusal.sentence,
-                        limit=refusal.limit,
-                        index=index,
-                    )
-                )
-                UPLOAD_REJECTIONS.labels("plan").inc()
-                return
-
             if tuple(names) not in made:
                 made[tuple(names)] = folder_at(session, project.id, target, names)
             folder_of = made[tuple(names)]
@@ -268,7 +252,7 @@ def screened(spool: Path, size: int, suffix: str) -> tuple[str, str] | None:
     or bytes that are not the type its extension `suffix` names; None for a file to go on with.
 
     The extension picks the parser and the type the file is served as, so the bytes must be what
-    it says; refused here, before a duplicate is looked for or the plan is counted, with a
+    it says; refused here, before a duplicate is looked for, with a
     sentence about the file rather than a parser's a stage later.
     """
     settings = get_settings()

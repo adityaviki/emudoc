@@ -1,8 +1,8 @@
 """The organisation's webhooks (app/webhooks.py), which its owners and admins add, change, roll and
 remove on its page beside its API keys, and whose delivery logs they read.
 
-A webhook is made with an address and the events it is told of, by an owner or admin, on a plan
-that includes the API; the organisation holds MAX_WEBHOOKS at most. Its secret is in the answer
+A webhook is made with an address and the events it is told of, by an owner or admin; the
+organisation holds MAX_WEBHOOKS at most. Its secret is in the answer
 that makes it and the one that rolls it, and in nothing after. Each change is a row of the audit
 log, which names the address's server and never the address, whose path may hold the receiving
 program's own token. None of these routes takes an API key: a key that leaks sends the
@@ -19,7 +19,6 @@ from app.api.organizations import locked
 from app.audit import audit
 from app.auth import now
 from app.encrypted import WEBHOOK_SECRETS, encrypt
-from app.entitlements import PlanRefused, check_api
 from app.models import WEBHOOK_EVENTS, User, Webhook, WebhookDelivery
 from app.schemas import (
     WebhookDeliveriesOut,
@@ -65,8 +64,6 @@ def make_webhook(body: WebhookIn, account: AccountDep, request: Request, session
     _refuse_unless_admin(account)
     if problem := url_problem(body.url):
         raise HTTPException(400, problem)
-    if refusal := check_api(account.organization):
-        raise PlanRefused(refusal)
     # Held, so that two webhooks added at once cannot both take the last place.
     organization = locked(session, account.organization.id)
     held = session.scalar(select(func.count()).where(Webhook.org_id == organization.id))
@@ -135,8 +132,6 @@ def roll_webhook(webhook_id: int, account: AccountDep, request: Request, session
     with it, and answer it with the new one, shown this once."""
     _refuse_unless_admin(account)
     hook = _webhook(session, account, webhook_id)
-    if refusal := check_api(account.organization):
-        raise PlanRefused(refusal)
     secret = new_secret()
     hook.secret = encrypt(WEBHOOK_SECRETS, hook.id, secret)
     hook.rolled_at = now()

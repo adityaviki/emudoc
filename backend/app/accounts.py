@@ -101,7 +101,7 @@ def account_for_user(
 def create_organization(
     session: Session, user: User, name: str, slug_stem: str | None = None
 ) -> Account:
-    """A new organisation the user owns, on the plan a new one starts on, with its data kept
+    """A new organisation the user owns, with its data kept
     where the deployment keeps it (DATA_REGION), and a slug of its own from `slug_stem` or the
     name. The caller commits."""
     organization = Organization(
@@ -203,11 +203,9 @@ def local_account(session: Session) -> Account:
     if account is None:
         try:
             with session.begin_nested():
-                # One machine, one developer: no plan stands between them and their files.
                 organization = Organization(
                     name="Local",
                     slug=LOCAL_ORG_SLUG,
-                    plan="enterprise",
                     region=get_settings().data_region or None,
                 )
                 user = User(email=LOCAL_OWNER_EMAIL, name="Owner")

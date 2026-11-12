@@ -32,8 +32,7 @@ from tests.test_api import create_project
 from tests.test_audit import actions
 from tests.test_chats import questions_counted
 from tests.test_check_runs import TOTAL, cite, invoices, made, run, work
-from tests.test_entitlements import member, plan  # noqa: F401 (fixtures)
-from tests.test_spending import platform_refusal, spend
+from tests.test_spending import refusal, spend
 from tests.test_templates import turn_on
 
 LETTER = {"kind": "dispute_letter", "instructions": "Ask for a credit note."}
@@ -317,8 +316,7 @@ def test_a_draft_is_held_to_what_holds_a_question(
     client,
     session,
     services,
-    member,  # noqa: F811
-    plan,  # noqa: F811
+    account,
     monkeypatch,
 ):
     project = create_project(client)
@@ -327,15 +325,10 @@ def test_a_draft_is_held_to_what_holds_a_question(
     assert client.post(path, json={"kind": "report"}).status_code == 429
     monkeypatch.setattr(get_settings(), "max_answers", 20)
 
-    plan(questions_per_month=0)
-    refused = client.post(path, json={"kind": "report"})
-    assert (refused.status_code, refused.json()["limit"]) == (402, "questions_per_month")
-    plan(questions_per_month=100)
-
     monkeypatch.setattr(get_settings(), "daily_spend_cap", Decimal("2"))
-    spend(session, member.organization.id, "3")
+    spend(session, account.organization.id, "3")
     over = client.post(path, json={"kind": "report"})
-    assert (over.status_code, over.json()["detail"]) == (503, platform_refusal("3.00", "2.00"))
+    assert (over.status_code, over.json()["detail"]) == (503, refusal("3.00", "2.00"))
     # Nothing was asked for, and no question counted.
     assert session.scalar(select(func.count()).select_from(Draft)) == 0
     assert questions_counted(session) == 0
@@ -350,7 +343,7 @@ def test_a_writing_the_days_spending_catches_ends_with_its_sentence(
     spend(session, account.organization.id, "3")
     write(services)
     done = shown(client, draft["id"])
-    assert (done["status"], done["error"]) == ("failed", platform_refusal("3.00", "2.00"))
+    assert (done["status"], done["error"]) == ("failed", refusal("3.00", "2.00"))
     assert (done["latest"], done["usage"]) == (None, {})
 
 
@@ -434,13 +427,14 @@ def test_a_draft_is_audited_by_its_kind_never_what_it_says(client, session, serv
     assert "INV-1" not in str(logged) and "credit note" not in str(logged)
 
 
-def test_drafts_are_kept_as_long_as_chats(client, session, services, member):  # noqa: F811
+def test_drafts_are_kept_as_long_as_chats(client, session, services, account):
     project = create_project(client)
     services.llm.agent_turns.append(FakeTurn(TextPart("Old.")))
     old = ask(client, project["id"], kind="report")
     write(services)
     queued = ask(client, project["id"], kind="report")
-    # The free plan keeps a chat 30 days; the written draft is older, the queued one too.
+    # The organisation keeps a chat 30 days; the written draft is older, the queued one too.
+    account.organization.chat_days = 30
     session.execute(update(Draft).values(updated_at=func.now() - dt.timedelta(days=31)))
     session.commit()
     with engine.begin() as connection:

@@ -216,7 +216,7 @@ function NoticesSection({ me }: { me: Me }) {
     <div ref={box} id="notices" className="scroll-mt-6">
       <Section
         title="Notices"
-        description="News about your work in Emudoc, under the bell in the header and by email. Until you choose, each kind is told as your workspace tells its members. Email about your account, invitations and billing is sent either way."
+        description="News about your work in Emudoc, under the bell in the header and by email. Until you choose, each kind is told as your workspace tells its members. Email about your account and invitations is sent either way."
       >
         {/* Turning a kind on by email also writes again to an address that bounced. */}
         <NoticeChoices key={JSON.stringify(me.notices)} saved={me.notices} change={(choice) => auth.updateProfile({ notices: [choice] })} />
@@ -515,7 +515,7 @@ function SupportSection({ me }: { me: Me }) {
 }
 
 function DataSection({ me }: { me: Me }) {
-  const days = me.organization.chat_retention_days
+  const days = me.organization.chat_days
   return (
     <Section
       title="Your data"

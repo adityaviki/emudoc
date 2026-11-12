@@ -275,7 +275,7 @@ function AutomationForm({
         )}
       </fieldset>
       <Checkbox
-        label="With a discrepancy report by the model, which counts as one of the month’s questions"
+        label="With a discrepancy report by the model, which counts as a question asked"
         checked={draft.report}
         onChange={(event) => change({ report: event.target.checked })}
       />

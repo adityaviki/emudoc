@@ -12,10 +12,10 @@ the vectors are left out, since they are the deployment's embedding model's: eac
 index job runs the embed stage alone, a few seconds, and a search finds the passages by their
 words meanwhile.
 
-The sample is outside the plan: its project and documents count against nothing the plan holds
-(app/entitlements.py), and nothing more is uploaded into it (app/api/documents.py), so that it
-never becomes a project the plan did not count. Its questions are asked like any other, and
-count as any do; a member deletes it like any project.
+The sample is the app's own: the usage page leaves its project and documents out of what the
+workspace holds (app/usage.py), and nothing more is uploaded into it (app/api/documents.py).
+Its questions are asked like any other, and count as any do; a member deletes it like any
+project.
 
 `index.json` is a snapshot: a later change to the parsers or the pipeline makes it older, not
 wrong, since it describes files that do not change. Run `build-sample` again when such a change
@@ -350,7 +350,6 @@ def indexed_files(
             organization = Organization(
                 name=name,
                 slug=f"{slug}-{uuid4().hex[:12]}",
-                plan="enterprise",
                 flags=dict(flags or {}),
             )
             session.add(organization)

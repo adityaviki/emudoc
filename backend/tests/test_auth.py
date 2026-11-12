@@ -41,7 +41,6 @@ from app.auth import (
 )
 from app.config import Settings, get_settings
 from app.db import SessionLocal
-from app.entitlements import PLANS
 from app.legal import TERMS_VERSION
 from app.mail import MailError, Message
 from app.models import Organization, User
@@ -160,10 +159,9 @@ def another_browser(client, **headers) -> TestClient:
 
 @pytest.fixture
 def open_signup(session, monkeypatch, signed_in_only) -> int:
-    """Sign-up open on an install its admin set up, whose workspace has room for everyone: the
-    id of the workspace a sign-up joins (app/signups.py)."""
+    """Sign-up open on an install its admin set up: the id of the workspace a sign-up joins
+    (app/signups.py)."""
     monkeypatch.setattr(get_settings(), "signup_open", True)
-    monkeypatch.setitem(PLANS, "free", replace(PLANS["free"], members=None))
     admin = create_account(session, "admin@example.com", "Admin", email_verified=True)
     session.commit()
     return admin.organization.id

@@ -14,7 +14,6 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import (
     AccountDep,
-    DeletableProjectDep,
     EditableProjectDep,
     ProjectDep,
     SessionDep,
@@ -145,7 +144,7 @@ def new_address(
 
 @router.delete("/projects/{project_id}/mailbox", status_code=204)
 def delete_mailbox(
-    project: DeletableProjectDep, session: SessionDep, account: AccountDep, request: Request
+    project: EditableProjectDep, session: SessionDep, account: AccountDep, request: Request
 ):
     """Take the project's address away: mail to it reaches nothing, and what became of the
     messages it received stays until it is forgotten as ever."""

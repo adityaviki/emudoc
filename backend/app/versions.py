@@ -12,14 +12,13 @@ pages and the thumbnail drawn from it, and the earlier file's drawings are disca
 change is committed, so that nothing drawn from one is served for the other.
 
 A new version is checked as an upload's file is (app/uploads.py): its type, its size, its bytes
-against its extension, bytes the project holds already (the document's own current file among
-them), and the plan's room for its bytes and its pages, which are counted again as it is read
-(`check_version` in app/entitlements.py); its usage starts again, the earlier one's staying with
+against its extension, bytes the project holds already (the document's own current file among them);
+its pages are counted again as it is read, its usage starting again, the earlier one's staying with
 its row. It is an upload of its own (`record_upload`, by the caller), so that its member's notice,
 the project's automations and the `document.ready` webhook follow its reading as they follow a new
-document's. What the document read from the earlier file goes at once: its blocks, outline,
-passages and facts, with what their reading changed, and its title, kind, date and summary until
-the new file is read. A member's check of a fact goes back on a fact the new file reads the same
+document's. What the document read from the earlier file goes at once: its blocks, outline, passages
+and facts, with what their reading changed, and its title, kind, date and summary until the new file
+is read. A member's check of a fact goes back on a fact the new file reads the same
 (app/fact_checks.py), and a review that approved or disputed the earlier file is opened again
 (`to_review`, its assignee kept). A document being indexed takes no new version until it is done,
 since the run would go on with the earlier file.
@@ -40,7 +39,6 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.details import settle_details
-from app.entitlements import check_version
 from app.fact_checks import hold as hold_checks
 from app.folders import unique_filename
 from app.indexing.pipeline import reset_stages
@@ -52,7 +50,6 @@ from app.models import (
     DocumentVersion,
     Fact,
     FactChange,
-    Organization,
     Passage,
     Project,
     Section,
@@ -84,21 +81,13 @@ REOPENED = ("approved", "disputed")
 
 class VersionRefused(Exception):
     """A file not taken as a document's new version, with the sentence the member reads and the
-    label it is counted by (`UPLOAD_REFUSALS` in app/metrics.py): `limit` is the plan's figure
-    when the plan refused it, `duplicate_of` the document that holds its bytes."""
+    label it is counted by (`UPLOAD_REFUSALS` in app/metrics.py), and `duplicate_of` the
+    document that holds its bytes."""
 
-    def __init__(
-        self,
-        reason: str,
-        label: str,
-        *,
-        limit: str | None = None,
-        duplicate_of: int | None = None,
-    ):
+    def __init__(self, reason: str, label: str, *, duplicate_of: int | None = None):
         super().__init__(reason)
         self.reason = reason
         self.label = label
-        self.limit = limit
         self.duplicate_of = duplicate_of
 
 
@@ -106,7 +95,6 @@ def take_version(
     session: Session,
     storage: Storage,
     project: Project,
-    organization: Organization,
     document: Document,
     name: str,
     file: BinaryIO,
@@ -141,8 +129,6 @@ def take_version(
             raise _refused(SAME_FILE, "duplicate", duplicate_of=document.id)
         if duplicate := already_present(session, project.id, sha256, name):
             raise _refused(duplicate.reason, "duplicate", duplicate_of=duplicate.duplicate_of)
-        if refusal := check_version(session, organization, size):
-            raise _refused(refusal.sentence, "plan", limit=refusal.limit)
 
         earlier = _earlier(session, document)
         drawn = document.version_prefix

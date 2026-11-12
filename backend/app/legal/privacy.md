@@ -75,8 +75,7 @@ organisation uploaded a document about you, ask the organisation first; we help 
   and from which address, you opened it, and nothing else of you. We need them to provide the service to
   the organisation.
 - **Usage**: the pages, questions and model use your organisation counted, and what they cost,
-  each with the member it was for, to hold the organisation to its plan and, on a paid plan,
-  to bill it.
+  each with the member it was for, to show the organisation what it used and what that cost.
 - **Support access**: when you let our support see your account in an organisation, until when,
   and each time support opened it, so that it sees your account only while you allow it and you
   and the organisation's owners and admins can tell when it did. While it has it open, support
@@ -107,7 +106,7 @@ address when it was replaced or when another account asked to take it, to reset 
 to tell you when sign-ins to it were paused after many wrong passwords, to tell you when our
 support opened it with your leave, and to confirm that you asked for your account to be deleted;
 and to an address a member of an organisation invited,
-the invitation.$billing_mail Besides, we tell you notices about your work in the service, in
+the invitation. Besides, we tell you notices about your work in the service, in
 your notification centre in the app and by email: when documents you uploaded took a while to
 index, that they are done and which could not be indexed; when an organisation's automation
 that names you ran a project's cross-checks after documents arrived, what they found about them,
@@ -164,13 +163,10 @@ $region
   project, or with the member's place in the organisation.
 - **The trash**: a project, folder, document or chat a member deletes is kept in its trash for
   $trash_days days, where it can be restored, and is then deleted for good, unless a member
-  deletes it there sooner; a chat goes sooner when its plan keeps it for less time.
-- **Chats**, for as long as the organisation's plan keeps a chat after its last question
-  ($chat_retention), or the terms agreed with the organisation in its place, or for less time
-  where its owners or admins chose so, unless deleted sooner; the chats you did not share with
-  a project go when an owner or admin removes you from the organisation. After
-  a move to a plan or terms that keep chats for less time, they are kept as before for
-  $held_days days after the move, unless the organisation chose less.
+  deletes it there sooner; a chat goes sooner when the organisation keeps chats for less time.
+- **Chats**, until they are deleted, or for as many days after their last question as the
+  organisation's owners or admins chose; the chats you did not share with a project go when an
+  owner or admin removes you from the organisation.
 - **Runs of cross-checks**, with what they found and their reports, for as long as the
   organisation keeps a chat, counted from when the run was made, unless a member deletes them
   sooner.
@@ -181,9 +177,8 @@ $region
 - **Question sets**, until a member deletes them or their project goes; **the reports of their
   answers**, for as long as the organisation keeps a chat, counted from when the report was
   made, unless a member deletes them sooner.
-- **Audit log entries**, for as long as the organisation's plan keeps them
-  ($audit_retention), or the terms agreed with the organisation in its place; after a move to
-  a plan or terms that keep them for less time, as before for $held_days days after the move.
+- **Audit log entries**, $audit_days days, or as long as the organisation's owners or admins
+  chose instead.
 - **Sessions and links**, until $credential_days days after they expired or were ended.
 - **Invitations**, until they are accepted or revoked, or $credential_days days after they
   expired.

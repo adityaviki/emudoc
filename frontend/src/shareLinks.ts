@@ -28,14 +28,9 @@ export function daysWords(days: number): string {
 /** Whether the page offers the member a document's links: while they are rolled out, to a role that may make one. */
 export const offersLinks = (me: Me) => me.organization.flags_on.includes('share_links') && mayChange(me.role)
 
-/**
- * Why a member cannot make a link in the organisation as it stands, or null when they can: the plan's refusal is
- * the plan's offer's (`PlanOffer`), so it says only that the plan lacks them.
- */
-export function linksHeld(me: Me): 'plan' | 'off' | null {
-  if (!me.organization.allowance.share_links) return 'plan'
-  if (!me.organization.share_links) return 'off'
-  return null
+/** Why a member cannot make a link in the organisation as it stands, or null when they can. */
+export function linksHeld(me: Me): 'off' | null {
+  return me.organization.share_links ? null : 'off'
 }
 
 export const LINKS_OFF =

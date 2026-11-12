@@ -58,7 +58,6 @@ from sqlalchemy.orm import Session
 from app.agent.loop import AGENT_PROMPTS, run_agent
 from app.agent.tools import Writing
 from app.db import BUSY, SessionLocal
-from app.entitlements import read_only
 from app.flags import DRAFTS, MY_FILES, flag_on
 from app.indexing.pipeline import Services
 from app.jobs import ANSWER_QUESTION, LIVE, Lease, LeaseLost, enqueue, renew
@@ -78,7 +77,7 @@ from app.models import (
 )
 from app.prompts import prompt_version
 from app.scopes import scope_of
-from app.spending import check_platform_spend, check_spend
+from app.spending import check_spend
 from app.tracing import FIRST_TEXT, WRITE, mark, span
 from app.usage import ANSWER, CHAT_MESSAGE, ModelUsage, record
 
@@ -256,9 +255,8 @@ def _queue(session: Session, project: Project, answer: ChatMessage) -> None:
 def offers_drafts(session: Session, organization: Organization, user_id: int) -> bool:
     """Whether an answer to the member may offer a draft: drafts are on for the organisation, and
     the member could have one written there now, as the route that writes it holds them to
-    (`get_editor` in app/api/deps.py): a role that changes what the organisation holds, in an
-    organisation that is not past its plan. The route checks again
-    when the member presses the offer."""
+    (`get_editor` in app/api/deps.py): a role that changes what the organisation holds. The
+    route checks again when the member presses the offer."""
     if not flag_on(organization, DRAFTS):
         return False
     role = session.scalar(
@@ -266,16 +264,13 @@ def offers_drafts(session: Session, organization: Organization, user_id: int) ->
             Membership.org_id == organization.id, Membership.user_id == user_id
         )
     )
-    if role is None or ROLES.index(role) > ROLES.index("member"):
-        return False
-    return read_only(session, organization) is None
+    return role is not None and ROLES.index(role) <= ROLES.index("member")
 
 
 def offers_my_files(session: Session, organization: Organization, user_id: int) -> bool:
     """Whether an answer to the member may write their My files: the flag is on for the
-    organisation, and the member could keep a file there now, as the routes hold them to
-    (`get_writer` in app/api/deps.py): any role, a viewer's too, since My files change nothing the
-    members share, in an organisation that is not past its plan."""
+    organisation, and the member is one there now: any role, a viewer's too, since My files
+    change nothing the members share."""
     if not flag_on(organization, MY_FILES):
         return False
     member = session.scalar(
@@ -283,9 +278,7 @@ def offers_my_files(session: Session, organization: Organization, user_id: int) 
             Membership.org_id == organization.id, Membership.user_id == user_id
         )
     )
-    if member is None:
-        return False
-    return read_only(session, organization) is None
+    return member is not None
 
 
 def answers_in_flight(session: Session, org_id: int) -> int:
@@ -431,7 +424,7 @@ def answer(
         # rows, and reading one afterwards would take a connection back for the whole run.
         payer = {"org_id": project.org_id, "project_id": project_id, "user_id": chat.user_id}
         about(user_id=chat.user_id)
-        over = check_platform_spend(session) or check_spend(session, project.organization)
+        over = check_spend(session)
         drafting = offers_drafts(session, project.organization, chat.user_id)
         writing = (
             Writing(services, chat.user_id, chat.id, message_id, attempt)

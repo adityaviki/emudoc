@@ -2,14 +2,15 @@
 // kind of thing it was done to as the filter offers them; a row's detail in a few words; and the filter the page's
 // choices ask for, its days in the browser's own zone.
 
-import { PLAN_LABELS, ROLE_LABELS } from './api.ts'
-import type { AuditAction, AuditEvent, AuditFilter, ConnectorProvider, DraftKind, NoticeKind, Plan, ReviewState, Role } from './api.ts'
+import { ROLE_LABELS } from './api.ts'
+import type { AuditAction, AuditEvent, AuditFilter, ConnectorProvider, DraftKind, NoticeKind, ReviewState, Role } from './api.ts'
 import { SERVICE_NAMES } from './connectors.ts'
 import { KIND_LABELS } from './drafts.ts'
 import { fieldWords } from './factTable.ts'
 import { formatDate, formatDateTime } from './format.ts'
 import { NOTICE_KINDS } from './notifications.ts'
 import { keptWords, languageName, signInWords } from './organizationSettings.ts'
+import type { Kept } from './organizationSettings.ts'
 import { REVIEW_LABELS } from './reviews.ts'
 import { TEXT_FILES } from './textFiles.ts'
 
@@ -308,6 +309,7 @@ function describeSetting(detail: AuditEvent['detail']): string {
   const { setting, from, to } = detail
   if (setting === 'language') return `Language: ${language(from)} → ${language(to)}`
   if (setting === 'chat_days') return `Chats kept: ${days(from)} → ${days(to)}`
+  if (setting === 'audit_days') return `Audit log kept: ${days(from, 'entries')} → ${days(to, 'entries')}`
   if (setting === 'session_days') return `Sign in again: ${typeof to === 'number' ? signInWords(to).toLowerCase() : 'as Emudoc asks'}`
   if (setting === 'mfa_required') return to ? 'Two-factor sign-in required' : 'Two-factor sign-in no longer required'
   if (setting === 'share_links') return to ? 'Share links allowed' : 'Share links turned off'
@@ -609,13 +611,13 @@ function describeAssignment(detail: AuditEvent['detail'], names: ReadonlyMap<num
 }
 
 const language = (value: unknown) => (typeof value === 'string' ? languageName(value) : 'the default')
-const days = (value: unknown) => (typeof value === 'number' ? keptWords(value).toLowerCase() : 'as long as the plan')
+const days = (value: unknown, what: Kept = 'chats') => (typeof value === 'number' ? keptWords(value, what) : 'until deleted').toLowerCase()
 
-/** A value of a detail as a row says it: a role or a plan by its name, nothing as none. */
+/** A value of a detail as a row says it: a role by its name, nothing as none. */
 function word(value: unknown): string {
   if (value === null || value === undefined || value === '') return 'none'
   if (typeof value === 'boolean') return value ? 'on' : 'off'
   if (typeof value === 'number') return value.toLocaleString()
   const text = String(value)
-  return ROLE_LABELS[text as Role] ?? PLAN_LABELS[text as Plan] ?? text[0].toUpperCase() + text.slice(1)
+  return ROLE_LABELS[text as Role] ?? text[0].toUpperCase() + text.slice(1)
 }

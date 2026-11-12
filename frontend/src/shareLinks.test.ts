@@ -33,7 +33,7 @@ function member(role: Me['role'], organization: Partial<Me['organization']> = {}
   return {
     id: 8,
     role,
-    organization: { flags_on: ['share_links'], share_links: true, allowance: { share_links: true }, ...organization },
+    organization: { flags_on: ['share_links'], share_links: true, ...organization },
   } as Me
 }
 
@@ -61,9 +61,8 @@ describe('share links', () => {
     expect(offersLinks(member('owner', { flags_on: [] }))).toBe(false)
   })
 
-  it('says why no link can be made: the plan, or the organisation turned them off', () => {
+  it('says why no link can be made: the organisation turned them off', () => {
     expect(linksHeld(member('member'))).toBeNull()
-    expect(linksHeld(member('member', { allowance: { share_links: false } as Me['organization']['allowance'] }))).toBe('plan')
     expect(linksHeld(member('member', { share_links: false }))).toBe('off')
   })
 

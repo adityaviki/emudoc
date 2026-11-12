@@ -24,7 +24,6 @@ from app.api import (
     audit,
     auth,
     automations,
-    billing,
     chats,
     check_runs,
     comments,
@@ -69,13 +68,11 @@ from app.api.deps import (
     refuse_past,
 )
 from app.api.v1.contract import published as published_contract
-from app.billing import BillingRefused
 from app.config import ROOT_DIR, get_settings
 from app.conversion import check_converter
 from app.costs import CostsWithheld
 from app.db import BUSY, TOO_SLOW, SessionLocal, canceled, engine
-from app.entitlements import PlanRefused
-from app.errors import shown, summary
+from app.errors import summary
 from app.headers import (
     ASSETS_KEPT,
     PAGE_KEPT,
@@ -90,7 +87,6 @@ from app.logs import REQUEST_ID_HEADER, RequestIds, configure_logging, current_c
 from app.mail import Mailer, mailer_from_settings
 from app.metrics import POOL_TIMEOUTS, HttpMetrics, export_metrics
 from app.operators import operator_of
-from app.payments import PaymentsError
 from app.ratelimit import PAGE_ERRORS, by_address
 from app.schemas import (
     EmbeddingStatus,
@@ -99,7 +95,6 @@ from app.schemas import (
     LLMStatus,
     PageErrorIn,
     PageErrorOut,
-    PlanRefusalOut,
     StatusOut,
     SubprocessorsOut,
     WorkerStatus,
@@ -358,30 +353,6 @@ def storage_unavailable(request: Request, error: Exception) -> JSONResponse:
     return JSONResponse({"detail": STORAGE_DOWN}, status_code=503)
 
 
-def billing_unavailable(request: Request, error: Exception) -> JSONResponse:
-    """A request to Stripe that failed mid-request: 503 and the members' sentence, and in the log
-    the operator's, which names the call and Stripe's codes. Stripe delivers an event it was
-    answered so again."""
-    log.warning("%s %s failed: %s", request.method, request.url.path, error)
-    development = get_settings().environment == "development"
-    return JSONResponse({"detail": shown(error, development=development)}, status_code=503)
-
-
-def billing_refused(request: Request, error: Exception) -> JSONResponse:
-    """What billing turns down (app/billing.py), with its status and sentence."""
-    assert isinstance(error, BillingRefused)
-    return JSONResponse({"detail": str(error)}, status_code=error.status)
-
-
-def plan_refused(request: Request, error: Exception) -> JSONResponse:
-    """What the organisation's plan turns down (app/entitlements.py): 402, with the sentence and
-    the figure it is held to, from which the page chooses what to offer."""
-    assert isinstance(error, PlanRefused)
-    refusal = error.refusal
-    body = PlanRefusalOut(detail=refusal.sentence, limit=refusal.limit)
-    return JSONResponse(body.model_dump(), status_code=402)
-
-
 def pool_exhausted(request: Request, error: Exception) -> JSONResponse:
     """Every database connection this process may hold was in use for DB_POOL_TIMEOUT seconds.
 
@@ -548,9 +519,6 @@ def create_app(
     )
     app.add_exception_handler(RequestValidationError, invalid_request)
     app.add_exception_handler(StorageError, storage_unavailable)
-    app.add_exception_handler(PaymentsError, billing_unavailable)
-    app.add_exception_handler(BillingRefused, billing_refused)
-    app.add_exception_handler(PlanRefused, plan_refused)
     app.add_exception_handler(PoolTimeout, pool_exhausted)
     app.add_exception_handler(OperationalError, statement_canceled)
     app.add_exception_handler(Exception, unexpected_error)
@@ -584,7 +552,6 @@ def create_app(
         share_links.public,
         audit.router,
         usage.router,
-        billing.router,
         notifications.router,
         onboarding.router,
         support.router,
@@ -605,10 +572,9 @@ def create_app(
             status,
         ]
     )
-    # Stripe's and Resend's events carry no header of the app's: their signature proves where
-    # they came from (app/api/billing.py, app/api/mail.py); nor does a mail program's one-click
-    # unsubscribe, whose token says whose notices stop.
-    app.include_router(billing.events, prefix="/api")
+    # Resend's events carry no header of the app's: their signature proves where they came from
+    # (app/api/mail.py); nor does a mail program's one-click unsubscribe, whose token says whose
+    # notices stop.
     app.include_router(mail.events, prefix="/api")
     # The operator's area asks for the app's header itself, once the operator is known, so that
     # a refusal tells nobody else that a route is there (app/api/operator.py).

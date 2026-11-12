@@ -252,7 +252,6 @@ def edit_document(ctx: ToolContext, args: EditDocumentInput) -> str:
         version = add_version(
             ctx.session,
             services.storage,
-            _organization(ctx),
             file,
             ctx.writing.user_id,
             io.BytesIO(changed),
@@ -340,7 +339,6 @@ def _make(
             version = add_version(
                 session,
                 services.storage,
-                _organization(ctx),
                 earlier,
                 writing.user_id,
                 io.BytesIO(data),

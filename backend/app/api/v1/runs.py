@@ -89,7 +89,7 @@ def run_checks(
     """Run the project's cross-checks, those named or all of them, over its documents as they
     read now; the worker works the run out, which is followed by its id. Refused with 409 while
     another run of the project's is under way, and with 400 when it has no cross-checks. A
-    report counts as one of the month's questions. With an Idempotency-Key, the run asked for
+    report counts as one of the workspace's questions. With an Idempotency-Key, the run asked for
     again is given the first one's answer, and made once."""
 
     def work() -> CheckRun:

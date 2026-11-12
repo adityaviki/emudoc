@@ -212,6 +212,6 @@ def _spent(trial: Trial, settings: Settings) -> str:
         # A trial costs a fraction of a cent, which two decimals would show as nothing.
         return f"{used}, {money(cost) if not 0 < cost < CENT else 'under ' + money(CENT)}"
     if trial.name not in settings.prices:
-        # A model without a price answers outside every spending limit (app/spending.py).
-        return f"{used}; MODEL_PRICES has no price for it, so the spending limits count none"
+        # A model without a price answers outside the daily spending cap (app/spending.py).
+        return f"{used}; MODEL_PRICES has no price for it, so the daily spending cap counts none"
     return used

@@ -3,11 +3,10 @@ import { Download, FolderOpen, Lock, Plus, RotateCcw, Sparkles, Trash2, Users } 
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
-import { api, isPlanLimit, mayChange } from '../api.ts'
-import type { PlanRefusal, Project, TrashedProject } from '../api.ts'
-import { ME_KEY, useMe } from '../auth.ts'
+import { api, mayChange } from '../api.ts'
+import type { Project, TrashedProject } from '../api.ts'
+import { useMe } from '../auth.ts'
 import { Confirm } from '../components/Confirm.tsx'
-import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, Checkbox, EmptyState, FIELD, IconButton, Loading, Notice } from '../components/ui.tsx'
 import { DUPLICATES_KEY, duplicatesWords } from '../details.ts'
 import { formatDate } from '../format.ts'
@@ -140,16 +139,16 @@ function Duplicates() {
 
 /**
  * The organisation's projects in the trash, each with everything it held, until a member
- * restores it, as the plan has room for, or deletes it for good, or the days it is kept pass.
+ * restores it or deletes it for good, or the days it is kept pass.
  */
 const PROJECTS_HEADING = 'projects-heading'
 
 function ProjectTrash() {
   const queryClient = useQueryClient()
   const trash = useQuery({ queryKey: TRASHED_PROJECTS_KEY, queryFn: api.trashedProjects })
-  const [refused, setRefused] = useState<PlanRefusal | null>(null)
+  const [refused, setRefused] = useState<string | null>(null)
   const settle = () => {
-    for (const queryKey of [TRASHED_PROJECTS_KEY, ['projects'], ME_KEY]) void queryClient.invalidateQueries({ queryKey: [...queryKey] })
+    for (const queryKey of [TRASHED_PROJECTS_KEY, ['projects']]) void queryClient.invalidateQueries({ queryKey: [...queryKey] })
   }
   const options = {
     onMutate: () => {
@@ -159,7 +158,7 @@ function ProjectTrash() {
       const left = (trash.data?.projects.length ?? 0) > 1
       document.getElementById(left ? 'project-trash' : PROJECTS_HEADING)?.focus()
     },
-    onError: (error: Error) => setRefused({ message: error.message, limit: isPlanLimit(error) ? error.limit : null }),
+    onError: (error: Error) => setRefused(error.message),
     onSettled: settle,
   }
   const restore = useMutation({ mutationFn: (project: TrashedProject) => api.restore('project', project.id), ...options })
@@ -177,7 +176,7 @@ function ProjectTrash() {
       </p>
       {refused && (
         <div className="mb-3">
-          {refused.limit ? <PlanLimitNotice refusal={refused} onDismiss={() => setRefused(null)} /> : <Notice tone="bad">{refused.message}</Notice>}
+          <Notice tone="bad">{refused}</Notice>
         </div>
       )}
       <ul className="divide-y divide-line rounded-xl border border-line bg-surface">
@@ -265,11 +264,7 @@ function NewProjectForm({ onClose }: { onClose: () => void }) {
       </div>
       {create.isError && (
         <div className="mt-3">
-          {isPlanLimit(create.error) ? (
-            <PlanLimitNotice refusal={create.error} />
-          ) : (
-            <Notice tone="bad">{create.error.message}</Notice>
-          )}
+          <Notice tone="bad">{create.error.message}</Notice>
         </div>
       )}
       <div className="mt-4 flex justify-end gap-2">
@@ -292,8 +287,6 @@ function ProjectCard({ project, changes, onManage, onExport }: { project: Projec
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['projects'] })
       void queryClient.invalidateQueries({ queryKey: TRASHED_PROJECTS_KEY })
-      // What the organisation holds past its plan, which a deletion may bring it within.
-      void queryClient.invalidateQueries({ queryKey: ME_KEY })
     },
   })
 
@@ -327,7 +320,7 @@ function ProjectCard({ project, changes, onManage, onExport }: { project: Projec
           {project.sample && (
             <>
               <span className="mx-1.5 text-line">·</span>
-              <span className="inline-flex items-center gap-1 align-bottom" title="Emudoc’s own documents, which count against nothing on your plan">
+              <span className="inline-flex items-center gap-1 align-bottom" title="Emudoc’s own documents, which the usage page leaves out">
                 <Sparkles className="size-3" aria-hidden />
                 Sample
               </span>

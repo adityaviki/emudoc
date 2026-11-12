@@ -6,7 +6,7 @@ import { expect, test } from '@playwright/test'
 import type { BrowserContext, Page } from '@playwright/test'
 import { expectAccessible } from './axe.ts'
 import { messageTo } from './mail.ts'
-import { INBOUND_DOMAIN, chooseFlag, makeOperator, movePlan, receiveMail } from './operator.ts'
+import { INBOUND_DOMAIN, chooseFlag, makeOperator, receiveMail } from './operator.ts'
 import { printed } from './print.ts'
 import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, releaseTurns } from './standin.ts'
 
@@ -15,19 +15,16 @@ import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, rele
 // project the organisation starts with whether an invoice applies its contract's discount, print its contract's pages, make a project, upload a contract,
 // begun offline and waiting for the connection, wait for it to be indexed, find it by searching, ask about it, stop the
 // answer while the model thinks and try it again, open the passage the answer
-// cites and print the contract as it reads, which the Free plan's chat follows with the way to a plan for a team, upload a folder,
+// cites and print the contract as it reads, which the chat follows with a form that invites the team, upload a folder,
 // whose panel follows each file while its request is held, and put it in the trash, export the project,
 // download it and open the bell's notice that it is ready, leave the account's menu by the
-// keyboard, choose the workspace's settings, read them in its audit log and download it, and, on
-// Team, invite a colleague as a
+// keyboard, choose the workspace's settings, read them in its audit log and download it, invite a colleague as a
 // viewer from under that answer, who makes an account from the invitation's link, copied since the run mails nothing, ends her tour, finds
 // the project and is offered no change to it until made a member, write to support from the
 // help menu, which mails the page written from, make a read key, which reads the
 // versioned API and its contract, add a webhook, then make the project private, which she no longer finds until chosen for it, and share the chat, which the
-// colleague then reads but does not ask in, and last ask the question that uses the month's
-// questions, which the bell tells, and open that notice; then, made
-// an operator, read the organisation in the operator's area, which nobody else is sent, raise its
-// agreed questions there, turn its extraction templates on, which its audit log keeps, view the
+// colleague then reads but does not ask in; then, made
+// an operator, read the organisation in the operator's area, which nobody else is sent, turn its extraction templates on, which its audit log keeps, view the
 // colleague's account, which she let support see, and switch the model's provider off and on
 // again; and last, make the project's own invoice template from the built-in one, a field
 // added, and delete it, then upload an invoice, read for the built-in one, and find its facts in
@@ -338,8 +335,8 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect.poll(() => heldTurns(request)).toBe(1)
     await page.getByRole('button', { name: 'Stop', exact: true }).click()
     await expect(page.getByText('Stopped.', { exact: true })).toBeVisible()
-    // Tried again in its place, which counts no question: the month's third, at the end, is the
-    // one that uses them all. The held turn answers after, into a try that is no longer its own.
+    // Tried again in its place, which counts no question. The held turn answers after, into a try
+    // that is no longer its own.
     await page.getByRole('button', { name: 'Try again' }).click()
     await expect(page.getByText('Stopped.', { exact: true })).toHaveCount(0)
     const citation = page.getByRole('button', { name: '1', exact: true })
@@ -350,10 +347,8 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByText('Thinking')).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0)
     await releaseTurns(request)
-    // The Free plan is for one: the suggestion says so, and offers no form.
-    await expect(inviteTeam).toContainText('Its plan has room for you alone.')
-    await expect(inviteTeam).toContainText('Your organisation is on the Free plan.')
-    await expect(inviteTeam.getByLabel('Email', { exact: true })).toHaveCount(0)
+    // Nobody else is in the workspace yet: the suggestion under the answer invites from the chat.
+    await expect(inviteTeam.getByLabel('Email', { exact: true })).toBeVisible()
   })
 
   await test.step('open the cited passage', async () => {
@@ -630,8 +625,8 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     // The header names the workspace, which opens its page.
     await page.getByRole('link', { name: 'Analytical Engines' }).click()
     await expect(page.getByRole('heading', { name: 'Analytical Engines', level: 1 })).toBeVisible()
-    // Its settings: the language its documents are searched in, and chats kept for less time
-    // than its plan keeps them, which says what it deletes before it is saved.
+    // Its settings: the language its documents are searched in, and chats kept for less time than
+    // until they are deleted, which says what it deletes before it is saved.
     const language = page.getByLabel('Language of its documents')
     const changed = page.waitForResponse((response) => response.url().endsWith('/api/organization') && response.request().method() === 'PATCH')
     await language.selectOption('german')
@@ -643,16 +638,18 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     // The page saves a sign-in's days by a button of the same name: this is the one beside the select.
     const save = page.getByRole('button', { name: 'Save', exact: true })
     const chatDays = page.locator('div').filter({ has: page.getByLabel('Chats kept') }).filter({ has: save }).last()
+    const kept = page.waitForResponse((response) => response.url().endsWith('/api/organization') && response.request().method() === 'PATCH')
     await chatDays.getByRole('button', { name: 'Save', exact: true }).click()
-    await expect(page.getByText('The organisation keeps them 7 days, in its settings.')).toBeVisible()
+    expect((await kept).status()).toBe(200)
     await expect(page.getByLabel('Chats kept')).toHaveValue('7')
+    await expect(chatDays.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
     // Each change is in its audit log, which an owner reads by what was done, and downloads.
     await page.getByRole('link', { name: 'Audit log' }).click()
     await expect(page.getByRole('heading', { name: 'Audit log' })).toBeVisible()
     await page.getByLabel('What').selectOption('settings_changed')
     const changes = page.getByRole('listitem').filter({ hasText: 'Changed a setting' })
     await expect(changes).toHaveCount(2)
-    await expect(changes.first()).toContainText('Chats kept: as long as the plan → 7 days after the last question')
+    await expect(changes.first()).toContainText('Chats kept: until deleted → 7 days after the last question')
     await expect(changes.last()).toContainText('Language: the default → German')
     await expectAccessible(page, 'the audit log')
     const downloading = page.waitForEvent('download')
@@ -673,13 +670,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   await test.step('invite a viewer, who makes an account from the link, reads, and is made a member', async () => {
     await page.goto('/organization')
     slug = (await page.locator('code').filter({ hasText: /^analytical-engines/ }).textContent()) ?? ''
-    movePlan(slug, 'team', '--seats', '2')
-    await page.reload()
-    // The plan's figures, with the seats bought for its members.
-    const plan = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Plan', exact: true }) })
-    await expect(plan.getByRole('definition').first()).toHaveText('Team')
-    await expect(plan.getByRole('definition').filter({ hasText: 'seats' })).toHaveText('2 seats')
-    // With room on the plan, the answer's suggestion invites from the chat, which opens the member's latest.
+    // The answer's suggestion invites from the chat, which opens the member's latest.
     await page.getByRole('link', { name: 'Emudoc' }).click()
     await page.getByText('Supplier contracts').click()
     await expect(page.getByRole('button', { name: /^How much notice/ })).toBeVisible()
@@ -733,14 +724,14 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(grace.getByRole('button', { name: 'Upload', exact: true })).toBeVisible()
   })
 
-  await test.step('read what the organisation holds and has used of its plan', async () => {
+  await test.step('read what the organisation holds and has used', async () => {
     await page.getByRole('link', { name: 'See what it holds and has used' }).click()
     await expect(page.getByRole('heading', { name: 'Usage', exact: true })).toBeVisible()
     const section = (title: string) => page.locator('section').filter({ has: page.getByRole('heading', { name: title, exact: true }) })
-    // The two questions asked, of the Team plan's month; both seats taken; the sample not counted.
-    await expect(section('This month').getByRole('definition').nth(1)).toContainText('2 of 5,000')
+    // Both members; the sample not counted; the two questions asked, with no limit beside them.
     await expect(section('Held now').getByRole('definition').nth(0)).toContainText('Not counted: the sample project.')
-    await expect(section('Held now').getByRole('definition').nth(3)).toContainText('2 of 2')
+    await expect(section('Held now').getByRole('definition').nth(3)).toHaveText(/^2Open invitations counted\.$/)
+    await expect(page.getByText(/ of [\d,]+/)).toHaveCount(0)
     await expect(section('Day by day').getByRole('figure', { name: /^Questions/ })).toContainText('2 questions in all')
     await expectAccessible(page, 'the usage page')
   })
@@ -862,27 +853,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await theirs.close()
   })
 
-  await test.step("be told the month's questions are used, and open the notice from the bell", async () => {
-    // Three questions a month: the third uses them all, which the owners are told as it is asked.
-    movePlan(slug, 'team', '--set', 'questions_per_month=3')
-    const asked = page.waitForResponse((response) => response.request().method() === 'POST' && /\/messages$/.test(response.url()))
-    const composer = page.getByPlaceholder('Ask a question about these documents')
-    await composer.fill('Who may end the contract?')
-    await composer.press('Enter')
-    expect((await asked).status()).toBe(201)
-
-    await page.getByRole('link', { name: 'Emudoc' }).click()
-    await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
-    await page.getByRole('button', { name: 'Notifications, 1 unread' }).click()
-    const notice = page.getByRole('dialog', { name: 'Notifications' }).getByRole('button', { name: /used all its questions for the month/ })
-    await expect(notice).toContainText("Analytical Engines has used all the 3 questions it may ask")
-    // Opened at its page, read.
-    await notice.click()
-    await expect(page).toHaveURL(/\/organization\/usage$/)
-    await expect(page.getByRole('button', { name: 'Notifications', exact: true })).toBeVisible()
-  })
-
-  await test.step("be made an operator, read the organisation in the operator's area, change its plan and its flags, and switch a provider", async () => {
+  await test.step("be made an operator, read the organisation in the operator's area, change its flags, and switch a provider", async () => {
     // A member is sent the members' page at the area's address, as for any page there is not.
     await page.goto('/operator')
     await expect(page.getByText('Page not found.')).toBeVisible()
@@ -897,16 +868,8 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     const members = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Members', exact: true }) })
     await expect(members.getByRole('row').filter({ hasText: address })).toContainText('owner')
     await expect(members.getByRole('row').filter({ hasText: 'Grace Hopper' })).toContainText('member')
-    // The month's three questions, which the figure agreed with it allows, raised from the page.
-    const plan = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Plan', exact: true }) })
-    const questions = plan.getByRole('row').filter({ hasText: 'questions_per_month' })
-    await expect(questions).toContainText('agreed')
-    await plan.getByRole('button', { name: 'Change the plan' }).click()
-    await expect(plan.getByLabel('questions_per_month')).toHaveValue('3')
-    await plan.getByLabel('questions_per_month').fill('20')
-    await plan.getByRole('button', { name: 'Save' }).click()
-    await expect(questions).toContainText('20')
-    await expect(questions).toContainText('agreed')
+    // What it holds and used, as its members read it, with no plan beside it.
+    await expect(page.getByRole('heading', { name: 'Plan', exact: true })).toHaveCount(0)
     // A feature being rolled out to none, the extraction templates, turned on for it alone.
     const flags = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Feature flags', exact: true }) })
     const preview = flags.getByRole('row').filter({ hasText: 'extraction_templates' })
@@ -1800,7 +1763,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByText(/INV-2026-090/).first()).toBeVisible()
     await expectAccessible(page, 'a chat about a folder')
 
-    // Written again in its place, which the plan counts as a question.
+    // Written again in its place, which counts as a question.
     const written = page.waitForResponse((response) => response.url().endsWith('/regenerate') && response.ok())
     await regenerate.click()
     await written

@@ -181,7 +181,7 @@ again or the rules change, and lists the documents deleted since. The background
 out, and with "With a discrepancy report by the model" checked, or later from the run, the agent
 writes a report from its findings, the code's words handed to it with the passages each value
 came from, which it cites as an answer does (`POST /api/check-runs/{id}/report`); asking for one
-counts as one of the month's questions, and is held to the day's spending as a question is. The
+counts as one of the workspace's questions, and is held to the day's spending as a question is. The
 runs are listed newest first under the rules, each opening its rules' findings, its report and
 what the report used (`GET /api/projects/{id}/check-runs`, `GET /api/check-runs/{id}`, `GET
 /api/check-runs/{id}/findings`). Whoever may change the project runs the checks, asks for a
@@ -200,8 +200,8 @@ arrived for two minutes (`AUTOMATION_WAIT`), at most a quarter of an hour after 
 upload sent in several requests makes one run. An automation may also put in review what arrived
 (below), every document of it or those its cross-checks find a difference about, assigned to a
 member it names, once its run is worked out, leaving alone any a member put in review already. Its
-run is listed with the others, by the automation and what arrived; its report counts as one of the month's questions, and a month or a
-day with no room left runs the checks without one, saying why. Whoever may change the project
+run is listed with the others, by the automation and what arrived; its report counts as one of the workspace's questions, and a day past
+the spending cap runs the checks without one, saying why. Whoever may change the project
 makes, changes, turns off and deletes them, each a row of the audit log naming what it watches
 and runs, never a value, and the runs they make are rows of it by Emudoc.
 
@@ -253,7 +253,7 @@ offers one under its answer (`create_draft` in `backend/app/agent/tools.py`), it
 documents it found and what it should say, which the member's "Write the draft" asks for (`POST
 /api/chats/{id}/messages/{id}/draft`), once, counting no question beside the one asked. Nothing is
 written before that press, so a document whose text tells the agent to make drafts makes none,
-and a viewer, or a member of an organisation past its plan, is offered none.
+and a viewer is offered none.
 The background worker has the agent write it from what
 the code read for it: each document with its facts beside the passages they came from, and what
 the project's newest run of cross-checks found about them, which it states as found; it cites
@@ -262,7 +262,7 @@ agent's, and each member's edit, saved as a new version from the newest (`POST
 /api/drafts/{id}/versions`, refused when another was saved meanwhile), or the agent's writing it
 again with what is asked now (`POST /api/drafts/{id}/rewrite`), each version with the passages it
 cites as they were, so it reads the same after its documents are read again. Asking for one, or
-for it again, counts as one of the month's questions and is held to the day's spending as a
+for it again, counts as one of the workspace's questions and is held to the day's spending as a
 question is. The drafts are the project's: everyone who sees it reads them (`GET
 /api/projects/{id}/drafts`, `GET /api/drafts/{id}`, `GET /api/drafts/{id}/versions/{n}`), whoever
 may change it asks for, edits and deletes them, each a row of the audit log by the draft's kind,
@@ -277,7 +277,7 @@ document's next version. A file keeps every version (`POST /api/my-files/{id}/ve
 when another was added meanwhile); each version a member uploads is scanned for malware before it
 is served and is shown as it looks by the converter's PDF, both by the worker, and each can be
 downloaded. A viewer keeps files too, since they change nothing the members share; copying one in
-needs the role that uploads. The bytes count toward the plan's storage, a member keeps
+needs the role that uploads. The bytes count toward the workspace's storage, a member keeps
 200 files in a project, and the files go when the member leaves the organisation, their account
 is deleted or the project goes; deleting one is for good. The library's "My files" lists them and
 opens each with its pages and versions. My files are behind the flag `my_files` while they are
@@ -303,15 +303,14 @@ project runs one there and then (`POST /api/question-sets/{id}/run`). Each run i
 (`backend/app/question_reports.py`, `GET /api/projects/{id}/reports`, `GET|DELETE
 /api/reports/{id}`), which the background worker answers one question after another as a chat
 would, citing passages, the agent told which documents arrived when they made it run; each
-question counts as one of the month's questions and is held to the day's spending as a member's
-is, and the questions a month or a day has no room left for say so in the report. Its report is
+question counts as one of the workspace's questions and is held to the day's spending as a member's
+is, and the questions a day past the spending cap has no room for say so in the report. Its report is
 told to the set's maker, everyone who sees the project or nobody (a member's own run, to them),
 in the app and by email as each chose for the notice, by the set's name and how many questions
 were answered, never an answer; programs hear of it by the `report.completed` webhook and read
 it from the API (`GET /api/v1/reports/{id}`). The library's "Question sets" lists the sets with
 when each runs next and the reports, newest first, each opening its answers. Question sets are
-on the Pro, Team and Enterprise plans, behind the flag `question_sets` while they are rolled
-out; making, changing, running and deleting one, or deleting a report, is a row of the audit log
+behind the flag `question_sets` while they are rolled out; making, changing, running and deleting one, or deleting a report, is a row of the audit log
 naming the set and counting its questions, never one of them, and a report is kept as long as a
 chat.
 Each version downloads as a Word document, a PDF or its Markdown (`GET
@@ -345,8 +344,8 @@ sender (`backend/app/receiving.py`): Resend through its webhook and API, Amazon 
 SQS queue its notices reach, which the worker waits on (deploying.md, "Mail in").
 
 A project can also keep in step with a folder of a member's Google Drive, Dropbox, OneDrive or
-SharePoint, where the deployment has an OAuth client for the service, the flag `connectors` is
-on and the plan includes connected folders (`backend/app/connectors/`, `GET|POST
+SharePoint, where the deployment has an OAuth client for the service, and the flag `connectors`
+is on (`backend/app/connectors/`, `GET|POST
 /api/projects/{id}/connectors`): the library's "Connected folders" sends the browser to the
 service for the member's consent to read their files, keeps the grant it gives encrypted, and
 lets the member browse their folders and choose one, and where its files go in the project. The
@@ -375,8 +374,8 @@ back; a connection that keeps failing for 15 seconds online is given up with "Re
 reads the answer again from its start. Stop ends it with what arrived so far, whether or not a
 worker is alive, even while the question is still being sent; a chat takes one question at a
 time. The last answer of a member's own chat, once stopped or failed, offers "Try again", which
-empties it and has the worker write it anew from the same question, counting no other question
-against the plan; a run of the earlier try that is still waiting on the model writes nothing
+empties it and has the worker write it anew from the same question, counting no other question;
+a run of the earlier try that is still waiting on the model writes nothing
 into the new one, since each try is numbered and its job names its own. A finished last answer
 offers "Regenerate", and the chat's last question "Edit the question": either has the answer
 written again in its place, from the question as it is or as edited (a chat named by its first
@@ -425,16 +424,16 @@ what was asked or answered.
 What an organisation uses is recorded as it happens, one row per measure in `usage_events`:
 an answer's model calls and tokens, an upload's bytes and pages (once, by its first parse; a
 document without pages, a Word file, a sheet or a text file, has a page for every 3,000
-characters of its text begun, `text_pages` in `backend/app/entitlements.py`), the pages a scan took to read
+characters of its text begun, `text_pages` in `backend/app/usage.py`), the pages a scan took to read
 and the model calls of the indexing stages, the texts embedded and the tokens the embeddings
 endpoint says they took, and the pages rendered for the viewer, each with the organisation, project and member they belong to and the message or
 document they were for. Each is counted at the end of the run that made it, so an answer that
 was stopped, a scan that failed at its tenth page and a stage a worker lost are counted for
 the calls they made. `uv run python -m app.maintenance usage <slug>` (in `backend/`) prints an
 organisation's use per day in UTC, by kind and unit, over the last 30 days or `--days`, and
-`costs` what every organisation's model use cost over the same span, costliest first, against
-its plan's daily limit, with the platform's total and the cost by kind of work and model, then by
-kind and version of its prompts: each kind's prompts have a version, a hash of what the model is
+`costs` what the models cost over the same span, against `DAILY_SPEND_CAP`, by organisation
+(one, an install holding one workspace) and by kind of work and model, then by kind and version
+of its prompts: each kind's prompts have a version, a hash of what the model is
 told for it that any edit changes (`backend/app/prompts.py`), which the rows of its model calls
 carry.
 An answer shows what it used under its text (the model, its calls and tokens, and, to the
@@ -445,19 +444,16 @@ rows are recorded, summed over every run. The costs follow `MODEL_PRICES` in `.e
 each model costs per million tokens in and out, in `PRICE_CURRENCY`, an embedding model's
 under the name `EMBEDDING_MODEL` gives; without prices, no cost is shown.
 
-A day of model use has two limits, both measured against those costs since midnight UTC: the
-organisation's, set by its plan (`backend/app/entitlements.py`: USD 1.00 a day on Free, 10 on
-Pro, 50 on Team, none on Enterprise), and the platform's, `DAILY_SPEND_CAP`, the most the
-operator will see on the providers' bills in one day. At the plan's limit a question is
-refused with 402 and the plan's sentence, and an indexing stage that needs the model (reading
-scans, writing summaries and facts) waits for midnight UTC and says so on the document, while
-the outline is built without the model so that the document can be searched today; at the
-platform's, every question is refused with 503 and a `Retry-After` until midnight, and the
-stages wait the same way. A question that was queued before a limit was reached ends with the
-sentence as its error. With `ALERT_EMAIL` set, the worker mails a warning once a day when a
-day's spending reaches 80 % of a limit. The limits count nothing without `MODEL_PRICES`, and
-they hold the next piece of work rather than the ones running, so a day can run past a limit
-by what was in flight: a document's summaries and facts by `ENRICH_MAX_REQUESTS` requests at
+A day of model use has one limit, `DAILY_SPEND_CAP`, measured against those costs since
+midnight UTC (`backend/app/spending.py`): the most the operator will see on the providers'
+bills in one day. At it every question is refused with 503 and a `Retry-After` until midnight,
+and an indexing stage that needs the model (reading scans, writing summaries and facts) waits
+for midnight UTC and says so on the document, while the outline is built without the model so
+that the document can be searched today. A question that was queued before the cap was
+reached ends with the sentence as its error. With `ALERT_EMAIL` set, the worker mails a
+warning once a day when a day's spending reaches 80 % of the cap. The cap counts nothing
+without `MODEL_PRICES`, and it holds the next piece of work rather than the ones running, so a
+day can run past it by what was in flight: a document's summaries and facts by `ENRICH_MAX_REQUESTS` requests at
 most. The brake for a bill that cannot wait for midnight is a provider switched off: from the
 operator's area, which every process heeds within seconds, or with `DISABLED_PROVIDERS` at the
 next restart; its models are asked no more, and the app runs as it does without a key, saying
@@ -465,77 +461,32 @@ why. Set a budget at each provider as well (Google Cloud
 billing budgets for the Gemini key, the Anthropic console's spend limits, OpenRouter's credit
 limit): the app counts what it knows the price of, the provider counts the bill.
 
-Every organisation is on a plan (`backend/app/entitlements.py`): Free, Pro, Team or
-Enterprise, each a row of what the organisation may hold (projects, documents, bytes of
-documents, members), may use in a calendar month in UTC (pages indexed, questions asked) and
-may spend on models in a UTC day, plus what the later features will read from it (API access, connectors, how long data is
-kept, the model tier) and how much of the workers its jobs get. A new organisation starts on
-Free; the local development account has no limits. The Team plan is sold by the seat: the
-seats an organisation bought are its members, in place of the plan's three. Any figure may
-also be agreed with an organisation in place of its plan's, which is how an Enterprise
-organisation gets its terms (`backend/app/billing.py` changes the three together, and moving
-to another plan clears the seats and figures of the one before). Lowering any of them removes
-nothing: an organisation that holds more than its plan allows keeps it all, and is read-only
-until it is within the plan again (`read_only` in `backend/app/entitlements.py`): its members
-read, search, ask about and delete what it holds, and its owners and admins remove members and
-revoke invitations, but every other change of a project (a project, an upload, a folder, a
-rename or move, "Index again", who sees it), an invitation and a join is refused, and every
-page says so in a banner. The organisation page shows every member what the organisation may
-keep and use, and what it holds past it, and its usage page (`/organization/usage`) what it
-holds and has used of each figure against what it may, as the checks count it, with a warning
-and the way past a month's limit from 80 % of it on (its owners and admins are mailed then, and
-once it is all used), and its pages indexed and questions asked
-on each of the last 30 days and in each of the last 12 months, in UTC. A question counts as it
-is asked, answered or not, and deleting its chat gives it back to nobody. The plan is checked
-where the thing happens: creating a project, uploading (the request is refused when the plan
-has no room at all, a file that would not fit is rejected while the others go in), asking a
-question, inviting, and in the parse stage once it knows how many pages a document has (those
-of its text for a document without pages, which the refusal and the usage page say), which
-fails the document with the reason rather than read a page past the month's allowance. A
-refusal is a 402 whose body is the sentence, naming the plan and the limit, and the figure it
-is held to (`{"detail": …, "limit": "pages_per_month"}`); the app shows it with the way past
-it for whoever reads it (`offerFor` in `frontend/src/billing.ts`): the owner a pack for the
-month, the plans or Manage billing, anyone else to ask an owner.
+The workspace's usage page (`/organization/usage`, from its page) shows every member what it
+holds now (its projects, its documents, the bytes of their originals with the earlier versions
+and the members' own files, its members with the open invitations) and its pages indexed and
+questions asked on each of the last 30 days and in each of the last 12 months, in UTC, and its
+owners and admins what the models cost beside them (`backend/app/api/usage.py`). A question
+counts as it is asked, answered or not. Nothing is held to a plan and nothing is sold: what
+bounds the work is the server's own ceilings (a file's size and an upload's files, the rates a
+minute, the answers written at once, a document's requests to the model), set in `.env`
+(deploying.md, "Every setting"), and the day's spending cap above.
 
-With `STRIPE_SECRET_KEY` set, the plans are sold through Stripe (`backend/app/billing.py`;
-deploying.md, "Billing"): an owner buys Pro, or Team with a number of seats, on the
-organisation page, which sends them to Stripe's Checkout page, and changes the plan or the
-seats, the payment method, the billing address and VAT id, cancels, and finds the invoices
-behind "Manage billing", on Stripe's customer portal. Another plan, other seats or a
-cancellation can also be chosen on the organisation page, which says first what that would
-leave read-only and which chats and audit log entries the lower plan keeps for less time, then
-opens that one step of Stripe's portal, which shows the price and confirms it; the owners are
-mailed a cancellation, and the lower plan once it comes. The subscription sets the plan: while it
-is in its trial (`STRIPE_TRIAL_DAYS`, 14, for an organisation's first) or paid, and for
-`BILLING_GRACE_DAYS` (14) after a payment failed, during which the owners are mailed how to pay;
-once it ends, or the payment is not made, the organisation is on Free, keeping all it holds,
-until it pays again. With `STRIPE_PACKS` an owner also buys packs of pages or questions, paid
-once, which add to the plan's for the calendar month in UTC they are paid in. Checkout asks for
-the billing address and a business's VAT id, and works out the tax with `STRIPE_TAX`; Stripe
-mails the receipts and invoices itself, once its customer emails are on. An organisation on Enterprise or with agreed figures is left to
-the operator. Without Stripe, or for those, `uv run python -m app.maintenance plan <slug> [plan]`
-(in `backend/`) shows an organisation's plan and what it allows, or moves it to another, with
-`--seats N`, `--set NAME=VALUE` (`projects=500`, `storage_bytes=1 TB`, `retention_days=none`)
-and `--unset NAME` for its seats and agreed figures. The people who run the deployment read the
-same in a browser at `/operator`, the operator's area: the organisations with their plans,
-usage, members and costs, the users, the costs across organisations, the job queue with its
+The people who run the deployment read what the maintenance commands print in a browser at
+`/operator`, the operator's area: the organisations with their usage, members and costs, the users, the costs across organisations, the job queue with its
 failed jobs, and how the models and services stand. `uv run python -m app.maintenance operators
 add <address>` (in `backend/`) lets an account in, from an address `OPERATOR_NETWORKS` lists
 (this machine alone in development) and, in production, with two-factor sign-in on; to anyone
-else the area is not there. From there an operator also moves an organisation to another plan
-with its seats and agreed figures, as the `plan` command does, queues failed documents again
-from the stage each stopped at, switches a model provider off or on again without a
+else the area is not there. From there an operator also queues failed documents again from the
+stage each stopped at, switches a model provider off or on again without a
 restart, and turns a feature being rolled out on or off for one organisation
 (`backend/app/flags.py`: each flag is on for a share of the organisations the code names, which
 grows release by release, and for those turned on here; `maintenance flags` does the same); a
-plan's change, a document queued again and a flag's choice are rows of the organisation's audit
+document queued again and a flag's choice are rows of the organisation's audit
 log, by Emudoc's operators. And when a member asks for help, the member lets Emudoc's support see
 their account in the organisation they work in for a day or a week from their account page
 (`backend/app/support.py`), and the operator opens it from the organisation's members, as the
 member sees it and read only, an hour at a time, under a banner saying so: the member is mailed,
-and the leave, its withdrawal and each view are rows of the organisation's audit log. A
-paying plan's jobs also count for less in the claim's share of the workers, so its backlog
-is indexed sooner next to a free organisation's.
+and the leave, its withdrawal and each view are rows of the organisation's audit log.
 
 ## The workspace
 
@@ -617,7 +568,7 @@ id and so its chats' scope, its review (an approved or disputed one opened again
 share links and its members' checks of facts that read the same. Only the current file is
 searched, asked about and read for facts; each earlier one is kept, its file under the document's
 prefix in the storage and its text with its row (`document_versions`), for the tab's "Versions" to
-download it and show its text, the project's export to hold it, and the plan's storage to count
+download it and show its text, the project's export to hold it, and the usage page's storage to count
 it. A new version's pages count again as it is read, and it is an upload of its own, its notice,
 automations and `document.ready` following its reading.
 
@@ -696,10 +647,9 @@ or a folder with everything in it goes into its project's trash, which the trash
 the library's files opens, and the library offers to undo the deletion at once; a chat goes into its
 starter's trash, which the chat list's "Deleted chats" opens; a project goes, with everything
 in it, into the organisation's trash under the projects. What is in the trash is out of the
-library, the search, the agent's answers and the counts, and counts against nothing on the
-plan, so deleting still makes room at once. A member restores it as it was (a folder with what
+library, the search, the agent's answers and the counts, the usage page's among them. A member restores it as it was (a folder with what
 went with it, into the nearest folder that is still there, renamed if a name was taken
-meanwhile), as the plan has room for it again, or deletes it for good with its files, once a
+meanwhile), or deletes it for good with its files, once a
 dialog has said what goes with it (the files a folder takes, what a project holds); after 30
 days the housekeeper deletes it for good. A viewer reads the trash and restores only their own
 chats. A document in the trash keeps its place: uploading the same file again is refused with
@@ -844,8 +794,7 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   answer at once, 20 by default. The worker answers `ANSWER_CONCURRENCY` of them at a time,
   shared between the organisations, so the cap bounds how long a question waits without
   letting one organisation keep the others waiting; the question past it is refused with 429
-  and asked to wait a moment. It is the same for every organisation; the caps that differ by
-  plan are in `backend/app/entitlements.py`.
+  and asked to wait a moment. It is the same for every organisation.
 - `MAX_QUESTION_CHARS` is the longest question, 20,000 characters by default. A question goes
   to the model whole with every turn of its answer, so one that is pasted rather than asked is
   refused with 413 and asked to be shortened; the documents are what to upload.
@@ -891,7 +840,7 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
 - `ALERT_EMAIL` is where the worker reports the jobs it gave up on, through the same mail
   settings as the sign-in links, as one digest every quarter of an hour, where it reports
   the uploads the malware scan quarantined the same way, where it warns once a day when
-  a day's spending on models reaches 80 % of a limit, the platform's or an organisation's,
+  a day's spending on models reaches 80 % of `DAILY_SPEND_CAP`,
   and where its watch (`backend/app/watch.py`) writes when something goes wrong and when it is
   over: questions or documents waiting long for a worker, indexing or answers failing, a model
   failing over to its fallback, the embeddings endpoint, the scanner or the storage not
@@ -900,7 +849,7 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
 - `DAILY_SPEND_CAP` is what every organisation together may spend on models in one UTC day,
   in `PRICE_CURRENCY` by the costs `MODEL_PRICES` gives; `0`, the default, is no limit. Past
   it every question is refused with 503 until midnight UTC and every indexing stage that needs
-  a model waits for it. The limit per organisation is its plan's. Production refuses the cap
+  a model waits for it. Production refuses the cap
   without a price in `MODEL_PRICES` for every model named, fallbacks included, since what a
   model without one answers would count nothing.
 - `DISABLED_PROVIDERS` is the kill switch: the model providers switched off, by the prefix of a
@@ -1101,7 +1050,7 @@ same from a shell; deploying.md, "The first run, and who signs up"). The workspa
 the sample project, "Sample: Acme supplier contract": a supplier's contract, three of its
 invoices, the price list, the delivery log, an email and meeting notes, indexed already
 (`backend/app/sample`), so that the first question gets its answer and citations without waiting
-for an upload. It counts against nothing on the plan and takes no uploads; its questions count, and
+for an upload. Its documents are left out of the usage page and it takes no uploads; its questions count, and
 it is deleted like any project (`SAMPLE_PROJECT=false` turns it off; deploying.md, "The sample
 project"). Everyone after the admin comes in by invitation (below). Sign-up is closed unless
 `SIGNUP_OPEN=true`: the form and a first sign-in through Google or Microsoft make no account, and
@@ -1113,7 +1062,7 @@ which "Skip the tour" or Escape ends; the user menu offers it again inside a pro
 answer about the organisation's own documents is done (not the sample's), the chat suggests
 inviting the team under it to an owner or admin while nobody else is a member or invited (read
 from what the organisation has done, `backend/app/onboarding.py`), with a form that sends the
-invitation there, or on a plan for one the way to a larger one; its cross hides it in every
+invitation there; its cross hides it in every
 organisation of the account (`frontend/src/workspace/InviteTeam.tsx`). The form answers an
 address that has an account the same, and that address is told by mail instead, so the form
 says nothing of who uses the deployment. An account made through Google or Microsoft whose
@@ -1127,9 +1076,7 @@ with recovery codes for a lost phone; its secret is kept encrypted with `ENCRYPT
 the database never holds, so a copy of it makes no codes), lists the browsers and devices that are signed in and
 signs any of them out, and chooses how each kind of notice is told, the news a member may do
 without: that an upload which took five minutes or more to index is done, naming the files that
-could not be indexed and why, and to an organisation's owners and admins that its pages or
-questions for the month reached 80 % of what it may use, all of it, or for pages too few for a
-document (`backend/app/notices.py`), that a question set's report is ready, that a member
+could not be indexed and why (`backend/app/notices.py`), that a question set's report is ready, that a member
 mentioned them in a comment or replied in a thread they wrote in, and, once a member turns it on,
 on Monday morning of their zone what arrived over the week in the projects they see, by name
 (`backend/app/digests.py`). Each is told under the bell in the header, the member's
@@ -1152,7 +1099,7 @@ no CORS): the frontend is served from the API's own origin, and the defence rest
 routes are under `/api/auth`, the pages in `frontend/src/account/`.
 
 An install holds one workspace, the team's, made by its setup: an organisation in the code, with
-its projects, members, plan and audit log. Nobody starts another, switches, leaves it or deletes
+its projects, members and audit log. Nobody starts another, switches, leaves it or deletes
 it. Its name in the header opens its page (`/organization`), which renames it (owners and
 admins; the slug the operator's commands name it by stays), keeps its settings, lists its
 members, and hands it over to another member with the password (they become an owner and the one
@@ -1167,9 +1114,10 @@ language its documents are searched in (keyword search matches words by their st
 of the database's text search configurations, else the deployment's `FTS_LANGUAGE`) where a
 document has no language of its own (its details, above), which the documents indexed before
 move to by a background job within minutes, without asking a model or counting a page, and answers fall back to when a question does not show a language
-(`backend/app/languages.py`); how long it keeps a chat after its last question, never longer
-than its plan, which deletes the older chats of every member at the next housekeeping round,
-as the page says before it is saved; and how its members are told each kind of notice until
+(`backend/app/languages.py`); how long it keeps a chat after its last question (until it is
+deleted, unless they choose a number of days), which deletes the older chats of every member at
+the next housekeeping round, as the page says before it is saved; how long it keeps its audit
+log (a year, unless they choose fewer or more days or none at all, for good); and how its members are told each kind of notice until
 they choose for themselves on their account page. Its security settings are theirs too
 (`backend/app/security.py`): requiring two-factor sign-in of everyone who works in it, which
 only someone who signs in with it may turn on, and which holds a member without it at a page
@@ -1178,8 +1126,7 @@ Microsoft sets one up too, since the provider's own second factor is not seen); 
 members in again sooner than the deployment's `SESSION_DAYS`, which ends a session that signed
 in longer ago at its next request there. The owners and admins see which members sign in with
 two-factor, and the page names whom requiring it would hold before it is turned on.
-Its owners and admins also make its API keys (`backend/app/apikeys.py`), on a plan that includes
-the API (every plan but Free). A program sends a key in a header, needing none of the app's:
+Its owners and admins also make its API keys (`backend/app/apikeys.py`). A program sends a key in a header, needing none of the app's:
 
 ```bash
 curl -H "Authorization: Bearer emk_…" https://emudoc.example.org/api/v1/projects
@@ -1192,12 +1139,11 @@ never more. It does less as soon as they
 may, goes when they leave or are removed, and is refused whenever they would be (terms not
 accepted, two-factor required and not set up, the account set to be deleted). It reaches nothing
 of the accounts or of the organisation itself, so no key signs in, makes another key, invites
-anyone or touches billing. A key is shown once, as it is made or rolled (only its own member
+anyone or changes its settings. A key is shown once, as it is made or rolled (only its own member
 rolls it, and the secret before stops at once), runs 30, 90 or 365 days or until it is revoked,
 and is held to 300 requests a minute of its own (`RATE_API_REQUESTS`) as well as its member's
 rates. Each key made, rolled or revoked is a row of the audit log, and so is what a key does, as
-its member's with the key named. On a plan without the API, the keys made before are kept and
-refused until the organisation is on one with it again.
+its member's with the key named.
 A program builds on the versioned API under `/api/v1` (`backend/app/api/v1/`), which changes by
 addition alone, where the page's routes under `/api` change with the page (a key reaches those
 too, the copies of the upload client from before it moved onto `/api/v1` among them). It holds
@@ -1207,7 +1153,7 @@ asked, its answer polled or followed as it is written) and the workflows (a proj
 cross-checks, a run of them and what each rule found, with the discrepancy report). It takes a
 key alone, refusing a request without one with 401, and answers in models of its own: a list is
 a page, `data` with `next`, which `after` takes for the page that follows; a refusal is
-`detail`, a sentence, with `limit` for the plan's, as the page's routes answer. A request that
+`detail`, a sentence, as the page's routes answer. A request that
 makes something (a project, a folder, an upload, a chat, a question, a run) may name itself
 with an `Idempotency-Key` header (`backend/app/idempotency.py`): sent again with it within a
 day, it is given the first one's answer, marked `Idempotent-Replayed: true`, and carried out
@@ -1248,7 +1194,7 @@ once and answered as the first time. It never deletes, moves or changes a file:
 EMUDOC_API_KEY=emk_… python3 emudoc_upload.py watch --server https://emudoc.example.org --project Invoices ~/Scans
 ```
 Its owners and admins also give its programs webhooks (`backend/app/webhooks.py`), beside the
-API keys and on the same plans: an address and the events posted to it as they happen,
+API keys: an address and the events posted to it as they happen,
 `document.ready` and `document.failed` once a document's indexing ended,
 `check_run.completed` once a run of cross-checks is worked out with its report, and
 `report.completed` once a question set's report is answered. An event's body is what the
@@ -1271,7 +1217,7 @@ a hash only, and opens `/shared`, where the visitor reads the document as a memb
 its text, its pages and its file to download, read only, with who shared it and until when. A
 link works only while its maker could still make it: a member who sees the document, not a
 viewer, not removed, not leaving Emudoc, and the project not made private without them; and only
-while the plan includes links, the organisation allows them (its owners and admins turn them off
+while the organisation allows them (its owners and admins turn them off
 on the organisation page, which stops every link at once, and list and revoke every link there)
 and the document is out of the trash. Every request checks it all again, and the visitor is told
 only that the link no longer works. Opening the link makes a view of an hour, kept in a cookie
@@ -1320,8 +1266,7 @@ an address with an account signs in first and comes back; one without makes its 
 or through Google or Microsoft from there, and that account is a member of the inviting
 organisation and of none of its own. Another account cannot accept it, since the link proves
 only the address it was sent to, which an account that had not confirmed it then has. An
-invitation lasts a week, takes a place among the members the plan allows meanwhile (the Free
-and Pro plans allow one, so only Team and Enterprise invite), and is listed for the owners and
+invitation lasts a week, counts among the members on the usage page meanwhile, and is listed for the owners and
 admins, who send it again (a new link, the old one stops) or revoke it; accepting or revoking
 it deletes it, and an expired one goes a month after (`backend/app/invitations.py`,
 `backend/app/api/invitations.py`, the link's routes in `backend/app/api/auth.py`). A member
@@ -1332,7 +1277,7 @@ service and the privacy policy, which anyone can read at `/terms` and `/privacy`
 pages and the user menu link to them).
 The backend fills both in from its settings and constants (`backend/app/legal/`, `GET
 /api/legal`): who runs the deployment, where the documents are kept, how long each thing is
-kept on each plan, the two cookies, whether a model provider may learn from what it is sent,
+kept, the two cookies, whether a model provider may learn from what it is sent,
 whether uploads are scanned, how long the infrastructure's records of connections are kept.
 The account records the edition it accepted (`TERMS_VERSION`) and
 when, and the audit log records the acceptance. An account made through Google or Microsoft,
@@ -1380,11 +1325,8 @@ lacks a document's original at that point: `deploy/restore-drill.sh` restores th
 into a throwaway copy and runs it against the live storage, the monthly restore drill
 (`deploying.md`, "The drill"); `deploy/managed-restore-drill.sh` does the same for a managed
 database, which the provider restores to a new instance (`deploy/rds-drill.sh` for RDS).
-A chat is kept for the plan's retention after its last question (30 days on Free, a year on
-Pro, for good on Team and Enterprise), or for less time where the organisation chose so, which
-the chat list and the account page say; after a move to a plan that keeps chats or audit log
-entries for less time, those are kept as before for 30 more days (`RETENTION_HELD`), unless the
-organisation chose less, which the organisation page says; sessions,
+A chat is kept until it is deleted, or for as many days after its last question as the
+workspace's owners and admins chose, which the chat list and the account page say; sessions,
 one-time links and expired invitations are removed a month after they ended.
 
 The log holds no document text, question, answer or key (`backend/app/logs.py`): a traceback
@@ -1447,8 +1389,8 @@ The API and the worker serve metrics in Prometheus's format on a port of their o
 (`METRICS_ADDRESS`; the image's containers on 9464, which the compose file publishes nowhere):
 requests by route pattern, the database pool, each model's requests, outcomes, time to the
 first event and tokens, stages, jobs, uploads and rate refusals, and from a worker the documents
-and the queue by status, the backlog's age, the answers being written, the organisations and
-their bytes by plan, the day's spend, and how the database server keeps up (dead rows, the
+and the queue by status, the backlog's age, the answers being written, the bytes of the
+originals kept, the day's spend, and how the database server keeps up (dead rows, the
 oldest transaction, the archiving of its log) (`backend/app/metrics.py`). No label names an
 organisation, a user or anything a member typed. `deploying.md` ("Metrics") lists them, with a
 Prometheus to scrape them; `deploy/prometheus/alerts.yml` holds alerting rules over them,
@@ -1471,7 +1413,7 @@ failed ones for their accounts), profile, address, password, two-factor and sess
 exports and deletion requests, every upload, download and deletion of a document, folder or
 project and its restore from the trash or deletion for good there, who sees a project, chats
 shared, taken private, downloaded, deleted or restored, and answers downloaded, a member's leave for support to see their account
-and each view of it, and what the operator (a plan change, a requeue) and the app (a quarantine,
+and each view of it, and what the operator (a requeue, a flag's choice) and the app (a quarantine,
 an account purge with the owner it promoted) did on their own; what was downloaded in support's
 view names the operator too. A row names the member, the project and the object, the client's address, and names or
 settings as they were (a file's name, a role before and after), never what a document, a
@@ -1479,8 +1421,8 @@ question or a chat's title says, nor what a name or an address was changed to. I
 admins read it on its page (`/organization/audit`, from the organisation page's Security
 section), the newest first, by what was done, by whom, in which project and on which days, and
 download what they picked as a CSV file, which the log records too (`GET /api/audit`, `GET
-/api/audit/export`). A row is kept 90 days on Free, a year on Pro and Team, and for good on
-Enterprise. A purged account's rows stay with an organisation that keeps other members,
+/api/audit/export`). A row is kept a year, or as many days as its owners and admins choose on the organisation
+page, or for good. A purged account's rows stay with an organisation that keeps other members,
 without their addresses, and the account export includes the rows that name its user.
 
 `/subprocessors` lists the companies the deployment sends data to, what for and what each
@@ -1672,9 +1614,7 @@ backend/app/
                 the embedding checks at start, the housekeeping and the operator commands
   restore.py    what the app sets right after its database is restored to an earlier point
   usage.py      what each organisation used, recorded as it happens, and the daily rollup
-  entitlements.py
-                what each plan allows, and the checks the routes and the parse stage make
-  billing.py    changing a plan, and selling it and packs: Checkout, the portal, Stripe's events
+  spending.py   the daily spending cap, its checks and the warning as a day nears it
   flags.py      the feature flags: what is being rolled out, to how many organisations, and to which
   extraction.py the extraction templates: the built-in ones, and those in force for a project
   fact_table.py the facts table: a kind's documents side by side, sorted, kept and paged
@@ -1686,7 +1626,6 @@ backend/app/
                 what a document's last reading changed of its template's fields
   cross_checks.py
                 rules comparing one kind's facts with another's, and what each finds
-  payments.py   Stripe's API, and the signature on its events
   client/       the upload client members download and run, a script of the standard library
   api/          HTTP endpoints
   api/v1/       the versioned API programs build on, its models, and its published contract
@@ -1739,7 +1678,6 @@ CHANGELOG.md    what each day's commits changed for members and operators
 
 - The operator's area views a member's account read only, with their leave; it does not act as
   them, nor turn features on per organisation.
-- Billing: the connectors and the model tier the plans declare are not read by anything yet.
 - The public API: SDKs (Python, TypeScript) generated from its contract are to come.
 - Office files in the format from before 2007 (.doc, .xls, .ppt), which the upload turns away
   with how to save them as today's.

@@ -3,11 +3,10 @@ links, list them and revoke them, and the visitor's, who opens one and reads wha
 
 The members' are behind the flag, and take the document or the chat as any route of it does, so
 another organisation's, a private project's the member is not chosen for, or another member's
-private chat, is not found; making one takes the role that may change the project and a plan
-that includes links, and its owners and admins list every link of the organisation to revoke
-any. The visitor's take no account and no flag of their own: the link is checked as its maker's
-at each request (`shown`), and a document's page or file needs the cookie of a view the opening
-made.
+private chat, is not found; making one takes the role that may change the project, and its owners
+and admins list every link of the organisation to revoke any. The visitor's take no account and no
+flag of their own: the link is checked as its maker's at each request (`shown`), and a document's
+page or file needs the cookie of a view the opening made.
 """
 
 from typing import Annotated
@@ -34,7 +33,6 @@ from app.api.deps import (
 from app.api.documents import original_response, page_response
 from app.audit import audit, audit_event
 from app.auth import now, verify_password
-from app.entitlements import PlanRefused, check_share_links
 from app.flags import SHARE_LINKS
 from app.models import Block, ChatMessage, Document, Project, ShareLink, User
 from app.ratelimit import SHARED_LINKS, SHARED_PASSWORDS, by_address, by_link, held, tally
@@ -160,7 +158,7 @@ def make_answer_link(
     for `days`, with a password or not: whoever sees the chat and may change the project makes
     one, as of a document."""
     message = answer_in(chat, message_id, session)
-    get_editor(account, session)
+    get_editor(account)
     _refuse_links(account)
     if not answered(message):
         raise HTTPException(409, ANSWER_NOT_READY)
@@ -189,9 +187,7 @@ def make_answer_link(
 
 
 def _refuse_links(account: Account) -> None:
-    """Refuse a link the organisation's plan or its owners and admins do not allow."""
-    if refusal := check_share_links(account.organization):
-        raise PlanRefused(refusal)
+    """Refuse a link the organisation's owners and admins do not allow."""
     if not account.organization.share_links:
         raise HTTPException(403, LINKS_OFF)
 

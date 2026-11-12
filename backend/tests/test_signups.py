@@ -14,7 +14,7 @@ from app.db import engine
 from app.legal import TERMS_VERSION
 from app.maintenance import main
 from app.models import AuditEvent, Organization, User
-from app.signups import NOT_SET_UP, SET_UP_ALREADY, SETUP_LOCK, SIGNUP_CLOSED, WORKSPACE_FULL
+from app.signups import NOT_SET_UP, SET_UP_ALREADY, SETUP_LOCK, SIGNUP_CLOSED
 from tests.test_auth import (
     NEW_PASSWORD,
     PASSWORD,
@@ -25,7 +25,6 @@ from tests.test_auth import (
     sign_up_link,
     signup,
 )
-from tests.test_invitations import room  # noqa: F401 (a fixture)
 
 
 @pytest.fixture
@@ -274,19 +273,6 @@ def test_a_sign_up_link_stops_working_once_sign_up_closes(client, monkeypatch, o
     assert (refused.status_code, refused.json()["detail"]) == (403, SIGNUP_CLOSED)
     # Nothing was used up: opened again, the link works.
     monkeypatch.setattr(get_settings(), "signup_open", True)
-    assert finish_signup(grace, token).status_code == 201
-
-
-def test_an_open_sign_up_is_held_to_the_workspaces_plan(client, opened, room):  # noqa: F811
-    room(1)
-    assert set_up(client).status_code == 201
-    grace = another_browser(client)
-    token = sign_up_link(grace, "grace@example.com")
-    refused = finish_signup(grace, token)
-    assert refused.status_code == 402
-    assert refused.json()["detail"] == WORKSPACE_FULL.format(workspace="Acme")
-    # The link stays good for when the plan has room.
-    room(2)
     assert finish_signup(grace, token).status_code == 201
 
 

@@ -4,11 +4,10 @@
 import { useQuery } from '@tanstack/react-query'
 import { FileUp, X } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
-import { api, isPlanLimit, mayChange, versionFileUrl } from '../api.ts'
+import { api, mayChange, versionFileUrl } from '../api.ts'
 import type { Document, DocumentVersion } from '../api.ts'
 import { useMe } from '../auth.ts'
 import { Scrolled, TextView } from '../components/DocumentViews.tsx'
-import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, IconButton, Loading, Notice } from '../components/ui.tsx'
 import { ONLY_VERSION, VERSION_EXTENSIONS, givenWords, versionHeld, versionName, versionWords, versionsKey } from '../versions.ts'
 import { useUploadVersion } from './mutations.ts'
@@ -84,12 +83,7 @@ export function VersionsDialog({ document, onClose }: { document: Document; onCl
               {givenWords(upload.data)}
             </p>
           )}
-          {upload.isError &&
-            (isPlanLimit(upload.error) ? (
-              <PlanLimitNotice refusal={{ message: upload.error.message, limit: upload.error.limit }} />
-            ) : (
-              <Notice tone="bad">{upload.error.message}</Notice>
-            ))}
+          {upload.isError && <Notice tone="bad">{upload.error.message}</Notice>}
         </div>
       )}
 

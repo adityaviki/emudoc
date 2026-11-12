@@ -1,5 +1,5 @@
-"""The notices the app tells members about their work, beside the mail their accounts,
-invitations and billing need. Each is told through `tell`, in the app and by email, each as its
+"""The notices the app tells members about their work, beside the mail their accounts and
+invitations need. Each is told through `tell`, in the app and by email, each as its
 member chose for its kind (NOTICE_KINDS, `User.wants`), or where they did not choose, as the
 organisation it is about tells its members by default (`organizations.notices`, which its owners
 and admins choose on the organisation page): a row in their notification centre
@@ -31,16 +31,6 @@ other's ended; the upload request looks as it makes the row, for documents settl
 that; and the housekeeper looks through the uploads not yet settled (`settle_uploads`), for one
 whose last look was lost with a worker that died or a document deleted while it waited. The
 statement that marks an upload settled holds its row, so it is told of once.
-
-A month's pages and questions. An organisation's owners and admins are told when what it has
-used of the month's pages or questions reaches NEAR percent of what it may use, its plan's and
-the packs bought for the month together (app/entitlements.py, app/billing.py), and when it
-reaches all of it, or, for pages, when what is left could not take a document. Each is posted
-where the figure is counted and in its transaction (`note_quota`): the question's by the ask
-route as it records the question, the pages' by the parse stage with its mark, under the job's
-lease. A `quota_notices` row for the month, figure, share and allowance says it was posted, so
-that each is posted once a month, and a pack bought after the limit was reached starts the
-count again; the usage page warns from the same share (`NEAR` in frontend/src/allowance.ts).
 """
 
 import logging
@@ -48,7 +38,6 @@ from datetime import datetime, timedelta, tzinfo
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Connection, Row, delete, exists, select, text, update
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.access import visible_to
@@ -56,32 +45,23 @@ from app.accounts import Account, zone_of
 from app.automations import arrived
 from app.config import get_settings
 from app.db import SessionLocal
-from app.entitlements import (
-    MONTHS,
-    bought_this_month,
-    entitlements_of,
-    month_of,
-    pages_this_month,
-    questions_this_month,
-)
-from app.mail import Content, quota_email, upload_indexed_email
+from app.mail import Content, upload_indexed_email
 from app.models import (
     NOTICE_CHANNELS,
     NOTICE_KINDS,
-    ROLES,
     Document,
     Job,
     Membership,
     Notification,
     Organization,
     Project,
-    QuotaNotice,
     Upload,
     User,
 )
 from app.postbox import BY_EMAIL, post_notice
 from app.question_sets import arrived as arrived_for_sets
 from app.schemas import NoticeChoiceOut
+from app.usage import MONTHS
 
 if TYPE_CHECKING:
     # For the handler's signature alone: the pipeline posts the pages' notices through here.
@@ -96,7 +76,6 @@ log = logging.getLogger(__name__)
 # reply in a thread they wrote in by app/comments.py.
 (
     UPLOAD_INDEXED,
-    QUOTA,
     PROJECT_EXPORT,
     CHECKS_RUN,
     REVIEW_ASSIGNED,
@@ -112,19 +91,10 @@ NOTIFICATION_DAYS = 90
 # How long an upload must take to settle for its member to be told: one indexed sooner was
 # most likely watched in the library.
 NOTICE_AFTER = timedelta(minutes=5)
-# The figures of a plan the notices follow (QUOTA_FIGURES in app/models.py), and the shares of
-# them, in percent, that are told: most of the month's, and all of it.
-MONTH_PAGES = "pages_per_month"
-MONTH_QUESTIONS = "questions_per_month"
-NEAR = 80
-FULL = 100
-# Who is told about the month's figures: who may change the plan or ask an owner to.
-MANAGERS = ROLES[:2]
 # What a document that is neither ready nor told why is said to be, which no run leaves.
 NOT_INDEXED = "It could not be indexed."
 # Where the links in the notices lead.
 PROJECT_PAGE = "/projects/{}"
-USAGE_PAGE = "/organization/usage"
 # Where the links of a notice the worker writes lead in development without APP_URL, which no
 # request names there: the frontend's development server (dev.sh).
 DEVELOPMENT_APP_URL = "http://localhost:5173"
@@ -349,96 +319,3 @@ def moment_words(moment: datetime, zone: tzinfo) -> str:
     """A time as a notice names it, 14:05 CEST on 20 October 2026, in the reader's zone."""
     moment = moment.astimezone(zone)
     return f"{moment:%H:%M %Z} on {moment.day} {MONTHS[moment.month - 1]} {moment.year}"
-
-
-def note_quota(
-    session: Session,
-    organization: Organization,
-    figure: str,
-    app_url: str,
-    *,
-    adding: int = 0,
-    refused: bool = False,
-) -> int:
-    """Tell the notice the month's `figure` calls for to the organisation's owners and admins
-    in the caller's session, which counts what was used, unless it was told already; returns
-    to how many. `adding` is used beyond what the usage rows say: the pages the parse stage
-    counted, which its charge records after the stage. `refused` says what is left could not
-    take a document."""
-    cap = getattr(entitlements_of(organization), figure)
-    if cap is None:
-        return 0
-    start, following = month_of()
-    if figure == MONTH_PAGES:
-        used = pages_this_month(session, organization.id, start) + adding
-        allowance = cap + bought_this_month(session, organization.id, "pages", start)
-    else:
-        used = questions_this_month(session, organization.id, start) + adding
-        allowance = cap + bought_this_month(session, organization.id, "questions", start)
-    if refused or used >= allowance:
-        share = FULL
-    elif used * 100 >= allowance * NEAR:
-        share = NEAR
-    else:
-        return 0
-    if not _noted(session, organization.id, start, figure, share, allowance, used):
-        return 0
-    if share == FULL:
-        # So that most of it is never told after all of it was.
-        _noted(session, organization.id, start, figure, NEAR, allowance, used)
-    managers = session.scalars(
-        select(Membership)
-        .where(Membership.org_id == organization.id, Membership.role.in_(MANAGERS))
-        .order_by(Membership.user_id)
-    ).all()
-    told = 0
-    for membership in managers:
-        content = quota_email(
-            membership.user.name,
-            organization.name,
-            figure,
-            used,
-            allowance,
-            MONTHS[start.month - 1],
-            MONTHS[following.month - 1],
-            f"{app_url}{USAGE_PAGE}",
-            refused=refused,
-        )
-        told += tell(session, membership.user, organization.id, QUOTA, content, USAGE_PAGE, app_url)
-    return told
-
-
-def _noted(
-    session: Session,
-    org_id: int,
-    month: datetime,
-    figure: str,
-    share: int,
-    allowance: int,
-    used: int,
-) -> bool:
-    """Record that the share of the month's figure is told, unless it was; returns whether it
-    is told now. Two requests that reach it at once insert one row: the second waits for the
-    first's transaction and inserts nothing."""
-    inserted = session.execute(
-        insert(QuotaNotice)
-        .values(
-            org_id=org_id,
-            month=month,
-            figure=figure,
-            share=share,
-            allowance=allowance,
-            used=used,
-        )
-        .on_conflict_do_nothing()
-        .returning(QuotaNotice.id)
-    ).first()
-    return inserted is not None
-
-
-def prune_quota_notices(connection: Connection) -> int:
-    """Delete the records of the notices of months gone by, which no count reaches again;
-    returns how many."""
-    return connection.execute(
-        text("DELETE FROM quota_notices WHERE month < :start"), {"start": month_of()[0]}
-    ).rowcount

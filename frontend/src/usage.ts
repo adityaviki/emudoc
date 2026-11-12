@@ -1,4 +1,5 @@
-// What an answer, a run's report or a draft used, put into words (ChatPane, RunView, DraftView and the question sets' reports show it).
+// What an answer, a run's report or a draft used, put into words (ChatPane, RunView, DraftView and the question sets' reports show it),
+// and the days and months of the workspace's usage page (backend/app/api/usage.py).
 
 import type { Usage } from './api.ts'
 
@@ -34,4 +35,24 @@ export function describeAnswerUsage(usage: Usage, currency: string | undefined):
   }
   if (usage.cost_micros != null && currency) parts.push(formatCost(usage.cost_micros, currency))
   return parts.join(' · ')
+}
+
+/** Each bar of a history as a share of its tallest; all of them 0 when nothing was used. */
+export function heights(values: number[]): number[] {
+  const most = Math.max(0, ...values)
+  return values.map((value) => (most ? value / most : 0))
+}
+
+// The server names a UTC day, or a month by its first day, as an ISO date ("2026-10-14"); the page
+// words it in UTC too, as the server counts it, whatever the browser's own zone.
+const utc = (start: string) => new Date(`${start}T00:00:00Z`)
+
+/** "Oct 14", or "October 14" when `month` is long. */
+export function dayOf(start: string, month: 'short' | 'long' = 'short'): string {
+  return utc(start).toLocaleDateString(undefined, { day: 'numeric', month, timeZone: 'UTC' })
+}
+
+/** "October", or "Oct" when short; with its year when `year` is true. */
+export function monthOf(start: string, month: 'short' | 'long' = 'long', year = false): string {
+  return utc(start).toLocaleDateString(undefined, { month, timeZone: 'UTC', ...(year ? { year: 'numeric' } : {}) })
 }

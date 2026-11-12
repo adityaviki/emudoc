@@ -1,17 +1,15 @@
 // The workspace: its name and region, its settings and security settings (its audit log is AuditPage.tsx), the API
 // keys its owners and admins make for its programs and the webhooks its programs hear of its work at, its share links
-// (ShareLinksSection.tsx), what its plan lets it keep and use (what it holds and used of it is the usage page's,
-// UsagePage.tsx) and buying one, its members, their roles and removing them, handing it over to another of them, and
-// the invitations its owners and admins send.
+// (ShareLinksSection.tsx), the way to what it holds and used (UsagePage.tsx), its members, their roles and removing
+// them, handing it over to another of them, and the invitations its owners and admins send.
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Copy, CreditCard, History, KeyRound, UserMinus, UserPlus } from 'lucide-react'
+import { Check, Copy, History, KeyRound, UserMinus, UserPlus } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Link, useLocation, useSearchParams } from 'react-router'
-import { PLAN_LABELS, REGION_NAMES, ROLES, ROLE_LABELS, isPlanLimit, isWithin, organizations } from '../api.ts'
+import { Link, useLocation } from 'react-router'
+import { REGION_NAMES, ROLES, ROLE_LABELS, isWithin, organizations } from '../api.ts'
 import type {
-  Allowance,
   ApiKey,
   ApiKeyMade,
   ApiKeyScope,
@@ -19,35 +17,32 @@ import type {
   Languages,
   Me,
   Member,
-  PlanChoice,
   Role,
-  SoldPlan,
   Webhook,
   WebhookEvent,
   WebhookMade,
 } from '../api.ts'
 import { KEY_DAYS, SCOPES, UPLOAD_CLIENT, callWith, daysOf, describeKey, mayRoll, uploadWith } from '../apiKeys.ts'
-import { ME_KEY, setSignedIn, useMe } from '../auth.ts'
-import { describeBilling, describeChange, describeExcess, describeHeld, mayBuy, mayChange, thisMonth } from '../billing.ts'
+import { setSignedIn, useMe } from '../auth.ts'
 import { PasswordField } from '../account/shared.tsx'
 import { NoticeChoices } from '../components/NoticeChoices.tsx'
 import { HandedLink, SentInvitation } from '../components/HandedLink.tsx'
-import { PlanLimitNotice, PlanOffer } from '../components/PlanLimit.tsx'
 import { Button, Checkbox, Chip, FIELD, InputField, LinkButton, Loading, Notice, Radio, Row, Section, SelectField } from '../components/ui.tsx'
-import { formatDate, formatDateTime, formatSize } from '../format.ts'
+import { formatDate, formatDateTime } from '../format.ts'
 import { INVITATIONS_SECTION } from '../onboarding.ts'
 import {
   LANGUAGES_KEY,
-  chatDayChoices,
   chosenLanguage,
   deletes,
   heldByTwoFactor,
+  keptChoices,
   keptWords,
   languageChoices,
   languageName,
   sessionDayChoices,
   signInWords,
 } from '../organizationSettings.ts'
+import type { Kept } from '../organizationSettings.ts'
 import { EVENT_ORDER, WEBHOOK_EVENTS, chosenEvents, deliveryWords, describeWebhook, subjectWords, webhookProblem } from '../webhooks.ts'
 import { ShareLinksSection } from './ShareLinksSection.tsx'
 
@@ -74,7 +69,7 @@ export function OrganizationPage() {
       <div className="mx-auto max-w-2xl px-6 py-10">
         <div className="mb-6">
           <h1 className="text-2xl font-semibold tracking-tight">{me.organization.name}</h1>
-          <p className="mt-1 text-[13px] text-muted">The workspace: its name and settings, how its members sign in, its API keys and webhooks, its plan, and its members.</p>
+          <p className="mt-1 text-[13px] text-muted">The workspace: its name and settings, how its members sign in, its API keys and webhooks, and its members.</p>
         </div>
         <div className="space-y-5">
           <NameSection me={me} />
@@ -83,11 +78,10 @@ export function OrganizationPage() {
           {isWithin('admin', me.role) && (
             <>
               <ApiKeysSection me={me} />
-              <WebhooksSection me={me} />
+              <WebhooksSection />
               {me.organization.flags_on.includes('share_links') && <ShareLinksSection me={me} />}
             </>
           )}
-          <PlanSection me={me} />
           <MembersSection me={me} />
           {isWithin('admin', me.role) && <InvitationsSection me={me} />}
         </div>
@@ -139,14 +133,20 @@ function NameSection({ me }: { me: Me }) {
         <Row label="Identifier">
           <code className="font-mono text-xs">{me.organization.slug}</code>
         </Row>
+        <Row label="Usage">
+          <Link to="/organization/usage" className="font-medium text-accent hover:underline">
+            See what it holds and has used
+          </Link>
+        </Row>
       </dl>
     </Section>
   )
 }
 
-// The language its documents are searched in, how long it keeps a chat within its plan, and how
-// its members are told each kind of notice until they choose (backend/app/api/organizations.py).
-// Owners and admins change them as they choose; the others read the first two.
+// The language its documents are searched in, how long it keeps a chat and an audit log entry,
+// and how its members are told each kind of notice until they choose
+// (backend/app/api/organizations.py). Owners and admins change them as they choose; the others
+// read the first three.
 function SettingsSection({ me }: { me: Me }) {
   const organization = me.organization
   const mayChange = isWithin('admin', me.role)
@@ -157,7 +157,8 @@ function SettingsSection({ me }: { me: Me }) {
       <Section title="Settings" description="Chosen by its owners and admins for everyone in the workspace.">
         <dl className="divide-y divide-line border-t border-line">
           <Row label="Language">{organization.language === null ? 'As Emudoc searches by default' : languageName(organization.language)}</Row>
-          <Row label="Chats kept">{keptWords(organization.chat_retention_days)}</Row>
+          <Row label="Chats kept">{keptWords(organization.chat_days)}</Row>
+          <Row label="Audit log kept">{keptWords(organization.audit_days, 'entries')}</Row>
         </dl>
       </Section>
     )
@@ -167,7 +168,8 @@ function SettingsSection({ me }: { me: Me }) {
     <Section title="Settings" description="Chosen for everyone in the workspace.">
       <div className="max-w-md space-y-4">
         {languages.data && <LanguageChoice me={me} languages={languages.data} />}
-        <ChatDays me={me} />
+        <KeptDays me={me} what="chats" />
+        <KeptDays me={me} what="entries" />
       </div>
       <h3 className="mt-5 mb-2 text-[13px] font-medium">How members are told, until they choose for themselves</h3>
       <NoticeChoices
@@ -208,34 +210,41 @@ function LanguageChoice({ me, languages }: { me: Me; languages: Languages }) {
   )
 }
 
-// A shorter time deletes chats for every member, so it is saved by a button, after the page has
-// said what goes; once saved, the choice is the saved one, and a failure leaves it to try again.
-function ChatDays({ me }: { me: Me }) {
+// A shorter time deletes chats for every member, or audit log entries, so it is saved by a
+// button, after the page has said what goes; once saved, the choice is the saved one, and a
+// failure leaves it to try again.
+function KeptDays({ me, what }: { me: Me; what: Kept }) {
   const queryClient = useQueryClient()
-  const organization = me.organization
-  const [days, setDays] = useState(organization.chat_days === null ? '' : String(organization.chat_days))
+  const saved = what === 'chats' ? me.organization.chat_days : me.organization.audit_days
+  const [days, setDays] = useState(saved === null ? '' : String(saved))
   const save = useMutation({
     mutationFn: organizations.change,
     onSuccess: (account) => setSignedIn(queryClient, account),
   })
   const chosen = days === '' ? null : Number(days)
-  const warning = deletes(organization, chosen)
+  const warning = deletes(saved, chosen, what)
 
   return (
     <div className="space-y-2">
       <div className="flex items-end gap-3">
-        <SelectField label="Chats kept" className="min-w-0 flex-1" value={days} disabled={save.isPending} onChange={(event) => setDays(event.target.value)}>
-          {chatDayChoices(organization).map((choice) => (
+        <SelectField
+          label={what === 'chats' ? 'Chats kept' : 'Audit log kept'}
+          className="min-w-0 flex-1"
+          value={days}
+          disabled={save.isPending}
+          onChange={(event) => setDays(event.target.value)}
+        >
+          {keptChoices(saved, what).map((choice) => (
             <option key={choice.value} value={choice.value}>
               {choice.label}
             </option>
           ))}
         </SelectField>
-        <Button onClick={() => save.mutate({ chat_days: chosen })} disabled={chosen === organization.chat_days || save.isPending}>
+        <Button onClick={() => save.mutate(what === 'chats' ? { chat_days: chosen } : { audit_days: chosen })} disabled={chosen === saved || save.isPending}>
           Save
         </Button>
       </div>
-      {warning && chosen !== organization.chat_days && <Notice tone="warn">{warning}</Notice>}
+      {warning && chosen !== saved && <Notice tone="warn">{warning}</Notice>}
       {save.isError && <Notice tone="bad">{save.error.message}</Notice>}
     </div>
   )
@@ -408,66 +417,55 @@ function ApiKeysSection({ me }: { me: Me }) {
       description="A program calls Emudoc with a key as the member who made it: it reads what you may in the workspace's projects, and with the write scope changes it, but nothing of the accounts or the workspace itself."
     >
       {shown && <NewKey made={shown} onDone={() => setShown(null)} />}
-      {me.organization.allowance.api_access ? (
-        <form onSubmit={submit} className="space-y-3">
-          <div className="flex flex-wrap items-end gap-2">
-            <InputField
-              label="Name"
-              required
-              maxLength={100}
-              autoComplete="off"
-              placeholder="Invoices sync"
-              className="min-w-48 flex-1"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
-            <SelectField label="Runs for" value={days} onChange={(event) => setDays(event.target.value)}>
-              {KEY_DAYS.map((choice) => (
-                <option key={choice.value} value={choice.value}>
-                  {choice.label}
-                </option>
-              ))}
-            </SelectField>
-          </div>
-          <fieldset className="space-y-2">
-            <legend className="sr-only">What it may do</legend>
-            {(Object.keys(SCOPES) as ApiKeyScope[]).map((option) => (
-              <Radio
-                key={option}
-                name="api-key-scope"
-                label={SCOPES[option].label}
-                hint={SCOPES[option].hint}
-                checked={scope === option}
-                onChange={() => setScope(option)}
-              />
+      <form onSubmit={submit} className="space-y-3">
+        <div className="flex flex-wrap items-end gap-2">
+          <InputField
+            label="Name"
+            required
+            maxLength={100}
+            autoComplete="off"
+            placeholder="Invoices sync"
+            className="min-w-48 flex-1"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
+          <SelectField label="Runs for" value={days} onChange={(event) => setDays(event.target.value)}>
+            {KEY_DAYS.map((choice) => (
+              <option key={choice.value} value={choice.value}>
+                {choice.label}
+              </option>
             ))}
-          </fieldset>
-          <Button type="submit" variant="primary" icon={<KeyRound className="size-4" />} disabled={!name.trim() || make.isPending}>
-            Make a key
-          </Button>
-          <p className="text-[13px] text-muted">
-            With a key that reads and writes, the upload client sends a folder from a computer into a project, or each file a
-            scanner saves to one:{' '}
-            <a href={UPLOAD_CLIENT} download className="font-medium text-accent hover:underline">
-              download the upload client
-            </a>
-            , give it the key in <code className="font-mono">EMUDOC_API_KEY</code>, and{' '}
-            <code className="font-mono">python3 emudoc_upload.py --help</code> says how to run it.
-          </p>
-        </form>
-      ) : (
-        <Notice tone="info">
-          <p className="text-ink">The organisation's plan does not include the API.</p>
-          <PlanOffer limit="api_access" />
-        </Notice>
-      )}
+          </SelectField>
+        </div>
+        <fieldset className="space-y-2">
+          <legend className="sr-only">What it may do</legend>
+          {(Object.keys(SCOPES) as ApiKeyScope[]).map((option) => (
+            <Radio
+              key={option}
+              name="api-key-scope"
+              label={SCOPES[option].label}
+              hint={SCOPES[option].hint}
+              checked={scope === option}
+              onChange={() => setScope(option)}
+            />
+          ))}
+        </fieldset>
+        <Button type="submit" variant="primary" icon={<KeyRound className="size-4" />} disabled={!name.trim() || make.isPending}>
+          Make a key
+        </Button>
+        <p className="text-[13px] text-muted">
+          With a key that reads and writes, the upload client sends a folder from a computer into a project, or each file a
+          scanner saves to one:{' '}
+          <a href={UPLOAD_CLIENT} download className="font-medium text-accent hover:underline">
+            download the upload client
+          </a>
+          , give it the key in <code className="font-mono">EMUDOC_API_KEY</code>, and{' '}
+          <code className="font-mono">python3 emudoc_upload.py --help</code> says how to run it.
+        </p>
+      </form>
       {make.isError && (
         <div className="mt-3">
-          {isPlanLimit(make.error) ? (
-            <PlanLimitNotice refusal={make.error} onDismiss={() => make.reset()} />
-          ) : (
-            <Notice tone="bad">{make.error.message}</Notice>
-          )}
+          <Notice tone="bad">{make.error.message}</Notice>
         </div>
       )}
       {keys.isPending && <Loading />}
@@ -480,7 +478,7 @@ function ApiKeysSection({ me }: { me: Me }) {
             ))}
           </ul>
         ) : (
-          me.organization.allowance.api_access && <p className="mt-3 text-[13px] text-muted">The workspace has no API keys yet.</p>
+          <p className="mt-3 text-[13px] text-muted">The workspace has no API keys yet.</p>
         ))}
     </Section>
   )
@@ -584,7 +582,7 @@ function ApiKeyRow({ me, apiKey, onRolled }: { me: Me; apiKey: ApiKey; onRolled:
       )}
       {error && (
         <div className="mt-2">
-          {isPlanLimit(error) ? <PlanLimitNotice refusal={error} /> : <Notice tone="bad">{error.message}</Notice>}
+          <Notice tone="bad">{error.message}</Notice>
         </div>
       )}
     </li>
@@ -593,7 +591,7 @@ function ApiKeyRow({ me, apiKey, onRolled }: { me: Me; apiKey: ApiKey; onRolled:
 
 // What happens in the organisation's projects, posted to its programs as it happens (backend/app/webhooks.py): a
 // webhook is an address and the events it is told of, each signed with its secret, which is shown once.
-function WebhooksSection({ me }: { me: Me }) {
+function WebhooksSection() {
   const queryClient = useQueryClient()
   const hooks = useQuery({ queryKey: WEBHOOKS_KEY, queryFn: organizations.webhooks })
   const [shown, setShown] = useState<WebhookMade | null>(null)
@@ -612,33 +610,20 @@ function WebhooksSection({ me }: { me: Me }) {
       description="Emudoc posts what happens in the workspace's projects to your programs' addresses as it happens, each event signed with the webhook's secret: a document indexed, or not, and a run of cross-checks worked out."
     >
       {shown && <NewSecret made={shown} onDone={() => setShown(null)} />}
-      {me.organization.allowance.api_access ? (
-        <>
-          <WebhookForm
-            action="Add the webhook"
-            pending={make.isPending}
-            onSubmit={(body, done) => make.mutate(body, { onSuccess: done })}
-          />
-          <p className="mt-3 text-[13px] text-muted">
-            Each event carries what the versioned API answers for its document or run, and an{' '}
-            <code className="font-mono">Emudoc-Signature</code> header your program checks with the secret:{' '}
-            <code className="font-mono">t=</code> the time in seconds and <code className="font-mono">v1=</code> the
-            HMAC-SHA256, in hex, of that time, a full stop and the body as sent.
-          </p>
-        </>
-      ) : (
-        <Notice tone="info">
-          <p className="text-ink">The organisation's plan does not include the API, which webhooks are part of.</p>
-          <PlanOffer limit="api_access" />
-        </Notice>
-      )}
+      <WebhookForm
+        action="Add the webhook"
+        pending={make.isPending}
+        onSubmit={(body, done) => make.mutate(body, { onSuccess: done })}
+      />
+      <p className="mt-3 text-[13px] text-muted">
+        Each event carries what the versioned API answers for its document or run, and an{' '}
+        <code className="font-mono">Emudoc-Signature</code> header your program checks with the secret:{' '}
+        <code className="font-mono">t=</code> the time in seconds and <code className="font-mono">v1=</code> the
+        HMAC-SHA256, in hex, of that time, a full stop and the body as sent.
+      </p>
       {make.isError && (
         <div className="mt-3">
-          {isPlanLimit(make.error) ? (
-            <PlanLimitNotice refusal={make.error} onDismiss={() => make.reset()} />
-          ) : (
-            <Notice tone="bad">{make.error.message}</Notice>
-          )}
+          <Notice tone="bad">{make.error.message}</Notice>
         </div>
       )}
       {hooks.isPending && <Loading />}
@@ -651,7 +636,7 @@ function WebhooksSection({ me }: { me: Me }) {
             ))}
           </ul>
         ) : (
-          me.organization.allowance.api_access && <p className="mt-3 text-[13px] text-muted">The workspace has no webhooks yet.</p>
+          <p className="mt-3 text-[13px] text-muted">The workspace has no webhooks yet.</p>
         ))}
     </Section>
   )
@@ -869,7 +854,7 @@ function WebhookRow({ hook, onRolled }: { hook: Webhook; onRolled: (made: Webhoo
       )}
       {error && (
         <div className="mt-2">
-          {isPlanLimit(error) ? <PlanLimitNotice refusal={error} /> : <Notice tone="bad">{error.message}</Notice>}
+          <Notice tone="bad">{error.message}</Notice>
         </div>
       )}
       {log && <DeliveryLog hook={hook} />}
@@ -921,295 +906,6 @@ function DeliveryLog({ hook }: { hook: Webhook }) {
   )
 }
 
-// What the organisation may keep and use, as the server holds it to them
-// (backend/app/entitlements.py): its plan's figures, the seats it bought on a plan sold by the
-// seat, and any figure agreed with it in the plan's place; and how its subscription stands.
-function PlanSection({ me }: { me: Me }) {
-  const { plan, seats, allowance, chat_days: chosenDays, billing } = me.organization
-  const figure = (value: number | null, words: (value: number) => string = (n) => n.toLocaleString()) =>
-    value === null ? 'No limit' : words(value)
-  const monthly = (n: number) => `${n.toLocaleString()} a month`
-  const agreed = (name: keyof Allowance) =>
-    allowance.agreed.includes(name) && (
-      <span title="Agreed with the organisation in place of the plan's">
-        <Chip>Agreed</Chip>
-      </span>
-    )
-  const sells = (billing.sold.length > 0 || billing.packs.length > 0) && billing.managed
-  const standing = describeBilling(billing, formatDate)
-  const past = describeExcess(me.organization)
-  const kept = describeHeld(me.organization, formatDate)
-  const tones = { good: 'text-good', warn: 'text-warn', bad: 'text-bad' }
-  const extra = (count: number) =>
-    count > 0 && <span className="text-muted">and {count.toLocaleString()} more bought for {thisMonth()}</span>
-
-  return (
-    <Section
-      title="Plan"
-      description={`What the organisation may keep and use, counted across its projects and members. Pages and questions start afresh on the first of each month, in UTC. ${sells ? 'Its owners buy and change the plan here.' : 'Contact the Emudoc team to change the plan.'}`}
-    >
-      <dl className="divide-y divide-line border-t border-line">
-        <Row label="Plan">{PLAN_LABELS[plan]}</Row>
-        {standing && (
-          <Row label="Subscription">
-            <span className={tones[standing.tone]}>{standing.text}</span>
-          </Row>
-        )}
-        <Row label="Projects">
-          {figure(allowance.projects)}
-          {agreed('projects')}
-        </Row>
-        <Row label="Documents">
-          {figure(allowance.documents)}
-          {agreed('documents')}
-        </Row>
-        <Row label="Storage">
-          {figure(allowance.storage_bytes, formatSize)}
-          {agreed('storage_bytes')}
-        </Row>
-        <Row label="Pages indexed">
-          {figure(allowance.pages_per_month, monthly)}
-          {extra(allowance.pages_bought)}
-          {agreed('pages_per_month')}
-        </Row>
-        <Row label="Questions">
-          {figure(allowance.questions_per_month, monthly)}
-          {extra(allowance.questions_bought)}
-          {agreed('questions_per_month')}
-        </Row>
-        <Row label="Members">
-          {figure(allowance.members, (n) => (seats === null ? n.toLocaleString() : n === 1 ? '1 seat' : `${n.toLocaleString()} seats`))}
-          {agreed('members')}
-        </Row>
-        <Row label="Chats kept">
-          {keptWords(allowance.retention_days)}
-          {agreed('retention_days')}
-          {chosenDays !== null && <span className="block text-muted">The organisation keeps them {chosenDays.toLocaleString()} days, in its settings.</span>}
-          {kept && <span className="block text-muted">{kept}</span>}
-        </Row>
-      </dl>
-      <div className="mt-3">
-        <Link to="/organization/usage" className="text-[13px] font-medium text-accent hover:underline">
-          See what it holds and has used
-        </Link>
-      </div>
-      {past && (
-        <div className="mt-4">
-          <Notice>{past}</Notice>
-        </div>
-      )}
-      {sells && <BillingActions me={me} />}
-    </Section>
-  )
-}
-
-// Buying a plan or a pack on Stripe's Checkout page, managing them on Stripe's customer portal,
-// and the way back from Checkout, whose session the server asks Stripe about
-// (backend/app/api/billing.py). Both pages are Stripe's: the browser goes to the address the
-// server gives.
-function BillingActions({ me }: { me: Me }) {
-  const queryClient = useQueryClient()
-  const { billing, seats: bought } = me.organization
-  const [params, setParams] = useSearchParams()
-  const returned = params.get('checkout')
-  const fromPortal = params.get('billing') === 'back'
-  const members = useQuery({ queryKey: MEMBERS_KEY, queryFn: organizations.members })
-  // The seats to buy, the members the organisation has until the owner types a number.
-  const [seats, setSeats] = useState<string | null>(null)
-  const seatCount = seats ?? String(bought ?? Math.max(1, members.data?.length ?? 1))
-  const away = ({ url }: { url: string }) => window.location.assign(url)
-  const buy = useMutation({
-    mutationFn: (plan: SoldPlan) => organizations.checkout(plan === 'team' ? { plan, seats: Number(seatCount) } : { plan }),
-    onSuccess: away,
-  })
-  const manage = useMutation({ mutationFn: organizations.billingPortal, onSuccess: away })
-  const buyPack = useMutation({ mutationFn: organizations.buyPack, onSuccess: away })
-  const done = useMutation({
-    mutationFn: organizations.checkoutDone,
-    onSuccess: (account) => setSignedIn(queryClient, account),
-  })
-  const { mutate: finish } = done
-  // Back from Stripe's portal, the server asks Stripe how the subscription stands rather than wait for its event.
-  const portalDone = useMutation({
-    mutationFn: organizations.portalDone,
-    onSuccess: (account) => setSignedIn(queryClient, account),
-  })
-  const { mutate: settle } = portalDone
-
-  useEffect(() => {
-    if (returned) {
-      finish(returned)
-      setParams({}, { replace: true })
-    }
-  }, [returned, finish, setParams])
-
-  useEffect(() => {
-    if (fromPortal) {
-      settle()
-      setParams({}, { replace: true })
-    }
-  }, [fromPortal, settle, setParams])
-
-  const owner = me.role === 'owner'
-  // Stripe's page is loading once an address came back: nothing is offered twice meanwhile.
-  const leaving = [buy, manage, buyPack].some((step) => step.isPending || step.isSuccess)
-  const error = buy.error ?? manage.error ?? buyPack.error
-
-  return (
-    <div className="mt-4 space-y-3">
-      {done.isPending && <Notice tone="info">Asking Stripe about the payment…</Notice>}
-      {done.isSuccess && <Notice tone="info">Thank you: the payment went through, and the plan above shows what it bought.</Notice>}
-      {done.isError && <Notice tone="bad">{done.error.message}</Notice>}
-      {portalDone.isPending && <Notice tone="info">Asking Stripe how the subscription stands…</Notice>}
-      {portalDone.isError && <Notice tone="bad">{portalDone.error.message}</Notice>}
-      {error && <Notice tone="bad">{error.message}</Notice>}
-      {!owner ? (
-        <p className="text-[13px] text-muted">Only its owners buy a plan or manage its billing.</p>
-      ) : (
-        <>
-          {mayBuy(billing) && (
-            <>
-              {billing.trial_days !== null && (
-                <p className="text-[13px] text-muted">
-                  A plan bought now starts with a {billing.trial_days}-day trial, and is charged when the trial ends unless it is cancelled first.
-                </p>
-              )}
-              <div className="flex flex-wrap items-end gap-3">
-                {billing.sold.includes('pro') && (
-                  <Button variant="primary" disabled={leaving} onClick={() => buy.mutate('pro')}>
-                    Buy Pro
-                  </Button>
-                )}
-                {billing.sold.includes('team') && (
-                  <>
-                    <InputField
-                      label="Seats"
-                      type="number"
-                      min={1}
-                      max={10000}
-                      className="w-24"
-                      value={seatCount}
-                      onChange={(event) => setSeats(event.target.value)}
-                    />
-                    <Button
-                      variant={billing.sold.includes('pro') ? 'secondary' : 'primary'}
-                      disabled={leaving || !(Number(seatCount) >= 1)}
-                      onClick={() => buy.mutate('team')}
-                    >
-                      Buy Team
-                    </Button>
-                  </>
-                )}
-              </div>
-            </>
-          )}
-          {billing.packs.length > 0 && (
-            <div>
-              <div className="flex flex-wrap items-center gap-3">
-                {billing.packs.map((pack) => (
-                  <Button key={`${pack.unit}:${pack.quantity}`} disabled={leaving} onClick={() => buyPack.mutate(pack)}>
-                    Buy {pack.quantity.toLocaleString()} {pack.unit} for {thisMonth()}
-                  </Button>
-                ))}
-              </div>
-              <p className="mt-1.5 text-[13px] text-muted">
-                A pack is paid once and adds to this month’s allowance, on top of the plan’s, until the month ends in UTC.
-              </p>
-            </div>
-          )}
-          {mayChange(billing) && <ChangePlan me={me} leaving={leaving} />}
-          {billing.customer && (
-            <div>
-              <Button icon={<CreditCard className="size-4" />} disabled={leaving} onClick={() => manage.mutate()}>
-                Manage billing
-              </Button>
-              <p className="mt-1.5 text-[13px] text-muted">
-                The plan, the seats, the payment method, the billing address and VAT id, cancelling, and the invoices, on Stripe’s page.
-              </p>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  )
-}
-
-// Moving the subscription to another plan, fewer or more seats, or cancelling it for Free: the
-// server says first what that would leave read-only and keep for less time
-// (`plan_change` in backend/app/billing.py), then Stripe's portal opens on that one step, whose
-// page shows the price and confirms it, and sends the owner back here.
-function ChangePlan({ me, leaving }: { me: Me; leaving: boolean }) {
-  const { billing, plan: current, seats: bought } = me.organization
-  const [plan, setPlan] = useState<PlanChoice['plan'] | null>(null)
-  const [seats, setSeats] = useState(String(bought ?? 1))
-  const seatCount = Number(seats)
-  const choice: PlanChoice | null =
-    plan === null || (plan === 'team' && !(seatCount >= 1)) ? null : plan === 'team' ? { plan, seats: seatCount } : { plan }
-  const change = useQuery({
-    queryKey: ['organization', 'planChange', choice],
-    queryFn: () => organizations.planChange(choice!),
-    enabled: choice !== null,
-    retry: false,
-  })
-  const go = useMutation({
-    mutationFn: () => organizations.billingPortal(choice!),
-    onSuccess: ({ url }) => window.location.assign(url),
-  })
-  // Each plan on sale, Team again for other seats, and Free, which is cancelling.
-  const choices = [...billing.sold.filter((sold) => sold !== current || sold === 'team'), 'free' as const]
-  const account = change.data ? describeChange(change.data, me.organization, formatDate) : null
-
-  return (
-    <div className="space-y-3 rounded-lg border border-line p-4">
-      <div>
-        <p className="text-[13px] font-medium">Change or cancel the plan</p>
-        <p className="mt-0.5 text-[13px] text-muted">See what it would mean here first; Stripe’s page then shows the price and confirms it.</p>
-      </div>
-      <div className="space-y-2" role="radiogroup" aria-label="Plan to move to">
-        {choices.map((option) => (
-          <Radio
-            key={option}
-            name="plan-change"
-            label={option === 'free' ? 'Free: cancel the subscription' : option === current ? `${PLAN_LABELS[option]}, other seats` : PLAN_LABELS[option]}
-            checked={plan === option}
-            onChange={() => setPlan(option)}
-          />
-        ))}
-      </div>
-      {plan === 'team' && (
-        <InputField label="Seats" type="number" min={1} max={10000} className="w-24" value={seats} onChange={(event) => setSeats(event.target.value)} />
-      )}
-      {change.isFetching && <p className="text-[13px] text-muted">Working out what it would mean…</p>}
-      {change.isError && <Notice tone="bad">{change.error.message}</Notice>}
-      {account && !change.isFetching && (
-        <div className="space-y-2">
-          {account.figures.length > 0 && (
-            <dl className="divide-y divide-line border-y border-line text-[13px]">
-              {account.figures.map((figure) => (
-                <div key={figure.label} className="flex justify-between gap-4 py-1.5">
-                  <dt className="text-muted">{figure.label}</dt>
-                  <dd>
-                    {figure.now} → <span className="font-medium">{figure.then}</span>
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          )}
-          {account.notes.map((note) => (
-            <p key={note} className="text-[13px]">
-              {note}
-            </p>
-          ))}
-          {go.error && <Notice tone="bad">{go.error.message}</Notice>}
-          <Button variant={plan === 'free' ? 'danger' : 'primary'} disabled={leaving || go.isPending || go.isSuccess} onClick={() => go.mutate()}>
-            {plan === 'free' ? 'Cancel on Stripe’s page' : 'Confirm on Stripe’s page'}
-          </Button>
-        </div>
-      )}
-    </div>
-  )
-}
-
 function MembersSection({ me }: { me: Me }) {
   const members = useQuery({ queryKey: MEMBERS_KEY, queryFn: organizations.members })
   const handOver = me.role === 'owner' ? ' Handing it over makes another member its owner, and you an admin.' : ''
@@ -1248,11 +944,7 @@ function MemberRow({ me, member }: { me: Me; member: Member }) {
   })
   const remove = useMutation({
     mutationFn: () => organizations.removeMember(member.user_id),
-    onSuccess: () => {
-      void refresh()
-      // What the organisation holds past its plan, which a member fewer may bring it within.
-      void queryClient.invalidateQueries({ queryKey: ME_KEY })
-    },
+    onSuccess: () => void refresh(),
   })
   const yours = member.user_id === me.id
   const manageable = !yours && isWithin('admin', me.role) && isWithin(member.role, me.role)
@@ -1457,7 +1149,7 @@ function InvitationsSection({ me }: { me: Me }) {
     <Section
       id={INVITATIONS_SECTION}
       title="Invitations"
-      description="Invite someone by email: the link they are sent lets them join with the role you choose, and makes their account if they have none. An invitation takes a place among the members your plan allows until it is accepted, revoked or runs out after a week."
+      description="Invite someone by email: the link they are sent lets them join with the role you choose, and makes their account if they have none. An invitation runs out after a week unless it is accepted or revoked first."
     >
       <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
         <InputField
@@ -1481,12 +1173,7 @@ function InvitationsSection({ me }: { me: Me }) {
         </Button>
       </form>
       <div className="mt-3 space-y-3">
-        {invite.isError &&
-          (isPlanLimit(invite.error) ? (
-            <PlanLimitNotice refusal={invite.error} onDismiss={() => invite.reset()} />
-          ) : (
-            <Notice tone="bad">{invite.error.message}</Notice>
-          ))}
+        {invite.isError && <Notice tone="bad">{invite.error.message}</Notice>}
         {invite.isSuccess && <SentInvitation sent={invite.data} />}
       </div>
       {invitations.isPending && <Loading />}
@@ -1511,11 +1198,7 @@ function InvitationRow({ me, invitation }: { me: Me; invitation: Invitation }) {
   const resend = useMutation({ mutationFn: () => organizations.resendInvitation(invitation.id), onSuccess: refresh })
   const revoke = useMutation({
     mutationFn: () => organizations.revokeInvitation(invitation.id),
-    onSuccess: () => {
-      void refresh()
-      // An open invitation holds a member's place, so the organisation may be within its plan now.
-      void queryClient.invalidateQueries({ queryKey: ME_KEY })
-    },
+    onSuccess: () => void refresh(),
   })
   const error = resend.error ?? revoke.error
 
@@ -1546,7 +1229,7 @@ function InvitationRow({ me, invitation }: { me: Me; invitation: Invitation }) {
       </div>
       {error && (
         <div className="mt-2">
-          {isPlanLimit(error) ? <PlanLimitNotice refusal={error} /> : <Notice tone="bad">{error.message}</Notice>}
+          <Notice tone="bad">{error.message}</Notice>
         </div>
       )}
       {resend.isSuccess && (

@@ -1,15 +1,14 @@
 """The operator's area's routes (app/operators.py), each the page's view of what a maintenance
-command prints (app/maintenance.py): `plan` and `usage` for one organisation, `costs` across
-them, `jobs` and `failed-jobs`, and the worker's watch (app/watch.py) for the services. They
-read through the same functions as the commands, so a page and a command never disagree.
+command prints (app/maintenance.py): `usage` for one organisation, `costs` across them, `jobs` and
+`failed-jobs`, and the worker's watch (app/watch.py) for the services. They read through the same
+functions as the commands, so a page and a command never disagree.
 
-Four of them act, as the commands do: a plan, its seats and its agreed figures changed
-(`change_plan`, whose audit rows name the operator by id in the organisation's own log), a
-feature flag turned on or off for an organisation (`choose`, app/flags.py, likewise), failed
-documents queued again (`requeue`, likewise), and a model provider switched off or on again
-without a restart (app/switches.py), which belongs to no organisation and is logged instead.
-One has no command: viewing a member's account as support, with the member's leave
-(app/support.py), from the operator's own session, which the app then shows as the member's.
+Three of them act, as the commands do: a feature flag turned on or off for an organisation
+(`choose`, app/flags.py, whose audit rows name the operator by id in the organisation's own log),
+failed documents queued again (`requeue`, likewise), and a model provider switched off or on again
+without a restart (app/switches.py), which belongs to no organisation and is logged instead. One has
+no command: viewing a member's account as support, with the member's leave (app/support.py), from
+the operator's own session, which the app then shows as the member's.
 
 Every route sits behind `get_operator`, which answers anyone but an operator as if the route
 were not there (404, as for a path no route takes); `everything_else` does the same for a path
@@ -33,15 +32,12 @@ from app.api.auth import ACCOUNT_PAGE, app_url, organization_out
 from app.api.deps import NOT_FOUND, ServicesDep, SessionDep, refuse_cross_site
 from app.api.organizations import locked
 from app.api.usage import usage_page
-from app.billing import change_plan
 from app.config import get_settings, model_provider
 from app.deadletters import NamedJob, named_jobs, requeue
-from app.entitlements import BY_THE_SEAT, FIELDS, PLANS, agreed_with, entitlements_of
 from app.flags import FLAGS, choose, chosen, flag_on, rollouts
 from app.jobs import HISTORY, JOB_STATES, QUEUE_BY_STATE, workers_seen
 from app.logs import about
 from app.mail import support_view_email
-from app.maintenance import entitlement_words, figure_of
 from app.models import (
     JOB_KINDS,
     Job,
@@ -62,7 +58,6 @@ from app.schemas import (
     CostOut,
     DatabaseOut,
     DayCostOut,
-    EntitlementOut,
     ModelCostOut,
     OperatorCostsOut,
     OperatorFlagChoiceOut,
@@ -77,8 +72,6 @@ from app.schemas import (
     OperatorOrganizationRow,
     OperatorOrganizationsOut,
     OperatorOut,
-    OperatorPlanIn,
-    OperatorPlanOut,
     OperatorProviderOut,
     OperatorServicesOut,
     OperatorUserMembershipOut,
@@ -196,11 +189,8 @@ def list_organizations(
                 id=organization.id,
                 name=organization.name,
                 slug=organization.slug,
-                plan=organization.plan,
-                seats=organization.seats,
                 members=count,
                 created_at=organization.created_at,
-                subscription_status=organization.subscription_status,
                 cost_micros=cost.cost_micros if (cost := costs.get(organization.id)) else None,
             )
             for organization, count in shown
@@ -230,16 +220,13 @@ def _organizations_matching(q: str):
 
 @router.get("/organizations/{org_id}", response_model=OperatorOrganizationOut)
 def show_organization(org_id: int, session: SessionDep):
-    """One organisation as the `plan` and `usage` commands show it, with its usage page as its
+    """One organisation as the `usage` command shows it, with its usage page as its
     members read it, its members and what its work cost over the last COST_DAYS days."""
     organization = session.get(Organization, org_id)
     if organization is None:
         raise HTTPException(404, "No organisation has this id; it may have been deleted.")
     about(org_id=organization.id)
     since, until = _days(COST_DAYS)
-    entitlements, own = entitlements_of(organization), PLANS[organization.plan]
-    agreed = agreed_with(organization)
-    seats = organization.plan in BY_THE_SEAT and organization.seats is not None
     found = [cost for cost in organization_costs(session, since, until) if cost.org_id == org_id]
     cost = found[0] if found else OrganizationCost(org_id, None, 0, 0, 0, 0, 0)
     members = session.execute(
@@ -256,26 +243,8 @@ def show_organization(org_id: int, session: SessionDep):
         ).all()
     )
     return OperatorOrganizationOut(
-        organization=organization_out(session, organization),
+        organization=organization_out(organization),
         usage=usage_page(session, organization),
-        entitlements=[
-            EntitlementOut(
-                name=name,
-                value=entitlement_words(name, getattr(entitlements, name)),
-                plan_value=entitlement_words(name, getattr(own, name)),
-                agreed=name in agreed or (name == "members" and seats),
-            )
-            for name in FIELDS
-        ],
-        overrides={name: entitlement_words(name, value) for name, value in agreed.items()},
-        plans=[
-            OperatorPlanOut(
-                name=plan,
-                by_the_seat=plan in BY_THE_SEAT,
-                figures={name: entitlement_words(name, getattr(figures, name)) for name in FIELDS},
-            )
-            for plan, figures in PLANS.items()
-        ],
         members=[
             OperatorMemberOut(
                 user_id=user.id,
@@ -288,11 +257,9 @@ def show_organization(org_id: int, session: SessionDep):
             )
             for membership, user in members
         ],
-        stripe_customer_id=organization.stripe_customer_id,
-        stripe_subscription_id=organization.stripe_subscription_id,
         since=since,
         until=until,
-        cost=_cost_out(cost, entitlements.daily_spend_micros),
+        cost=_cost_out(cost, None),
         cost_days=[
             DayCostOut(day=day, cost_micros=spent) for day, spent in sorted(cost.days.items())
         ],
@@ -307,50 +274,6 @@ def show_organization(org_id: int, session: SessionDep):
             for name, flag in FLAGS.items()
         ],
     )
-
-
-@router.put("/organizations/{org_id}/plan", response_model=OperatorOrganizationOut)
-def change_organization_plan(
-    org_id: int,
-    operator: OperatorDep,
-    session: SessionDep,
-    change: Annotated[OperatorPlanIn, given(OperatorPlanIn)],
-):
-    """Put the organisation on a plan with its seats and agreed figures, as the `plan` command
-    does (`change_plan`), the three as a whole: the page sends what its form shows. Every part
-    that changed is a row of the organisation's audit log naming the operator. A subscription
-    Stripe bills still sets the plan at its next event, unless figures are agreed, which the
-    page says before the change."""
-    organization = locked(session, org_id)
-    if organization is None:
-        raise HTTPException(404, "No organisation has this id; it may have been deleted.")
-    about(org_id=organization.id)
-    try:
-        change_plan(
-            session,
-            organization,
-            change.plan,
-            seats=change.seats,
-            overrides=_agreed(organization, change.agreed),
-            operator=operator.id,
-        )
-    except RuntimeError as error:
-        raise HTTPException(400, str(error)) from None
-    session.commit()
-    return show_organization(org_id, session)
-
-
-def _agreed(organization: Organization, written: dict[str, str]) -> dict[str, object]:
-    """The figures to agree with the organisation, read from the words the page sends
-    (`figure_of`). A figure sent as the page shows it keeps the value it has, which its words
-    may round (a size, an amount), so that saving the form changes only what was edited."""
-    was = agreed_with(organization)
-    return {
-        name: was[name]
-        if name in was and words.strip() == entitlement_words(name, was[name])
-        else figure_of(name, words)
-        for name, words in written.items()
-    }
 
 
 @router.put("/organizations/{org_id}/flags/{name}", response_model=OperatorOrganizationOut)
@@ -516,8 +439,8 @@ def list_users(session: SessionDep, q: str = Query("", max_length=320)):
 @router.get("/costs", response_model=OperatorCostsOut)
 def costs(session: SessionDep, days: int = Query(COST_DAYS, ge=1, le=366)):
     """The `costs` command's report: every organisation that used anything over the last `days`
-    days up to today, in UTC, the costliest first, against its plan's daily limit; theirs
-    together against DAILY_SPEND_CAP; and the cost by kind of work and model."""
+    days up to today, in UTC, the costliest first; theirs together against DAILY_SPEND_CAP; and the
+    cost by kind of work and model."""
     settings = get_settings()
     since, until = _days(days)
     found = organization_costs(session, since, until)
@@ -746,13 +669,11 @@ def _cost_out(cost: OrganizationCost, limit: int | None) -> CostOut:
 
 
 def _organization_cost(cost: OrganizationCost, organization: Organization) -> OrganizationCostOut:
-    limit = entitlements_of(organization).daily_spend_micros
     return OrganizationCostOut(
         org_id=organization.id,
         slug=organization.slug,
         name=organization.name,
-        plan=organization.plan,
-        **_cost_out(cost, limit).model_dump(),
+        **_cost_out(cost, None).model_dump(),
     )
 
 

@@ -17,7 +17,7 @@ than PAGE_IMAGE_DAYS, which are rendered again when asked for, and the objects o
 projects that no longer exist, which a delete leaves behind when the storage fails after the rows
 are gone; the pruning of jobs that finished longer ago than the queue keeps them, of the
 workers not seen for a day, of the events of old answers, of the request counts behind the rate
-limits (app/ratelimit.py), of the chats past their plan's retention (app/retention.py), and of
+limits (app/ratelimit.py), of the chats past the workspace's retention (app/retention.py), and of
 the sessions and one-time links that ended a month ago (app/auth.py); and the purge of the
 accounts whose deletion is due, after setting those that a restore brought back to be purged
 again (app/retention.py).
@@ -38,16 +38,16 @@ any runs, and with `--document` where one document's indexing stands and what th
 operator's look before a release and at a document a member says is stuck (deploying.md,
 "Runbooks").
 
-`usage` prints what an organisation used per day (app/usage.py): the model calls and tokens
-of its answers today, and whatever is metered next. `costs` is the operator's view across the
-organisations: what each one's work cost the platform over a span of days, costliest first,
-against its plan's daily limit, then the platform's total against DAILY_SPEND_CAP and the cost
-by kind of work and model. It reads the usage rows, since the metrics carry no label per
-organisation (app/metrics.py), and prints organisations by slug and name, never an address.
+`usage` prints what an organisation used per day (app/usage.py): the model calls and tokens of its
+answers today, and whatever is metered next. `costs` is the operator's view across the
+organisations: what each one's work cost over a span of days, costliest first, then the total
+against DAILY_SPEND_CAP and the cost by kind of work and model. It reads the usage rows, since the
+metrics carry no label per organisation (app/metrics.py), and prints organisations by slug and name,
+never an address.
 
 `operators` lists the users who may open the operator's area at /operator (app/operators.py),
 and `operators add|remove <address>` grants it or takes it back: the area's one way in, from a
-shell on the deployment, as the plan's changes are.
+shell on the deployment.
 
 `create-admin <address>` makes an install's first account and its workspace, as the setup page
 does (app/signups.py), for an install set up by a script: the account has no password, and the
@@ -92,10 +92,9 @@ import re
 import shutil
 import sys
 from collections import Counter
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal, InvalidOperation
 from email import policy
 from email.parser import BytesParser
 from io import BytesIO
@@ -107,32 +106,13 @@ from sqlalchemy.orm import Session
 from app.answers import EVENT_HISTORY, prune_events
 from app.audit import audit_event, prune_audit
 from app.auth import CREDENTIAL_HISTORY, prune_credentials
-from app.billing import (
-    BILLED,
-    SWITCHES,
-    change_plan,
-    end_grace_periods,
-    managed,
-    prune_billing_events,
-)
 from app.bounces import SUPPRESSED_FOR, prune_suppressions
-from app.config import PACK_UNITS, export_env_file, get_settings
+from app.config import export_env_file, get_settings
 from app.connectors.sync import prune_connectors
 from app.db import MIGRATION_LOCK, SessionLocal, check_schema, engine, unbounded
 from app.deadletters import NamedJob, describe, failed_jobs, named_jobs, requeue
 from app.digests import queue_digests
 from app.encrypted import describe_encrypted, encrypt_secrets, keys
-from app.entitlements import (
-    FIELDS,
-    MONTHS,
-    PLANS,
-    agreed_with,
-    bought_this_month,
-    entitlements_of,
-    month_of,
-    over_limits,
-    size_label,
-)
 from app.export import EXPORT_DAYS, EXPORT_KEPT, prune_exports
 from app.fact_accuracy import describe_facts, run_facts
 from app.flags import FLAGS, choose, chosen, flag_on, rollouts
@@ -158,12 +138,10 @@ from app.jobs import (
 )
 from app.logs import configure_logging
 from app.models import JOB_KINDS, STAGES, Document, Job, Membership, Organization, Project, User
-from app.models import PLANS as PLAN_NAMES
 from app.notices import (
     NOTIFICATION_DAYS,
     app_address,
     prune_notifications,
-    prune_quota_notices,
     settle_uploads,
 )
 from app.operators import grant, operators, revoke
@@ -173,14 +151,12 @@ from app.question_sets import queue_due_sets
 from app.ratelimit import prune_rate_limits
 from app.restore import after_restore, describe_restore
 from app.retention import (
-    day,
     prune_chats,
     prune_drafts,
     prune_reports,
     prune_runs,
     purge_due_accounts,
     reapply_erasures,
-    retention_held,
 )
 from app.sample import INDEX, add_sample, build_sample, written
 from app.schemas import EMAIL_PATTERN
@@ -206,7 +182,6 @@ from app.usage import (
     OrganizationCost,
     daily,
     model_costs,
-    money,
     organization_costs,
     prompt_costs,
     summed,
@@ -235,9 +210,6 @@ DOCUMENT_JOBS = 5
 # project's. The match is the owner's prefix, as `document_prefix`, `my_file_prefix` and
 # `project_prefix` in app/storage.py build it.
 _OWNER = re.compile(r"orgs/\d+/projects/\d+/(?:(?:documents|my-files)/\d+/)?")
-# A size as `plan --set storage_bytes=` takes it: 500 GB, 1.5TB, 100000000.
-_SIZE = re.compile(r"([\d.,]+)\s*(bytes|kb|mb|gb|tb)?", re.IGNORECASE)
-_UNITS = {"bytes": 1, "kb": 1_000, "mb": 1_000_000, "gb": 1_000_000_000, "tb": 10**12}
 
 # pgvector keeps a column's size as the type's modifier, so the catalog has it without a scan.
 _STORED_DIM = text(
@@ -543,13 +515,10 @@ def housekeeping(storage: Storage) -> None:
     another replica holds it: the work is idempotent, and walking the storage once is enough.
     The lock is transaction-level, so it ends with the block. What has been in the trash for
     TRASH_DAYS is deleted for good in it, and its files once it has committed (app/trash.py),
-    as a delete for good does them. The accounts due for purging go
-    after it, each in a transaction of its own, since their files are discarded only once their
-    rows are gone for good, then the organisations whose owners asked for them to be deleted
-    (app/retention.py), after the accounts so that no member about to go is given an
-    organisation of their own, and so do the organisations whose payment has failed for longer
-    than the grace period, whose owners are mailed (app/billing.py), and the uploads whose
-    members were not told they were indexed (app/notices.py).
+    as a delete for good does them. The accounts due for purging go after it, each in a
+    transaction of its own, since their files are discarded only once their rows are gone for
+    good (app/retention.py), and then the uploads whose members were not told they were indexed
+    (app/notices.py).
     """
     settings = get_settings()
     keep = timedelta(days=settings.page_image_days) if settings.page_image_days else None
@@ -580,11 +549,9 @@ def housekeeping(storage: Storage) -> None:
         drafts = prune_drafts(connection)
         audited = prune_audit(connection)
         credentials = prune_credentials(connection)
-        billing_events = prune_billing_events(connection)
         spared = prune_suppressions(connection)
         prune_inbound(connection)
         prune_connectors(connection)
-        prune_quota_notices(connection)
         notifications = prune_notifications(connection)
         exports = prune_exports(connection)
         share_links = prune_share_links(connection)
@@ -592,26 +559,17 @@ def housekeeping(storage: Storage) -> None:
     storage.discard(*emptied.prefixes)
     reapply_erasures(storage)
     accounts = purge_due_accounts(storage)
-    lapsed = end_grace_periods()
     uploads = settle_uploads()
     with SessionLocal() as session:
         sets = queue_due_sets(session)
         digests = queue_digests(session)
     if accounts:
         log.info("Housekeeping: deleted %s accounts whose deletion was due", accounts)
-    if lapsed:
-        log.info(
-            "Housekeeping: moved %s organisations to the Free plan, their payment failed for "
-            "longer than the grace period",
-            lapsed,
-        )
     if uploads:
         log.info(
             "Housekeeping: found %s uploads indexed that the end of their last work did not",
             uploads,
         )
-    if billing_events:
-        log.info("Housekeeping: forgot %s Stripe events acted on long ago", billing_events)
     if share_links:
         log.info("Housekeeping: forgot %s share links that expired", share_links)
     if exports or sweep.exports:
@@ -636,14 +594,15 @@ def housekeeping(storage: Storage) -> None:
             SUPPRESSED_FOR.days,
         )
     if chats:
-        log.info("Housekeeping: deleted %s chats kept past their plan's retention", chats)
+        log.info("Housekeeping: deleted %s chats kept past the workspace's retention", chats)
     if runs:
         log.info(
-            "Housekeeping: deleted %s runs of cross-checks kept past their plan's retention", runs
+            "Housekeeping: deleted %s runs of cross-checks kept past the workspace's retention",
+            runs,
         )
     if reports:
         log.info(
-            "Housekeeping: deleted %s reports of question sets kept past their plan's retention",
+            "Housekeeping: deleted %s reports of question sets kept past the workspace's retention",
             reports,
         )
     if sets:
@@ -651,7 +610,7 @@ def housekeeping(storage: Storage) -> None:
     if digests:
         log.info("Housekeeping: queued the weekly digests' job, which had none")
     if drafts:
-        log.info("Housekeeping: deleted %s drafts kept past their plan's retention", drafts)
+        log.info("Housekeeping: deleted %s drafts kept past the workspace's retention", drafts)
     if emptied.projects or emptied.folders or emptied.documents or emptied.chats:
         log.info(
             "Housekeeping: deleted for good what was in the trash for %s days: %s projects, "
@@ -663,7 +622,7 @@ def housekeeping(storage: Storage) -> None:
             emptied.chats,
         )
     if audited:
-        log.info("Housekeeping: deleted %s audit log rows kept past their plan's days", audited)
+        log.info("Housekeeping: deleted %s audit log rows kept past the workspace's days", audited)
     if credentials:
         log.info(
             "Housekeeping: removed %s sessions and links that ended more than %s days ago",
@@ -752,9 +711,9 @@ def usage_report(session: Session, slug: str, days: int) -> list[str]:
 
 def costs_report(session: Session, days: int) -> list[str]:
     """The lines the `costs` command prints for the last `days` days up to today, in UTC:
-    every organisation that used anything, costliest first, with its plan's daily limit, its
-    costliest day against it and the days it reached it; the platform's line, held to
-    DAILY_SPEND_CAP; the cost by kind of work and model, then by kind and version of its prompts
+    every organisation that used anything, costliest first, with its costliest day; all of them
+    together, held to DAILY_SPEND_CAP, its costliest day against it and the days it reached it;
+    the cost by kind of work and model, then by kind and version of its prompts
     (app/prompts.py), the latest seen first, with the first and last day each was seen; and the
     models whose tokens were recorded without a price, which no cost counts."""
     settings = get_settings()
@@ -773,7 +732,6 @@ def costs_report(session: Session, days: int) -> list[str]:
     rows = [
         (
             "organisation",
-            "plan",
             "cost",
             "limit",
             "top day",
@@ -786,19 +744,18 @@ def costs_report(session: Session, days: int) -> list[str]:
     ]
     for cost in costs:
         organization = organizations[cost.org_id]
-        cap = entitlements_of(organization).daily_spend_micros
-        rows.append(_cost_row(organization.slug, organization.plan, cost, cap, organization.name))
+        rows.append(_cost_row(organization.slug, cost, None, organization.name))
     cap = settings.daily_spend_cap_micros or None
-    rows.append(_cost_row("platform", "", summed(costs), cap, _count(len(costs), "organisation")))
+    rows.append(_cost_row("all", summed(costs), cap, _count(len(costs), "organisation")))
     lines = [
         f"Model costs per organisation {span}, in {settings.price_currency}, costliest first:",
-        *_table(rows, left={0, 1, 9}),
+        *_table(rows, left={0, 8}),
     ]
     if idle := session.scalar(select(func.count()).select_from(Organization)) - len(costs):
         lines.append(f"{_count(idle, 'other organisation')} used nothing.")
     lines += [
-        "The top day is the costliest, with its share of the daily limit: the plan's, or the",
-        "platform's DAILY_SPEND_CAP. At limit counts the days that reached it.",
+        "The top day is the costliest; all of them together are held to DAILY_SPEND_CAP, the",
+        "top day's share of it beside it. At limit counts the days that reached it.",
     ]
     models = model_costs(session, since, today)
     if models:
@@ -853,101 +810,6 @@ def costs_report(session: Session, days: int) -> list[str]:
             for model, tokens in unpriced.most_common()
         ]
         lines += _table(rows, left={0, 2})
-    return lines
-
-
-def plan_report(
-    session: Session,
-    slug: str,
-    plan: str | None = None,
-    *,
-    seats: str | None = None,
-    figures: Sequence[str] = (),
-    unset: Sequence[str] = (),
-) -> list[str]:
-    """The lines the `plan` command prints for the organisation `slug`: its plan, its seats and
-    what it allows (app/entitlements.py), each figure agreed with it marked, after changing what
-    the arguments ask through `change_plan` (app/billing.py): `plan` another plan, which clears
-    the seats and figures of the one before; `seats` a number or "none"; `figures` agreed ones
-    as NAME=VALUE; `unset` the names of agreed ones that are the plan's again. The caller
-    commits."""
-    organization = _organization(session, slug)
-    was = organization.plan
-    moving = plan is not None and plan != was
-    bought = None if moving else organization.seats
-    agreed = {} if moving else dict(organization.overrides or {})
-    if seats is not None:
-        bought = None if seats.strip().lower() == "none" else _whole(seats, "--seats")
-    for name in unset:
-        if name not in FIELDS:
-            raise RuntimeError(f"{name!r} is no entitlement; they are {', '.join(FIELDS)}.")
-        agreed.pop(name, None)
-    for figure in figures:
-        name, equals, value = figure.partition("=")
-        if not equals:
-            raise RuntimeError(f"--set takes NAME=VALUE, such as projects=500, not {figure!r}.")
-        agreed[name.strip()] = figure_of(name.strip(), value)
-    dropped = (organization.seats, agreed_with(organization)) if moving else (None, {})
-    change_plan(session, organization, plan or was, seats=bought, overrides=agreed)
-
-    verb = f"moved from the {was.capitalize()} plan to" if moving else "is on"
-    with_seats = f" with {_count(bought, 'seat')}" if bought is not None else ""
-    lines = [
-        f"{organization.name} ({slug}) {verb} the {organization.plan.capitalize()} plan"
-        f"{with_seats}, which allows:"
-    ]
-    entitlements, own = entitlements_of(organization), PLANS[organization.plan]
-    for name in FIELDS:
-        line = f"  {name:<20}{entitlement_words(name, getattr(entitlements, name))}"
-        if name in agreed:
-            line += f" (agreed; the plan's {entitlement_words(name, getattr(own, name))})"
-        elif name == "members" and bought is not None:
-            line += f" (its seats; the plan's {entitlement_words(name, own.members)})"
-        lines.append(line)
-    if dropped[0] is not None:
-        lines.append(
-            f"The {_count(dropped[0], 'seat')} it bought on the {was.capitalize()} plan "
-            "no longer count."
-        )
-    if dropped[1]:
-        lines.append(
-            f"The figures agreed with it on the {was.capitalize()} plan no longer "
-            f"count: {', '.join(dropped[1])}."
-        )
-    if beyond := over_limits(session, organization):
-        lines.append(
-            f"It holds more than it allows, {', '.join(excess.words for excess in beyond)}: "
-            "it keeps it all, and is read-only until it is within the plan again."
-        )
-    if standing := retention_held(organization):
-        kept = standing.kept
-        lines.append(
-            f"Until {day(standing.until)} it keeps chats {_kept(kept.chat_days)} and audit log "
-            f"entries {_kept(kept.audit_days)}, as before its move to a plan that keeps them for "
-            "less time."
-        )
-    start = month_of()[0]
-    if bought := [
-        f"{count:,} {unit}"
-        for unit in PACK_UNITS
-        if (count := bought_this_month(session, organization.id, unit, start))
-    ]:
-        lines.append(
-            f"It bought {' and '.join(bought)} in packs for {MONTHS[start.month - 1]}, on top "
-            "of the month's allowance."
-        )
-    if organization.subscription_status in BILLED:
-        # Stripe's next event about it would undo a move made here, unless its terms are agreed.
-        lines.append(
-            f"It pays for a subscription at Stripe, {organization.stripe_subscription_id} "
-            f"({organization.subscription_status}), which sets its plan"
-            + (
-                ": a change made here lasts until Stripe's next event about it. Change the "
-                "subscription in Stripe's dashboard instead."
-                if managed(organization)
-                else " no longer, since its terms are agreed."
-            )
-        )
     return lines
 
 
@@ -1155,10 +1017,6 @@ def operators_report(session: Session, action: str | None = None, email: str = "
     return lines
 
 
-def _kept(days: int | None) -> str:
-    return "for good" if days is None else _count(days, "day")
-
-
 def jobs_report(session: Session) -> list[str]:
     """The lines the `jobs` command prints: each kind's jobs by state, how long the oldest due
     one has waited for a worker, each running job with what it is for, its attempt and its
@@ -1349,53 +1207,6 @@ def _at(moment: datetime) -> str:
     return f"{moment.astimezone(UTC):%Y-%m-%d %H:%M} UTC"
 
 
-def entitlement_words(name: str, value: int | str | bool | None) -> str:
-    """A figure as the `plan` command prints it, which is also how `--set` takes it, and as the
-    operator's area shows it (app/api/operator.py)."""
-    if value is None:
-        return "no limit"
-    if isinstance(value, bool):
-        return "yes" if value else "no"
-    # The day's spending limit is an amount of money, and the storage a size.
-    if name == "daily_spend_micros":
-        return f"{money(value)} a day"
-    if name == "storage_bytes":
-        return size_label(value)
-    return f"{value:,}" if isinstance(value, int) else value
-
-
-def figure_of(name: str, given: str) -> object:
-    """A figure as the operator gives it after `--set NAME=` or in the operator's area, read as
-    `entitlement_words` prints it: "none" for no limit, yes or no, a count (1,000), a size
-    (500 GB) or an amount of PRICE_CURRENCY a day (25.00, or USD 25.00 a day). What it cannot
-    read is returned as it was, for `change_plan` to refuse with what the figure should be."""
-    value = given.strip()
-    if value.lower() in ("none", "no limit"):
-        return None
-    if name in SWITCHES:
-        return {"yes": True, "no": False}.get(value.lower(), value)
-    if name == "model_tier":
-        return value
-    try:
-        if name == "storage_bytes" and (size := _SIZE.fullmatch(value)):
-            number, unit = size.groups()
-            return int(Decimal(number.replace(",", "")) * _UNITS[(unit or "bytes").lower()])
-        if name == "daily_spend_micros":
-            amount = value.removeprefix(get_settings().price_currency).removesuffix("a day")
-            amount = amount.strip()
-            return int(Decimal(amount.replace(",", "")) * 1_000_000)
-        return int(value.replace(",", "").replace("_", ""))
-    except (InvalidOperation, ValueError):
-        return value
-
-
-def _whole(given: str, option: str) -> int:
-    try:
-        return int(given.replace(",", ""))
-    except ValueError:
-        raise RuntimeError(f"{option} takes a whole number or none, not {given!r}.") from None
-
-
 def _organization(session: Session, slug: str) -> Organization:
     organization = session.scalar(select(Organization).where(Organization.slug == slug))
     if organization is None:
@@ -1408,19 +1219,17 @@ def _usage_line(row: DailyUsage) -> str:
     return f"  {row.day}  {row.kind:<16}{row.unit:<16}{row.quantity:>12,}{cost}"
 
 
-def _cost_row(
-    who: str, plan: str, cost: OrganizationCost, cap: int | None, name: str
-) -> tuple[str, ...]:
-    """One line of the `costs` table: an organisation's, or the platform's."""
+def _cost_row(who: str, cost: OrganizationCost, cap: int | None, name: str) -> tuple[str, ...]:
+    """One line of the `costs` table: an organisation's, or all of them together against the
+    cap."""
     tokens = cost.input_tokens + cost.output_tokens
     top = _known(cost.top_day, tokens)
     if cost.top_day is not None and cap:
         top += f" ({cost.top_day * 100 // cap} %)"
     return (
         who,
-        plan,
         _known(cost.cost_micros, tokens),
-        "none" if cap is None else _amount(cap),
+        "" if cap is None else _amount(cap),
         top,
         "" if cap is None else f"{cost.days_at(cap):,}",
         f"{cost.answers:,}",
@@ -1610,51 +1419,16 @@ def main(argv: list[str] | None = None) -> None:
     costs = commands.add_parser(
         "costs",
         help="print what each organisation's model use cost, costliest first",
-        description="Print what each organisation's model use cost the platform per day, in "
-        "UTC, over the last days up to today, costliest first: its plan, the plan's daily "
-        "limit, its costliest day against that limit and the days it reached it, its answers, "
-        "model calls and pages indexed; then the platform's total against DAILY_SPEND_CAP, the "
+        description="Print what each organisation's model use cost per day, in UTC, over the "
+        "last days up to today, costliest first: its costliest day, its answers, model calls "
+        "and pages indexed; then the total against DAILY_SPEND_CAP, with its costliest day "
+        "against the cap and the days it reached it, the "
         "cost by kind of work and model, then by kind and version of its prompts, and the "
         "models whose tokens were recorded without a price in MODEL_PRICES. `usage <slug>` "
         "breaks one organisation down by day.",
     )
     costs.add_argument(
         "--days", type=int, default=30, help="how many days back from today; 30 by default"
-    )
-    plan = commands.add_parser(
-        "plan",
-        help="show, or change, an organisation's plan, seats and agreed figures",
-        description="Show which plan an organisation is on and what it allows "
-        f"({', '.join(PLAN_NAMES)}), or put it on the plan named, which clears the seats and "
-        "the figures agreed on the one before. A new organisation starts on the first; the "
-        "limits take effect at its next upload, question or project, and lowering them "
-        "removes nothing.",
-    )
-    plan.add_argument("organization", help="the organisation's slug")
-    plan.add_argument(
-        "plan", nargs="?", choices=PLAN_NAMES, help="the plan to put the organisation on"
-    )
-    plan.add_argument(
-        "--seats",
-        metavar="N",
-        help="the members it bought, on a plan sold by the seat (team); none for the plan's own",
-    )
-    plan.add_argument(
-        "--set",
-        dest="figures",
-        action="append",
-        default=[],
-        metavar="NAME=VALUE",
-        help="agree a figure in place of the plan's, as the report prints it: projects=500, "
-        "storage_bytes=1 TB, daily_spend_micros=25.00 (an amount of PRICE_CURRENCY), "
-        "api_access=yes, retention_days=none for no limit; again for each",
-    )
-    plan.add_argument(
-        "--unset",
-        action="append",
-        default=[],
-        metavar="NAME",
-        help="make an agreed figure the plan's again; again for each",
     )
     flagging = commands.add_parser(
         "flags",
@@ -2049,20 +1823,6 @@ def main(argv: list[str] | None = None) -> None:
                 f"{_count(sum(len(entry['facts']) for entry in documents), 'fact')}, written to "
                 f"{INDEX}. Read the summaries and facts before committing it."
             )
-        elif args.command == "plan":
-            check_schema()
-            with SessionLocal() as session:
-                lines = plan_report(
-                    session,
-                    args.organization,
-                    args.plan,
-                    seats=args.seats,
-                    figures=args.figures,
-                    unset=args.unset,
-                )
-                session.commit()
-                for line in lines:
-                    print(line)
         elif args.command == "flags":
             if (args.flag is None) != (args.state is None):
                 parser.error("flags takes a flag with on, off or rollout, or neither")

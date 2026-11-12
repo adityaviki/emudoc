@@ -143,13 +143,13 @@ def ask(
     once: OnceDep,
 ):
     """Ask a question in a chat the key's member started; the worker writes the answer, which
-    is followed by its id. It counts as one of the month's questions (402 past the plan's), and
-    is refused with 409 while the chat's last answer is still being written and with 429 while
-    the organisation has too many being written at once. With an Idempotency-Key, the question
-    sent again is given the first one's answer, and asked and counted once."""
+    is followed by its id. It counts as a question asked, and is refused with 409 while the chat's
+    last answer is still being written and with 429 while the organisation has too many being
+    written at once. With an Idempotency-Key, the question sent again is given the first one's
+    answer, and asked and counted once."""
 
     def work() -> Asked:
-        asked = chats.ask(chat, QuestionIn(content=body.content), session, account, request)
+        asked = chats.ask(chat, QuestionIn(content=body.content), session, account)
         return Asked(
             question=message_of(session, session.get(ChatMessage, asked.question.id)),
             answer=message_of(session, session.get(ChatMessage, asked.answer.id)),

@@ -6,6 +6,7 @@ of the month's questions, the report kept and told to whom the set names."""
 import uuid
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -13,8 +14,8 @@ from pydantic_ai.messages import TextPart
 from sqlalchemy import delete, select, update
 
 from app.api.question_sets import NO_WEEKDAY, NOTHING_RUNS_IT, STILL_RUNNING, STILL_WRITTEN
+from app.config import get_settings
 from app.db import engine
-from app.entitlements import check_question
 from app.flags import FLAGS, QUESTION_SETS
 from app.jobs import RUN_QUESTION_SET, WRITE_QUESTION_REPORT
 from app.models import (
@@ -36,11 +37,11 @@ from app.question_reports import (
 )
 from app.question_sets import queue_due_sets
 from app.retention import prune_reports
+from app.spending import check_spend
 from tests.conftest import FakeTurn
 from tests.test_api import create_project
 from tests.test_automations import APP, arrive, at_once, next_job  # noqa: F401 (a fixture)
 from tests.test_chats import questions_counted
-from tests.test_entitlements import plan  # noqa: F401 (a fixture)
 from tests.test_notices import told
 from tests.test_templates import turn_on
 
@@ -54,10 +55,9 @@ SET = {
 
 
 @pytest.fixture(autouse=True)
-def question_sets_on(monkeypatch, plan):  # noqa: F811
-    """The flag on, and the free plan given question sets, as Pro has them."""
+def question_sets_on(monkeypatch):
+    """The flag on."""
     turn_on(monkeypatch, QUESTION_SETS)
-    plan(question_sets=True)
 
 
 @pytest.fixture
@@ -289,9 +289,7 @@ def test_a_member_runs_a_set_there_and_then_and_alone_is_told(
     mailer,
     ann,
     make_account,
-    plan,  # noqa: F811
 ):
-    plan(question_sets=True, members=2)
     project = create_project(client)
     made = make(client, project["id"], audience="project")
     make_account("bob@globex.example", ann.organization, "viewer")
@@ -317,38 +315,22 @@ def test_a_member_runs_a_set_there_and_then_and_alone_is_told(
     assert (row.user_id, row.detail["trigger"]) == (ann.user.id, "member")
 
 
-def test_the_plan_and_the_flag_hold_question_sets(client, session, ann, plan, monkeypatch):  # noqa: F811
+def test_the_flag_holds_question_sets(client, session, ann, monkeypatch):
     project = create_project(client)
-    made = make(client, project["id"])
-    plan(question_sets=False)
-    for method, path, body in (
-        ("POST", f"/api/projects/{project['id']}/question-sets", SET),
-        ("PUT", f"/api/question-sets/{made['id']}", SET),
-        ("POST", f"/api/question-sets/{made['id']}/run", None),
-    ):
-        refused = client.request(method, path, json=body)
-        assert (refused.status_code, refused.json()["limit"]) == (402, "question_sets"), path
-    # What the set would do is said where it is listed, and its schedule makes no report.
-    (shown_set,) = listed(client, project["id"])
-    assert shown_set["problem"].startswith("The Free plan does not include question sets.")
-    due(session, made["id"])
-    assert next_job(None, RUN_QUESTION_SET) is not None
-    assert reports(session) == []
+    make(client, project["id"])
     # Off for the organisation, none of it is there.
     monkeypatch.setitem(FLAGS, QUESTION_SETS, replace(FLAGS[QUESTION_SETS], share=0))
     assert client.get(f"/api/projects/{project['id']}/question-sets").status_code == 404
     assert client.get(f"/api/projects/{project['id']}/reports").status_code == 404
 
 
-def test_a_report_stops_asking_once_the_months_questions_are_used(
-    client,
-    session,
-    services,
-    mailer,
-    ann,
-    plan,  # noqa: F811
+def test_a_report_stops_asking_once_the_days_spending_is_reached(
+    client, session, services, mailer, ann, monkeypatch
 ):
-    plan(question_sets=True, questions_per_month=1)
+    # The first answer costs 1.50 of the day's 1.00: the next question is not asked.
+    settings = get_settings()
+    monkeypatch.setattr(settings, "model_prices", f"{settings.agent_model}=100000/100000")
+    monkeypatch.setattr(settings, "daily_spend_cap", Decimal("1"))
     project = create_project(client)
     made = make(client, project["id"])
     started = ran(client, made["id"])
@@ -356,8 +338,7 @@ def test_a_report_stops_asking_once_the_months_questions_are_used(
     assert next_job(services, WRITE_QUESTION_REPORT) is not None
     kept = shown(client, started["id"])
     assert (kept["status"], kept["answered"], kept["failed"]) == ("done", 1, 1)
-    refusal = check_question(session, session.get(Organization, ann.organization.id))
-    assert kept["answers"][1]["error"] == refusal.sentence
+    assert kept["answers"][1]["error"] == check_spend(session)
     assert questions_counted(session) == 1
     (notice,) = [m for m in told(mailer) if m.subject.startswith("A question set")]
     assert notice.subject == "A question set's report is ready, with questions unanswered"
@@ -508,6 +489,8 @@ def test_a_report_is_kept_as_long_as_a_chat(client, session, services, ann):
     answers(services, "Nothing is due.", "Ada signed it.")
     assert next_job(services, WRITE_QUESTION_REPORT) is not None
     waiting = ran(client, made["id"])
+    # The organisation keeps a chat 30 days, and the reports as long.
+    session.execute(update(Organization).values(chat_days=30))
     long_ago = datetime.now(UTC) - timedelta(days=31)
     session.execute(update(QuestionReport).values(created_at=long_ago))
     session.commit()

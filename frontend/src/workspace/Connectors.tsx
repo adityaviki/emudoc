@@ -2,12 +2,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, ChevronRight, FolderSync, RefreshCw, X } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
-import { api, isPlanLimit, mayChange } from '../api.ts'
-import type { Connector, ConnectorProvider, Connectors, PlanRefusal, RemoteFolder } from '../api.ts'
+import { api, mayChange } from '../api.ts'
+import type { Connector, ConnectorProvider, Connectors, RemoteFolder } from '../api.ts'
 import { useMe } from '../auth.ts'
 import { folderChoices } from '../automations.ts'
 import { Confirm } from '../components/Confirm.tsx'
-import { PlanLimitNotice, PlanOffer } from '../components/PlanLimit.tsx'
 import { Button, EmptyState, IconButton, Loading, Notice, SelectField } from '../components/ui.tsx'
 import { DISCONNECT, connectError, connectedWords, connectorsKey, keptWords, moreRejected, standingWords } from '../connectors.ts'
 import { useFolders } from '../hooks.ts'
@@ -47,10 +46,10 @@ export function ConnectorsView() {
       )
     }
   }, [params, setParams])
-  const [refused, setRefused] = useState<PlanRefusal | string | null>(null)
+  const [refused, setRefused] = useState<string | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   const fail = (error: Error) =>
-    setRefused(isPlanLimit(error) ? { message: error.message, limit: error.limit } : error.message)
+    setRefused(error.message)
   const connect = useMutation({
     mutationFn: ({ provider, connectorId }: { provider: ConnectorProvider; connectorId: number | null }) =>
       api.connect(project.id, provider, connectorId),
@@ -71,7 +70,6 @@ export function ConnectorsView() {
   }, [syncing, project.id, queryClient])
 
   const data = connectors.data
-  const allowed = me.organization.allowance.connectors
   const leaving = connect.isPending || connect.isSuccess
   const room = data ? data.connectors.length < data.max_connectors : false
 
@@ -87,8 +85,7 @@ export function ConnectorsView() {
       </div>
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3">
         {failed && <Dismissible text={failed} onDismiss={() => setFailed(null)} />}
-        {typeof refused === 'string' && <Dismissible text={refused} onDismiss={() => setRefused(null)} />}
-        {refused && typeof refused !== 'string' && <PlanLimitNotice refusal={refused} onDismiss={() => setRefused(null)} />}
+        {refused && <Dismissible text={refused} onDismiss={() => setRefused(null)} />}
         {connectors.isPending && <Loading />}
         {connectors.isError && <Notice tone="bad">Could not load the connected folders: {connectors.error.message}</Notice>}
         {data && data.connectors.length === 0 && (
@@ -100,13 +97,7 @@ export function ConnectorsView() {
             {data.services.length === 0 && <p className="mt-2">No service is set up on this deployment yet. Ask whoever runs it.</p>}
           </EmptyState>
         )}
-        {data && data.services.length > 0 && changes && !allowed && (
-          <Notice>
-            <p>Your plan does not include connected folders.</p>
-            <PlanOffer limit="connectors" />
-          </Notice>
-        )}
-        {data && data.services.length > 0 && changes && allowed && room && (
+        {data && data.services.length > 0 && changes && room && (
           <div className="flex flex-wrap gap-2">
             {data.services.map((service) => (
               <Button

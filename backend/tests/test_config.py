@@ -170,10 +170,6 @@ def deployment(tmp_path, monkeypatch) -> dict[str, object]:
         "AGENT_FALLBACK_MODEL",
         "INDEX_FALLBACK_MODEL",
         "ENCRYPTION_KEYS",
-        "STRIPE_SECRET_KEY",
-        "STRIPE_WEBHOOK_SECRET",
-        "STRIPE_PRICES",
-        "STRIPE_PACKS",
         "RESEND_API_KEY",
         "RESEND_WEBHOOK_SECRET",
         "MAIL_EVENTS_QUEUE",
@@ -330,73 +326,6 @@ def test_a_spend_cap_without_prices_is_refused_in_production(deployment):
     # Development is told nothing: it runs with whatever it has.
     del deployment["model_prices"]
     assert load_settings(**{**deployment, "environment": "development"}).production_problems() == []
-
-
-def test_the_prices_sold_are_read_by_plan_and_a_malformed_entry_is_refused():
-    settings = Settings(
-        _env_file=None,
-        stripe_secret_key="sk_test_x",
-        stripe_prices=" pro=price_pro , team=price_team,pro=price_pro_yearly,",
-    )
-    assert settings.stripe_plans == {
-        "pro": ["price_pro", "price_pro_yearly"],
-        "team": ["price_team"],
-    }
-    # Billing off sells nothing, whatever the prices say.
-    assert Settings(_env_file=None, stripe_prices="pro=price_pro").stripe_plans == {}
-    for entry in ("free=price_free", "enterprise=price_x", "pro", "pro=", "pro=price x"):
-        with pytest.raises(ValidationError, match="STRIPE_PRICES lists the Stripe prices"):
-            Settings(_env_file=None, stripe_prices=entry)
-    with pytest.raises(ValidationError, match="price_a is listed twice"):
-        Settings(_env_file=None, stripe_prices="pro=price_a,team=price_a")
-
-
-def test_the_packs_sold_are_read_in_order_and_a_price_sells_one_thing():
-    settings = Settings(
-        _env_file=None,
-        stripe_secret_key="sk_test_x",
-        stripe_prices="pro=price_pro",
-        stripe_packs="pages:1000=price_a, questions:500=price_b,pages:5000=price_c",
-    )
-    assert [tuple(pack) for pack in settings.packs] == [
-        ("pages", 1000, "price_a"),
-        ("questions", 500, "price_b"),
-        ("pages", 5000, "price_c"),
-    ]
-    for entry in ("seats:5=price_x", "pages=price_x", "pages:0=price_x", "pages:ten=price_x"):
-        with pytest.raises(ValidationError, match="STRIPE_PACKS lists the packs sold"):
-            Settings(_env_file=None, stripe_packs=entry)
-    with pytest.raises(ValidationError, match="pages:10 is listed twice"):
-        Settings(_env_file=None, stripe_packs="pages:10=price_a,pages:10=price_b")
-    with pytest.raises(ValidationError, match="STRIPE_PRICES and STRIPE_PACKS both list price_a"):
-        Settings(_env_file=None, stripe_prices="pro=price_a", stripe_packs="pages:10=price_a")
-
-
-def test_production_bills_only_with_the_key_the_webhook_and_something_to_sell(deployment):
-    billing = {
-        "stripe_secret_key": "rk_live_x",
-        "stripe_webhook_secret": "whsec_x",
-        "stripe_prices": "pro=price_pro,team=price_team",
-    }
-    assert load_settings(**deployment, **billing).production_problems() == []
-    for left_out, said in (
-        ("stripe_secret_key", "STRIPE_SECRET_KEY is not, so nothing can be sold"),
-        ("stripe_webhook_secret", "what is bought would never reach the app"),
-        ("stripe_prices", "STRIPE_PRICES is not set, so there is nothing to sell"),
-    ):
-        with pytest.raises(SystemExit) as stop:
-            load_settings(**deployment, **{**billing, left_out: ""})
-        assert said in stop.value.code
-    for name, value, said in (
-        ("stripe_secret_key", "pk_live_x", "the publishable key, pk_, cannot sell anything"),
-        ("stripe_webhook_secret", "we_x", "STRIPE_WEBHOOK_SECRET is not a webhook endpoint's"),
-    ):
-        with pytest.raises(SystemExit) as stop:
-            load_settings(**deployment, **{**billing, name: value})
-        assert said in stop.value.code and value not in stop.value.code
-    # Development is told nothing: it bills with whatever it has.
-    development = {**deployment, "environment": "development", "stripe_secret_key": "sk_test_x"}
-    assert load_settings(**development).production_problems() == []
 
 
 def test_production_mails_one_way_with_keys_of_their_kind(deployment):

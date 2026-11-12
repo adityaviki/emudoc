@@ -1,10 +1,9 @@
-"""Daily spending limits: an organisation's questions are refused with 402 once its plan's
-limit for the day is spent, the platform's limit refuses every organisation with 503 until
-midnight UTC, an answer queued under a limit ends with its sentence when the worker reaches it
+"""The daily spending cap: once DAILY_SPEND_CAP is spent, every question is refused with 503
+until midnight UTC, an answer queued under it ends with its sentence when the worker reaches it
 and is not tried again until the day allows, an indexing stage that needs the model waits for
-midnight while structure makes do, the operator is warned once a day as a day nears a limit,
-and the plan command shows the limit as money. The kill switch is tested with the model layer
-(tests/test_llm.py) and the production start (tests/test_config.py)."""
+midnight while structure makes do, and ALERT_EMAIL is warned once a day as a day nears the cap.
+The kill switch is tested with the model layer (tests/test_llm.py) and the production start
+(tests/test_config.py)."""
 
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
@@ -19,9 +18,8 @@ from app.answers import answer
 from app.config import get_settings
 from app.jobs import INDEX_DOCUMENT, claim
 from app.mail import MailError, Message
-from app.maintenance import main
 from app.models import SpendAlert
-from app.spending import alert_spending, day_of, retry_after, warn_without_prices, when
+from app.spending import alert_spending, day_of, retry_after, when
 from app.usage import ANSWER, record
 from app.worker import HANDLERS, Worker
 from tests.conftest import FakeMailer, FakeTurn
@@ -31,7 +29,7 @@ from tests.test_jobs import all_jobs, wait_until
 from tests.test_pipeline import scanned_pdf, stage_statuses
 
 # Ten tokens in cost one unit of currency: a FakeTurn and a FakeLLM.structured call (10 in, 5
-# out) each cost 1.50, so a plan's USD 1.00 a day is spent by one of them.
+# out) each cost 1.50, so a cap of USD 1.00 a day is spent by one of them.
 PRICED = f"{get_settings().agent_model}=100000/100000"
 OPERATOR = "ops@example.test"
 
@@ -54,11 +52,9 @@ def priced(monkeypatch):
 
 
 @pytest.fixture
-def member(make_account, act_as):
-    """The API acts as the owner of a fresh organisation, which starts on the free plan."""
-    account = make_account("ann@globex.example")
-    act_as(account)
-    return account
+def capped(monkeypatch):
+    """A day of model use capped at USD 1.00."""
+    monkeypatch.setattr(get_settings(), "daily_spend_cap", Decimal("1"))
 
 
 def spend(session, org_id: int, amount: str, at: datetime | None = None) -> None:
@@ -86,14 +82,7 @@ def yesterday(session) -> None:
     session.commit()
 
 
-def plan_refusal(spent: str, cap: str = "1.00", plan_name: str = "Free") -> str:
-    return (
-        f"The {plan_name} plan allows USD {cap} of model use a day, and this organisation has "
-        f"used USD {spent} today (UTC). Upgrade your plan, or try again after midnight UTC."
-    )
-
-
-def platform_refusal(spent: str, cap: str) -> str:
+def refusal(spent: str, cap: str = "1.00") -> str:
     return (
         f"Emudoc has reached its spending limit of USD {cap} a day on models (USD {spent} spent "
         "today, UTC). The limit resets at midnight UTC; try again then."
@@ -106,48 +95,15 @@ def continues() -> str:
 
 def alerts(session) -> list[tuple]:
     return [
-        (row.org_id, row.day, row.spent_micros, row.cap_micros)
+        (row.day, row.spent_micros, row.cap_micros)
         for row in session.scalars(select(SpendAlert).order_by(SpendAlert.id))
     ]
 
 
-def test_the_plan_limits_what_an_organisation_spends_in_a_day(
-    member, client, session, services, priced, capsys
-):
-    project = create_project(client)
-    chat = new_chat(client, project["id"])
-    services.llm.agent_turns = [FakeTurn(TextPart("Yes."))]
-    events = answered(client, services, chat["id"], "Is it?")
-    done = next(event for event in events if event["type"] == "done")
-    assert done["usage"]["cost_micros"] == 1_500_000
-
-    # The free plan allows USD 1.00 a day, and that answer cost 1.50: the next question is
-    # refused before it is saved.
-    refused = client.post(f"/api/chats/{chat['id']}/messages", json={"content": "And?"})
-    assert refused.status_code == 402
-    assert refused.json() == {"detail": plan_refusal("1.50"), "limit": "daily_spend_micros"}
-    assert len(client.get(f"/api/chats/{chat['id']}").json()["messages"]) == 2
-
-    # Yesterday's spending was yesterday's.
-    yesterday(session)
-    services.llm.agent_turns = [FakeTurn(TextPart("Yes."))]
-    answered(client, services, chat["id"], "And?")
-    assert (
-        client.post(f"/api/chats/{chat['id']}/messages", json={"content": "So?"}).status_code == 402
-    )
-
-    # The enterprise plan has no limit of its own.
-    main(["plan", "globex", "enterprise"])
-    capsys.readouterr()
-    ask(client, chat["id"], "So?")
-
-
-def test_the_platform_limit_refuses_every_organisation_until_midnight_utc(
+def test_the_cap_refuses_every_organisation_until_midnight_utc(
     client, session, services, account, make_account, act_as, priced, monkeypatch
 ):
     monkeypatch.setattr(get_settings(), "daily_spend_cap", Decimal("2"))
-    # The local organisation is on the enterprise plan, which has no limit of its own; the
-    # platform's holds it all the same.
     project = create_project(client)
     chat = new_chat(client, project["id"])
     services.llm.agent_turns = [FakeTurn(TextPart("Yes."))]
@@ -157,7 +113,7 @@ def test_the_platform_limit_refuses_every_organisation_until_midnight_utc(
     before = retry_after()
     refused = client.post(f"/api/chats/{chat['id']}/messages", json={"content": "And?"})
     assert refused.status_code == 503
-    assert refused.json()["detail"] == platform_refusal("2.10", "2.00")
+    assert refused.json()["detail"] == refusal("2.10", "2.00")
     # Retry-After is the time to midnight UTC, when the limit resets.
     assert 0 < int(refused.headers["Retry-After"]) <= 24 * 3600
     assert abs(int(refused.headers["Retry-After"]) - before) <= 2
@@ -170,43 +126,46 @@ def test_the_platform_limit_refuses_every_organisation_until_midnight_utc(
     refused = client.post(f"/api/chats/{theirs['id']}/messages", json={"content": "Hello?"})
     assert refused.status_code == 503
 
+    # Yesterday's spending was yesterday's.
+    yesterday(session)
+    ask(client, theirs["id"], "Hello?")
+    spend(session, other.organization.id, "2.00")
+    another = new_chat(client, theirs["project_id"])
+    refused = client.post(f"/api/chats/{another['id']}/messages", json={"content": "And?"})
+    assert refused.status_code == 503
+
     # Zero is no limit.
     monkeypatch.setattr(get_settings(), "daily_spend_cap", Decimal(0))
-    ask(client, theirs["id"], "Hello?")
+    ask(client, another["id"], "And?")
 
 
-def test_an_answer_queued_under_the_limit_ends_with_its_sentence_when_the_worker_reaches_it(
-    member, client, session, services, priced, monkeypatch
+def test_an_answer_queued_under_the_cap_ends_with_its_sentence_when_the_worker_reaches_it(
+    client, session, services, account, priced, capped, monkeypatch
 ):
     project = create_project(client)
     chat = new_chat(client, project["id"])
     # Accepted with nothing spent; another answer runs the day up before the worker gets to it.
     asked = ask(client, chat["id"], "Is it?")
-    spend(session, member.organization.id, "1.00")
+    spend(session, account.organization.id, "1.00")
 
     services.llm.agent_turns = [FakeTurn(TextPart("Yes."))]
     answer(asked["answer"]["id"], services)
     assert services.llm.agent_requests == []
     assert follow(client, chat["id"], asked["answer"]["id"]) == [
-        {"type": "error", "message": plan_refusal("1.00")},
+        {"type": "error", "message": refusal("1.00")},
         {"type": "end", "status": "failed"},
     ]
     reply = client.get(f"/api/chats/{chat['id']}").json()["messages"][-1]
-    assert reply["status"] == "failed" and reply["error"] == plan_refusal("1.00")
+    assert reply["status"] == "failed" and reply["error"] == refusal("1.00")
     assert reply["content"] == "" and reply["usage"] == {}
 
     # Trying it again is held to the day as a question is, each try being paid for.
     retry = f"/api/chats/{chat['id']}/messages/{asked['answer']['id']}/retry"
     refused = client.post(retry)
-    assert refused.status_code == 402
-    assert refused.json() == {"detail": plan_refusal("1.00"), "limit": "daily_spend_micros"}
+    assert refused.status_code == 503
+    assert refused.json() == {"detail": refusal("1.00")}
     assert client.get(f"/api/chats/{chat['id']}").json()["messages"][-1]["status"] == "failed"
-    monkeypatch.setattr(get_settings(), "daily_spend_cap", Decimal("0.50"))
-    yesterday(session)
-    spend(session, member.organization.id, "0.50")
-    assert client.post(retry).status_code == 503
     # The next day, it is written.
-    monkeypatch.setattr(get_settings(), "daily_spend_cap", Decimal(0))
     yesterday(session)
     assert client.post(retry).status_code == 200
     answer(asked["answer"]["id"], services, attempt=2)
@@ -218,10 +177,8 @@ def run_index(services) -> None:
 
 
 def test_an_indexing_stage_that_needs_the_model_waits_for_midnight_when_the_day_is_spent(
-    session, services, account, make_document, sample_pdf, tmp_path, priced, monkeypatch
+    session, services, account, make_document, sample_pdf, tmp_path, priced, capped
 ):
-    account.organization.plan = "free"
-    session.commit()
     spend(session, account.organization.id, "1.00")
     document = make_document(sample_pdf)
     run_index(services)
@@ -236,7 +193,7 @@ def test_an_indexing_stage_that_needs_the_model_waits_for_midnight_when_the_day_
         "enrich": "failed",
         "embed": "pending",
     }
-    assert document.stages["enrich"]["detail"] == f"{plan_refusal('1.00')} {continues()}"
+    assert document.stages["enrich"]["detail"] == f"{refusal('1.00')} {continues()}"
     # The page words the wait as the day's limit and not a retry after a failure.
     assert document.stages["enrich"]["retry_at"] == day_of()[1].isoformat()
     assert document.stages["enrich"]["deferred"] is True
@@ -265,7 +222,7 @@ def test_an_indexing_stage_that_needs_the_model_waits_for_midnight_when_the_day_
     assert scan.status == "queued" and scan.error is None
     assert scan.stages["parse"] == {
         "status": "failed",
-        "detail": f"{plan_refusal('1.50')} {continues()}",
+        "detail": f"{refusal('1.50')} {continues()}",
         "retry_at": day_of()[1].isoformat(),
         "deferred": True,
     }
@@ -286,59 +243,40 @@ def test_an_indexing_stage_that_needs_the_model_waits_for_midnight_when_the_day_
     )
     assert "InferredSections" not in [name for name, _ in services.llm.calls]
 
-    # The platform's limit holds the stages the same way, with its own sentence.
-    account.organization.plan = "enterprise"
-    session.commit()
-    monkeypatch.setattr(get_settings(), "daily_spend_cap", Decimal("1"))
-    again = make_document(sample_pdf, "again.pdf")
-    run_index(services)
-    session.refresh(again)
-    assert again.stages["enrich"]["detail"] == f"{platform_refusal('1.50', '1.00')} {continues()}"
 
-
-def test_the_operator_is_warned_once_a_day_as_spending_nears_a_limit(
+def test_the_admin_is_warned_once_a_day_as_spending_nears_the_cap(
     session, account, make_account, monkeypatch
 ):
     mailer = FakeMailer()
+    monkeypatch.setattr(get_settings(), "daily_spend_cap", Decimal("100"))
     globex = make_account("ann@globex.example").organization
-    globex.plan = "pro"
-    session.commit()
-    # 85 % of the Pro plan's USD 10.00 a day.
-    spend(session, globex.id, "8.50")
+    # 83.5 % of USD 100.00 a day, every organisation's together.
+    spend(session, globex.id, "11.50")
+    spend(session, account.organization.id, "72")
 
-    # Without an address nothing is sent or noted.
+    # Without an address nothing is sent or noted, nor without a cap.
     assert alert_spending(mailer, "") == 0
+    monkeypatch.setattr(get_settings(), "daily_spend_cap", Decimal(0))
+    assert alert_spending(mailer, OPERATOR) == 0
     assert mailer.sent == [] and alerts(session) == []
+    monkeypatch.setattr(get_settings(), "daily_spend_cap", Decimal("100"))
 
     assert alert_spending(mailer, OPERATOR) == 1
     ((to, subject, body),) = mailer.sent
-    assert (to, subject) == (OPERATOR, "Emudoc: Globex (globex) has spent 85 % of its daily limit")
-    assert "has reached 80 % of a daily limit:\n\n" in body
-    assert "  Globex (globex): USD 8.50 of the Pro plan's USD 10.00 (85 %)\n" in body
+    assert (to, subject) == (OPERATOR, "Emudoc has spent 83 % of its daily limit on models")
+    assert "Today's (UTC) spending on models is USD 83.50, 83 % of DAILY_SPEND_CAP, " in body
+    assert "USD 100.00" in body
     assert "set DISABLED_PROVIDERS and restart the app" in body
-    assert "`uv run python -m app.maintenance costs --days 1` prints what each organisation" in body
+    assert "`uv run python -m app.maintenance costs --days 1` prints what today's work" in body
+    today = day_of()[0].date()
+    assert alerts(session) == [(today, 83_500_000, 100_000_000)]
 
     # Once a day, however much more is spent.
     spend(session, globex.id, "3.00")
     assert alert_spending(mailer, OPERATOR) == 0
     assert len(mailer.sent) == 1
 
-    # The platform's limit has a warning of its own: the local organisation's plan has no
-    # limit, but what it spends counts towards DAILY_SPEND_CAP with everyone else's.
-    monkeypatch.setattr(get_settings(), "daily_spend_cap", Decimal("100"))
-    spend(session, account.organization.id, "72")
-    assert alert_spending(mailer, OPERATOR) == 1
-    _, subject, body = mailer.sent[-1]
-    assert subject == "Emudoc: the platform has spent 83 % of its daily limit"
-    assert "  The platform: USD 83.50 of DAILY_SPEND_CAP USD 100.00 (83 %)\n" in body
-    assert "Globex" not in body
-    today = day_of()[0].date()
-    assert alerts(session) == [
-        (globex.id, today, 8_500_000, 10_000_000),
-        (None, today, 83_500_000, 100_000_000),
-    ]
-
-    # A relay that is down leaves the warnings for the next round, which sends them as one.
+    # A relay that is down leaves the warning for the next round.
     session.execute(text("DELETE FROM spend_alerts"))
     session.commit()
 
@@ -349,21 +287,21 @@ def test_the_operator_is_warned_once_a_day_as_spending_nears_a_limit(
     with pytest.raises(MailError):
         alert_spending(DownMailer(), OPERATOR)
     assert alerts(session) == []
-    assert alert_spending(mailer, OPERATOR) == 2
-    _, subject, body = mailer.sent[-1]
-    assert subject == "Emudoc: 2 spending warnings today"
-    assert body.index("The platform:") < body.index("Globex (globex):")
+    assert alert_spending(mailer, OPERATOR) == 1
 
-    # Yesterday's spending warns nobody today.
+    # Below the share of the cap, or yesterday's spending, warns nobody today.
     session.execute(text("DELETE FROM spend_alerts"))
     session.commit()
     yesterday(session)
+    assert alert_spending(mailer, OPERATOR) == 0
+    spend(session, globex.id, "79.99")
     assert alert_spending(mailer, OPERATOR) == 0
 
 
 def test_the_worker_warns_from_its_alerter_thread(session, services, make_account, monkeypatch):
     globex = make_account("ann@globex.example").organization
     spend(session, globex.id, "0.80")
+    monkeypatch.setattr(get_settings(), "daily_spend_cap", Decimal("1"))
     monkeypatch.setattr(get_settings(), "alert_email", OPERATOR)
     monkeypatch.setattr(worker_module, "ALERT_INTERVAL", 0.05)
     mailer = FakeMailer()
@@ -374,32 +312,8 @@ def test_the_worker_warns_from_its_alerter_thread(session, services, make_accoun
         wait_until(lambda: bool(mailer.sent))
     finally:
         worker.stop()
-    assert mailer.sent[0][1] == "Emudoc: Globex (globex) has spent 80 % of its daily limit"
+    assert mailer.sent[0][1] == "Emudoc has spent 80 % of its daily limit on models"
     assert session.scalar(select(func.count()).select_from(SpendAlert)) == 1
-
-
-def test_the_plan_command_shows_the_days_limit_as_money(session, account, capsys):
-    main(["plan", "local"])
-    assert capsys.readouterr().out.splitlines()[-1].split() == ["daily_spend_micros", "no", "limit"]
-    main(["plan", "local", "pro"])
-    assert "  daily_spend_micros  USD 10.00 a day" in capsys.readouterr().out.splitlines()
-
-
-def test_production_is_told_when_the_plans_limits_count_nothing_of_a_model(monkeypatch, caplog):
-    settings = get_settings()
-    monkeypatch.setattr(settings, "environment", "production")
-    with caplog.at_level("WARNING", logger="app.spending"):
-        warn_without_prices(settings)
-        monkeypatch.setattr(settings, "model_prices", PRICED)
-        warn_without_prices(settings)
-        monkeypatch.setattr(settings, "index_fallback_model", "anthropic:claude-haiku-5-5")
-        warn_without_prices(settings)
-    nothing, fallback = caplog.messages
-    assert nothing.startswith("MODEL_PRICES is not set: no cost is recorded")
-    assert fallback == (
-        "MODEL_PRICES has no price for INDEX_FALLBACK_MODEL anthropic:claude-haiku-5-5, so what "
-        "it answers counts nothing against the plans' daily spending limits; add its price."
-    )
 
 
 def test_the_day_is_the_utc_day():

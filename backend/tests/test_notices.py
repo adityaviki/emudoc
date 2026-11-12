@@ -1,12 +1,7 @@
 """The notices about members' work: an upload that took a while is told once its last document
 is ready, failed or set apart, in one message naming what could not be indexed and why, to the
-member who sent it if they still see its project; an upload indexed while they watched is told
-nothing; and an organisation's owners and admins are told once a month when its pages or
-questions reach 80 % and all of what it may use, or when its pages left could not take a
-document."""
-
-from dataclasses import replace
-from datetime import timedelta
+member who sent it if they still see its project; and an upload indexed while they watched is
+told nothing."""
 
 import pytest
 from sqlalchemy import delete, select, text
@@ -14,36 +9,24 @@ from sqlalchemy import delete, select, text
 import app.notices as notices_module
 from app.accounts import Account
 from app.config import get_settings
-from app.entitlements import MONTHS, PLANS, month_of
 from app.indexing.pipeline import process_document
 from app.jobs import claim, finish, queue_index
 from app.mail import LISTED, upload_indexed_email
 from app.models import (
-    AllowancePack,
     Document,
     Job,
     Membership,
     Notification,
     Project,
-    QuotaNotice,
     Upload,
     User,
 )
-from app.notices import (
-    MONTH_PAGES,
-    MONTH_QUESTIONS,
-    NOTICE_AFTER,
-    after_index,
-    note_quota,
-    prune_quota_notices,
-    settle_uploads,
-)
+from app.notices import NOTICE_AFTER, after_index, settle_uploads
 from app.postbox import STOP_NOTICES
-from app.usage import UPLOAD, record
+from app.usage import MONTHS
 from app.worker import HANDLERS, Worker
 from tests.conftest import pageless_pdf
 from tests.test_api import create_project, upload
-from tests.test_chats import new_chat
 from tests.test_jobs import RATE_LIMITED
 
 APP = "https://emudoc.example.com"
@@ -52,20 +35,10 @@ INDEX = ["index_document"]
 
 @pytest.fixture
 def ann(make_account, act_as) -> Account:
-    """The API acts as Ann, the owner of Globex, a fresh organisation on the free plan."""
+    """The API acts as Ann, the owner of Globex, a fresh organisation."""
     account = make_account("ann@globex.example")
     act_as(account)
     return account
-
-
-@pytest.fixture
-def free(monkeypatch):
-    """Put the free plan's limits where a test wants them: `free(pages_per_month=10)`."""
-
-    def set_limits(**limits):
-        monkeypatch.setitem(PLANS, "free", replace(PLANS["free"], **limits))
-
-    return set_limits
 
 
 @pytest.fixture(autouse=True)
@@ -249,9 +222,8 @@ def test_the_housekeeper_settles_an_upload_whose_last_look_was_lost(
 
 
 def test_whoever_no_longer_sees_the_project_or_wants_notices_is_told_nothing(
-    client, session, services, mailer, ann, make_account, act_as, free, sample_pdf, sample_docx
+    client, session, services, mailer, ann, make_account, act_as, sample_pdf, sample_docx
 ):
-    free(members=5)
     project = create_project(client)
     bob = make_account("bob@globex.example", ann.organization, "member")
     act_as(bob)
@@ -278,9 +250,8 @@ def test_whoever_no_longer_sees_the_project_or_wants_notices_is_told_nothing(
 
 
 def test_a_member_who_left_is_told_nothing(
-    client, session, services, mailer, ann, make_account, act_as, free, sample_pdf
+    client, session, services, mailer, ann, make_account, act_as, sample_pdf
 ):
-    free(members=5)
     project = create_project(client)
     bob = make_account("bob@globex.example", ann.organization, "member")
     act_as(bob)
@@ -310,154 +281,6 @@ def test_a_long_list_of_failures_names_the_first_and_counts_the_rest():
     one = upload_indexed_email("Ann", "Globex", "Contracts", "now", 0, failed[:1], APP)
     assert one.subject == "Your document could not be indexed"
     assert one.blocks[2] == "scan 0.pdf: No text could be extracted."
-
-
-def test_owners_and_admins_are_told_once_a_month_of_its_questions_at_80_and_100_percent(
-    client, session, mailer, ann, make_account, free
-):
-    free(questions_per_month=5, members=5)
-    admin = make_account("ada@globex.example", ann.organization, "admin")
-    make_account("max@globex.example", ann.organization, "member")
-    quiet = make_account("vic@globex.example", ann.organization, "admin")
-    quiet.user.choose("quota", "email", False)
-    session.commit()
-    project = create_project(client)
-    month, following = (MONTHS[moment.month - 1] for moment in month_of())
-
-    def ask() -> None:
-        chat = new_chat(client, project["id"])
-        response = client.post(f"/api/chats/{chat['id']}/messages", json={"content": "Price?"})
-        assert response.status_code == 201
-
-    for _ in range(3):
-        ask()
-    assert told(mailer) == []
-
-    ask()
-    near = told(mailer)
-    assert [notice.to for notice in near] == ["ann@globex.example", "ada@globex.example"]
-    assert near[0].subject == "Your organisation has used most of its questions for the month"
-    assert near[0].text.startswith(
-        "Hi Ann,\n\n"
-        f"Globex has used 4 of the 5 questions it may ask on Emudoc in {month}, 80 %. Once they "
-        f"are used, no question is answered until 1 {following}, when the count starts afresh."
-        "\n\nThe organisation's usage page shows what it has used, and what lifts the limit for "
-        f"this month:\n\n{APP}/organization/usage\n\n"
-    )
-
-    ask()
-    full = told(mailer, admin.user.email)[-1]
-    assert full.subject == "Your organisation has used all its questions for the month"
-    assert (
-        f"Globex has used all the 5 questions it may ask on Emudoc in {month}. No more questions "
-        f"are answered until 1 {following}, when the count starts afresh." in full.text
-    )
-    assert len(told(mailer)) == 4
-    # Vic, who turned these notices off by email, sees both in the app, as the others do.
-    centre = session.scalars(
-        select(Notification.title)
-        .where(Notification.user_id == quiet.user.id)
-        .order_by(Notification.id)
-    ).all()
-    assert centre == [near[0].subject, full.subject]
-
-    # A pack for the month starts the count again, against what the month allows now.
-    start = month_of()[0]
-    session.add(
-        AllowancePack(
-            org_id=ann.organization.id,
-            unit="questions",
-            quantity=5,
-            month=start,
-            checkout_id="cs_test_more",
-        )
-    )
-    session.commit()
-    ask()
-    ask()
-    assert len(told(mailer)) == 4
-    ask()
-    assert "has used 8 of the 10 questions" in told(mailer)[-1].text
-    notes = session.scalars(select(QuotaNotice).order_by(QuotaNotice.id)).all()
-    assert [(note.share, note.allowance, note.used) for note in notes] == [
-        (80, 5, 4),
-        (100, 5, 5),
-        (80, 10, 8),
-    ]
-
-
-def test_owners_are_told_when_the_months_pages_run_short(
-    session, services, mailer, ann, make_document, free, sample_pdf, tmp_path
-):
-    free(pages_per_month=10)
-    org = ann.organization
-    project = Project(org_id=org.id, name="Contracts")
-    session.add(project)
-    session.commit()
-    record(
-        session,
-        org_id=org.id,
-        project_id=project.id,
-        user_id=None,
-        kind=UPLOAD,
-        measures={"pages": 7},
-    )
-    session.commit()
-    month, following = (MONTHS[moment.month - 1] for moment in month_of())
-
-    # Two pages more make 9 of 10.
-    contract = make_document(sample_pdf, project=project)
-    assert process_document(contract.id, services) == []
-    (near,) = told(mailer)
-    assert near.subject == "Your organisation has used most of its pages for the month"
-    assert (
-        f"Globex has used 9 of the 10 pages it may index on Emudoc in {month}, 90 %. 1 is left, "
-        "and a document with more pages than that is not indexed until "
-        f"1 {following}, when the count starts afresh." in near.text
-    )
-
-    # The next two-page document does not fit what is left.
-    more = Project(org_id=org.id, name="More")
-    session.add(more)
-    session.commit()
-    other = make_document(sample_pdf, "copy.pdf", project=more)
-    (failure,) = process_document(other.id, services)
-    assert failure.stage == "parse"
-    short = told(mailer)[-1]
-    assert short.subject == "Your organisation's pages for the month ran short"
-    assert (
-        f"Globex may index 10 pages on Emudoc in {month} and has used 9, so a document with "
-        "more pages than the 1 left was not indexed. One that fits still is, and from 1 "
-        f'{following}, when the count starts afresh, "Index again" indexes the other.' in short.text
-    )
-    # All of it is not told again once it ran short, nor most of it.
-    assert note_quota(session, org, MONTH_PAGES, APP, adding=1) == 0
-    assert len(told(mailer)) == 2
-
-
-def test_a_plan_without_the_limit_is_told_nothing(session, account):
-    assert account.organization.plan == "enterprise"
-    assert note_quota(session, account.organization, MONTH_QUESTIONS, APP, adding=10**6) == 0
-    assert session.scalars(select(QuotaNotice)).all() == []
-
-
-def test_the_housekeeper_forgets_the_notices_of_months_gone_by(session, ann):
-    start = month_of()[0]
-    for month in (start - timedelta(days=40), start):
-        session.add(
-            QuotaNotice(
-                org_id=ann.organization.id,
-                month=month,
-                figure=MONTH_PAGES,
-                share=80,
-                allowance=10,
-                used=8,
-            )
-        )
-    session.commit()
-    assert prune_quota_notices(session.connection()) == 1
-    session.commit()
-    assert [note.month for note in session.scalars(select(QuotaNotice))] == [start]
 
 
 def test_what_follows_a_job_that_fails_changes_nothing_of_the_job(

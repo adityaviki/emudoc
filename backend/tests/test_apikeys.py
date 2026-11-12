@@ -10,7 +10,6 @@ from sqlalchemy import select, text
 from app.api.deps import get_person
 from app.apikeys import ELSEWHERE, KEY_UNKNOWN, READ_ONLY_KEY, ROLL_YOUR_OWN
 from app.auth import prune_credentials
-from app.billing import change_plan
 from app.config import get_settings
 from app.db import engine
 from app.legal import TERMS_VERSION
@@ -229,37 +228,6 @@ def test_a_key_is_held_with_its_member(client, session, account, make_account, a
     held = api.get("/api/projects")
     assert held.status_code == 403
     assert "sign in with two-factor" in held.json()["detail"]
-
-
-def test_the_plan_must_include_the_api(client, session, make_account, act_as):
-    ada = make_account("ada@acme.com")
-    act_as(ada)
-    refused = client.post("/api/organization/keys", json={"name": SYNC})
-    assert refused.status_code == 402
-    assert refused.json() == {
-        "detail": "The Free plan does not include the API. Upgrade your plan to make and use "
-        "API keys.",
-        "limit": "api_access",
-    }
-    assert client.get("/api/auth/me").json()["organization"]["allowance"]["api_access"] is False
-
-    organization = session.get(Organization, ada.organization.id)
-    change_plan(session, organization, "pro")
-    session.commit()
-    made = make_key(client)
-    client.app.dependency_overrides.pop(get_person)
-    api = program(client, made["key"])
-    assert api.get("/api/projects").status_code == 200
-
-    # Back on Free, the key is kept but refused until the plan includes the API again.
-    change_plan(session, organization, "free")
-    session.commit()
-    lapsed = api.get("/api/projects")
-    assert (lapsed.status_code, lapsed.json()["limit"]) == (402, "api_access")
-    act_as(ada)
-    assert [key["id"] for key in keys(client)] == [made["id"]]
-    assert client.post(f"/api/organization/keys/{made['id']}/roll").status_code == 402
-    assert client.delete(f"/api/organization/keys/{made['id']}").status_code == 204
 
 
 @pytest.mark.usefixtures("one_minute")

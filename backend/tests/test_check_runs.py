@@ -27,8 +27,7 @@ from tests.test_api import create_project
 from tests.test_audit import actions
 from tests.test_chats import questions_counted
 from tests.test_cross_checks import DUE, read
-from tests.test_entitlements import member, plan  # noqa: F401 (fixtures)
-from tests.test_spending import platform_refusal, spend
+from tests.test_spending import refusal, spend
 from tests.test_templates import turn_on
 
 TOTAL = {
@@ -390,8 +389,7 @@ def test_a_report_is_held_to_what_holds_a_question(
     client,
     session,
     services,
-    member,  # noqa: F811
-    plan,  # noqa: F811
+    account,
     monkeypatch,
 ):
     project = create_project(client)
@@ -406,16 +404,11 @@ def test_a_report_is_held_to_what_holds_a_question(
     assert crowded.status_code == 429
     monkeypatch.setattr(get_settings(), "max_answers", 20)
 
-    plan(questions_per_month=0)
-    refused = client.post(path)
-    assert (refused.status_code, refused.json()["limit"]) == (402, "questions_per_month")
-    plan(questions_per_month=100)
-
     monkeypatch.setattr(get_settings(), "daily_spend_cap", Decimal("2"))
-    spend(session, member.organization.id, "3")
+    spend(session, account.organization.id, "3")
     over = client.post(path)
     assert over.status_code == 503
-    assert over.json()["detail"] == platform_refusal("3.00", "2.00")
+    assert over.json()["detail"] == refusal("3.00", "2.00")
     # Nothing was asked for, and no question counted.
     assert shown(client, queued["id"])["report_status"] is None
     assert questions_counted(session) == 0
@@ -433,7 +426,7 @@ def test_a_report_the_days_spending_catches_ends_with_its_sentence(
     work(services)
     done = shown(client, queued["id"])
     assert (done["status"], done["report_status"]) == ("done", "failed")
-    assert done["report_error"] == platform_refusal("3.00", "2.00")
+    assert done["report_error"] == refusal("3.00", "2.00")
     assert done["usage"] == {}
 
 
@@ -486,14 +479,15 @@ def test_a_run_is_audited_by_its_rules_names_never_a_value(client, session, serv
     assert "1,255" not in str(logged)
 
 
-def test_runs_are_kept_as_long_as_chats(client, session, services, member):  # noqa: F811
+def test_runs_are_kept_as_long_as_chats(client, session, services, account):
     project = create_project(client)
     invoices(session, project["id"])
     made(client, project["id"], TOTAL)
     old = run(client, project["id"])
     work(services)
     queued = run(client, project["id"])
-    # The free plan keeps a chat 30 days; the worked-out run is older, the queued one too.
+    # The organisation keeps a chat 30 days; the worked-out run is older, the queued one too.
+    account.organization.chat_days = 30
     session.execute(update(WorkflowRun).values(created_at=func.now() - dt.timedelta(days=31)))
     session.commit()
     with engine.begin() as connection:

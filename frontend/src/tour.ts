@@ -50,7 +50,7 @@ export function workspaceTour(sample: boolean): TourStep[] {
     {
       target: 'account',
       title: 'Your account',
-      body: 'Your account, the workspace’s members and plan, and this tour again whenever you want it.',
+      body: 'Your account, the workspace’s members and usage, and this tour again whenever you want it.',
     },
   ]
 }

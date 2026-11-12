@@ -14,20 +14,6 @@ class _FromORM(BaseModel):
 
 # PROJECT_VISIBILITIES in app/models.py, which the database's check constraint holds.
 ProjectVisibility = Literal["organization", "private"]
-# The figures of a plan a refusal or an excess is about (`Entitlements` in app/entitlements.py).
-PlanLimit = Literal[
-    "projects",
-    "documents",
-    "storage_bytes",
-    "pages_per_month",
-    "questions_per_month",
-    "members",
-    "daily_spend_micros",
-    "api_access",
-    "connectors",
-    "share_links",
-    "question_sets",
-]
 
 
 class ProjectIn(BaseModel):
@@ -714,8 +700,6 @@ class DocumentTypeOut(BaseModel):
 class RejectedFile(BaseModel):
     filename: str
     reason: str
-    # The figure of the plan that refused the file, when it was the plan (app/entitlements.py).
-    limit: PlanLimit | None = None
     # The file's place among those the request carried, from 0, so that a program tells apart
     # two files of one name; the documents kept are the others, in their order.
     index: int | None = None
@@ -1411,10 +1395,9 @@ class QuestionSetsOut(BaseModel):
 
 class ReportAnswerOut(BaseModel):
     """One question of a report, as it was asked, and its answer, which cites the passages it
-    was shown as [P<id>]. `status` is `queued` until it is asked and `running` while it is; a
-    failed one says why in `error` (the plan's questions or the day's spending used up, the
-    agent's run failed); `notice` is what the answer adds about itself, such as that it was
-    cut off."""
+    was shown as [P<id>]. `status` is `queued` until it is asked and `running` while it is; a failed
+    one says why in `error` (the day's spending used up, the agent's run failed); `notice` is what
+    the answer adds about itself, such as that it was cut off."""
 
     question: str
     status: RunStatus
@@ -1962,7 +1945,6 @@ class AccountDeletionIn(BaseModel):
 # The kinds of notice (NOTICE_KINDS in app/models.py, app/notices.py).
 NoticeKind = Literal[
     "upload_indexed",
-    "quota",
     "project_export",
     "checks_run",
     "review_assigned",
@@ -2048,90 +2030,35 @@ class EmailChangeIn(BaseModel):
     current_email: str | None = Field(None, max_length=320)
 
 
-class ExcessOut(BaseModel):
-    """A figure the organisation holds past, and how it reads: "3 projects of 1"."""
-
-    limit: PlanLimit
-    words: str
-
-
-class AllowanceOut(BaseModel):
-    """What the organisation may keep and use (`entitlements_of` in app/entitlements.py), for
-    the organisation page: None is no limit."""
-
-    projects: int | None
-    documents: int | None
-    storage_bytes: int | None
-    pages_per_month: int | None
-    questions_per_month: int | None
-    members: int | None
-    # How many days the plan, or the terms agreed in its place, keeps a chat after its last
-    # question.
-    retention_days: int | None = None
-    # Whether its members may make API keys and call the API with them (app/apikeys.py).
-    api_access: bool = False
-    # Whether its members may connect folders of Google Drive, Dropbox or OneDrive to its
-    # projects (app/connectors/).
-    connectors: bool = False
-    # Whether its members may share a document by a link that needs no account
-    # (app/share_links.py).
-    share_links: bool = False
-    # Whether its members may save a project's questions to be asked on a schedule or as
-    # documents arrive (app/question_sets.py).
-    question_sets: bool = False
-    # Which of them were agreed with the organisation in place of its plan's.
-    agreed: list[str]
-    # The pages and questions bought in packs for this month, on top of the plan's.
-    pages_bought: int = 0
-    questions_bought: int = 0
-    # What it holds past them, once they were lowered under it, which makes it read-only until
-    # it is within them again (`over_limits`).
-    over: list[ExcessOut] = []
-
-
-class FigureOut(BaseModel):
-    """One figure the plan sets, beside what the organisation holds or has used of it, as the
-    checks count it (app/entitlements.py): what it holds now (projects, documents, storage,
-    members with the open invitations), or the month so far in UTC (pages, questions)."""
-
-    used: int
-    # What it may, None for no limit.
-    allowed: int | None
-    # The pages or questions bought in packs for the month, on top of `allowed`.
-    bought: int = 0
-
-
 class MeteredOut(BaseModel):
-    """The pages the organisation's uploads brought in and the questions it asked over one UTC
-    day, or one month from its first day (`metered` in app/usage.py)."""
+    """What the organisation used over one UTC day, or one month from its first day (`metered`
+    in app/usage.py): the pages its uploads brought in, the questions it asked, and what all its
+    work cost, to its owners and admins alone (app/costs.py)."""
 
     start: dt.date
     pages: int
     questions: int
+    cost_micros: int | None = None
 
-
-class MeteredMonthOut(MeteredOut):
-    """A month's pages and questions, with the packs of them bought for it."""
-
-    pages_bought: int = 0
-    questions_bought: int = 0
+    @field_serializer("cost_micros")
+    def _withheld(self, cost: int | None) -> int | None:
+        return cost if costs_shown() else None
 
 
 class UsagePageOut(BaseModel):
-    """What the organisation holds and has used of what its plan allows, and its pages and
-    questions day by day and month by month, for the usage page (app/api/usage.py)."""
+    """What the workspace holds now and what it used, day by day and month by month, for the
+    usage page (app/api/usage.py)."""
 
-    # The first day of the month in UTC the monthly figures count, and of the next, when they
-    # start afresh.
+    # The first day of the month in UTC the last of `months` counts, and of the next.
     month: dt.date
     next_month: dt.date
-    projects: FigureOut
-    documents: FigureOut
-    storage_bytes: FigureOut
-    members: FigureOut
-    pages_per_month: FigureOut
-    questions_per_month: FigureOut
-    # The characters of text a document without pages counts a page for (app/entitlements.py).
+    # What it holds now: its projects, documents and their bytes with its members' My files,
+    # and its members with the open invitations (`holdings` in app/usage.py).
+    projects: int
+    documents: int
+    storage_bytes: int
+    members: int
+    # The characters of text a document without pages counts a page for (app/usage.py).
     chars_per_page: int
     # The documents of the sample project, which `projects` and `documents` leave out
     # (app/sample); 0 once it is deleted.
@@ -2139,148 +2066,24 @@ class UsagePageOut(BaseModel):
     # Every day of the last few up to today, and every month of the last few up to this one,
     # the oldest first.
     days: list[MeteredOut]
-    months: list[MeteredMonthOut]
-
-
-class PlanRefusalOut(BaseModel):
-    """The body of a 402, what the organisation's plan turned down: the sentence, and the
-    figure it is held to, from which the page chooses what to offer (a pack for the month, a
-    larger plan, more seats)."""
-
-    detail: str
-    limit: PlanLimit
-
-
-class PackOut(BaseModel):
-    """A pack of pages or questions for the month, as STRIPE_PACKS sells it."""
-
-    unit: Literal["pages", "questions"]
-    quantity: int
-
-
-class PackIn(PackOut):
-    """The pack an owner buys for the organisation's month."""
-
-
-class BillingOut(BaseModel):
-    """How the organisation buys its plan (app/billing.py), for the organisation page."""
-
-    # The plans the deployment sells, in the order of the plans; empty while billing is off.
-    sold: list[str]
-    # Whether billing moves its plan: not when its terms were agreed with the operator.
-    managed: bool
-    # What Stripe last said of its subscription (trialing, active, past_due, canceled, unpaid,
-    # …), None before it had one; when its trial ends, when it renews or ends, since when a
-    # payment has failed, and when the plan stops waiting for that payment.
-    status: str | None
-    trial_ends_at: dt.datetime | None
-    renews_at: dt.datetime | None
-    ends_at: dt.datetime | None
-    payment_failed_at: dt.datetime | None
-    grace_ends_at: dt.datetime | None
-    # Whether it is a customer at Stripe, whose billing an owner can manage.
-    customer: bool
-    # The days of trial a subscription bought now starts with, None for none.
-    trial_days: int | None
-    # The packs it may buy for this month: pages or questions, and how many.
-    packs: list[PackOut] = []
-
-
-class CheckoutIn(BaseModel):
-    """The plan an owner buys, with its seats on the Team plan, sold by the seat."""
-
-    plan: Literal["pro", "team"]
-    seats: int | None = Field(None, ge=1, le=10_000)
-
-
-class PlanChoiceIn(BaseModel):
-    """The plan an owner would move the organisation's subscription to, with its seats on
-    Team; Free is cancelling it."""
-
-    plan: Literal["free", "pro", "team"]
-    seats: int | None = Field(None, ge=1, le=10_000)
-
-
-class PortalIn(BaseModel):
-    """What Stripe's portal opens on: its home page, or with `plan` the one step that moves
-    the subscription there (app/billing.py, `portal_for`)."""
-
-    plan: Literal["free", "pro", "team"] | None = None
-    seats: int | None = Field(None, ge=1, le=10_000)
-
-
-class RetentionOut(BaseModel):
-    """How many days chats are kept after their last question and audit log entries; None for
-    good (app/retention.py)."""
-
-    chat_days: int | None
-    audit_days: int | None
-
-
-class RetentionHeldOut(RetentionOut):
-    """What an organisation keeps as before after a move to a plan that keeps less, and until
-    when; None for a move whose moment is not known yet."""
-
-    until: dt.datetime | None
-
-
-class PlanChangeOut(BaseModel):
-    """What moving the organisation's subscription to a plan would do (`plan_change` in
-    app/billing.py), for an owner to read before Stripe's page: what it would allow, what the
-    organisation would hold past that (read-only until it is within it), how long it would keep
-    chats and audit log entries, and what it keeps now that would be held for `held_days` after
-    the move (None when the plan keeps everything as long)."""
-
-    plan: str
-    seats: int | None
-    # When a cancellation would move it, the end of the period paid for; None for a change of
-    # plan, which Stripe makes once it is confirmed there.
-    at: dt.datetime | None
-    allowance: AllowanceOut
-    retention: RetentionOut
-    held: RetentionHeldOut | None
-    held_days: int
-
-
-class CheckoutDoneIn(BaseModel):
-    """The Checkout session an owner came back from, as Stripe named it in the address."""
-
-    checkout_id: str = Field(max_length=255, pattern=r"^cs_[A-Za-z0-9_]+$")
-
-
-class RedirectOut(BaseModel):
-    """A page of Stripe's to send the owner to."""
-
-    url: str
+    months: list[MeteredOut]
 
 
 class OrganizationOut(_FromORM):
     id: int
     name: str
     slug: str
-    # Which plan's limits the organisation is held to (app/entitlements.py), for the prompt
-    # the app shows when one is reached.
-    plan: str
-    # The members it bought, on a plan sold by the seat; None otherwise.
-    seats: int | None = None
-    allowance: AllowanceOut | None = None
-    billing: BillingOut | None = None
     # The region its data is kept in, as DATA_REGION names it (eu, us), None when the
     # deployment promised none as it was created (app/residency.py).
     region: str | None
-    # How many days a chat is kept after its last question (app/retention.py), None for good,
-    # by its plan or by its own choice, whichever is shorter, and an audit log entry.
-    chat_retention_days: int | None = None
-    audit_retention_days: int | None = None
-    # What it keeps as before after a move to a plan that keeps less, and until when, with its
-    # own choice applied; None when nothing is held.
-    retention_held: RetentionHeldOut | None = None
     # Its settings, as its owners and admins chose them: the language its documents are
     # searched in (a text search configuration, app/languages.py), None for the deployment's;
-    # the days it keeps a chat, None for as long as its plan does; and how its members are told
-    # each kind of notice until they choose for themselves, in the order of NOTICE_KINDS.
+    # the days it keeps a chat after its last question (app/retention.py) and an audit log
+    # entry (app/audit.py), None until they are deleted; and how its members are told each kind
+    # of notice until they choose for themselves, in the order of NOTICE_KINDS.
     language: str | None
     chat_days: int | None
+    audit_days: int | None
     notice_defaults: list[NoticeChoiceOut] = []
     # Its security settings (app/security.py): whether everyone who works in it signs in with
     # two-factor, and the days a session may work in it after signing in, None for as long as
@@ -2288,8 +2091,8 @@ class OrganizationOut(_FromORM):
     mfa_required: bool
     session_days: int | None
     max_session_days: int | None = None
-    # Whether its members may share a document by a link that needs no account, where its plan
-    # includes them (app/share_links.py).
+    # Whether its members may share a document by a link that needs no account
+    # (app/share_links.py).
     share_links: bool = True
     # The feature flags on for it (app/flags.py), by name: the features being rolled out that
     # the page shows it.
@@ -2346,14 +2149,14 @@ class MeOut(BaseModel):
 
 class OrganizationChangeIn(BaseModel):
     """What the organisation page changes about the current organisation; a field left out
-    stays as it is, and a null `language` or `chat_days` goes back to the deployment's or the
-    plan's."""
+    stays as it is, a null `language` goes back to the deployment's, and a null `chat_days` or
+    `audit_days` keeps chats or audit log entries until they are deleted."""
 
     name: str | None = Field(None, max_length=200)
     # A text search configuration's name, which the database must have.
     language: str | None = Field(None, pattern=r"^[a-z_]{1,63}$")
-    # Never more than the plan keeps a chat.
     chat_days: int | None = Field(None, ge=1, le=36500)
+    audit_days: int | None = Field(None, ge=1, le=36500)
     notices: list[NoticeChoiceIn] | None = Field(None, max_length=20)
     # Turned on only by someone who signs in with two-factor themselves.
     mfa_required: bool | None = None
@@ -3440,7 +3243,7 @@ class ProjectExportFile(BaseModel):
 
 # The operator's area (app/operators.py, app/api/operator.py): what the maintenance commands
 # print, as the page shows it. Amounts are millionths of PRICE_CURRENCY, as the usage rows hold
-# them; a figure of a plan is worded as the `plan` command prints it, which is how `--set` takes it.
+# them.
 
 
 class OperatorViewOut(BaseModel):
@@ -3471,11 +3274,8 @@ class OperatorOrganizationRow(BaseModel):
     id: int
     name: str
     slug: str
-    plan: str
-    seats: int | None
     members: int
     created_at: dt.datetime
-    subscription_status: str | None
     # Its known model cost over the list's `cost_days`, None while none is known.
     cost_micros: int | None
 
@@ -3485,16 +3285,6 @@ class OperatorOrganizationsOut(BaseModel):
     # The id to ask `before` for the next page, None on the last.
     next_before: int | None
     cost_days: int
-
-
-class EntitlementOut(BaseModel):
-    """One figure the organisation is held to, its plan's own beside it, and whether it was
-    agreed with the organisation in place of the plan's (or its seats bought, for members)."""
-
-    name: str
-    value: str
-    plan_value: str
-    agreed: bool
 
 
 class OperatorMemberOut(BaseModel):
@@ -3510,8 +3300,7 @@ class OperatorMemberOut(BaseModel):
 
 class CostOut(BaseModel):
     """What one organisation's work, or every organisation's, cost over a span of days, against
-    the daily limit it is held to (None for none): its costliest day, and the days that reached
-    the limit."""
+    DAILY_SPEND_CAP (None for none): its costliest day, and the days that reached the cap."""
 
     cost_micros: int | None
     calls: int
@@ -3527,16 +3316,6 @@ class CostOut(BaseModel):
 class DayCostOut(BaseModel):
     day: dt.date
     cost_micros: int
-
-
-class OperatorPlanOut(BaseModel):
-    """A plan the organisation may be put on, with its own figures as `entitlements` words them,
-    for the form that changes the organisation's."""
-
-    name: str
-    # Whether it is sold by the seat, whose members are its seats rather than a figure.
-    by_the_seat: bool
-    figures: dict[str, str]
 
 
 class OperatorFlagOut(BaseModel):
@@ -3581,14 +3360,7 @@ class OperatorFlagSummaryOut(BaseModel):
 class OperatorOrganizationOut(BaseModel):
     organization: OrganizationOut
     usage: UsagePageOut
-    entitlements: list[EntitlementOut]
-    # The figures agreed with it in place of its plan's, worded as `entitlements` words them,
-    # which is how a change takes them back; its seats are `organization.seats`.
-    overrides: dict[str, str]
-    plans: list[OperatorPlanOut]
     members: list[OperatorMemberOut]
-    stripe_customer_id: str | None
-    stripe_subscription_id: str | None
     since: dt.date
     until: dt.date
     cost: CostOut
@@ -3596,18 +3368,6 @@ class OperatorOrganizationOut(BaseModel):
     cost_days: list[DayCostOut]
     # Every feature flag, as it stands for the organisation, in the order of FLAGS.
     flags: list[OperatorFlagOut]
-
-
-class OperatorPlanIn(BaseModel):
-    """What the organisation is to be held to, as a whole: the plan, the seats bought on a plan
-    sold by the seat (None for the plan's own members) and every figure agreed with it, each in
-    the words the area shows (`figure_of` reads them), any left out being the plan's own."""
-
-    plan: str = Field(max_length=40)
-    seats: int | None = Field(None, le=1_000_000)
-    agreed: dict[str, Annotated[str, StringConstraints(max_length=100)]] = Field(
-        default_factory=dict, max_length=40
-    )
 
 
 class OperatorUserMembershipOut(BaseModel):
@@ -3641,7 +3401,6 @@ class OrganizationCostOut(CostOut):
     org_id: int
     slug: str
     name: str
-    plan: str
 
 
 class ModelCostOut(BaseModel):

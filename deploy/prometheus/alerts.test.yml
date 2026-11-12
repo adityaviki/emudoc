@@ -404,12 +404,10 @@ tests:
   # A day's growth of the originals, read by two workers.
   - interval: 1h
     input_series:
-      - series: 'emudoc_stored_bytes{job="emudoc", process="worker", instance="10.73.0.5:9464", plan="free"}'
+      - series: 'emudoc_stored_bytes{job="emudoc", process="worker", instance="10.73.0.5:9464"}'
         values: "1073741824x24 13958643712"
-      - series: 'emudoc_stored_bytes{job="emudoc", process="worker", instance="10.73.0.6:9464", plan="free"}'
+      - series: 'emudoc_stored_bytes{job="emudoc", process="worker", instance="10.73.0.6:9464"}'
         values: "1073741824x24 13958643712"
-      - series: 'emudoc_stored_bytes{job="emudoc", process="worker", instance="10.73.0.5:9464", plan="pro"}'
-        values: "5368709120x25"
     alert_rule_test:
       - eval_time: 24h
         alertname: EmudocStorageGrowing

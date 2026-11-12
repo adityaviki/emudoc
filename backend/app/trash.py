@@ -9,9 +9,8 @@ by itself. A project is marked alone, since nothing reaches inside a project in 
 its starter's, in the trash as out of it.
 
 Nothing in the trash is used: the library, the search, the facts, the agent's tools, the counts
-and the plan's figures read live rows alone, so a deletion frees what the plan holds at once, as
-it did before there was a trash, and a restore is checked against the plan like an upload
-(`check_restore` in app/entitlements.py). A document waits as it was: its indexing stops at its
+and the usage page's figures read live rows alone, as they did before there was a trash. A
+document waits as it was: its indexing stops at its
 next run (`process_document` in app/indexing/pipeline.py), and a restore queues what is left.
 Its bytes keep their place under the unique constraint on project and hash, so an upload of the
 same file is told to restore it instead (`already_present` in app/uploads.py).
@@ -21,7 +20,7 @@ nearest folder above it that is not, renamed as an upload would be when a live s
 name meanwhile. Deleting for good, one item or a project's whole trash, removes the rows and then
 the files, as deleting did before the trash; the housekeeper (app/maintenance.py) does the same
 each round to what has been in the trash for TRASH_DAYS (`purge_trash`). A chat in the trash is
-still a chat to its plan's retention (app/retention.py), so it goes at whichever comes first.
+still a chat to the workspace's retention (app/retention.py), so it goes at whichever comes first.
 """
 
 from collections import defaultdict
@@ -168,7 +167,7 @@ def went_with(session: Session, folder: Folder) -> tuple[set[int], list[Document
 
 def restore_project(session: Session, project: Project) -> None:
     """Take the project out of the trash, and queue what was left of its documents' indexing.
-    The caller has checked the plan (`check_restore`) and commits."""
+    The caller commits."""
     project.deleted_at = None
     project.deleted_by = None
     _requeue(

@@ -1,6 +1,6 @@
 // Under an answer about the organisation's own documents, the suggestion to invite its team
-// (`inviteNudgeOf` in src/onboarding.ts): a form that sends the invitation from the chat when the
-// plan has room for someone, else the way to a plan that has. An invitation takes the
+// (`inviteNudgeOf` in src/onboarding.ts): a form that sends the invitation from the chat. An
+// invitation takes the
 // organisation's invite step, so the suggestion is made no more, though the chat keeps this one
 // (`onInvited`) for the member to read where the invitation went; hiding it is the member's
 // choice for every organisation, kept on the account.
@@ -10,17 +10,16 @@ import { UserPlus, X } from 'lucide-react'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link } from 'react-router'
-import { ROLES, ROLE_LABELS, auth, isPlanLimit, isWithin, organizations } from '../api.ts'
+import { ROLES, ROLE_LABELS, auth, isWithin, organizations } from '../api.ts'
 import type { Onboarding, Role } from '../api.ts'
 import { setSignedIn, useMe } from '../auth.ts'
 import { SentInvitation } from '../components/HandedLink.tsx'
-import { PlanLimitNotice, PlanOffer } from '../components/PlanLimit.tsx'
 import { Button, IconButton, InputField, Notice, SelectField } from '../components/ui.tsx'
 import { INVITATIONS_SECTION } from '../onboarding.ts'
 
 const LINK = 'font-medium text-accent hover:underline'
 
-export function InviteTeam({ room, onInvited }: { room: boolean; onInvited: () => void }) {
+export function InviteTeam({ onInvited }: { onInvited: () => void }) {
   const me = useMe()
   const queryClient = useQueryClient()
   const [email, setEmail] = useState('')
@@ -79,7 +78,7 @@ export function InviteTeam({ room, onInvited }: { room: boolean; onInvited: () =
               .
             </p>
           </div>
-        ) : room ? (
+        ) : (
           <>
             <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
               <InputField
@@ -104,19 +103,10 @@ export function InviteTeam({ room, onInvited }: { room: boolean; onInvited: () =
             </form>
             {invite.isError && (
               <div className="mt-2">
-                {isPlanLimit(invite.error) ? (
-                  <PlanLimitNotice refusal={invite.error} onDismiss={() => invite.reset()} />
-                ) : (
-                  <Notice tone="bad">{invite.error.message}</Notice>
-                )}
+                <Notice tone="bad">{invite.error.message}</Notice>
               </div>
             )}
           </>
-        ) : (
-          <div className="text-muted">
-            <p>Its plan has room for you alone.</p>
-            <PlanOffer limit="members" />
-          </div>
         )}
         {hide.isError && <p className="mt-2 text-bad">{hide.error.message}</p>}
       </div>

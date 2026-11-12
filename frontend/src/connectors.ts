@@ -36,7 +36,7 @@ export function connectError(code: string | null): string | null {
     case 'unreachable':
       return 'The service did not answer. Connect again in a moment.'
     case 'not_allowed':
-      return 'You no longer may change this project, or its plan no longer includes connected folders, so nothing was connected.'
+      return 'You no longer may change this project, so nothing was connected.'
     default:
       return null
   }

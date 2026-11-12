@@ -19,12 +19,11 @@ however it heard, and the contract lists the events beside the routes (OpenAPI's
 The body is made once, as the event is announced, and every try sends those bytes, so that the
 event's `id` names one body however often it is sent.
 
-Each try is signed with the hook's secret, as Stripe signs its own (app/payments.py checks
-those): `Emudoc-Signature: t=<seconds>,v1=<hex>`, the HMAC-SHA256 of the try's timestamp, a full
-stop and the body, so that a receiver checks the body came from Emudoc and refuses an old one
-sent again. The secret must be read to sign with, so it is encrypted for its row with
-ENCRYPTION_KEYS (WEBHOOK_SECRETS in app/encrypted.py); it is shown once, as the hook is made or
-rolled.
+Each try is signed with the hook's secret, as Stripe signs its own: `Emudoc-Signature:
+t=<seconds>,v1=<hex>`, the HMAC-SHA256 of the try's timestamp, a full stop and the body, so that a
+receiver checks the body came from Emudoc and refuses an old one sent again. The secret must be read
+to sign with, so it is encrypted for its row with ENCRYPTION_KEYS (WEBHOOK_SECRETS in
+app/encrypted.py); it is shown once, as the hook is made or rolled.
 
 A delivery is a job (`deliver_webhook`, with the indexers), which posts the body and is done:
 answered with a 2xx, delivered; anything else, or no answer within TIMEOUT, tried again after a
@@ -70,7 +69,6 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db import SessionLocal
 from app.encrypted import WEBHOOK_SECRETS, decrypt
-from app.entitlements import check_api
 from app.jobs import DELIVER_WEBHOOK, INDEX_DOCUMENT, LIVE, Lease, LeaseLost, enqueue, renew
 from app.keyring import Undecryptable
 from app.metrics import WEBHOOK_DELIVERIES
@@ -142,7 +140,6 @@ REDIRECTED = (
 NOT_TAKEN = "The address answered {status}, not 2xx. It is tried again later."
 GAVE_UP = " That was the last try."
 PAUSED = "The webhook was paused, so the event was not sent."
-NO_API = "The organisation's plan no longer includes the API, so the event was not sent."
 UNREADABLE = (
     "Emudoc could not read the webhook's secret to sign the event with, so it was not sent: "
     "roll its secret on the workspace's page."
@@ -328,7 +325,7 @@ def _announce(
         )
         .order_by(Webhook.id)
     ).all()
-    if not hooks or check_api(organization) is not None:
+    if not hooks:
         return 0
     event_id = f"evt_{uuid.uuid4().hex}"
     created_at = datetime.now(UTC)
@@ -397,8 +394,8 @@ def run_delivery(job: Job, services: "Services") -> str | None:
 
 def deliver(job: Job, lease: Lease | None = None) -> None:
     """Post the job's event to its hook, and keep how the address answered in the log: delivered,
-    tried again later, or given up. Nothing is posted for a hook removed, paused, of a plan
-    without the API or whose secret no key decrypts."""
+    tried again later, or given up. Nothing is posted for a hook removed, paused or whose secret
+    no key decrypts."""
     body = job.payload.get("body")
     if body is None:
         # Done with by a run that lost its lease after it was.
@@ -418,8 +415,6 @@ def deliver(job: Job, lease: Lease | None = None) -> None:
         delivery_id, url, refusal, secret = delivery.id, hook.url, None, ""
         if not hook.enabled:
             refusal = PAUSED
-        elif check_api(session.get(Organization, hook.org_id)) is not None:
-            refusal = NO_API
         else:
             try:
                 secret = decrypt(WEBHOOK_SECRETS, hook.id, hook.secret)

@@ -19,7 +19,7 @@ export const RUN_POLL = 1500
 
 /** What the view says a report is and costs, beside the button that asks for it. */
 export const REPORT_NOTE =
-  'The model writes it from what the run found, citing where each value is written. It counts as one of the month’s questions.'
+  'The model writes it from what the run found, citing where each value is written. It counts as a question asked.'
 
 /** Whether the worker has yet to settle the run or its report, and the page should ask again. */
 export function settling(run: CheckRunSummary): boolean {

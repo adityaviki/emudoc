@@ -3,7 +3,6 @@ deployment's settings so that they say what the code does, accepted at sign-up o
 anything else, and asked for again when their edition changes; leaving needs no acceptance."""
 
 import hashlib
-from datetime import timedelta
 from pathlib import Path
 
 from sqlalchemy import select, update
@@ -54,15 +53,12 @@ DEVELOPMENT = {
     "session_days": 30,
     "sentry_dsn": "",
     "pwned_passwords_url": "https://api.pwnedpasswords.com",
-    "stripe_secret_key": "",
-    "stripe_trial_days": 14,
-    "billing_grace_days": 14,
     "resend_webhook_secret": "",
     "mail_events_queue": "",
 }
 DIRECTORY = LocalStorage(Path("unused"))
 # The SHA-256 of terms.md and privacy.md as the edition TERMS_VERSION names was settled.
-SETTLED = "1c69b02cd5be5bcad5c49d100e064698b77803222f907ab472f06a570c420003"
+SETTLED = "a4ab3ab321e655a1bb9ee4b7fec2f77f73b5a0aadb000dfa233a44ca3f16f1de"
 OLDER = "2026-01-01"
 
 
@@ -142,27 +138,17 @@ def test_the_policy_says_where_messages_to_support_go():
     assert "They are sent to [OPERATOR_EMAIL is not set] by email" in said()
 
 
-def test_the_terms_say_how_a_document_without_pages_counts(monkeypatch):
-    def said() -> str:
-        return " ".join(terms_of_service(configured()).split())
-
-    assert (
-        "such as a Word file or a spreadsheet, counts a page for every 3,000 characters" in said()
-    )
-    # The figure is the one the parse stage counts by (app/entitlements.py), never typed in.
-    monkeypatch.setattr("app.legal.CHARS_PER_PAGE", 2_500)
-    assert "every 2,500 characters of its text" in said()
-
-
-def test_both_say_how_long_a_lower_plan_keeps_what_it_would_take_as_before(monkeypatch):
+def test_the_documents_say_how_long_the_workspace_keeps_chats_and_its_audit_log(monkeypatch):
     def said() -> str:
         return " ".join(f"{terms_of_service(configured())} {policy()}".split())
 
-    assert "are kept as before for 30 days after the move" in said()
-    assert "time, they are kept as before for 30 days after the move" in said()
-    # The days are the housekeeper's (app/retention.py), never typed in.
-    monkeypatch.setattr("app.legal.RETENTION_HELD", timedelta(days=45))
-    assert "30 days after the move" not in said() and "for 45 days after the move" in said()
+    assert "whose owners and admins choose how long its chats and audit log entries" in said()
+    assert "- **Chats**, until they are deleted, or for as many days after their last" in said()
+    assert "- **Audit log entries**, 365 days, or as long as the organisation's owners" in said()
+    assert "plan" not in said().lower().replace("explain", "")
+    # The days are the workspace's default (app/models.py), never typed in.
+    monkeypatch.setattr("app.legal.AUDIT_DAYS", 730)
+    assert "- **Audit log entries**, 730 days," in said()
 
 
 def test_the_privacy_policy_says_what_the_settings_do():
@@ -210,10 +196,8 @@ def test_the_privacy_policy_says_what_the_settings_do():
     assert "does not keep the data in one region" in policy()
     assert "kept and processed in the European Union" in policy(data_region="eu")
 
-    # How long each thing is kept, by plan, from the plans themselves.
+    # How long each thing is kept, from the code and the settings.
     text = policy()
-    assert "(Free: 30 days; Pro: 365 days; Team and Enterprise: until deleted)" in text
-    assert "(Free: 90 days; Pro and Team: 365 days; Enterprise: as long as it exists)" in text
     assert "until 30 days after they expired or were ended" in text
     assert "- **The browsers you signed in with**, until 90 days after their last sign-in." in text
     assert "It goes 14 days after you ask" in text
@@ -279,34 +263,6 @@ def test_the_privacy_policy_says_what_the_settings_do():
     both = policy(storage=in_a_bucket, access_log_days=30, sentry_dsn="https://k@sentry.io/2")
     assert "\n\n- **Connection records**" not in both
     assert "or an answer says.\n- **Error reports**" in both
-
-
-def test_the_documents_describe_paid_plans_where_they_are_sold():
-    assert "paid plan is a subscription" not in terms_of_service(configured())
-    assert "Billing" not in policy()
-
-    sold = configured(stripe_secret_key="sk_test_x", billing_grace_days=10)
-    terms = terms_of_service(sold)
-    assert "\nA paid plan is a subscription that an owner of the organisation buys" in terms
-    assert "starts with a free trial of 14 days" in terms
-    assert "keeps its plan for 10 days while the payment is tried again" in terms
-    assert "$" not in terms and "pack" not in terms
-    with_packs = terms_of_service(
-        configured(stripe_secret_key="sk_test_x", stripe_packs="pages:1000=price_p")
-    )
-    assert "a pack of pages or questions, paid once, which adds to the" in with_packs
-    plain = terms_of_service(
-        configured(stripe_secret_key="sk_test_x", stripe_trial_days=0, billing_grace_days=0)
-    )
-    assert "trial" not in plain and "moves to the Free plan at once" in plain
-
-    text = policy(stripe_secret_key="sk_test_x")
-    assert "- **Billing**: for an organisation that buys a plan" in text
-    assert "An organisation's owners also get email about its subscription" in text
-    assert "(BACKUP_DAYS is not set).\n- **Billing records**, as long as the organisation" in text
-    # Each kept only where it is set stays a bullet of the same list.
-    both = policy(stripe_secret_key="sk_test_x", access_log_days=30)
-    assert "- **Connection records**, 30 days.\n- **Billing records**" in both
 
 
 def test_the_policy_names_the_addresses_spared_where_the_provider_says_which():

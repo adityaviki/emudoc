@@ -18,15 +18,6 @@ function maintenance(...args: string[]): string {
   })
 }
 
-/**
- * Put an organisation on a plan, as its operator does with the maintenance command, with the
- * command's options after it (`--seats 2`): the Free plan a sign-up starts on has room for one
- * member, so a test that invites another needs a larger one.
- */
-export function movePlan(slug: string, plan: string, ...options: string[]) {
-  maintenance('plan', slug, plan, ...options)
-}
-
 /** Turn a feature flag on or off for an organisation, or back to its rollout, as the `flags` command does. */
 export function chooseFlag(slug: string, flag: string, choice: 'on' | 'off' | 'rollout') {
   maintenance('flags', slug, flag, choice)

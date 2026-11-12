@@ -12,6 +12,32 @@ the suite holds it to (`backend/tests/test_changelog.py`): `## YYYY-MM-DD` a day
 and `Operators:`, each a list of `- ` entries whose lines go on indented by two spaces, a day's
 newest entry first.
 
+## 2026-11-13
+
+Members:
+
+- Nothing in Emudoc is held to a plan any more, and nothing is sold: the workspace's page has no
+  Plan section, no banner says the workspace is past a limit, and no project, upload, invitation,
+  question, link, key or connected folder is refused for one. The usage page shows what the
+  workspace holds, and its pages indexed and questions asked by day and by month; owners and
+  admins see there what the models cost too.
+- Chats are kept until they are deleted, unless the workspace's owners and admins choose a number
+  of days on its page. They choose there how long the audit log keeps its entries as well: a year
+  until they choose fewer or more days, or for good.
+
+Operators:
+
+- Plans and billing are gone: the `plan` command, Stripe's routes and webhook, `STRIPE_*`,
+  `BILLING_GRACE_DAYS` and `RATE_BILLING` (left in `.env`, they are ignored), the plans' columns,
+  the packs and Stripe's events (dropped by the migration), the 402 refusals, the plan's mails and
+  the notices at 80 % and 100 % of a month. A day's model spending is held by `DAILY_SPEND_CAP`
+  alone, which `costs` and the operator's area read the day against; the operator's area no longer
+  shows or changes a plan. The metrics lose `emudoc_organizations`, the `plan` label of
+  `emudoc_stored_bytes`, the upload rejection `plan`, the inbound outcome `refused_plan`, and the
+  connector's and webhook's plan refusals.
+- The audit log's entries go after the workspace's `audit_days` (a year by default, none keeping
+  them for good), set on its page, in place of a plan's days.
+
 ## 2026-11-12
 
 Members:

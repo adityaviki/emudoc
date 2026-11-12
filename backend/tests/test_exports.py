@@ -17,7 +17,7 @@ from app.export import CHOSEN_ABOUT, EXPORT_DAYS, EXPORT_FAILED, PROJECT_ABOUT, 
 from app.indexing.pipeline import process_document
 from app.jobs import EXPORT_PROJECT, claim
 from app.maintenance import housekeeping
-from app.models import Job, Membership, Notification, Organization, Passage, ProjectExport
+from app.models import Job, Membership, Notification, Passage, ProjectExport
 from app.notices import app_address
 from app.selection import NOT_CHOSEN
 from app.storage import StorageError, export_key
@@ -58,14 +58,10 @@ def archive_of(client, project_id: int, export_id: int) -> zipfile.ZipFile:
 
 @pytest.fixture
 def pair(client, session, signed_in_only):
-    """Ada, signed in on `client`, the owner of her organisation on Team, and Bob on a browser of
-    his own, a member of it."""
+    """Ada, signed in on `client`, the owner of her organisation, and Bob on a browser of his
+    own, a member of it."""
     ada = signup(client, "ada@example.com", name="Ada")
     org_id = ada["organization"]["id"]
-    session.execute(
-        update(Organization).where(Organization.id == org_id).values(plan="team", seats=5)
-    )
-    session.commit()
     bob_client = another_browser(client)
     bob = signup(bob_client, "bob@example.com", name="Bob", joins=org_id)
     return org_id, bob_client, bob

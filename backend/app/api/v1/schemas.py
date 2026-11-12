@@ -10,7 +10,7 @@ what the app holds and the contract test notices when that grows.
 """
 
 import datetime as dt
-from typing import Annotated, Literal, get_args
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, StringConstraints
 
@@ -26,12 +26,12 @@ from app.schemas import (
     ReviewState,
     RunStatus,
 )
-from app.schemas import PlanLimit as AppPlanLimit
 
 _Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
-# The figures of a plan a refusal names, as the API was published with them: a figure the app
-# gained since (share_links) is one no route of the API refuses by, so its contract keeps these.
+# The figures of a plan a refusal named, as the API was published with them. Nothing is refused
+# for a plan since the plans went (S.2, 2026-11-13), and the contract keeps them, since a program
+# written against it reads them: taking them out is a /api/v2's.
 PlanLimit = Literal[
     "projects",
     "documents",
@@ -43,7 +43,6 @@ PlanLimit = Literal[
     "api_access",
     "connectors",
 ]
-assert set(get_args(PlanLimit)) <= set(get_args(AppPlanLimit)), "each a figure of the app's"
 
 
 class Error(BaseModel):
@@ -54,7 +53,8 @@ class Error(BaseModel):
 
 
 class PlanError(Error):
-    """A refusal by the organisation's plan, with the figure it is held to."""
+    """A refusal by the organisation's plan, with the figure it was held to; never answered since
+    the app has no plans."""
 
     limit: PlanLimit
 
@@ -233,8 +233,8 @@ class VersionList(BaseModel):
 
 class RejectedFile(BaseModel):
     """A file of an upload that was not kept, by its place among the files sent (from 0) and its
-    name, and why: a sentence, the figure of the plan when it was the plan, and the document that
-    holds the same bytes when the project holds them already, which is no failure."""
+    name, and why: a sentence, `limit` always null since the app has no plans, and the document
+    that holds the same bytes when the project holds them already, which is no failure."""
 
     index: int
     filename: str
@@ -499,8 +499,8 @@ class FindingList(BaseModel):
 class ReportAnswer(BaseModel):
     """One question of a report, as it was asked, and its answer, which cites the passages of
     `sources` as [P<passage_id>]. `status` is `queued` until it is asked and `running` while it
-    is, then `done`, or `failed` with `error` saying why: the plan's questions for the month or
-    the day's spending were used up, or the agent's run failed."""
+    is, then `done`, or `failed` with `error` saying why: the day's spending was used up, or the
+    agent's run failed."""
 
     question: str
     status: RunStatus

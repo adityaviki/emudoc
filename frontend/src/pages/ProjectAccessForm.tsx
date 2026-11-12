@@ -5,9 +5,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { ROLE_LABELS, api, isPlanLimit, organizations } from '../api.ts'
+import { ROLE_LABELS, api, organizations } from '../api.ts'
 import type { Me, Member, Project, ProjectVisibility } from '../api.ts'
-import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, Checkbox, Chip, Loading, Notice, Radio } from '../components/ui.tsx'
 import { accessRows, chosenIds } from '../projectAccess.ts'
 
@@ -133,8 +132,7 @@ function Choice({ project, me, visibility: saved, chosen: savedChosen, members, 
           })}
         </ul>
       )}
-      {save.isError &&
-        (isPlanLimit(save.error) ? <PlanLimitNotice refusal={save.error} /> : <Notice tone="bad">{save.error.message}</Notice>)}
+      {save.isError && <Notice tone="bad">{save.error.message}</Notice>}
       <div className="flex justify-end gap-2">
         <Button variant="ghost" onClick={onClose}>
           Cancel

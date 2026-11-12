@@ -145,7 +145,7 @@ def test_a_model_without_a_price_is_said_to_escape_the_spending_limits():
     settings = configured(model_prices=f"{BACKUP}=1/1")
     (trial,) = try_models(settings, scripted({PRIMARY: both()}))
     assert describe_trials([trial], settings)[4].endswith(
-        "; MODEL_PRICES has no price for it, so the spending limits count none"
+        "; MODEL_PRICES has no price for it, so the daily spending cap counts none"
     )
 
 

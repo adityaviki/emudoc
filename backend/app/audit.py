@@ -36,9 +36,9 @@ detail's `support`; the leave, its withdrawal and each view's start and end are 
 Admins and owners read their organisation's rows page by page through `GET /api/audit`, by
 action, member, project and span, and download them as a CSV file (app/api/audit.py), which the
 log records as well.
-The housekeeper (app/maintenance.py) deletes the rows older than the plan's `audit_days`
-(app/entitlements.py) with `prune_audit`, every organisation in one statement, keeping them
-longer for a while after a move to a plan that keeps them for less time (app/retention.py).
+The housekeeper (app/maintenance.py) deletes the rows older than the organisation's
+`audit_days`, a year unless its owners and admins choose otherwise, with `prune_audit`, every
+organisation in one statement; a null keeps them until the organisation goes.
 """
 
 from typing import Any
@@ -48,29 +48,18 @@ from sqlalchemy import Connection, text, update
 from sqlalchemy.orm import Session
 
 from app.accounts import Account, account_for_user
-from app.entitlements import PLANS
 from app.models import AUDIT_ACTIONS, AuditEvent, User, UserSession
 
 # What a row was done to: ("document", 7).
 type Target = tuple[str, int]
 
-# Each plan joins as a row of `kept`, so one statement prunes every organisation, by the days
-# agreed with it when `overrides` names them, else by its plan's, and while a hold after a lower
-# plan stands (app/retention.py), by its days as well; a null is for good.
+# A null `audit_days` keeps a row for good: the interval and the comparison are null.
 _PRUNE = text(
     """
     DELETE FROM audit_events
-    USING organizations,
-          unnest(CAST(:plans AS text[]), CAST(:days AS integer[])) AS kept (plan, days)
+    USING organizations
     WHERE organizations.id = audit_events.org_id
-      AND organizations.plan = kept.plan
-      AND audit_events.occurred_at < now() - make_interval(days => CASE
-          WHEN organizations.overrides -> 'audit_days' IS NULL THEN kept.days
-          ELSE CAST(organizations.overrides ->> 'audit_days' AS integer) END)
-      AND (organizations.retention_held_until IS NULL
-           OR organizations.retention_held_until <= now()
-           OR audit_events.occurred_at
-              < now() - make_interval(days => organizations.held_audit_days))
+      AND audit_events.occurred_at < now() - make_interval(days => organizations.audit_days)
     """
 )
 
@@ -158,7 +147,5 @@ def forget_addresses(session: Session, user_id: int) -> None:
 
 
 def prune_audit(connection: Connection) -> int:
-    """Delete the rows older than their organisation keeps them, by its plan or its agreed
-    terms, and by a hold after a lower plan while it stands; returns how many."""
-    kept = {plan: limit.audit_days for plan, limit in PLANS.items()}
-    return connection.execute(_PRUNE, {"plans": list(kept), "days": list(kept.values())}).rowcount
+    """Delete the rows older than their organisation keeps them; returns how many."""
+    return connection.execute(_PRUNE).rowcount

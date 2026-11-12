@@ -18,7 +18,6 @@ from app.api.deps import (
 )
 from app.api.documents import MISSING_FILE
 from app.audit import audit
-from app.entitlements import PlanRefused, Refusal
 from app.models import Document, DocumentVersion, Project, Upload, User
 from app.notices import record_upload, settle_upload
 from app.parsing import IMAGE_TYPES
@@ -127,8 +126,7 @@ def upload_version(
     """Give the document a new file, which it reads in the earlier one's place, keeping the
     earlier one as a version to open and download. Refused, with nothing changed, for a file an
     upload would refuse (400, 413), for the bytes of a file the project holds (409), while the
-    document is being indexed (409), and when the plan has no room for its bytes or its pages
-    (402); the sample project's documents take none (409)."""
+    document is being indexed (409); the sample project's documents take none (409)."""
     project = session.get(Project, document.project_id)
     if project.sample:
         raise HTTPException(409, SAMPLE_VERSIONS)
@@ -149,7 +147,6 @@ def upload_version(
             session,
             services.storage,
             project,
-            account.organization,
             document,
             file.filename or "unnamed",
             file.file,
@@ -158,8 +155,6 @@ def upload_version(
         )
     except VersionRefused as refused:
         session.rollback()
-        if refused.limit is not None:
-            raise PlanRefused(Refusal(refused.limit, refused.reason)) from None
         raise HTTPException(REFUSED.get(refused.label, 400), refused.reason) from None
     # The new file is an upload of its own, whose notice and automations follow its reading.
     if upload_id := record_upload(session, project.id, account.user.id, [document.id]):

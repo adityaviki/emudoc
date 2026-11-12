@@ -15,7 +15,6 @@ from sqlalchemy import func, select
 from app.config import get_settings
 from app.conversion import GAVE_UP, MAX_TRIES, UNSHOWN, ConvertError
 from app.db import engine
-from app.entitlements import my_files_bytes
 from app.flags import FLAGS, MY_FILES
 from app.indexing.pipeline import process_document
 from app.jobs import VIEW_MY_FILE, claim
@@ -23,12 +22,12 @@ from app.maintenance import describe_orphans, sweep_storage
 from app.models import Document, Job, MyFile, MyFileVersion, UsageEvent
 from app.my_files import MAX_FILES, SAVED_MEANWHILE, WRONG_KIND, abandon_view
 from app.storage import my_file_prefix
+from app.usage import my_files_bytes
 from app.worker import HANDLERS
 from tests.conftest import SCANNER_DOWN
 from tests.test_api import create_project
 from tests.test_audit import actions as audited
 from tests.test_conversion import FakeConverter
-from tests.test_entitlements import member, plan  # noqa: F401 (fixtures)
 from tests.test_maintenance import age
 from tests.test_templates import turn_on
 
@@ -357,22 +356,13 @@ def test_deleting_a_file_takes_its_versions_and_their_files(client, session, ser
     assert actions(session)[-1] == "my_file_deleted"
 
 
-def test_the_plan_holds_my_files_in_its_storage(
-    client,
-    session,
-    services,
-    member,  # noqa: F811
-    plan,  # noqa: F811
-):
+def test_my_files_count_in_the_workspaces_storage(client, session, services, account):
     services.scanner = None
     project = create_project(client)
     data = word("A letter.")
     kept(client, project["id"], data=data)
-    assert my_files_bytes(session, member.organization.id) == len(data)
-    plan(storage_bytes=len(data) + 10)
-    refused = keep(client, project["id"], "Second.docx", data)
-    assert refused.status_code == 402
-    assert refused.json()["limit"] == "storage_bytes"
+    assert my_files_bytes(session, account.organization.id) == len(data)
+    assert client.get("/api/organization/usage").json()["storage_bytes"] == len(data)
 
 
 def test_a_member_keeps_no_more_files_than_the_ceiling(client, project, monkeypatch, services):

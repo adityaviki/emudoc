@@ -1,11 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, FileDiff, Pencil, Plus, RotateCcw, Table2, Trash2, X } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
-import { api, isPlanLimit, mayChange } from '../api.ts'
-import type { ExtractionTemplate, FactType, PlanRefusal } from '../api.ts'
+import { api, mayChange } from '../api.ts'
+import type { ExtractionTemplate, FactType } from '../api.ts'
 import { ME_KEY, useMe } from '../auth.ts'
 import { Confirm } from '../components/Confirm.tsx'
-import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, Checkbox, Chip, IconButton, InputField, Loading, Notice, SelectField } from '../components/ui.tsx'
 import { deletedReadAgain, factChangesKey, queuedWords, readAgainQuestion, savedReadAgain, savedWords } from '../factChanges.ts'
 import type { ReadAgain } from '../factChanges.ts'
@@ -52,7 +51,7 @@ export function TemplatesView() {
   const [asking, setAsking] = useState<ExtractionTemplate | 'read' | null>(null)
   // What the last change did, which offers to read its documents again.
   const [done, setDone] = useState<Done | null>(null)
-  const [refused, setRefused] = useState<PlanRefusal | string | null>(null)
+  const [refused, setRefused] = useState<string | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   const id = useId()
   // Opened from a button that went with the view before it: the keyboard goes on from here.
@@ -60,7 +59,7 @@ export function TemplatesView() {
     if (window.document.activeElement === window.document.body) heading.current?.focus()
   }, [])
   const fail = (error: Error) =>
-    setRefused(isPlanLimit(error) ? { message: error.message, limit: error.limit } : error.message)
+    setRefused(error.message)
 
   const remove = useMutation({
     mutationFn: (template: ExtractionTemplate) => api.deleteTemplate(template.id ?? 0),
@@ -140,7 +139,7 @@ export function TemplatesView() {
         )}
       </div>
       <div className="@container min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
-        {typeof refused === 'string' && (
+        {refused && (
           <Notice tone="bad">
             <div className="flex items-start justify-between gap-3">
               <span>{refused}</span>
@@ -150,7 +149,6 @@ export function TemplatesView() {
             </div>
           </Notice>
         )}
-        {refused && typeof refused !== 'string' && <PlanLimitNotice refusal={refused} onDismiss={() => setRefused(null)} />}
         {editing ? (
           <TemplateForm template={editing.template} onClose={close} />
         ) : (
@@ -328,7 +326,6 @@ function TemplateForm({ template, onClose }: { template: ExtractionTemplate | nu
   // The row the member just added, whose name takes the focus as it appears.
   const [added, setAdded] = useState<number | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
-  const [refused, setRefused] = useState<PlanRefusal | null>(null)
   const own = template && !template.built_in ? template : null
 
   const save = useMutation({
@@ -336,15 +333,12 @@ function TemplateForm({ template, onClose }: { template: ExtractionTemplate | nu
       const input = inputOf({ ...draft, fields: rows })
       return own?.id != null ? api.updateTemplate(own.id, input) : api.createTemplate(project.id, input)
     },
-    onMutate: () => {
-      setProblem(null)
-      setRefused(null)
-    },
+    onMutate: () => setProblem(null),
     onSuccess: (saved) => {
       for (const queryKey of [templatesKey(project.id), factTablesKey(project.id)]) void queryClient.invalidateQueries({ queryKey })
       onClose({ said: `Saved “${saved.title}”.`, read: savedReadAgain(saved, template) })
     },
-    onError: (error) => (isPlanLimit(error) ? setRefused({ message: error.message, limit: error.limit }) : setProblem(error.message)),
+    onError: (error) => setProblem(error.message),
   })
 
   const change = (key: number, patch: Partial<FieldDraft>) =>
@@ -425,7 +419,6 @@ function TemplateForm({ template, onClose }: { template: ExtractionTemplate | nu
           {problem}
         </p>
       )}
-      {refused && <PlanLimitNotice refusal={refused} onDismiss={() => setRefused(null)} />}
       <div className="flex justify-end gap-2">
         <Button onClick={() => onClose(null)}>Cancel</Button>
         <Button type="submit" variant="primary" disabled={save.isPending}>

@@ -1,13 +1,12 @@
 """The first steps an organisation takes, which the projects page lists until they are taken or
-its member hides the list: its own documents uploaded, a question asked about them, and its
-team invited. Each is read from the rows the step leaves, never kept as a step, so one taken by
-another member, or before the list existed, is taken: a member who joins a team at work finds
-it set up and is shown nothing. The documents count outside the sample project alone, which
-every sign-up's organisation starts with (app/sample), while a question asked in the sample
-counts, being what it is for. A question is a member's message in any chat of the
-organisation's, so the step is untaken again only once every chat is gone, as when a plan's
-retention deleted them all. What is in the trash (app/trash.py) takes no step, as it held none
-before there was a trash.
+its member hides the list: its own documents uploaded, a question asked about them, and its team
+invited. Each is read from the rows the step leaves, never kept as a step, so one taken by another
+member, or before the list existed, is taken: a member who joins a team at work finds it set up and
+is shown nothing. The documents count outside the sample project alone, which every sign-up's
+organisation starts with (app/sample), while a question asked in the sample counts, being what it is
+for. A question is a member's message in any chat of the organisation's, so the step is untaken
+again only once every chat is gone, as when the workspace's retention deleted them all. What is in
+the trash (app/trash.py) takes no step, as it held none before there was a trash.
 
 The steps are the organisation's, the member's role picks those it is offered (`offered`): an
 owner or admin all three, a member uploading and asking, since only owners and admins invite,

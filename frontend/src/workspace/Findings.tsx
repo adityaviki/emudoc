@@ -1,7 +1,5 @@
 import { CircleAlert, CircleCheck, CircleHelp, X } from 'lucide-react'
-import { ApiError } from '../api.ts'
 import type { Fact, Finding, FindingOutcome } from '../api.ts'
-import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { IconButton, Notice } from '../components/ui.tsx'
 import { OUTCOMES, findingWords } from '../crossChecks.ts'
 import type { Worded } from '../crossChecks.ts'
@@ -82,11 +80,8 @@ function Side({ label, fact, onOpen, gone }: { label: string; fact: Fact; onOpen
   )
 }
 
-/** A refusal as the views show it: a plan's limit with what lifts it, anything else in its words. */
+/** A refusal as the views show it, in its words. */
 export function Refused({ error, onDismiss }: { error: Error; onDismiss: () => void }) {
-  if (error instanceof ApiError && error.status === 402) {
-    return <PlanLimitNotice refusal={{ message: error.message, limit: error.limit }} onDismiss={onDismiss} />
-  }
   return (
     <Notice tone="bad">
       <div className="flex items-start justify-between gap-3">

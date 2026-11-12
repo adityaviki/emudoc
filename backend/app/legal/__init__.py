@@ -4,7 +4,7 @@ The two documents are Markdown templates beside this module, terms.md and privac
 in as they are served (`GET /api/legal`, the /terms and /privacy pages). What they say about
 the deployment is read from the settings and the app's own constants rather than written into
 them, as the subprocessor list is (app/subprocessors.py): where the documents are kept, how
-long each thing is kept on each plan, which cookies there are, whether a model provider may
+long each thing is kept, which cookies there are, whether a model provider may
 learn from what it is sent, whether uploads are scanned. Who runs the deployment and how long
 its backups and server logs are kept are the operator's word, OPERATOR_NAME, OPERATOR_EMAIL,
 BACKUP_DAYS and SERVER_LOG_DAYS, which production requires; the texts themselves are a starting
@@ -21,7 +21,7 @@ any change to them until that has been decided.
 
 import os
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from string import Template
@@ -33,15 +33,15 @@ from app.config import REGIONS, Settings, model_provider, parse_scanner_url
 from app.connectors import providers
 from app.connectors.base import CONNECT_COOKIE, CONNECT_WINDOW_SECONDS
 from app.connectors.sync import CHOOSING_KEPT, SYNC_INTERVAL
-from app.entitlements import CHARS_PER_PAGE, PLANS, Entitlements
 from app.export import EXPORT_DAYS
 from app.inbound import INBOUND_DAYS
+from app.models import AUDIT_DAYS
 from app.network import MODEL_BASE_URLS, host_of, on_own_network
 from app.notices import NOTIFICATION_DAYS
 from app.oidc import OAUTH_COOKIE, OAUTH_WINDOW_SECONDS
 from app.ratelimit import HISTORY
 from app.recents import RECENT
-from app.retention import DELETION_GRACE, RETENTION_HELD, day
+from app.retention import DELETION_GRACE, day
 from app.share_links import DAYS as SHARE_DAYS
 from app.share_links import VIEW_COOKIE, VIEW_FOR
 from app.storage import Storage
@@ -108,9 +108,6 @@ def terms_of_service(settings: Settings) -> str:
         "terms.md",
         settings,
         deletion_days=str(DELETION_GRACE.days),
-        held_days=str(RETENTION_HELD.days),
-        chars_per_page=f"{CHARS_PER_PAGE:,}",
-        paid_plans=_paid_plans(settings),
     )
 
 
@@ -124,9 +121,7 @@ def privacy_policy(
         settings,
         models=_models(settings, environ),
         region=_region(settings),
-        chat_retention=by_plan(lambda plan: plan.retention_days, "until deleted"),
-        audit_retention=by_plan(lambda plan: plan.audit_days, "as long as it exists"),
-        held_days=str(RETENTION_HELD.days),
+        audit_days=str(AUDIT_DAYS),
         credential_days=str(CREDENTIAL_HISTORY.days),
         browser_days=str(BROWSER_KNOWN_FOR.days),
         notification_days=str(NOTIFICATION_DAYS),
@@ -174,7 +169,6 @@ def privacy_policy(
             for bullet in (
                 _connection_records(settings.access_log_days, storage),
                 _error_reports(settings.sentry_dsn),
-                _billing_records(settings),
                 _undeliverable(settings),
                 _mail_in(settings),
                 _connected_folders(settings),
@@ -185,10 +179,6 @@ def privacy_policy(
             bullet
             for bullet in (
                 _connection_retention(settings.access_log_days),
-                "- **Billing records**, as long as the organisation exists; the payment "
-                "provider keeps the invoices as long as the law on accounts requires."
-                if settings.stripe_secret_key
-                else "",
                 f"- **Addresses mail could not be delivered to**, {SUPPRESSED_FOR.days} days, "
                 "or until the address's own user turns notices on again."
                 if _hears_of_bounces(settings)
@@ -205,14 +195,6 @@ def privacy_policy(
                 else "",
             )
             if bullet
-        ),
-        billing_mail=(
-            " An organisation's owners also get email about its subscription: when a payment "
-            "failed, when its trial is about to end, when it was cancelled, and when it moved "
-            "to a lower plan, for want of a payment or as a cancellation or a change ended "
-            "the plan before."
-            if settings.stripe_secret_key
-            else ""
         ),
     )
 
@@ -319,64 +301,6 @@ def _error_reports(dsn: str) -> str:
     )
 
 
-def _paid_plans(settings: Settings) -> str:
-    """What a paid plan is, where the deployment sells them (STRIPE_SECRET_KEY): how it is
-    paid, renewed, ended and what a failed payment does, with the trial and the grace period
-    the settings give (app/billing.py)."""
-    if not settings.stripe_secret_key:
-        return ""
-    days = settings.stripe_trial_days
-    trial = (
-        f" An organisation's first subscription starts with a free trial of {days} "
-        f"{'day' if days == 1 else 'days'}, and its first payment is taken when the trial ends, "
-        "unless the subscription was cancelled before."
-        if days
-        else ""
-    )
-    grace = settings.billing_grace_days
-    failed = (
-        f"keeps its plan for {grace} {'day' if grace == 1 else 'days'} while the payment is "
-        "tried again and its owners are told, and then moves to the Free plan"
-        if grace
-        else "moves to the Free plan at once, and its owners are told"
-    )
-    packs = (
-        " An owner may also buy a pack of pages or questions, paid once, which adds to the "
-        "organisation's allowance for the calendar month (in UTC) it is paid in and ends with "
-        "it, used or not; it is not refunded either."
-        if settings.stripe_packs
-        else ""
-    )
-    return (
-        "\nA paid plan is a subscription that an owner of the organisation buys for it, paid in "
-        "advance for each period, a month or a year as chosen, through our payment provider on "
-        "the [subprocessor list](/subprocessors), which keeps the payment details: we never see "
-        "a card's number. The price is the one shown before paying, with the tax the law "
-        f"requires added where it applies.{trial} The subscription renews at the end of each "
-        "period until it is cancelled, which an owner can do at any time under Manage billing "
-        "on the organisation page: it then runs to the end of the period paid for, and the "
-        "organisation moves to the Free plan, keeping everything it holds; where that is more "
-        "than the Free plan allows, it is read-only until it is within the plan again. A "
-        "period begun is not refunded, unless the law requires it. If a payment fails, the "
-        f"organisation {failed} in the same way, until the payment is made.{packs}\n"
-    )
-
-
-def _billing_records(settings: Settings) -> str:
-    """What billing keeps, where the deployment sells its plans."""
-    if not settings.stripe_secret_key:
-        return ""
-    return (
-        "- **Billing**: for an organisation that buys a plan, its customer and subscription at "
-        "our payment provider and what we last heard of them: whether the subscription is in "
-        "its trial, paid or waiting for a payment, and until when; and the packs of pages or "
-        "questions it bought, for which month. The provider keeps the "
-        "payment details, the billing address and VAT id, and the invoices, with the email "
-        "address of the owner who bought it; we never see a card's number. We need them to "
-        "bill the organisation under its contract with us."
-    )
-
-
 def _hears_of_bounces(settings: Settings) -> bool:
     """Whether the mail provider tells the deployment which addresses to spare (app/bounces.py)."""
     return bool(settings.resend_webhook_secret or settings.mail_events_queue)
@@ -460,24 +384,8 @@ def _region(settings: Settings) -> str:
     )
 
 
-def by_plan(days_of: Callable[[Entitlements], int | None], forever: str) -> str:
-    """How long each plan keeps something, the plans with the same period together:
-    "Free: 30 days; Pro: 365 days; Team and Enterprise: until deleted"."""
-    plans: dict[int | None, list[str]] = {}
-    for name, entitlements in PLANS.items():
-        plans.setdefault(days_of(entitlements), []).append(name.title())
-    return "; ".join(
-        f"{_and(names)}: {forever if days is None else f'{days} days'}"
-        for days, names in plans.items()
-    )
-
-
 def _or(names: list[str]) -> str:
     return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} or {names[-1]}"
-
-
-def _and(names: list[str]) -> str:
-    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
 
 
 def _backups(days: int | None) -> str:

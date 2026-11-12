@@ -1,6 +1,6 @@
 """Share links (app/share_links.py): a member shows a document to whoever holds the link, with no
 account, for a few days, with a password or not, and every link works only while what it rests
-on holds: its maker's place, the plan, the organisation's switch, the flag and the document."""
+on holds: its maker's place, the organisation's switch, the flag and the document."""
 
 from datetime import UTC, datetime, timedelta
 from urllib.parse import unquote
@@ -217,7 +217,7 @@ def stops(visitor, made: dict) -> bool:
     )
 
 
-def test_a_link_stops_with_the_document_the_plan_the_switch_and_the_flag(
+def test_a_link_stops_with_the_document_the_switch_and_the_flag(
     client, session, account, shared, visitor, monkeypatch
 ):
     made = make(client, shared["id"])
@@ -234,10 +234,6 @@ def test_a_link_stops_with_the_document_the_plan_the_switch_and_the_flag(
     session.commit()
     assert stops(visitor, made)
     organization.share_links = True
-    organization.plan = "free"
-    session.commit()
-    assert stops(visitor, made)
-    organization.plan = "enterprise"
     session.commit()
     assert opened(visitor, made).status_code == 200
 
@@ -281,17 +277,11 @@ def test_a_link_works_as_its_maker_while_they_may_make_it(
     assert session.scalar(select(ShareLink).where(ShareLink.id == made["id"])) is None
 
 
-def test_making_a_link_is_held_to_the_role_the_plan_and_the_switch(
+def test_making_a_link_is_held_to_the_role_and_the_switch(
     client, session, account, shared, make_account, act_as, monkeypatch
 ):
     path = f"/api/documents/{shared['id']}/share-links"
     organization = session.get(Organization, account.organization.id)
-    organization.plan = "free"
-    session.commit()
-    refused = client.post(path, json={})
-    assert (refused.status_code, refused.json()["limit"]) == (402, "share_links")
-    assert refused.json()["detail"].startswith("The Free plan does not include share links.")
-    organization.plan = "enterprise"
     organization.share_links = False
     session.commit()
     off = client.post(path, json={})

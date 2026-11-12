@@ -2,12 +2,9 @@
 the account's own choices about the list and the tour (app/onboarding.py,
 app/api/onboarding.py)."""
 
-from dataclasses import replace
-
 import pytest
 
 from app.config import get_settings
-from app.entitlements import PLANS
 from app.models import Chat, ChatMessage, Project, User
 from tests.test_api import upload
 from tests.test_auth import signup
@@ -19,9 +16,8 @@ from tests.test_organizations import join
 @pytest.fixture
 def ada(client, signed_in_only, monkeypatch) -> dict:
     """Ada, signed in on `client`, whose organisation started with the sample project as a
-    deployment's do, with room on its plan for a team."""
+    deployment's do."""
     monkeypatch.setattr(get_settings(), "sample_project", True)
-    monkeypatch.setitem(PLANS, "free", replace(PLANS["free"], members=10))
     return signup(client, "ada@acme.com", name="Ada")
 
 

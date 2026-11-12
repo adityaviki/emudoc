@@ -22,7 +22,7 @@ export const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday',
 export const QUESTION_CHARS = 2000
 
 /** What the form says a set's run costs. */
-export const COUNTS_NOTE = 'Each question counts as one of the month’s questions as it is asked.'
+export const COUNTS_NOTE = 'Each question counts as one asked, in the workspace’s usage, as it is asked.'
 
 /** Whom a set's reports are told to, as the form offers it. */
 export const REPORT_AUDIENCES: { value: AutomationAudience; label: string }[] = [

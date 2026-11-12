@@ -1,6 +1,6 @@
 // The operator's area: who opened it and its views, each what a maintenance command prints
-// (backend/app/api/operator.py), from which an operator also changes an organisation's plan and
-// feature flags, queues failed documents again and switches a model provider off or on.
+// (backend/app/api/operator.py), from which an operator also turns an organisation's feature
+// flags on or off, queues failed documents again and switches a model provider off or on.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'

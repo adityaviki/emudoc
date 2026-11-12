@@ -56,7 +56,7 @@ export interface Project {
   description: string
   created_at: string
   visibility: ProjectVisibility
-  /** The sample project a new organisation starts with (backend/app/sample): Emudoc's own documents, which count against nothing on the plan and take no uploads. */
+  /** The sample project a new organisation starts with (backend/app/sample): Emudoc's own documents, which the usage page leaves out and which take no uploads. */
   sample: boolean
   document_count: number
   /** The documents partly indexed (`unfinishedStages` in indexing.ts), which the library offers to index the rest of. */
@@ -504,11 +504,11 @@ export interface DocumentPage {
 export interface UploadResult {
   documents: Document[]
   /**
-   * The files left out, each with why; `limit` names the plan's figure when it was the plan. The server also gives each
-   * its place in the request (`index`) and the document holding the same bytes when that was why (`duplicate_of`), for
-   * a program; the page names a file by its path, and leaves both out of those it leaves out itself.
+   * The files left out, each with why. The server also gives each its place in the request (`index`) and the document
+   * holding the same bytes when that was why (`duplicate_of`), for a program; the page names a file by its path, and
+   * leaves both out of those it leaves out itself.
    */
-  rejected: { filename: string; reason: string; limit: PlanLimit | null; index?: number | null; duplicate_of?: number | null }[]
+  rejected: { filename: string; reason: string; index?: number | null; duplicate_of?: number | null }[]
   /** The upload the documents kept are on the server, which the library follows as they are indexed; null when it kept none. */
   upload_id: number | null
 }
@@ -1384,37 +1384,6 @@ export type ChatEvent =
   // Sent by the events route itself, last, once the answer is settled.
   | { type: 'end'; status: MessageStatus }
 
-/** The plans an organisation can be on (backend/app/entitlements.py), least to most. */
-export type Plan = 'free' | 'pro' | 'team' | 'enterprise'
-export const PLANS: Plan[] = ['free', 'pro', 'team', 'enterprise']
-export const PLAN_LABELS: Record<Plan, string> = { free: 'Free', pro: 'Pro', team: 'Team', enterprise: 'Enterprise' }
-
-/** The figures of a plan a refusal or an excess is about (`PlanLimit` in backend/app/schemas.py). */
-export type PlanLimit =
-  | 'projects'
-  | 'documents'
-  | 'storage_bytes'
-  | 'pages_per_month'
-  | 'questions_per_month'
-  | 'members'
-  | 'daily_spend_micros'
-  | 'api_access'
-  | 'connectors'
-  | 'share_links'
-  | 'question_sets'
-
-/** What the organisation's plan turned down: the sentence, and the figure it is held to, null when the server named none. */
-export interface PlanRefusal {
-  message: string
-  limit: PlanLimit | null
-}
-
-/** A figure the organisation holds past, once its plan, seats or terms were lowered under it, and how it reads: "3 projects of 1". */
-export interface Excess {
-  limit: PlanLimit
-  words: string
-}
-
 /** The regions a deployment can keep its documents in (DATA_REGION, backend/app/residency.py). */
 export type Region = 'eu' | 'us'
 export const REGION_NAMES: Record<Region, string> = { eu: 'the European Union', us: 'the United States' }
@@ -1423,30 +1392,18 @@ export interface Organization {
   id: number
   name: string
   slug: string
-  /** Which plan's limits the organisation is held to; a refusal by them is a 402. */
-  plan: Plan
-  /** The members it bought, on a plan sold by the seat (Team); null otherwise. */
-  seats: number | null
-  /** What it may keep and use: its plan's, its seats and what was agreed with it in their place (backend/app/entitlements.py). */
-  allowance: Allowance
-  /** How it buys its plan through Stripe (backend/app/billing.py). */
-  billing: Billing
   /** The region its data is kept in, null when the deployment promised none as it was created. */
   region: Region | null
-  /** How many days a chat is kept after its last question, by the plan or the organisation's own choice, whichever is shorter, and an audit log entry, null for good. */
-  chat_retention_days: number | null
-  audit_retention_days: number | null
-  /** What it keeps as before after a move to a plan that keeps less, and until when, with its own choice applied; null when nothing is held (backend/app/retention.py). */
-  retention_held: RetentionHeld | null
-  /** Its settings, as its owners and admins chose them: the language its documents are searched in, null for the deployment's (backend/app/languages.py); the days it keeps a chat, null for as long as the plan does; how its members are told each kind of notice until they choose. */
+  /** Its settings, as its owners and admins chose them: the language its documents are searched in, null for the deployment's (backend/app/languages.py); the days it keeps a chat after its last question (backend/app/retention.py) and an audit log entry, null until they are deleted; how its members are told each kind of notice until they choose. */
   language: string | null
   chat_days: number | null
+  audit_days: number | null
   notice_defaults: NoticeChoice[]
   /** Its security settings (backend/app/security.py): whether everyone who works in it signs in with two-factor, and the days a session may work in it after signing in, null for as long as the deployment keeps one, which is the most it may choose. */
   mfa_required: boolean
   session_days: number | null
   max_session_days: number
-  /** Whether its members may share a document by a link that needs no account, where its plan includes them (backend/app/share_links.py); off, every link it has stops. */
+  /** Whether its members may share a document by a link that needs no account (backend/app/share_links.py); off, every link it has stops. */
   share_links: boolean
   /** The feature flags on for it (backend/app/flags.py): a page shows a feature being rolled out where its flag is here. */
   flags_on: Flag[]
@@ -1468,6 +1425,7 @@ export interface OrganizationChange {
   name?: string
   language?: string | null
   chat_days?: number | null
+  audit_days?: number | null
   notices?: { kind: NoticeKind; app?: boolean; email?: boolean }[]
   /** Turned on only by someone who signs in with two-factor themselves. */
   mfa_required?: boolean
@@ -1482,134 +1440,31 @@ export interface Languages {
   default: string
 }
 
-/** The plans an owner may buy for the organisation; Free is every organisation's, and Enterprise is agreed. */
-export type SoldPlan = 'pro' | 'team'
-
-/** How many days chats are kept after their last question and audit log entries, null for good. */
-export interface Retention {
-  chat_days: number | null
-  audit_days: number | null
-}
-
-/** What an organisation keeps as before after a move to a plan that keeps less, and until when: null for a move not made yet. */
-export interface RetentionHeld extends Retention {
-  until: string | null
-}
-
-/** A plan an owner may move the organisation's subscription to, with its seats on Team; Free is cancelling it. */
-export interface PlanChoice {
-  plan: 'free' | SoldPlan
-  seats?: number
-}
-
-/** What moving the subscription to a plan would do (`PlanChangeOut` in backend/app/schemas.py), for its owner to read before Stripe's page. */
-export interface PlanChange {
-  plan: Plan
-  seats: number | null
-  /** When a cancellation would move it, the end of the period paid for; null for a change of plan, made once Stripe's page confirms it. */
-  at: string | null
-  /** What it would allow, and what the organisation would hold past that (`over`), which would leave it read-only. */
-  allowance: Allowance
-  retention: Retention
-  /** What it keeps now that would be kept as before for `held_days` after the move, null when the plan keeps everything as long. */
-  held: RetentionHeld | null
-  held_days: number
-}
-
-/** How an organisation buys its plan, as Stripe last said of its subscription. */
-export interface Billing {
-  /** The plans the deployment sells, empty while billing is off. */
-  sold: SoldPlan[]
-  /** Whether its subscription sets its plan: not when its terms were agreed with the operator. */
-  managed: boolean
-  /** Stripe's word for its subscription (trialing, active, past_due, canceled, unpaid, …), null before it had one. */
-  status: string | null
-  trial_ends_at: string | null
-  renews_at: string | null
-  ends_at: string | null
-  /** Since when a payment has failed, and when the plan stops waiting for it. */
-  payment_failed_at: string | null
-  grace_ends_at: string | null
-  /** Whether it is a customer at Stripe, whose billing an owner can manage. */
-  customer: boolean
-  /** The days of trial a plan bought now starts with, null for none. */
-  trial_days: number | null
-  /** The packs it may buy for this month: pages or questions, and how many. */
-  packs: Pack[]
-}
-
-/** A pack of pages or questions for the month, paid once. */
-export interface Pack {
-  unit: 'pages' | 'questions'
-  quantity: number
-}
-
-/** What an organisation may keep and use, null for no limit. */
-export interface Allowance {
-  projects: number | null
-  documents: number | null
-  storage_bytes: number | null
-  pages_per_month: number | null
-  questions_per_month: number | null
-  members: number | null
-  /** How many days the plan, or the terms agreed in its place, keeps a chat after its last question, null for good. */
-  retention_days: number | null
-  /** Whether its members may make API keys and call the API with them (backend/app/apikeys.py). */
-  api_access: boolean
-  /** Whether its members may connect folders of Google Drive, Dropbox or OneDrive to its projects (backend/app/connectors/). */
-  connectors: boolean
-  /** Whether its members may share a document by a link that needs no account (backend/app/share_links.py). */
-  share_links: boolean
-  /** Whether its members may save a project's questions to be asked on a schedule or as documents arrive (backend/app/question_sets.py). */
-  question_sets: boolean
-  /** Which of them were agreed with the organisation in place of its plan's. */
-  agreed: string[]
-  /** The pages and questions bought in packs for this month, on top of the plan's. */
-  pages_bought: number
-  questions_bought: number
-  /** What it holds past them, which makes it read-only until it is within them again: everything is read, asked about and deleted, nothing added or changed. */
-  over: Excess[]
-}
-
-/** One figure the plan sets, beside what the organisation holds or has used of it, as the server's checks count it. */
-export interface Figure {
-  used: number
-  /** What it may, null for no limit. */
-  allowed: number | null
-  /** The pages or questions bought in packs for the month, on top of `allowed`. */
-  bought: number
-}
-
-/** The pages the organisation's uploads brought in and the questions it asked over one UTC day, or one month from its first day. */
+/** What the workspace used over one UTC day, or one month from its first day: the pages its uploads brought in, the questions it asked, and what all its work cost, null to members and while nothing has a known cost. */
 export interface Metered {
   start: string
   pages: number
   questions: number
+  cost_micros: number | null
 }
 
-export interface MeteredMonth extends Metered {
-  pages_bought: number
-  questions_bought: number
-}
-
-/** The figures a plan sets that the usage page shows: what is held now, then the month's. */
-export type Figured = 'projects' | 'documents' | 'storage_bytes' | 'members' | 'pages_per_month' | 'questions_per_month'
-
-/**
- * What the organisation holds and has used of what its plan allows, and its pages and questions
- * day by day and month by month, in UTC as the plan counts them (backend/app/api/usage.py).
- */
-export type UsagePage = Record<Figured, Figure> & {
-  /** The first day of the month the monthly figures count, and of the next, when they start afresh. */
+/** What the workspace holds now, and what it used, day by day and month by month, in UTC (backend/app/api/usage.py). */
+export interface UsagePage {
+  /** The first day of the month the last of `months` counts, and of the next. */
   month: string
   next_month: string
+  /** What it holds now: its projects and documents, their bytes with its members' My files, and its members with the open invitations. */
+  projects: number
+  documents: number
+  storage_bytes: number
+  members: number
   /** The characters of text a document without pages (a Word file, a sheet, a text file) counts a page for. */
   chars_per_page: number
   /** The sample project's documents, which `projects` and `documents` leave out; 0 once it is deleted. */
   sample_documents: number
   /** Every day of the last 30 up to today, and every month of the last 12 up to this one, the oldest first. */
   days: Metered[]
-  months: MeteredMonth[]
+  months: Metered[]
 }
 
 /** An invitation still open, or expired and not sent again, as its organisation's owners and admins see it. */
@@ -1684,7 +1539,6 @@ export interface Member {
 /** The kinds of notice (NOTICE_KINDS in backend/app/models.py, backend/app/notices.py). */
 export type NoticeKind =
   | 'upload_indexed'
-  | 'quota'
   | 'project_export'
   | 'checks_run'
   | 'review_assigned'
@@ -2181,13 +2035,10 @@ export const DELETION_GRACE_DAYS = 14
 
 export class ApiError extends Error {
   status: number
-  /** On a 402, the figure of the plan it is held to, from which the page chooses what to offer. */
-  limit: PlanLimit | null
 
-  constructor(status: number, message: string, limit: PlanLimit | null = null) {
+  constructor(status: number, message: string) {
     super(message)
     this.status = status
-    this.limit = limit
   }
 }
 
@@ -2213,17 +2064,9 @@ export class Unreachable extends Error {
   }
 }
 
-/**
- * Whether the server refused because the organisation's plan does not allow it (402). The
- * message names the limit and says to upgrade, and `limit` which figure it is; the app shows
- * it as the way forward, not as a failure.
- */
-export const isPlanLimit = (error: unknown): error is ApiError => error instanceof ApiError && error.status === 402
-
 let onUnauthorized: (() => void) | null = null
 let onSwitched: (() => void) | null = null
 let onForbidden: (() => void) | null = null
-let onPlanLimit: (() => void) | null = null
 let lastFailure: FailedRequest | null = null
 
 /**
@@ -2253,15 +2096,6 @@ export function handleSwitched(handler: (() => void) | null) {
  */
 export function handleForbidden(handler: (() => void) | null) {
   onForbidden = handler
-}
-
-/**
- * What happens when the organisation's plan refused a request (402): what the page knows of the
- * plan may be old, the organisation lowered under what it holds and read-only since, so the
- * app registers a handler that asks again, and the page says so.
- */
-export function handlePlanLimit(handler: (() => void) | null) {
-  onPlanLimit = handler
 }
 
 /**
@@ -2299,7 +2133,6 @@ async function send(path: string, init?: RequestInit, onProgress?: Progress): Pr
   const forSession = !path.startsWith('/auth/') && !path.startsWith('/shared')
   if (response.status === 401 && forSession) onUnauthorized?.()
   if (response.status === 403 && forSession) onForbidden?.()
-  if (response.status === 402) onPlanLimit?.()
   if (response.status === 409 && response.headers.has(ORGANIZATION_HEADER)) onSwitched?.()
   return response
 }
@@ -2336,13 +2169,12 @@ function sendReporting(url: string, init: RequestInit & { headers: Headers }, on
 
 /**
  * The error a refused response stands for: the sentence it carries as its `detail`, or the
- * fallback when it has none, and the plan's figure a 402 names.
+ * fallback when it has none.
  */
 async function refusal(response: Response, fallback: string): Promise<ApiError> {
   try {
     const body = await response.json()
-    const limit = typeof body.limit === 'string' ? (body.limit as PlanLimit) : null
-    return new ApiError(response.status, typeof body.detail === 'string' ? body.detail : fallback, limit)
+    return new ApiError(response.status, typeof body.detail === 'string' ? body.detail : fallback)
   } catch {
     // Not JSON: keep the fallback.
     return new ApiError(response.status, fallback)
@@ -2493,7 +2325,7 @@ export function oauthStartUrl(provider: string, next: string, timeZone: string, 
  * backend/app/api/apikeys.py; each change of the workspace answers with the account as `auth.me` does.
  */
 export const organizations = {
-  /** Owners and admins only: its name or its settings; what is left out stays, a null setting goes back to the deployment's or the plan's. */
+  /** Owners and admins only: its name or its settings; what is left out stays, a null language goes back to the deployment's and a null number of days keeps until deleted. */
   change: (body: OrganizationChange) => request<Me>('/organization', json('PATCH', body)),
   /** The languages its documents may be searched in, and the deployment's. */
   languages: () => request<Languages>('/organization/languages'),
@@ -2509,14 +2341,14 @@ export const organizations = {
     request<Me>('/organization/owner', json('POST', body)),
   /** Owners and admins only, as is everything about invitations. */
   invitations: () => request<Invitation[]>('/organization/invitations'),
-  /** Mails the address its link, also given back; a 402 when the plan has no room, a 409 for a member or one invited already. */
+  /** Mails the address its link, also given back; a 409 for a member or one invited already. */
   invite: (body: { email: string; role: Role }) => request<InvitationSent>('/organization/invitations', json('POST', body)),
   /** Mails a new link, also given back, which stops the one before. */
   resendInvitation: (id: number) => request<InvitationSent>(`/organization/invitations/${id}/resend`, { method: 'POST' }),
   revokeInvitation: (id: number) => request<void>(`/organization/invitations/${id}`, { method: 'DELETE' }),
   /** Owners and admins only, as is everything about API keys; none of these takes a key. */
   keys: () => request<ApiKey[]>('/organization/keys'),
-  /** A key that acts as the member who makes it; a 402 when the plan does not include the API. */
+  /** A key that acts as the member who makes it. */
   makeKey: (body: { name: string; scope: ApiKeyScope; days: number | null }) =>
     request<ApiKeyMade>('/organization/keys', json('POST', body)),
   /** The member's own key with a new secret; the one before stops at once. */
@@ -2524,7 +2356,7 @@ export const organizations = {
   revokeKey: (id: number) => request<void>(`/organization/keys/${id}`, { method: 'DELETE' }),
   /** Owners and admins only, as is everything about webhooks; none of these takes a key. */
   webhooks: () => request<Webhook[]>('/organization/webhooks'),
-  /** A 400 for an address a webhook may not have, a 402 when the plan does not include the API. */
+  /** A 400 for an address a webhook may not have. */
   makeWebhook: (body: { url: string; events: WebhookEvent[] }) =>
     request<WebhookMade>('/organization/webhooks', json('POST', body)),
   /** A field left out stays as it is; `enabled: false` pauses it. */
@@ -2537,26 +2369,7 @@ export const organizations = {
   shareLinks: () => request<OrganizationShareLink[]>('/organization/share-links'),
   webhookDeliveries: (id: number, before: number | null = null) =>
     request<WebhookDeliveries>(`/organization/webhooks/${id}/deliveries${before === null ? '' : `?before=${before}`}`),
-  /** Owners only: the address of Stripe's Checkout page that sells the plan, with seats on Team. */
-  checkout: (body: { plan: SoldPlan; seats?: number }) =>
-    request<{ url: string }>('/organization/billing/checkout', json('POST', body)),
-  /** Owners only: the address of Stripe's Checkout page that sells the pack for this month. */
-  buyPack: (pack: Pack) => request<{ url: string }>('/organization/billing/packs', json('POST', pack)),
-  /** The organisation on the plan, or with the pack, the Checkout session it came back from bought. */
-  checkoutDone: (checkoutId: string) =>
-    request<Me>('/organization/billing/checkout/done', json('POST', { checkout_id: checkoutId })),
-  /** Owners only: the address of Stripe's customer portal for the organisation, or with a choice, of its one step that moves the subscription there (Free cancels it). */
-  billingPortal: (choice?: PlanChoice) =>
-    request<{ url: string }>('/organization/billing/portal', choice ? json('POST', choice) : { method: 'POST' }),
-  /** Owners only: what moving the subscription to the plan would do, asked before Stripe's page. */
-  planChange: ({ plan, seats }: PlanChoice) => {
-    const params = new URLSearchParams({ plan })
-    if (seats !== undefined) params.set('seats', String(seats))
-    return request<PlanChange>(`/organization/billing/change?${params}`)
-  },
-  /** The organisation as its subscription stands at Stripe, once back from the portal. */
-  portalDone: () => request<Me>('/organization/billing/portal/done', { method: 'POST' }),
-  /** Every member: what the organisation holds and used of its plan, with the history. */
+  /** Every member: what the workspace holds and used, with the history; what it cost to owners and admins alone. */
   usage: () => request<UsagePage>('/organization/usage'),
   /** The organisation's first steps that the member's role is offered, and which it took. */
   onboarding: () => request<Onboarding>('/organization/onboarding'),
@@ -2624,7 +2437,7 @@ export const api = {
   projectTrash: (projectId: number) => request<ProjectTrash>(`/projects/${projectId}/trash`),
   /** Delete for good everything in the project's trash, the asker's own chats among it. */
   emptyTrash: (projectId: number) => request<void>(`/projects/${projectId}/trash`, { method: 'DELETE' }),
-  /** Take something out of the trash; a project, a folder or a document is held to the plan. */
+  /** Take something out of the trash. */
   restore: <T>(kind: TrashKind | 'project', id: number) =>
     request<T>(`/trash/${kind}s/${id}/restore`, { method: 'POST' }),
   /** Delete something in the trash for good, with its files. */
@@ -2961,7 +2774,7 @@ export const api = {
 
   /** The document's links that have not expired, the newest first. */
   shareLinks: (documentId: number) => request<ShareLink[]>(`/documents/${documentId}/share-links`),
-  /** A 402 when the plan does not include links, a 403 when the organisation turned them off. */
+  /** A 403 when the organisation turned them off. */
   makeShareLink: (documentId: number, body: { days: ShareDays; password?: string }) =>
     request<ShareLinkMade>(`/documents/${documentId}/share-links`, json('POST', body)),
   /** The answer's links that have not expired, the newest first. */

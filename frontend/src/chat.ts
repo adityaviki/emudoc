@@ -10,8 +10,8 @@
 import { onlineManager } from '@tanstack/react-query'
 import type { QueryClient } from '@tanstack/react-query'
 import { useSyncExternalStore } from 'react'
-import { ApiError, api, isPlanLimit, streamEvents } from './api.ts'
-import type { AskResult, Chat, ChatDetail, ChatEvent, ChatMessage, Draft, DraftOffer, MessageStatus, PlanRefusal, ScopeIn, Source, StepFile, Usage } from './api.ts'
+import { ApiError, api, streamEvents } from './api.ts'
+import type { AskResult, Chat, ChatDetail, ChatEvent, ChatMessage, Draft, DraftOffer, MessageStatus, ScopeIn, Source, StepFile, Usage } from './api.ts'
 import { myFileKey } from './myFiles.ts'
 
 export interface Step {
@@ -38,8 +38,6 @@ export interface Message {
   thinking?: boolean
   notice?: string | null
   error?: string | null
-  // The error is the organisation's plan refusing the question, shown as the way past its limit.
-  refusedByPlan?: PlanRefusal
   // What the answer used, once known: from the `done` event while it is followed, from the
   // saved row when the chat is loaded.
   usage?: Usage | null
@@ -246,25 +244,18 @@ export function isStreaming(chat: ChatData | undefined): boolean {
 
 /**
  * Whether the answer, the last of its chat, may be tried again: it was stopped or failed. Not one
- * the page lost, which the worker may still be writing and is followed again instead, nor one the
- * plan refused, whose notice offers what lifts the limit.
+ * the page lost, which the worker may still be writing and is followed again instead.
  */
 export function mayRetry(message: Message): boolean {
-  return (
-    message.role === 'assistant' &&
-    (message.status === 'stopped' || message.status === 'failed') &&
-    !message.lost &&
-    !message.refusedByPlan
-  )
+  return message.role === 'assistant' && (message.status === 'stopped' || message.status === 'failed') && !message.lost
 }
 
 /**
  * Whether the answer, the last of its chat, may be written again: it is done. Not one the page
- * lost, nor one the plan refused, whose notice offers what lifts the limit; a stopped or failed
- * one is tried again instead, which counts no question.
+ * lost; a stopped or failed one is tried again instead, which counts no question.
  */
 export function mayRegenerate(message: Message): boolean {
-  return message.role === 'assistant' && message.status === 'done' && !message.lost && !message.refusedByPlan
+  return message.role === 'assistant' && message.status === 'done' && !message.lost
 }
 
 /**
@@ -447,14 +438,9 @@ function editor(queryClient: QueryClient, chatId: number) {
   return { edit, last, byId }
 }
 
-/** A refusal to answer, shown where the answer is: a plan's limit as the way past it. */
+/** A refusal to answer, shown where the answer is. */
 function refused(error: unknown): Partial<Message> {
-  return {
-    thinking: false,
-    error: (error as Error).message,
-    refusedByPlan: isPlanLimit(error) ? { message: error.message, limit: error.limit } : undefined,
-    status: 'failed',
-  }
+  return { thinking: false, error: (error as Error).message, status: 'failed' }
 }
 
 /** Send a question and follow its answer into the chat's query data until it ends or is stopped. */
@@ -470,8 +456,8 @@ export async function ask(queryClient: QueryClient, chatId: number, question: st
   try {
     saved = await api.ask(chatId, question)
   } catch (error) {
-    // A refusal (another answer still running, too many in flight, the plan's questions used
-    // up) shows where the answer would be; the question stays on screen, to be tried again.
+    // A refusal (another answer still running, too many in flight, the day's spending reached)
+    // shows where the answer would be; the question stays on screen, to be tried again.
     letGo(chatId)
     last((message) => ({ ...message, ...refused(error) }))
     queryClient.invalidateQueries({ queryKey: ['chats'] })

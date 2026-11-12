@@ -13,9 +13,7 @@ from sqlalchemy.exc import OperationalError
 
 from app.api.deps import CROSS_SITE
 from app.api.operator import NOT_FOUND
-from app.billing import change_plan
 from app.config import LOOPBACK_NETWORKS, Settings, get_settings
-from app.entitlements import FIELDS
 from app.indexing.enrich import DocumentAnalysis
 from app.jobs import enqueue
 from app.main import create_app
@@ -48,7 +46,6 @@ ROUTES = (
 )
 # What the area changes, each with a body it takes.
 ACTIONS = (
-    ("PUT", "/api/operator/organizations/1/plan", {"plan": "free"}),
     ("PUT", "/api/operator/organizations/1/flags/early", {"on": True}),
     ("POST", "/api/operator/jobs/requeue", {"job_ids": []}),
     ("PUT", "/api/operator/providers/google", {"off": False}),
@@ -230,11 +227,8 @@ def test_organisations_are_listed_newest_first_and_found(
     assert slugs[:2] == ["initech", "globex"]
     assert sorted(slugs[2:]) == sorted([account.organization.slug, "olga"])
     globex_row = next(row for row in listed["organizations"] if row["slug"] == "globex")
-    assert (globex_row["members"], globex_row["plan"], globex_row["cost_micros"]) == (
-        1,
-        "free",
-        3_000_000,
-    )
+    assert (globex_row["members"], globex_row["cost_micros"]) == (1, 3_000_000)
+    assert "plan" not in globex_row
     assert listed["next_before"] is None and listed["cost_days"] == 30
 
     def found(q: str) -> list[str]:
@@ -256,15 +250,13 @@ def test_organisations_are_listed_newest_first_and_found(
     assert rest["next_before"] is None
 
 
-def test_an_organisation_shows_its_plan_usage_members_and_costs(
+def test_an_organisation_shows_its_usage_members_and_costs(
     client, operator, session, make_account, monkeypatch
 ):
     monkeypatch.setattr(get_settings(), "model_prices", f"{PRICED}=1/2")
     ann = make_account("ann@globex.example")
     make_account("bob@globex.example", ann.organization, role="viewer")
     organization = ann.organization
-    change_plan(session, organization, "team", seats=5, overrides={"projects": 500})
-    organization.stripe_customer_id = "cus_123"
     yesterday = datetime.now(UTC) - timedelta(days=1)
     charge(
         session,
@@ -278,22 +270,12 @@ def test_an_organisation_shows_its_plan_usage_members_and_costs(
 
     shown = operator.get(f"/api/operator/organizations/{organization.id}").json()
     assert shown["organization"]["slug"] == "globex"
-    assert shown["organization"]["seats"] == 5
-    figures = {figure["name"]: figure for figure in shown["entitlements"]}
-    assert figures["projects"] == {
-        "name": "projects",
-        "value": "500",
-        "plan_value": figures["projects"]["plan_value"],
-        "agreed": True,
-    }
-    assert figures["members"]["value"] == "5" and figures["members"]["agreed"]
-    assert not figures["documents"]["agreed"]
+    assert not {"entitlements", "overrides", "plans", "stripe_customer_id"} & set(shown)
     assert [(member["email"], member["role"]) for member in shown["members"]] == [
         ("ann@globex.example", "owner"),
         ("bob@globex.example", "viewer"),
     ]
-    assert shown["usage"]["members"] == {"used": 2, "allowed": 5, "bought": 0}
-    assert shown["stripe_customer_id"] == "cus_123"
+    assert shown["usage"]["members"] == 2
     assert shown["cost"]["cost_micros"] == 1_500_000 and shown["cost"]["calls"] == 2
     assert shown["cost_days"] == [{"day": str(yesterday.date()), "cost_micros": 1_500_000}]
 
@@ -349,9 +331,10 @@ def test_the_costs_are_the_costs_commands(operator, session, account, make_accou
     rows = [
         (row["slug"], row["cost_micros"], row["limit_micros"]) for row in costs["organizations"]
     ]
-    # The free plan's limit is a day's spending of 1.00.
-    assert rows == [("globex", 3_000_000, 1_000_000), (account.organization.slug, 1_000_000, None)]
-    assert costs["organizations"][0]["days_at_limit"] == 1
+    # The cap holds them together, never one by itself.
+    assert rows == [("globex", 3_000_000, None), (account.organization.slug, 1_000_000, None)]
+    assert costs["organizations"][0]["days_at_limit"] is None
+    assert "plan" not in costs["organizations"][0]
     platform = costs["platform"]
     assert (platform["cost_micros"], platform["calls"], platform["limit_micros"]) == (
         4_000_000,
@@ -430,68 +413,6 @@ def test_the_services_show_the_models_and_what_the_watch_sees(
 
 def olga(session) -> User:
     return session.scalar(select(User).where(User.email == "olga@example.com"))
-
-
-def test_an_operator_changes_the_plan_its_seats_and_its_agreed_figures(
-    operator, session, make_account
-):
-    organization = make_account("ann@globex.example").organization
-    path = f"/api/operator/organizations/{organization.id}/plan"
-    before = len(rows(session, organization.id))
-    spend = f"{get_settings().price_currency} 3.00 a day"
-    agreed = {"projects": "500", "storage_bytes": "2 GB", "daily_spend_micros": spend}
-
-    changed = operator.put(path, json={"plan": "team", "seats": 5, "agreed": agreed})
-    assert changed.status_code == 200, changed.text
-    shown = changed.json()
-    assert (shown["organization"]["plan"], shown["organization"]["seats"]) == ("team", 5)
-    # The figures come back in the words they were given in, which the form shows.
-    assert shown["overrides"] == agreed
-    team = next(plan for plan in shown["plans"] if plan["name"] == "team")
-    assert team["by_the_seat"] and list(team["figures"]) == list(FIELDS)
-    session.refresh(organization)
-    assert organization.overrides == {
-        "projects": 500,
-        "storage_bytes": 2_000_000_000,
-        "daily_spend_micros": 3_000_000,
-    }
-    # The organisation's own log says what changed, by nobody of its members, naming the
-    # operator for the deployment's records.
-    written = rows(session, organization.id)[before:]
-    assert [row.action for row in written] == ["plan_changed", "seats_changed"] + [
-        "entitlements_changed"
-    ] * 3
-    assert {row.user_id for row in written} == {None}
-    assert {row.detail["operator"] for row in written} == {olga(session).id}
-    assert written[0].detail == {"from": "free", "to": "team", "operator": olga(session).id}
-
-    # Saving the form as it is shown changes nothing, though the words round a figure.
-    change_plan(session, organization, "team", seats=5, overrides={"storage_bytes": 123_456_789})
-    session.commit()
-    before = len(rows(session, organization.id))
-    shown = operator.get(f"/api/operator/organizations/{organization.id}").json()
-    assert shown["overrides"] == {"storage_bytes": "123 MB"}
-    again = operator.put(path, json={"plan": "team", "seats": 5, "agreed": shown["overrides"]})
-    assert again.status_code == 200
-    session.refresh(organization)
-    assert organization.overrides == {"storage_bytes": 123_456_789}
-    assert len(rows(session, organization.id)) == before
-
-    # What cannot be is refused with what it should be, and changes nothing.
-    for change, said in (
-        ({"plan": "gold"}, "There is no 'gold' plan"),
-        ({"plan": "pro", "seats": 3}, "The Pro plan is not sold by the seat"),
-        ({"plan": "team", "agreed": {"members": "9"}}, "set the seats instead"),
-        ({"plan": "pro", "agreed": {"projects": "lots"}}, "projects is a whole number"),
-        ({"plan": "pro", "agreed": {"colour": "blue"}}, "'colour' is no entitlement"),
-    ):
-        refused = operator.put(path, json=change)
-        assert refused.status_code == 400 and said in refused.json()["detail"], change
-    session.refresh(organization)
-    assert (organization.plan, organization.seats) == ("team", 5)
-
-    gone = operator.put("/api/operator/organizations/999999/plan", json={"plan": "free"})
-    assert gone.status_code == 404 and "No organisation has this id" in gone.json()["detail"]
 
 
 def test_an_operator_turns_a_flag_on_or_off_for_an_organisation(

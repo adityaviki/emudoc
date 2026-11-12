@@ -12,16 +12,9 @@ which is part of these terms.
 
 Emudoc keeps the documents you upload in projects and answers questions about them with an AI
 model, which reads the documents and cites the passages its answers rest on. Every account
-belongs to an organisation, and the organisation's plan, with the seats it bought or the terms
-agreed with it in the plan's place, sets how much it may keep and use: projects, documents,
-pages read (a document without pages, such as a Word file or a spreadsheet, counts a page for
-every $chars_per_page characters of its text), questions asked, members, and how long chats are
-kept. The service tells you when a limit is reached. An organisation that holds more than its plan allows, once its plan, seats
-or terms were lowered, keeps everything, and is read-only until it is within the plan again:
-what it holds can be read, asked about and deleted, and its members removed, but nothing can be
-added or changed. A move to a plan that keeps chats or audit log entries for less time deletes
-none at once: those older than it keeps are kept as before for $held_days days after the move.
-$paid_plans
+belongs to an organisation, the team's workspace on this service, whose owners and admins choose
+how long its chats and audit log entries are kept.
+
 ## 2. Your account
 
 Give your name and an email address you control, keep your password and your authenticator to
