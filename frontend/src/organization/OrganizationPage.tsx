@@ -112,7 +112,7 @@ function NameSection({ me }: { me: Me }) {
   }
 
   return (
-    <Section title="Organisation">
+    <Section title="Workspace">
       {mayRename ? (
         <form onSubmit={submit} className="max-w-sm space-y-3">
           <InputField label="Name" maxLength={200} required value={name} onChange={(event) => setName(event.target.value)} />
@@ -154,7 +154,7 @@ function SettingsSection({ me }: { me: Me }) {
 
   if (!mayChange) {
     return (
-      <Section title="Settings" description="Chosen by its owners and admins for everyone in the organisation.">
+      <Section title="Settings" description="Chosen by its owners and admins for everyone in the workspace.">
         <dl className="divide-y divide-line border-t border-line">
           <Row label="Language">{organization.language === null ? 'As Emudoc searches by default' : languageName(organization.language)}</Row>
           <Row label="Chats kept">{keptWords(organization.chat_retention_days)}</Row>
@@ -164,7 +164,7 @@ function SettingsSection({ me }: { me: Me }) {
   }
 
   return (
-    <Section title="Settings" description="Chosen for everyone in the organisation.">
+    <Section title="Settings" description="Chosen for everyone in the workspace.">
       <div className="max-w-md space-y-4">
         {languages.data && <LanguageChoice me={me} languages={languages.data} />}
         <ChatDays me={me} />
@@ -249,7 +249,7 @@ function SecuritySection({ me }: { me: Me }) {
   const signIn = signInWords(organization.session_days ?? organization.max_session_days)
   if (!isWithin('admin', me.role)) {
     return (
-      <Section title="Security" description="Chosen by its owners and admins for everyone in the organisation.">
+      <Section title="Security" description="Chosen by its owners and admins for everyone in the workspace.">
         <dl className="divide-y divide-line border-t border-line">
           <Row label="Two-factor sign-in">{organization.mfa_required ? 'Required' : 'Up to each member'}</Row>
           <Row label="Sign in again">{signIn}</Row>
@@ -259,7 +259,7 @@ function SecuritySection({ me }: { me: Me }) {
   }
 
   return (
-    <Section title="Security" description="How everyone in the organisation signs in, and what was done in it.">
+    <Section title="Security" description="How everyone in the workspace signs in, and what was done in it.">
       <div className="max-w-md space-y-4">
         <RequireTwoFactor me={me} />
         <SessionDays me={me} />
@@ -319,7 +319,7 @@ function RequireTwoFactor({ me }: { me: Me }) {
           <Link to="/account" className="font-medium text-accent hover:underline">
             Turn it on for your own account
           </Link>{' '}
-          first: once it is required, nobody works in the organisation without it.
+          first: once it is required, nobody works in the workspace without it.
         </p>
       )}
       {asking && held && (
@@ -371,7 +371,7 @@ function SessionDays({ me }: { me: Me }) {
           Save
         </Button>
       </div>
-      <p className="text-xs text-muted">A member who signed in longer ago is asked to sign in again at their next step in the organisation.</p>
+      <p className="text-xs text-muted">A member who signed in longer ago is asked to sign in again at their next step in the workspace.</p>
       {save.isError && <Notice tone="bad">{save.error.message}</Notice>}
     </div>
   )
@@ -405,7 +405,7 @@ function ApiKeysSection({ me }: { me: Me }) {
     <Section
       id="api-keys"
       title="API keys"
-      description="A program calls Emudoc with a key as the member who made it: it reads what you may in the organisation's projects, and with the write scope changes it, but nothing of the accounts or the organisation itself."
+      description="A program calls Emudoc with a key as the member who made it: it reads what you may in the workspace's projects, and with the write scope changes it, but nothing of the accounts or the workspace itself."
     >
       {shown && <NewKey made={shown} onDone={() => setShown(null)} />}
       {me.organization.allowance.api_access ? (
@@ -480,7 +480,7 @@ function ApiKeysSection({ me }: { me: Me }) {
             ))}
           </ul>
         ) : (
-          me.organization.allowance.api_access && <p className="mt-3 text-[13px] text-muted">The organisation has no API keys yet.</p>
+          me.organization.allowance.api_access && <p className="mt-3 text-[13px] text-muted">The workspace has no API keys yet.</p>
         ))}
     </Section>
   )
@@ -502,7 +502,7 @@ function NewKey({ made, onDone }: { made: ApiKeyMade; onDone: () => void }) {
   return (
     <div className="mb-4 space-y-3 text-[13px]">
       <Notice tone="warn">
-        Copy the key “{made.name}” now: it is not shown again. Whoever holds it acts as you in the organisation's
+        Copy the key “{made.name}” now: it is not shown again. Whoever holds it acts as you in the workspace's
         projects, so keep it where you keep passwords.
       </Notice>
       <code className="block rounded-md border border-line bg-sunken px-3 py-2 font-mono text-xs break-all select-all">{made.key}</code>
@@ -609,7 +609,7 @@ function WebhooksSection({ me }: { me: Me }) {
     <Section
       id="webhooks"
       title="Webhooks"
-      description="Emudoc posts what happens in the organisation's projects to your programs' addresses as it happens, each event signed with the webhook's secret: a document indexed, or not, and a run of cross-checks worked out."
+      description="Emudoc posts what happens in the workspace's projects to your programs' addresses as it happens, each event signed with the webhook's secret: a document indexed, or not, and a run of cross-checks worked out."
     >
       {shown && <NewSecret made={shown} onDone={() => setShown(null)} />}
       {me.organization.allowance.api_access ? (
@@ -651,7 +651,7 @@ function WebhooksSection({ me }: { me: Me }) {
             ))}
           </ul>
         ) : (
-          me.organization.allowance.api_access && <p className="mt-3 text-[13px] text-muted">The organisation has no webhooks yet.</p>
+          me.organization.allowance.api_access && <p className="mt-3 text-[13px] text-muted">The workspace has no webhooks yet.</p>
         ))}
     </Section>
   )
@@ -1217,7 +1217,7 @@ function MembersSection({ me }: { me: Me }) {
   return (
     <Section
       title="Members"
-      description={`Everyone who works in the organisation. Viewers read its projects and ask questions, members also change them, admins also manage the members, and owners the owners too.${handOver}`}
+      description={`Everyone who works in the workspace. Viewers read its projects and ask questions, members also change them, admins also manage the members, and owners the owners too.${handOver}`}
     >
       {members.isPending && <Loading />}
       {members.isError && <Notice tone="bad">{members.error.message}</Notice>}

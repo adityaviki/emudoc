@@ -22,7 +22,7 @@ export function UserMenu() {
 
   const items: MenuItem[] = [
     { label: 'Account and security', icon: ShieldCheck, onSelect: () => navigate('/account') },
-    { label: 'Organisation', icon: Users, onSelect: () => navigate('/organization') },
+    { label: 'Workspace', icon: Users, onSelect: () => navigate('/organization') },
     // The tour points at a workspace's parts, so it is offered where they are.
     ...(inProject ? [{ label: 'Take the tour', icon: Compass, onSelect: takeTour } satisfies MenuItem] : []),
     { label: 'Terms of service', icon: FileText, onSelect: () => navigate('/terms') },

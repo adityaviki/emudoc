@@ -214,7 +214,7 @@ def test_only_the_links_a_template_names_are_links_in_the_html():
     )
     assert 'href="https://evil.example' not in message.html
     assert message.html.count('href="https://emudoc.example.com/i#token=a"') == 2
-    assert "<title>You are invited to join an organisation on Emudoc</title>" in message.html
+    assert "<title>You are invited to join a workspace on Emudoc</title>" in message.html
 
 
 def test_resend_sends_a_message_once_by_its_key(resend):

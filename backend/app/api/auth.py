@@ -264,8 +264,8 @@ INVITATION_HAS_ACCOUNT = (
     "An Emudoc account has this address already. Sign in with it to accept the invitation."
 )
 LOCAL_INVITATION = (
-    "The local account cannot join another organisation: without a session there is nothing to "
-    "keep it in. Sign in with an account to accept the invitation."
+    "The local account cannot accept an invitation: without a session there is nothing to keep "
+    "the workspace it joins in. Sign in with an account to accept the invitation."
 )
 ACCEPT_TERMS = "Accept the terms of service and the privacy policy to create an account."
 TERMS_CHANGED = (

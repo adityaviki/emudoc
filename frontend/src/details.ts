@@ -35,7 +35,7 @@ export function readValue(document: Document, detail: DocumentDetail): string {
  */
 export function documentLanguageChoices(languages: Languages | undefined, organization: Organization, held: string): Choice[] {
   const own = organization.language ?? languages?.default
-  const first = { value: '', label: own ? `The organisation’s, now ${languageName(own)}` : 'The organisation’s' }
+  const first = { value: '', label: own ? `The workspace’s, now ${languageName(own)}` : 'The workspace’s' }
   const names = languages?.languages ?? (held ? [held] : [])
   return [first, ...names.map((name) => ({ value: name, label: languageName(name) }))]
 }
@@ -62,7 +62,7 @@ export function detailsChange(document: Document, form: DetailsForm, asRead: Rea
 export function readWords(document: Document, detail: DocumentDetail): string {
   const read = readValue(document, detail)
   if (detail === 'language') {
-    if (!read) return 'You set this. The reading could not tell its language, so it follows the organisation’s.'
+    if (!read) return 'You set this. The reading could not tell its language, so it follows the workspace’s.'
     if (read === WORDS_AS_WRITTEN) return 'You set this. The reading found a language Emudoc searches by its words as written.'
     return `You set this. The reading found ${languageName(read)}.`
   }

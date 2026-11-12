@@ -89,8 +89,8 @@ PASSWORD_NEEDED = "This link has a password. Enter the one whoever sent the link
 WRONG_PASSWORD = "That is not this link's password. Check it with whoever sent the link."
 VIEW_OVER = "This page was opened too long ago. Open the link again to go on reading."
 LINKS_OFF = (
-    "Your organisation's owners and admins turned share links off. Ask one of them to turn them "
-    "on from the organisation page."
+    "Your workspace's owners and admins turned share links off. Ask one of them to turn them "
+    "on from the workspace page."
 )
 TOO_MANY_LINKS = (
     f"This has {MAX_LINKS} links running already, as many as one document or answer may have. "

@@ -140,7 +140,7 @@ export function ShareDialog({ target, onClose }: { target: ShareTarget; onClose:
         </IconButton>
       </div>
       <p id={`${id}-body`} className="mt-1.5 text-[13px] leading-relaxed text-muted">
-        {SHOWS[target.kind]} with no account, until the link runs out or is revoked. The organisation's audit log records
+        {SHOWS[target.kind]} with no account, until the link runs out or is revoked. The workspace's audit log records
         each opening.
       </p>
       <div className="mt-4">{making}</div>

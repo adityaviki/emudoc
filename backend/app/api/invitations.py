@@ -37,7 +37,7 @@ from app.schemas import InvitationIn, InvitationOut, InvitationSentOut
 router = APIRouter(tags=["invitations"])
 
 ADMINS_ONLY = (
-    "Only the owners and admins of the organisation can invite people and see who is invited. "
+    "Only the owners and admins of the workspace can invite people and see who is invited. "
     "Ask one of them to."
 )
 OWNERS_INVITE_OWNERS = "Only an owner can invite someone to be an owner, or send that again."

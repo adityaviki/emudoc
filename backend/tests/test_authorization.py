@@ -708,7 +708,7 @@ def test_a_viewer_can_read_but_not_change(client, world, account, make_account, 
     assert set(hidden.values()) == {404}, hidden
     assert client.post("/api/projects", json={"name": "Mine"}).status_code == 403
     detail = client.delete(f"/api/documents/{world.document_id}").json()["detail"]
-    assert detail.startswith("Your role in this organisation is viewer")
+    assert detail.startswith("Your role in this workspace is viewer")
     managed = statuses(
         client, invitations(world) + keys(world) + webhooks(world) + links(world) + members(world)
     )

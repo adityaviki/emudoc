@@ -74,31 +74,31 @@ from app.signups import handed_reset_link
 
 router = APIRouter(tags=["organizations"])
 
-NAME_NEEDED = "Give the organisation a name."
-NOT_FOUND = "Organisation not found"
+NAME_NEEDED = "Give the workspace a name."
+NOT_FOUND = "Workspace not found"
 ADMINS_ONLY = (
-    "Only the owners and admins of the organisation can rename it or change its settings. Ask "
+    "Only the owners and admins of the workspace can rename it or change its settings. Ask "
     "one of them to, if something should change."
 )
-OWNERS_ONLY = "Only an owner of the organisation can hand it over to another member."
-YOURS_ALREADY = "Choose another member: the organisation is yours already."
+OWNERS_ONLY = "Only an owner of the workspace can hand it over to another member."
+YOURS_ALREADY = "Choose another member: the workspace is yours already."
 MEMBER_NOT_FOUND = "Member not found"
 MANAGERS_ONLY = (
-    "Only the owners and admins of the organisation can change a member's role or remove a "
+    "Only the owners and admins of the workspace can change a member's role or remove a "
     "member. Ask one of them to."
 )
 OWNERS_FOR_OWNERS = (
     "Only an owner can make someone an owner, or change an owner's role or remove one."
 )
 YOUR_OWN_ROLE = (
-    "Nobody changes their own role. Ask another owner of the organisation to change yours, or "
+    "Nobody changes their own role. Ask another owner of the workspace to change yours, or "
     "another admin if you are an admin."
 )
 REMOVE_YOURSELF = (
-    "Nobody removes themselves. Ask another owner or admin of the organisation to remove you."
+    "Nobody removes themselves. Ask another owner or admin of the workspace to remove you."
 )
 ADMINS_RESET = (
-    "Only the owners and admins of the organisation can make a link that resets a member's "
+    "Only the owners and admins of the workspace can make a link that resets a member's "
     "password. Ask one of them to, or reset yours from the sign-in page."
 )
 OWNERS_RESET_OWNERS = "Only an owner can make a link that resets an owner's password."

@@ -92,7 +92,7 @@ export function ProjectsPage() {
                   </div>
                 </>
               ) : (
-                'Your role in this organisation is viewer: once a member makes a project, it shows here for you to read and ask about.'
+                'Your role in this workspace is viewer: once a member makes a project, it shows here for you to read and ask about.'
               )}
             </EmptyState>
           </div>

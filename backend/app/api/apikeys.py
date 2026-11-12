@@ -26,7 +26,7 @@ from app.schemas import ApiKeyIn, ApiKeyMadeOut, ApiKeyOut
 router = APIRouter(tags=["api keys"])
 
 ADMINS_ONLY = (
-    "Only the owners and admins of the organisation can see, make and revoke its API keys. Ask "
+    "Only the owners and admins of the workspace can see, make and revoke its API keys. Ask "
     "one of them to."
 )
 KEY_NOT_FOUND = "API key not found"

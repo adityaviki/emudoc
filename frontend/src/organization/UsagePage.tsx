@@ -101,7 +101,7 @@ function UsageSections({ me, page }: { me: Me; page: Usage }) {
       </Section>
       <Section
         title="Held now"
-        description="What the organisation keeps: deleting a document frees its place and its storage, and an open invitation takes a member’s place until it is accepted, revoked or runs out."
+        description="What the workspace keeps: deleting a document frees its place and its storage, and an open invitation takes a member’s place until it is accepted, revoked or runs out."
       >
         <dl className="divide-y divide-line border-t border-line">
           {HELD.map((name) => (

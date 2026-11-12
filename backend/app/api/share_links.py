@@ -81,7 +81,7 @@ from app.share_links import (
 router = APIRouter(tags=["share links"], dependencies=[Depends(flagged(SHARE_LINKS))])
 public = APIRouter(tags=["share links"])
 
-ADMINS_ONLY = "Only the organisation's owners and admins can see all of its share links."
+ADMINS_ONLY = "Only the workspace's owners and admins can see all of its share links."
 # How many of the organisation's links its owners and admins are shown, the newest first.
 LISTED = 200
 PAUSED = (

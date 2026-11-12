@@ -45,7 +45,7 @@ export function ActivityView() {
       </div>
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
         <p className="text-xs text-muted">
-          What was done in the project lately, kept as long as the organisation’s audit log: documents arriving and
+          What was done in the project lately, kept as long as the workspace’s audit log: documents arriving and
           leaving, reviews, comments, drafts and runs.
         </p>
         {activity.isPending && <Loading />}

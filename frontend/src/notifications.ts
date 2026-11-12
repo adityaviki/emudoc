@@ -13,7 +13,7 @@ export const NOTICE_KINDS: Record<NoticeKind, { label: string; detail: string }>
   },
   quota: {
     label: "The month's pages or questions run low",
-    detail: "To an organisation's owners and admins, at 80 % and all of what it may use.",
+    detail: "To the workspace's owners and admins, at 80 % and all of what it may use.",
   },
   project_export: {
     label: 'A project export is ready',

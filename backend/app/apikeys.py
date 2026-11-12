@@ -63,18 +63,18 @@ MAX_KEYS = 50
 
 KEY_UNKNOWN = (
     "This API key is not one Emudoc knows: it was revoked, rolled or mistyped. An owner or admin "
-    "of the organisation makes a new one on its page."
+    "of the workspace makes a new one on its page."
 )
 READ_ONLY_KEY = (
     "This API key may only read: it was made with the read scope. An owner or admin of the "
-    "organisation makes one with the write scope on its page to change anything."
+    "workspace makes one with the write scope on its page to change anything."
 )
 ELSEWHERE = (
-    "An API key reaches the organisation's projects, folders, documents, search, facts, chats and "
+    "An API key reaches the workspace's projects, folders, documents, search, facts, chats and "
     "trash, and nothing else. Sign in to the app for the rest."
 )
 TOO_MANY = (
-    f"The organisation holds {MAX_KEYS} API keys, as many as it may. Revoke one it no longer uses "
+    f"The workspace holds {MAX_KEYS} API keys, as many as it may. Revoke one it no longer uses "
     "to make another."
 )
 NAME_IT = "Name the key, so that you can tell it from the others."
@@ -136,7 +136,7 @@ def key_expired(key: ApiKey, user: User) -> str:
     """What a key past the day it ran out is refused with, the day in its member's zone."""
     return (
         f"This API key ran out on {day(key.expires_at, zone_of(user.time_zone))}. An owner or "
-        "admin of the organisation makes a new one on its page."
+        "admin of the workspace makes a new one on its page."
     )
 
 

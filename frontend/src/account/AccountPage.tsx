@@ -80,7 +80,7 @@ function ProfileSection({ me }: { me: Me }) {
     <Section title="Profile">
       <ProfileForm me={me} />
       <dl className="mt-4 divide-y divide-line border-t border-line">
-        <Row label="Organisation">
+        <Row label="Workspace">
           <Link to="/organization" className="truncate font-medium text-accent hover:underline">
             {me.organization.name}
           </Link>
@@ -216,7 +216,7 @@ function NoticesSection({ me }: { me: Me }) {
     <div ref={box} id="notices" className="scroll-mt-6">
       <Section
         title="Notices"
-        description="News about your work in Emudoc, under the bell in the header and by email. Until you choose, each kind is told as your organisation tells its members. Email about your account, invitations and billing is sent either way."
+        description="News about your work in Emudoc, under the bell in the header and by email. Until you choose, each kind is told as your workspace tells its members. Email about your account, invitations and billing is sent either way."
       >
         {/* Turning a kind on by email also writes again to an address that bounced. */}
         <NoticeChoices key={JSON.stringify(me.notices)} saved={me.notices} change={(choice) => auth.updateProfile({ notices: [choice] })} />
@@ -519,7 +519,7 @@ function DataSection({ me }: { me: Me }) {
   return (
     <Section
       title="Your data"
-      description="A copy of everything Emudoc keeps about you: your account, how you sign in, your organisations, where you signed in from, the chats you started and the usage counted to you. The documents belong to your organisation and are not in it."
+      description="A copy of everything Emudoc keeps about you: your account, how you sign in, your workspace, where you signed in from, the chats you started and the usage counted to you. The documents belong to your workspace and are not in it."
     >
       <ButtonLink href={ACCOUNT_EXPORT_URL} download icon={<Download className="size-4" />}>
         Download your data
@@ -538,7 +538,7 @@ function DeleteSection({ me }: { me: Me }) {
   return (
     <Section
       title="Delete account"
-      description={`The account goes ${DELETION_GRACE_DAYS} days after you ask; until then, signing in lets you keep it. Each organisation you are the only member of goes with it, with its projects, documents and chats.`}
+      description={`The account goes ${DELETION_GRACE_DAYS} days after you ask; until then, signing in lets you keep it. If you are the workspace's only member, the workspace goes with it, with its projects, documents and chats.`}
     >
       {open ? (
         <DeleteAccountForm me={me} onCancel={() => setOpen(false)} />

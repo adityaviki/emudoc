@@ -17,7 +17,7 @@ from app.idempotency import HEADER, MAX_LENGTH, Once, key_of
 
 NO_KEY = (
     "The versioned API is called with an API key, in an `Authorization: Bearer emk_…` header. An "
-    "owner or admin of the organisation makes one on its page."
+    "owner or admin of the workspace makes one on its page."
 )
 BAD_CURSOR = "This page cannot be found. List again from the first page."
 # How the contract names the key every route is called with (OpenAPI's security scheme), so that

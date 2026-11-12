@@ -24,7 +24,7 @@ export function ShareLinksSection({ me }: { me: Me }) {
   return (
     <Section
       title="Share links"
-      description="Links that show one document, or one answer, to someone outside the organisation, with no account, for a few days."
+      description="Links that show one document, or one answer, to someone outside the workspace, with no account, for a few days."
     >
       {!organization.allowance.share_links ? (
         <Notice tone="info">
@@ -67,7 +67,7 @@ export function ShareLinksSection({ me }: { me: Me }) {
           ))}
         </ul>
       ) : (
-        links.data && <p className="mt-1 text-[13px] text-muted">No share link of the organisation is running.</p>
+        links.data && <p className="mt-1 text-[13px] text-muted">No share link of the workspace is running.</p>
       )}
     </Section>
   )
