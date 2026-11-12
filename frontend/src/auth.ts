@@ -5,8 +5,8 @@ import { useQuery } from '@tanstack/react-query'
 import { createContext, useCallback, useContext } from 'react'
 import type { QueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router'
-import { auth, organizations, showOrganization } from './api.ts'
-import type { Me } from './api.ts'
+import { auth } from './api.ts'
+import type { Me, SignedIn } from './api.ts'
 
 export const ME_KEY = ['me'] as const
 
@@ -15,44 +15,36 @@ export function useMeQuery() {
   return useQuery({ queryKey: ME_KEY, queryFn: whoIsSignedIn, staleTime: Infinity, retry: false })
 }
 
-/** Ask the server who is signed in, and name their organisation in every request from now on. */
-async function whoIsSignedIn(): Promise<Me | null> {
-  const me = await auth.me()
-  showOrganization(me?.organization.id ?? null)
-  return me
+/** Ask the server who is signed in. */
+function whoIsSignedIn(): Promise<SignedIn | null> {
+  return auth.me()
 }
 
-export const MeContext = createContext<Me | null>(null)
+/** Whoever is signed in, a member removed from the workspace too; null when nobody is. */
+export const MeContext = createContext<SignedIn | null>(null)
 
-/** The signed-in user. Only pages inside the signed-in shell may ask, so there always is one. */
+/**
+ * The signed-in member. Only pages inside the signed-in shell may ask, which shows a member removed from the
+ * workspace nothing else, so there always is one.
+ */
 export function useMe(): Me {
   const me = useContext(MeContext)
-  if (!me) throw new Error('useMe() was called outside the signed-in shell.')
+  if (!me?.organization) throw new Error('useMe() was called outside the signed-in shell.')
   return me
 }
 
 /** Remember who just signed in, so the shell renders without another round trip. */
-export function setSignedIn(queryClient: QueryClient, me: Me | null) {
-  showOrganization(me?.organization.id ?? null)
+export function setSignedIn(queryClient: QueryClient, me: SignedIn | null) {
   queryClient.setQueryData(ME_KEY, me)
 }
 
 /**
- * Start the app again in the organisation the session works in now, after a switch here or in
- * another tab: a page load, so that nothing fetched in the one before stays in the cache, in a
- * component's state or in an answer being followed, and the page starts from the front.
+ * Start the app again in the organisation the session works in now, after an invitation accepted or a view by
+ * support ended: a page load, so that nothing fetched before stays in the cache, in a component's state or in an
+ * answer being followed, and the page starts from the front.
  */
 export function startAgainInOrganization() {
   window.location.assign('/')
-}
-
-/**
- * Open a page of another of the user's organisations: switch the session to it, then load the
- * page, so that the app starts again there as after any switch. A switch refused, the
- * organisation gone meanwhile, loads the page in the one the session works in.
- */
-export function openInOrganization(id: number, path: string, replace = false) {
-  void organizations.switch(id).finally(() => (replace ? window.location.replace(path) : window.location.assign(path)))
 }
 
 /**

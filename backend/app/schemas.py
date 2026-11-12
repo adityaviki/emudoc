@@ -2291,33 +2291,9 @@ class OrganizationOut(_FromORM):
     # Whether its members may share a document by a link that needs no account, where its plan
     # includes them (app/share_links.py).
     share_links: bool = True
-    # The domains whose confirmed addresses may join it, and the role they join with
-    # (app/invitations.py).
-    join_domains: list[str]
-    join_role: str
-    # When it is deleted with everything in it, as an owner asked, until when it is read-only
-    # and an owner may keep it (app/retention.py); None when nobody asked.
-    deletion_due_at: dt.datetime | None = None
     # The feature flags on for it (app/flags.py), by name: the features being rolled out that
     # the page shows it.
     flags_on: list[str] = []
-
-
-class MembershipOut(BaseModel):
-    """One of the organisations a user is a member of, for the page to offer a switch to."""
-
-    id: int
-    name: str
-    role: str
-
-
-class JoinableOut(BaseModel):
-    """An organisation the user may join, since it lets everyone at their address's domain."""
-
-    id: int
-    name: str
-    # The role they would join with.
-    role: str
 
 
 class MeOut(BaseModel):
@@ -2334,17 +2310,15 @@ class MeOut(BaseModel):
     email_verified: bool
     mfa_enabled: bool
     # Whether the organisation requires two-factor sign-in and the account signs in without
-    # it: until it is set up, the app offers nothing there but that, a switch, leaving, and
-    # signing out (app/security.py).
+    # it: until it is set up, the app offers nothing there but that and signing out
+    # (app/security.py).
     mfa_due: bool
     # Providers the account can sign in through, such as "google".
     identities: list[str]
-    organization: OrganizationOut
-    role: str
-    # Every organisation the user is a member of, the current one among them, by name.
-    organizations: list[MembershipOut]
-    # The organisations the domain of the user's confirmed address lets them join, by name.
-    joinable: list[JoinableOut]
+    # The workspace and the user's role in it; None for a member an admin removed, who belongs to
+    # no workspace until invited again, which the app then says (app/api/deps.py).
+    organization: OrganizationOut | None
+    role: str | None
     # Whether the account has a password, which then confirms its deletion.
     has_password: bool
     # When the account will be purged, if its user asked for it to be deleted
@@ -2368,12 +2342,6 @@ class MeOut(BaseModel):
     # Set while an operator views the account as support rather than the user signed in: read
     # only, the organisation alone.
     support_view: SupportViewOut | None
-
-
-class OrganizationIn(BaseModel):
-    """The name of a new organisation."""
-
-    name: str = Field(max_length=200)
 
 
 class OrganizationChangeIn(BaseModel):
@@ -2711,25 +2679,10 @@ class InvitationSignupIn(LinkTokenIn):
     time_zone: TimeZone = ""
 
 
-class JoiningIn(BaseModel):
-    """The domains whose confirmed addresses may join the organisation, and the role they join
-    with; no domains, nobody joins that way. Twenty is plenty for one company's."""
-
-    domains: list[Annotated[str, Field(max_length=253)]] = Field(max_length=20)
-    role: Literal["member", "viewer"] = "member"
-
-
-class OrganizationDeletionIn(BaseModel):
-    """What confirms an owner's request to delete the organisation, as a deletion of the account
-    is confirmed: by the password, or, for an account that has none, its address typed out."""
-
-    password: str | None = Field(None, max_length=PASSWORD_MAX_LENGTH)
-    email: str | None = Field(None, max_length=320)
-
-
 class OwnershipIn(BaseModel):
-    """Whom the organisation is handed to, confirmed as a deletion is: by the password, or, for
-    an account that has none and signs in through a provider, its address typed out."""
+    """Whom the organisation is handed to, confirmed as an account's deletion is: by the
+    password, or, for an account that has none and signs in through a provider, its address
+    typed out."""
 
     user_id: int
     password: str | None = Field(None, max_length=PASSWORD_MAX_LENGTH)
@@ -2789,11 +2742,8 @@ class NotificationOut(BaseModel):
     kind: NoticeKind
     title: str
     body: str
-    # The page it leads to, a path in the organisation `org_id`, which may be another than the
-    # one the session works in, and its name as it is now.
+    # The page it leads to, a path of the app.
     link: str
-    org_id: int
-    organization: str
     created_at: dt.datetime
     read_at: dt.datetime | None
 
@@ -3526,7 +3476,6 @@ class OperatorOrganizationRow(BaseModel):
     members: int
     created_at: dt.datetime
     subscription_status: str | None
-    deletion_due_at: dt.datetime | None
     # Its known model cost over the list's `cost_days`, None while none is known.
     cost_micros: int | None
 

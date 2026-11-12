@@ -77,9 +77,6 @@ export function OrganizationsPage({ currency }: { currency: string }) {
                   <span className="ml-2 text-muted">
                     {row.slug} · {row.id}
                   </span>
-                  {row.deletion_due_at && (
-                    <span className="ml-2 text-bad">deleted {formatDate(row.deletion_due_at)}</span>
-                  )}
                 </Cell>
                 <Cell>
                   {PLAN_LABELS[row.plan]}
@@ -152,9 +149,6 @@ function Organization({ detail, currency }: { detail: OrganizationDetail; curren
         {organization.region && ` · data kept in ${organization.region.toUpperCase()}`}
       </Heading>
       <div className="space-y-4">
-        {organization.deletion_due_at && (
-          <Notice tone="bad">An owner asked for it to be deleted: it is purged on {formatDateTime(organization.deletion_due_at)}.</Notice>
-        )}
         {organization.allowance.over.length > 0 && (
           <Notice>
             It holds more than its plan allows ({organization.allowance.over.map((excess) => excess.words).join(', ')}), and is read-only until it is within it.

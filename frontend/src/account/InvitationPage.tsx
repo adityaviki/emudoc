@@ -9,7 +9,7 @@ import { useContext } from 'react'
 import type { ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { ApiError, ROLE_LABELS, auth } from '../api.ts'
-import type { InvitationLink, Me } from '../api.ts'
+import type { InvitationLink, SignedIn } from '../api.ts'
 import { MeContext, forgetUser, loginPath, setSignedIn, signOut, startAgainInOrganization } from '../auth.ts'
 import { Button, Notice } from '../components/ui.tsx'
 import { formatDate } from '../format.ts'
@@ -109,7 +109,7 @@ function Accept({ token, invitation }: { token: string; invitation: InvitationLi
   return (
     <AuthCard
       title={`Join ${invitation.organization}`}
-      intro={<Invited invitation={invitation} after="You work in it from then on, beside your other organisations." />}
+      intro={<Invited invitation={invitation} />}
       footer={TO_PROJECTS}
     >
       <div className="space-y-3">
@@ -122,7 +122,7 @@ function Accept({ token, invitation }: { token: string; invitation: InvitationLi
   )
 }
 
-function SignedInElsewhere({ me, invitation }: { me: Me; invitation: InvitationLink }) {
+function SignedInElsewhere({ me, invitation }: { me: SignedIn; invitation: InvitationLink }) {
   const queryClient = useQueryClient()
   // Signing out here leaves the page as it is, for the right account to sign in or be made.
   const leave = useMutation({ mutationFn: () => signOut(queryClient) })

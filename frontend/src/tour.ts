@@ -39,8 +39,8 @@ export function workspaceTour(sample: boolean): TourStep[] {
     },
     {
       target: 'organization',
-      title: 'Your organisations',
-      body: 'The organisation you work in. Switch to another of yours here, or start a new one.',
+      title: 'Your workspace',
+      body: 'The team’s workspace. Its page holds its members, invitations and settings.',
     },
     {
       target: 'notifications',

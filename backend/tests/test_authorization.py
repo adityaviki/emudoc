@@ -483,16 +483,6 @@ def exports(w: World) -> list[Route]:
     ]
 
 
-def switches(w: World) -> list[Route]:
-    """Switching to the organisation, which only its members may, and joining it, which only
-    someone whose confirmed address is at one of its domains may; the local account, which
-    has no session, may do neither (test_organizations.py, test_invitations.py)."""
-    return [
-        ("POST", f"/api/organizations/{w.org_id}/switch", {}),
-        ("POST", f"/api/organizations/{w.org_id}/join", {}),
-    ]
-
-
 def invitations(w: World) -> list[Route]:
     """The organisation's invitations, which only its owners and admins manage."""
     return [
@@ -580,7 +570,6 @@ def scoped(w: World) -> list[Route]:
         + starts(w)
         + shows(w)
         + exports(w)
-        + switches(w)
         + invitations(w)
         + keys(w)
         + webhooks(w)

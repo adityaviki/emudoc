@@ -6,7 +6,6 @@ file again rather than a second one, and a try no longer the answer's writes not
 
 import io
 from dataclasses import replace
-from datetime import UTC, datetime
 
 import pytest
 from docx import Document as WordDocument
@@ -456,12 +455,8 @@ def test_the_file_tools_are_offered_to_whoever_may_keep_a_file(
     membership.role = "viewer"
     session.flush()
     assert offers_my_files(session, organization, account.user.id)
-    # Not someone of another organisation, nor in one set to be deleted.
+    # Not someone of another organisation.
     assert not offers_my_files(session, organization, account.user.id + 1000)
-    organization.deletion_due_at = datetime.now(UTC)
-    session.flush()
-    assert not offers_my_files(session, organization, account.user.id)
-    organization.deletion_due_at = None
     membership.role = "owner"
     session.commit()
 

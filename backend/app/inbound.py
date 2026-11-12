@@ -29,6 +29,7 @@ documents by their file names as an upload does.
 
 import base64
 import logging
+import re
 import secrets
 from dataclasses import dataclass
 from datetime import timedelta
@@ -44,7 +45,6 @@ from app.audit import audit_event
 from app.config import get_settings
 from app.entitlements import check_upload, read_only
 from app.flags import EMAIL_IN, flag_on
-from app.invitations import DOMAIN, SHARED_DOMAINS
 from app.jobs import Lease, LeaseLost, renew
 from app.messages import MAX_MESSAGE_BYTES, Parsed, body_document, parse
 from app.metrics import INBOUND_MESSAGES
@@ -59,7 +59,6 @@ from app.models import (
     User,
 )
 from app.notices import record_upload, settle_upload
-from app.retention import held_for_deletion
 from app.storage import Storage
 from app.uploads import Incoming, take_files
 
@@ -74,6 +73,84 @@ SHOWN = 20
 # A token is ten random bytes in lower-case base32: sixteen letters and digits, which no one
 # guesses and a mail program keeps as typed.
 TOKEN_BYTES = 10
+
+# A host name of labels joined by dots, the last of letters or an IDN's punycode.
+DOMAIN = re.compile(
+    r"(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})"
+)
+# Where anyone may have an address: the large free mail services. Not every one there is, but
+# the rule that only someone with a confirmed address at a domain may add it is what holds;
+# this keeps a member from letting everyone at a mail service send a project documents.
+SHARED_DOMAINS = frozenset(
+    {
+        "126.com",
+        "163.com",
+        "aol.com",
+        "duck.com",
+        "fastmail.com",
+        "free.fr",
+        "freenet.de",
+        "gmail.com",
+        "gmx.at",
+        "gmx.ch",
+        "gmx.com",
+        "gmx.de",
+        "gmx.net",
+        "googlemail.com",
+        "hey.com",
+        "hotmail.co.uk",
+        "hotmail.com",
+        "hotmail.de",
+        "hotmail.es",
+        "hotmail.fr",
+        "hotmail.it",
+        "icloud.com",
+        "interia.pl",
+        "laposte.net",
+        "libero.it",
+        "live.co.uk",
+        "live.com",
+        "live.de",
+        "live.fr",
+        "mac.com",
+        "mail.com",
+        "mail.ru",
+        "mailbox.org",
+        "me.com",
+        "msn.com",
+        "naver.com",
+        "o2.pl",
+        "onet.pl",
+        "orange.fr",
+        "outlook.com",
+        "outlook.de",
+        "outlook.fr",
+        "pm.me",
+        "posteo.de",
+        "proton.me",
+        "protonmail.com",
+        "qq.com",
+        "rocketmail.com",
+        "seznam.cz",
+        "t-online.de",
+        "tuta.io",
+        "tutanota.com",
+        "virgilio.it",
+        "web.de",
+        "wp.pl",
+        "yahoo.co.uk",
+        "yahoo.com",
+        "yahoo.de",
+        "yahoo.es",
+        "yahoo.fr",
+        "yahoo.it",
+        "yandex.com",
+        "yandex.ru",
+        "ymail.com",
+        "zoho.com",
+    }
+)
+
 
 NO_DOMAIN = (
     "This deployment does not receive mail yet, so a project cannot have an address. Ask "
@@ -328,8 +405,6 @@ def _refusal(
         return UNAUTHENTICATED, "unauthenticated"
     if user is None and not listed(mailbox.senders, parsed.sender):
         return not_listed(parsed.sender), "refused_sender"
-    if held := held_for_deletion(organization):
-        return held, "refused_plan"
     if refusal := read_only(session, organization) or check_upload(session, organization):
         return refusal.sentence, "refused_plan"
     return None

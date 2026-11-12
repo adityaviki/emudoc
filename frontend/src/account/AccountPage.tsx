@@ -85,7 +85,6 @@ function ProfileSection({ me }: { me: Me }) {
             {me.organization.name}
           </Link>
           <Chip>{ROLE_LABELS[me.role]}</Chip>
-          {me.organizations.length > 1 && <span className="text-muted">and {otherOrganizations(me)}</span>}
         </Row>
         {me.terms_accepted_at && (
           <Row label="Terms">
@@ -532,11 +531,6 @@ function DataSection({ me }: { me: Me }) {
       )}
     </Section>
   )
-}
-
-function otherOrganizations(me: Me): string {
-  const others = me.organizations.length - 1
-  return `${others} other organisation${others === 1 ? '' : 's'}`
 }
 
 function DeleteSection({ me }: { me: Me }) {

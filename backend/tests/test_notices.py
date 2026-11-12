@@ -146,7 +146,7 @@ def test_an_upload_that_took_a_while_is_told_once_with_what_could_not_be_indexed
         "1 is indexed, ready to search and ask about, and 1 could not be:\n\n"
         f"empty.pdf: {error}\n\n"
         'Once what a document says is put right, "Index again" in the library runs it again:\n\n'
-        f"{APP}/projects/{project['id']}?organization={ann.organization.id}\n\n"
+        f"{APP}/projects/{project['id']}\n\n"
     )
     assert notice.headers["List-Unsubscribe-Post"] == "List-Unsubscribe=One-Click"
 
@@ -342,7 +342,7 @@ def test_owners_and_admins_are_told_once_a_month_of_its_questions_at_80_and_100_
         f"Globex has used 4 of the 5 questions it may ask on Emudoc in {month}, 80 %. Once they "
         f"are used, no question is answered until 1 {following}, when the count starts afresh."
         "\n\nThe organisation's usage page shows what it has used, and what lifts the limit for "
-        f"this month:\n\n{APP}/organization/usage?organization={ann.organization.id}\n\n"
+        f"this month:\n\n{APP}/organization/usage\n\n"
     )
 
     ask()

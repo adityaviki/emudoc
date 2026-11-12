@@ -19,8 +19,8 @@ are gone; the pruning of jobs that finished longer ago than the queue keeps them
 workers not seen for a day, of the events of old answers, of the request counts behind the rate
 limits (app/ratelimit.py), of the chats past their plan's retention (app/retention.py), and of
 the sessions and one-time links that ended a month ago (app/auth.py); and the purge of the
-accounts and the organisations whose deletion is due, after setting those that a restore brought
-back to be purged again (app/retention.py).
+accounts whose deletion is due, after setting those that a restore brought back to be purged
+again (app/retention.py).
 `sweep-page-images` runs the first part by hand, after lowering the setting; `sweep-orphans`
 lists the second part and removes it with `--delete`.
 
@@ -114,7 +114,6 @@ from app.billing import (
     end_grace_periods,
     managed,
     prune_billing_events,
-    renews,
 )
 from app.bounces import SUPPRESSED_FOR, prune_suppressions
 from app.config import PACK_UNITS, export_env_file, get_settings
@@ -180,9 +179,7 @@ from app.retention import (
     prune_reports,
     prune_runs,
     purge_due_accounts,
-    purge_due_organizations,
     reapply_erasures,
-    reapply_organization_erasures,
     retention_held,
 )
 from app.sample import INDEX, add_sample, build_sample, written
@@ -594,9 +591,7 @@ def housekeeping(storage: Storage) -> None:
         emptied = purge_trash(connection)
     storage.discard(*emptied.prefixes)
     reapply_erasures(storage)
-    reapply_organization_erasures(storage)
     accounts = purge_due_accounts(storage)
-    organizations = purge_due_organizations(storage, renews=renews)
     lapsed = end_grace_periods()
     uploads = settle_uploads()
     with SessionLocal() as session:
@@ -604,8 +599,6 @@ def housekeeping(storage: Storage) -> None:
         digests = queue_digests(session)
     if accounts:
         log.info("Housekeeping: deleted %s accounts whose deletion was due", accounts)
-    if organizations:
-        log.info("Housekeeping: deleted %s organisations whose deletion was due", organizations)
     if lapsed:
         log.info(
             "Housekeeping: moved %s organisations to the Free plan, their payment failed for "

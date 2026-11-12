@@ -13,7 +13,6 @@ from app.ratelimit import FEEDBACK
 from tests.test_apikeys import make_key, program
 from tests.test_auth import another_browser, signup
 from tests.test_logs import logged  # noqa: F401 (a fixture)
-from tests.test_organizations import join, switch
 from tests.test_probes import database_down  # noqa: F401 (a fixture)
 
 SUPPORT = "support@emudoc.example.com"
@@ -113,11 +112,11 @@ def test_a_member_writes_to_support_so_often_an_hour(client, mailer, monkeypatch
 def test_a_viewer_writes_too_and_nobody_signed_out(client, session, mailer, signed_in_only):
     ada = signup(client)
     bob_client = another_browser(client)
-    bob = signup(bob_client, "bob@example.com", name="Bob")
     # A member past the Free plan's one leaves the organisation read-only, which asks nothing
     # of writing to support.
-    join(session, ada["organization"]["id"], bob["id"], "viewer")
-    switch(bob_client, ada["organization"]["id"])
+    signup(
+        bob_client, "bob@example.com", name="Bob", joins=ada["organization"]["id"], role="viewer"
+    )
     assert write(bob_client).status_code == 202
     assert "where they are viewer" in mailer.sent[-1][2]
     assert write(another_browser(client)).status_code == 401

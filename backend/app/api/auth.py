@@ -54,10 +54,10 @@ from sqlalchemy.orm import Session
 from app import auth
 from app.accounts import (
     Account,
+    Outsider,
     account_for_user,
     add_member,
     create_user,
-    organizations_of,
     time_zones,
     zone_of,
 )
@@ -66,6 +66,7 @@ from app.api.deps import (
     AnyAccountDep,
     HttpDep,
     LiveAccountDep,
+    PersonDep,
     ServicesDep,
     SessionDep,
     UsableAccountDep,
@@ -96,8 +97,8 @@ from app.entitlements import (
 )
 from app.export import account_export
 from app.flags import flags_on
-from app.invitations import find_invitation, is_open, joinable
-from app.legal import TERMS_VERSION, terms_due
+from app.invitations import find_invitation, is_open
+from app.legal import TERMS_VERSION, terms_due, terms_pending
 from app.mail import (
     account_deletion_email,
     account_exists_email,
@@ -144,8 +145,8 @@ from app.retention import (
     Held,
     chosen,
     day,
+    deletion_pending,
     deletion_refusal,
-    held_for_deletion,
     hold_in_force,
     kept_by,
 )
@@ -162,11 +163,9 @@ from app.schemas import (
     ExcessOut,
     InvitationLinkOut,
     InvitationSignupIn,
-    JoinableOut,
     LinkTokenIn,
     LoginIn,
     LoginOut,
-    MembershipOut,
     MeOut,
     MfaDisableIn,
     MfaSetupOut,
@@ -496,31 +495,33 @@ def invitation_link(body: LinkTokenIn, session: SessionDep):
 
 
 @router.post("/invitation/accept", response_model=MeOut)
-def accept_invitation(
-    body: LinkTokenIn, account: UsableAccountDep, request: Request, session: SessionDep
-):
+def accept_invitation(body: LinkTokenIn, person: PersonDep, request: Request, session: SessionDep):
     """Join the organisation an invitation to the account's address is to, with its role, and
     work in it from now on, in every tab. Opening the link proves the address, which an account
-    that signed up through a provider may not have confirmed yet. The page shows no
-    organisation, so whichever the session works in is fine."""
-    if account.session_id is None:
-        raise HTTPException(409, LOCAL_INVITATION)
+    that signed up through a provider may not have confirmed yet. A member removed from the
+    workspace comes back this way, and so may accept before the current terms, which the app
+    asks of them once they are in."""
+    user = person.user
+    if user.deletion_due_at is not None:
+        raise HTTPException(403, deletion_pending(user.deletion_due_at, zone_of(user.time_zone)))
+    if isinstance(person, Account):
+        if person.session_id is None:
+            raise HTTPException(409, LOCAL_INVITATION)
+        if terms_due(person):
+            raise HTTPException(403, terms_pending())
     invitation = _open_invitation(session, body.token, lock=True)
-    user = account.user
     if invitation.email != user.email:
         raise HTTPException(
             403, INVITATION_ELSEWHERE.format(invited=invitation.email, email=user.email)
         )
     organization = session.get(Organization, invitation.org_id)
-    user_session = session.get(UserSession, account.session_id)
+    user_session = session.get(UserSession, person.session_id)
     role = session.scalar(
         select(Membership.role).where(
             Membership.org_id == organization.id, Membership.user_id == user.id
         )
     )
-    if role is None and (held := held_for_deletion(organization, zone_of(user.time_zone))):
-        raise HTTPException(409, held)
-    # A member already, who joined by the domain since it was sent, keeps their role.
+    # A member already keeps their role.
     if role is None:
         joined = add_member(session, organization, user, invitation.role, user_session)
     else:
@@ -552,8 +553,6 @@ def sign_up_invited(
     if session.scalar(select(User.id).where(User.email == invitation.email)) is not None:
         raise HTTPException(409, INVITATION_HAS_ACCOUNT)
     organization = session.get(Organization, invitation.org_id)
-    if held := held_for_deletion(organization, zone_of(body.time_zone)):
-        raise HTTPException(409, held)
     _refuse_breached(http, body.password)
     try:
         user = create_user(
@@ -644,7 +643,7 @@ def verify_mfa(body: CodeIn, request: Request, response: Response, session: Sess
     session.commit()
     auth.set_session_cookie(response, request, token)
     auth.set_browser_cookie(response, request, browser)
-    return me_out(session, account)
+    return me_out(session, account or Outsider(user, user_session.id))
 
 
 @router.post("/logout", status_code=204)
@@ -667,8 +666,10 @@ def logout(request: Request, response: Response, session: SessionDep):
 
 
 @router.get("/me", response_model=MeOut)
-def me(account: AnyAccountDep, session: SessionDep):
-    return me_out(session, account)
+def me(person: PersonDep, session: SessionDep):
+    """Who is signed in, in which organisation and with what role: none for a member removed
+    from the workspace, which the page then says."""
+    return me_out(session, person)
 
 
 @router.post("/terms", response_model=MeOut)
@@ -1226,44 +1227,47 @@ def _safe_path(path: str) -> str:
 # Shared
 
 
-def me_out(session: Session, account: Account) -> MeOut:
-    """The account as the page shows it, with every organisation its user may switch to; in a
-    view by support, the organisation the view is of alone."""
-    user = account.user
-    viewing = account.operator_id is not None
-    leave = leave_of(session, account.organization.id, user.id)
-    view = session.get(UserSession, account.session_id) if viewing else None
-    return MeOut(
+def me_out(session: Session, person: Account | Outsider) -> MeOut:
+    """The account as the page shows it; for a user in no workspace, the user alone."""
+    user = person.user
+    shared = dict(
         id=user.id,
         email=user.email,
         name=user.name,
         time_zone=user.time_zone,
-        notices=choices(user, account.organization.notices),
         email_verified=user.email_verified_at is not None,
         mfa_enabled=user.mfa_enabled,
-        mfa_due=mfa_due(account),
         identities=sorted(identity.provider for identity in user.identities),
-        organization=organization_out(session, account.organization),
-        role=account.role,
-        organizations=[
-            MembershipOut(id=organization.id, name=organization.name, role=role)
-            for organization, role in organizations_of(session, user)
-            if not viewing or organization.id == account.organization.id
-        ],
-        joinable=[]
-        if viewing
-        else [
-            JoinableOut(id=organization.id, name=organization.name, role=organization.join_role)
-            for organization in joinable(session, user)
-        ],
         has_password=user.password_hash is not None,
         deletion_due_at=user.deletion_due_at,
         terms_version=user.terms_version,
         terms_accepted_at=user.terms_accepted_at,
-        terms_due=terms_due(account),
         checklist_hidden=user.checklist_hidden_at is not None,
         tour_seen=user.tour_seen_at is not None,
         invite_hidden=user.invite_hidden_at is not None,
+    )
+    if isinstance(person, Outsider):
+        return MeOut(
+            **shared,
+            notices=choices(user),
+            mfa_due=False,
+            organization=None,
+            role=None,
+            terms_due=user.terms_version != TERMS_VERSION,
+            support_until=None,
+            support_view=None,
+        )
+    account = person
+    viewing = account.operator_id is not None
+    leave = leave_of(session, account.organization.id, user.id)
+    view = session.get(UserSession, account.session_id) if viewing else None
+    return MeOut(
+        **shared,
+        notices=choices(user, account.organization.notices),
+        mfa_due=mfa_due(account),
+        organization=organization_out(session, account.organization),
+        role=account.role,
+        terms_due=terms_due(account),
         support_until=leave.expires_at if leave is not None else None,
         support_view=SupportViewOut(ends_at=view.support_ends_at) if view else None,
     )

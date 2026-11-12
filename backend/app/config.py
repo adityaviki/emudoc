@@ -561,12 +561,6 @@ class Settings(BaseSettings):
     # of its answer, so one that is pasted rather than asked is refused with 413 and asked to
     # be shortened (app/api/chats.py); the documents are what to upload.
     max_question_chars: int = Field(default=20_000, ge=1)
-    # How many organisations on the free plan one user may own (app/accounts.py): each has the
-    # plan's allowance, so without a ceiling one person could start organisations until the
-    # free plan held them to nothing. The one past it is refused with 409 and a sentence that
-    # says to move one to a paid plan or hand one over (app/api/organizations.py); joining
-    # another's organisation counts nothing. Zero removes the ceiling.
-    max_free_organizations: int = Field(default=2, ge=0)
     # How fast one caller may go, in requests a minute (app/ratelimit.py): upload requests,
     # questions and searches (the search and facts routes) per user; and the sign-in family
     # (sign-in, sign-up, the reset and verification mails, the authenticator code), which has

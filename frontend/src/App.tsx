@@ -6,6 +6,7 @@ import { AccountPage } from './account/AccountPage.tsx'
 import { ConfirmEmailPage } from './account/ConfirmEmailPage.tsx'
 import { DeletionPending } from './account/DeletionPending.tsx'
 import { InvitationPage } from './account/InvitationPage.tsx'
+import { NoWorkspace } from './account/NoWorkspace.tsx'
 import { NotificationBell } from './account/NotificationBell.tsx'
 import { TermsPending } from './account/TermsPending.tsx'
 import { LoginPage } from './account/LoginPage.tsx'
@@ -19,11 +20,9 @@ import { VerifyPage } from './account/VerifyPage.tsx'
 import { AuthLayout } from './account/shared.tsx'
 import { api, auth, handleForbidden, handlePlanLimit, handleSwitched, handleUnauthorized } from './api.ts'
 import type { Me } from './api.ts'
-import { ME_KEY, MeContext, forgetUser, loginPath, openInOrganization, startAgainInOrganization, useMeQuery } from './auth.ts'
+import { ME_KEY, MeContext, forgetUser, loginPath, startAgainInOrganization, useMe, useMeQuery } from './auth.ts'
 import { describeExcess } from './billing.ts'
 import { describeConnection } from './connection.ts'
-import { formatDate } from './format.ts'
-import { DELETION_SECTION, deletionWords } from './organizationSettings.ts'
 import { ErrorBoundary } from './components/ErrorBoundary.tsx'
 import { Floating, Menu } from './components/Menu.tsx'
 import type { MenuItem } from './components/Menu.tsx'
@@ -32,8 +31,7 @@ import { Button, IconButton, Spinner } from './components/ui.tsx'
 import { useHelp, useLocalStorage, useOnline, useStatus } from './hooks.ts'
 import { HelpMenu } from './help/HelpMenu.tsx'
 import { AuditPage } from './organization/AuditPage.tsx'
-import { NewOrganizationPage, OrganizationPage } from './organization/OrganizationPage.tsx'
-import { OrganizationSwitcher } from './organization/OrganizationSwitcher.tsx'
+import { OrganizationPage } from './organization/OrganizationPage.tsx'
 import { UsagePage } from './organization/UsagePage.tsx'
 import { DuplicatesPage } from './pages/DuplicatesPage.tsx'
 import { ProjectsPage } from './pages/ProjectsPage.tsx'
@@ -42,7 +40,6 @@ import { LegalPage } from './pages/LegalPage.tsx'
 import { SubprocessorsPage } from './pages/SubprocessorsPage.tsx'
 import { SharedPage } from './shared/SharedPage.tsx'
 import { Workspace } from './pages/Workspace.tsx'
-import { linkedOrganization } from './notifications.ts'
 import { describeServices } from './status.ts'
 import { viewWords } from './support.ts'
 
@@ -61,7 +58,7 @@ function App() {
     return () => handleUnauthorized(null)
   }, [queryClient])
 
-  // Another tab switched the organisation this one shows: start again in the one it works in.
+  // The session works in another organisation than the page shows, as when a view by support ended: start again.
   useEffect(() => {
     handleSwitched(startAgainInOrganization)
     return () => handleSwitched(null)
@@ -132,7 +129,6 @@ function App() {
           <Route path="organization" element={<OrganizationPage />} />
           <Route path="organization/usage" element={<UsagePage />} />
           <Route path="organization/audit" element={<AuditPage />} />
-          <Route path="organizations/new" element={<NewOrganizationPage />} />
           <Route path="projects/:projectId/*" element={<Workspace />} />
           <Route path="*" element={<p className="py-16 text-center text-muted">Page not found.</p>} />
         </Route>
@@ -142,20 +138,20 @@ function App() {
 }
 
 /**
- * The header and the page below it, for a signed-in user only; an account set to be deleted
- * sees only the way to keep it, one that has not accepted the current terms only the way to
- * accept them, and one whose organisation requires two-factor sign-in that it lacks only the way
- * to set it up or go elsewhere, since the server refuses each everything else.
+ * The header and the page below it, for a signed-in member only; one an admin removed from the
+ * workspace sees only that it has none, an account set to be deleted only the way to keep it, one
+ * that has not accepted the current terms only the way to accept them, and one whose workspace
+ * requires two-factor sign-in that it lacks only the way to set it up, since the server refuses
+ * each everything else.
  */
 function Shell() {
   const me = useContext(MeContext)
   const location = useLocation()
   if (!me) return <Navigate to={loginPath(location.pathname + location.search)} replace />
+  if (me.organization === null) return <NoWorkspace me={me} />
   if (me.deletion_due_at) return <DeletionPending me={me} />
   if (me.terms_due) return <TermsPending me={me} />
   if (me.mfa_due) return <MfaPending me={me} />
-  const linked = linkedOrganization(location.pathname, location.search, location.hash)
-  if (linked) return <OpenLinked me={me} id={linked.id} rest={linked.rest} />
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
@@ -164,12 +160,12 @@ function Shell() {
           <div className="flex min-w-0 shrink items-center gap-1.5">
             <Link to="/" className="flex shrink-0 items-center gap-2 rounded-md px-1 text-[15px] font-semibold tracking-tight">
               <img src="/favicon.svg" alt="" className="size-5" />
-              {/* A narrow screen keeps the mark, and room for the switchers; the link keeps its name. */}
+              {/* A narrow screen keeps the mark, and room for the project's switcher; the link keeps its name. */}
               <span className="sr-only sm:not-sr-only">Emudoc</span>
             </Link>
-            {/* The organisation's switcher shows from a small screen up, and its crumb with it. */}
+            {/* The workspace's name shows from a small screen up, and its crumb with it. */}
             <Crumb className="hidden sm:inline" />
-            <OrganizationSwitcher />
+            <WorkspaceName />
             <ProjectSwitcher />
           </div>
           {/* The project's search is its library's; every project's, the projects page's. */}
@@ -184,7 +180,6 @@ function Shell() {
         </div>
         <SupportBanner me={me} />
         <VerifyBanner me={me} />
-        <DeletionBanner me={me} />
         <PlanBanner me={me} />
       </header>
       <main className="min-h-0 flex-1">
@@ -193,27 +188,6 @@ function Shell() {
           <Outlet />
         </ErrorBoundary>
       </main>
-    </div>
-  )
-}
-
-/**
- * A link that names the organisation it is about, as a notice's mail does: opened in it, switched
- * to first when the session works in another of the user's, and without the name. One the user is
- * not a member of opens where the session works, which says what is not found there.
- */
-function OpenLinked({ me, id, rest }: { me: Me; id: number; rest: string }) {
-  const navigate = useNavigate()
-  useEffect(() => {
-    if (id !== me.organization.id && me.organizations.some((organization) => organization.id === id)) {
-      openInOrganization(id, rest, true)
-    } else {
-      navigate(rest, { replace: true })
-    }
-  }, [id, rest, me, navigate])
-  return (
-    <div className="flex h-dvh items-center justify-center">
-      <Spinner className="size-5" />
     </div>
   )
 }
@@ -243,6 +217,21 @@ function Crumb({ className = '' }: { className?: string }) {
         <path d="M9 2 3 18" />
       </svg>
     </span>
+  )
+}
+
+/** The workspace's name, which opens its page. */
+function WorkspaceName() {
+  const me = useMe()
+  return (
+    <Link
+      to="/organization"
+      title="Your workspace"
+      data-tour="organization"
+      className="hidden h-7 min-w-0 items-center rounded-md px-2 text-[13px] text-muted transition hover:bg-sunken hover:text-ink sm:flex"
+    >
+      <span className="truncate">{me.organization.name}</span>
+    </Link>
   )
 }
 
@@ -356,24 +345,6 @@ function VerifyBanner({ me }: { me: Me }) {
  * until it is within it, with the way to its plan; it goes once a deletion or a purchase brings
  * it within.
  */
-/** Under the header while an owner set the organisation to be deleted: when, and the way to keep it. */
-function DeletionBanner({ me }: { me: Me }) {
-  const location = useLocation()
-  const words = deletionWords(me.organization, me.role, formatDate(me.organization.deletion_due_at))
-  if (!words) return null
-
-  return (
-    <div className="flex items-center justify-center gap-3 border-t border-line bg-bad/5 px-4 py-1.5 text-[13px] text-bad">
-      <span className="min-w-0">{words}</span>
-      {me.role === 'owner' && location.pathname !== '/organization' && (
-        <Link to={`/organization#${DELETION_SECTION}`} className="shrink-0 font-medium text-accent hover:underline">
-          Keep it
-        </Link>
-      )}
-    </div>
-  )
-}
-
 function PlanBanner({ me }: { me: Me }) {
   const location = useLocation()
   const past = describeExcess(me.organization)

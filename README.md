@@ -253,7 +253,7 @@ offers one under its answer (`create_draft` in `backend/app/agent/tools.py`), it
 documents it found and what it should say, which the member's "Write the draft" asks for (`POST
 /api/chats/{id}/messages/{id}/draft`), once, counting no question beside the one asked. Nothing is
 written before that press, so a document whose text tells the agent to make drafts makes none,
-and a viewer, or a member of an organisation set to be deleted or past its plan, is offered none.
+and a viewer, or a member of an organisation past its plan, is offered none.
 The background worker has the agent write it from what
 the code read for it: each document with its facts beside the passages they came from, and what
 the project's newest run of cross-checks found about them, which it states as found; it cites
@@ -1133,8 +1133,7 @@ document (`backend/app/notices.py`), that a question set's report is ready, that
 mentioned them in a comment or replied in a thread they wrote in, and, once a member turns it on,
 on Monday morning of their zone what arrived over the week in the projects they see, by name
 (`backend/app/digests.py`). Each is told under the bell in the header, the member's
-notification centre of every organisation they belong to (opening one switches to its
-organisation; kept 90 days), and by email, each way on or off by kind; a notice's own link and a
+notification centre of the workspace (kept 90 days), and by email, each way on or off by kind; a notice's own link and a
 mail program's "Unsubscribe" turn its kind's email off, and a browser may show them as they come
 as the computer's own notifications while the app is open. A forgotten password is reset
 through a link sent by email, which signs the account out everywhere. The worker sends the
@@ -1152,19 +1151,17 @@ header when calling the API by hand. The app answers no request from another ori
 no CORS): the frontend is served from the API's own origin, and the defence rests on that. The
 routes are under `/api/auth`, the pages in `frontend/src/account/`.
 
-A user may belong to several organisations, each with its own projects, members, plan and audit
-log. The organisation's name in the header opens a menu of them: switching is the session's, so
-every tab of the browser works in the one chosen, and a new session starts in the one joined
-first. Every request of the app names the organisation its page shows (`X-Organization`), and a
-tab left behind by a switch in another is refused with 409 and starts again in the one the
-session works in, so nothing it asks lands in the wrong organisation. "New organisation" starts
-one the user owns, on the Free plan and in the deployment's region; one user may own
-`MAX_FREE_ORGANIZATIONS` (2) on the Free plan, so that new ones are no way past its limits. The
-organisation's page (`/organization`) renames it (owners and admins; the slug the operator's
-commands name it by stays), keeps its settings, lists its members, hands it over to another member with the
-password (they become an owner and the one handing it over an admin), and leaves it: the
-member's private chats in its projects go, and the shared ones stay. Nobody leaves an
-organisation that would be left without an owner or with nobody, nor their last one.
+An install holds one workspace, the team's, made by its setup: an organisation in the code, with
+its projects, members, plan and audit log. Nobody starts another, switches, leaves it or deletes
+it. Its name in the header opens its page (`/organization`), which renames it (owners and
+admins; the slug the operator's commands name it by stays), keeps its settings, lists its
+members, and hands it over to another member with the password (they become an owner and the one
+handing it over an admin), for when its admin leaves the company. An owner or admin removes a
+member: the member's private chats in its projects go, and the shared ones stay. The member keeps
+their account, in no workspace, and signing in shows them a page that says so and to ask an
+admin, until an invitation to their address brings them back. A database that holds several
+organisations, as development's may, keeps working: each user works in the one they joined first,
+or the one an invitation last brought them to.
 Its settings are its owners' and admins', and each change is a row of its audit log: the
 language its documents are searched in (keyword search matches words by their stems in it, one
 of the database's text search configurations, else the deployment's `FTS_LANGUAGE`) where a
@@ -1175,9 +1172,8 @@ than its plan, which deletes the older chats of every member at the next houseke
 as the page says before it is saved; and how its members are told each kind of notice until
 they choose for themselves on their account page. Its security settings are theirs too
 (`backend/app/security.py`): requiring two-factor sign-in of everyone who works in it, which
-only someone who signs in with it may turn on, and which holds a member without it, in that
-organisation alone, at a page that sets up an authenticator app, offers their other
-organisations and leaving this one, and signs out (an account that signs in through Google or
+only someone who signs in with it may turn on, and which holds a member without it at a page
+that sets up an authenticator app, or signs out (an account that signs in through Google or
 Microsoft sets one up too, since the provider's own second factor is not seen); and signing its
 members in again sooner than the deployment's `SESSION_DAYS`, which ends a session that signed
 in longer ago at its next request there. The owners and admins see which members sign in with
@@ -1328,11 +1324,8 @@ invitation lasts a week, takes a place among the members the plan allows meanwhi
 and Pro plans allow one, so only Team and Enterprise invite), and is listed for the owners and
 admins, who send it again (a new link, the old one stops) or revoke it; accepting or revoking
 it deletes it, and an expired one goes a month after (`backend/app/invitations.py`,
-`backend/app/api/invitations.py`, the link's routes in `backend/app/api/auth.py`). An owner or
-admin can also let everyone whose confirmed address is at a domain join, as a member or a
-viewer: only the domain of their own confirmed address, and never a mail service's such as
-gmail.com. Emudoc then offers the organisation to everyone there, on the organisation's page and
-in the header's menu, and they join only if they choose, while the plan has room.
+`backend/app/api/invitations.py`, the link's routes in `backend/app/api/auth.py`). A member
+removed from the workspace accepts one the same way, signed in.
 
 Making the account takes a ticked box, on the page the link opens, that accepts the terms of
 service and the privacy policy, which anyone can read at `/terms` and `/privacy` (the sign-in
@@ -1377,15 +1370,6 @@ documents chosen together in the library alone, with the folders they are in and
 chats, which the same panel lists. The member is told when it is ready, in the app and by email
 as they chose, downloads it from the same panel, and it is kept 7 days for them alone, then goes
 from the storage.
-An owner deletes the organisation as an account is deleted, at the foot of the organisation
-page, confirmed by the password or the address typed out, once its subscription no longer
-renews (the local organisation never). Every member is mailed the day, 14 days on, and until
-then a banner under the header says it on every page: nothing can be added to its projects or
-changed in them, nobody new joins it and it buys nothing, while what it holds can still be read,
-asked about, downloaded, exported and deleted, and any owner keeps it from the page or the
-banner, which mails every member again. Then the housekeeping deletes it with everything in it,
-its audit log too, and a member it was the only organisation of is given one of their own; its
-record goes under `erasures/organizations/`.
 After the database is restored to an earlier point, `python -m app.maintenance after-restore
 <time>` brings back from a versioned bucket the files deleted since, moves the ids past every id
 the storage holds, signs everyone out, expires the open invitations and records the restore in
@@ -1670,7 +1654,7 @@ backend/app/
   onboarding.py the organisation's first steps, read from what it did, which the invite
                 suggestion reads, and the account's choices about the tour and the suggestion
   invitations.py
-                invitations to an organisation, and joining one by an address's domain
+                invitations to the workspace
   auth.py       passwords, sessions, one-time links and authenticator codes
   apikeys.py    the API keys a program calls the API with, as the member who made them
   share_links.py

@@ -20,13 +20,13 @@ log line of the view names the operator (`operator_id`, app/logs.py).
 The view ends when the operator ends it or signs out (a row of the log), and when the request
 that finds it can no longer go on: an hour gone, the leave withdrawn or run out, the member no
 longer in the organisation, or the request no longer let into the operator's area (`viewed`).
-That request is refused with 409 and the organisation the session works in once more, as for a
-switch in another tab, so that the page starts again as the operator's own.
+That request is refused with 409 and the organisation the session works in once more, so that
+the page starts again as the operator's own.
 
 The view holds the member's account to everything it is held to (the terms to accept, the
 organisation's two-factor sign-in, a deletion asked for) and shows that organisation alone: the
-switcher names no other, the notification centre shows none of another's notices, and the
-account's export, which holds every organisation of theirs, is refused.
+notification centre shows none of another's notices, and the account's export, which holds
+every organisation of theirs, is refused.
 """
 
 import datetime as dt

@@ -28,7 +28,7 @@ from tests.test_audit import actions
 from tests.test_auth import me, signup
 from tests.test_notices import told
 from tests.test_notifications import APP, news
-from tests.test_organizations import switch, team  # noqa: F401
+from tests.test_organizations import team  # noqa: F401
 from tests.test_retention import chat_titles, make_chat
 
 GERMAN = b"Die Lieferungen erfolgen jede Woche und werden quittiert."
@@ -117,7 +117,7 @@ def test_owners_and_admins_change_the_settings_and_each_change_is_audited(
     assert len(settings_changed(session, org_id)) == 3
 
     # A member reads them and changes none.
-    assert switch(bob_client, org_id)["organization"]["chat_days"] == 90
+    assert me(bob_client).json()["organization"]["chat_days"] == 90
     refused = bob_client.patch("/api/organization", json={"chat_days": 30})
     assert (refused.status_code, refused.json()["detail"]) == (403, ADMINS_ONLY)
     refused = bob_client.patch("/api/organization", json={"name": "Bob's now"})

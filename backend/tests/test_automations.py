@@ -158,7 +158,7 @@ def test_an_automation_runs_the_checks_once_what_it_watches_has_arrived_and_tell
         "2 documents arrived. Of what they found about the documents that arrived, 1 value "
         "differs, 1 could not be checked and 0 hold." in notice.text
     )
-    link = f"{APP}/projects/{project['id']}?run={run.id}&organization={ann.organization.id}"
+    link = f"{APP}/projects/{project['id']}?run={run.id}"
     assert link in notice.text
     assert "1,255" not in notice.text
     (shown_notice,) = session.scalars(select(Notification)).all()
@@ -729,7 +729,7 @@ def test_an_automation_puts_what_its_checks_found_differing_in_review_for_its_as
         in notice.text
     )
     page = f"/projects/{project['id']}/documents/{documents['INV-1']}"
-    assert f"{APP}{page}?organization={ann.organization.id}" in notice.text
+    assert f"{APP}{page}" in notice.text
     (shown_notice,) = session.scalars(
         select(Notification).where(Notification.kind == "review_assigned")
     ).all()

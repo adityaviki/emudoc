@@ -101,9 +101,6 @@ DRAFT_KINDS = ("reply_email", "dispute_letter", "summary_memo", "comparison_tabl
 DRAFT_STATUSES = ("queued", "writing", "done", "failed")
 # From most to least permitted: each role may do everything the roles after it may.
 ROLES = ("owner", "admin", "member", "viewer")
-# The roles an organisation may let everyone at its domains join with (app/invitations.py): none
-# that may manage the organisation itself.
-JOIN_ROLES = ("member", "viewer")
 # A chat is private to the member who started it until they share it with the project.
 CHAT_VISIBILITIES = ("private", "project")
 # What a chat is about (app/scopes.py): the project's documents, a folder of it with its
@@ -238,6 +235,9 @@ NATURAL_ORDER = "natural_order"
 # link that shows a document to whoever holds it is made and revoked by a member, and opened, and
 # its original downloaded, by nobody the app knows (app/share_links.py). An answer, or a whole
 # chat, is downloaded as a file (app/chat_export.py), which is what documents say leaving the app.
+# Until an install held one workspace (2026-11-12), a member could also leave an organisation, join
+# one by their address's domain, change who may, and ask for one's deletion or keep it; those
+# actions stay so that their entries still read.
 AUDIT_ACTIONS = (
     "sign_up",
     "sign_in",
@@ -572,15 +572,12 @@ class Organization(Base):
     __table_args__ = (
         _one_of("plan", PLANS, "organizations"),
         _one_of("region", tuple(REGIONS), "organizations"),
-        _one_of("join_role", JOIN_ROLES, "organizations"),
         CheckConstraint("seats > 0", name="ck_organizations_seats"),
         CheckConstraint("jsonb_typeof(overrides) = 'object'", name="ck_organizations_overrides"),
         CheckConstraint("chat_days > 0", name="ck_organizations_chat_days"),
         CheckConstraint("jsonb_typeof(notices) = 'object'", name="ck_organizations_notices"),
         CheckConstraint("session_days > 0", name="ck_organizations_session_days"),
         CheckConstraint("jsonb_typeof(flags) = 'object'", name="ck_organizations_flags"),
-        # Which organisations a confirmed address's domain may join is asked at every `/me`.
-        Index("ix_organizations_join_domains", "join_domains", postgresql_using="gin"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -601,12 +598,6 @@ class Organization(Base):
     # so that a deployment in another region refuses to serve it; null while the deployment
     # names none. One deployment is one region; several are 4.3's.
     region: Mapped[str | None] = mapped_column(String(20))
-    # The domains whose confirmed addresses the app offers to join the organisation, with the
-    # role they join with (app/invitations.py); none by default.
-    join_domains: Mapped[list[str]] = mapped_column(
-        ARRAY(String(253)), default=list, server_default="{}"
-    )
-    join_role: Mapped[str] = mapped_column(String(20), default="member", server_default="member")
     # Its settings, chosen by its owners and admins (app/api/organizations.py). The language its
     # documents are searched in, a text search configuration of the database, which its new
     # passages are indexed with and its old ones are moved to (app/languages.py), and which
@@ -649,9 +640,6 @@ class Organization(Base):
     retention_held_until: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     held_chat_days: Mapped[int | None] = mapped_column(Integer)
     held_audit_days: Mapped[int | None] = mapped_column(Integer)
-    # When the organisation is deleted with everything in it, as an owner asked; until then it
-    # is read-only and an owner may keep it (app/retention.py). Null when nobody asked.
-    deletion_due_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -928,7 +916,7 @@ class UserSession(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
-    # The organisation the session works in, which the user chose by switching to it
+    # The organisation the session works in, the one an invitation the user accepted last named
     # (`account_for_user` in app/accounts.py); null, or one they are no longer a member of, is
     # the one they joined first. Every tab of the browser shares it. Indexed, since deleting an
     # organisation clears it from every session.

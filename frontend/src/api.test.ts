@@ -12,7 +12,6 @@ import {
   mayChange,
   oauthStartUrl,
   searchParams,
-  showOrganization,
 } from './api.ts'
 
 /** Stub `fetch` with a reply made afresh for every call, keeping the headers each was sent with. */
@@ -33,26 +32,22 @@ const refused = (status: number, headers: Record<string, string> = {}) =>
 
 afterEach(() => {
   vi.unstubAllGlobals()
-  showOrganization(null)
   handleSwitched(null)
   handleForbidden(null)
   handlePlanLimit(null)
 })
 
-describe('the organisation the page shows', () => {
-  it('is named in every request once the page knows it, and not before', async () => {
+describe('the organisation the session works in', () => {
+  it('is named by no request, which carries the app\'s header alone', async () => {
     const sent = serve(() => new Response('[]', { headers: { 'Content-Type': 'application/json' } }))
     await api.projects()
-    showOrganization(7)
-    await api.projects()
-    expect(sent.map((headers) => headers.get('X-Organization'))).toEqual([null, '7'])
+    expect(sent.map((headers) => headers.get('X-Organization'))).toEqual([null])
     expect(sent.every((headers) => headers.get('X-Requested-With') === 'fetch')).toBe(true)
   })
 
-  it('starts the page again when another tab switched the session elsewhere', async () => {
+  it('starts the page again when a refusal names another, as a view by support ended does', async () => {
     const switched = vi.fn()
     handleSwitched(switched)
-    showOrganization(7)
     serve(() => refused(409, { 'X-Organization': '9' }))
     await expect(api.projects()).rejects.toBeInstanceOf(ApiError)
     expect(switched).toHaveBeenCalledOnce()
@@ -189,7 +184,6 @@ describe('an upload, which says how far it has gone', () => {
 
   it('is sent with the headers of every request, and each file its folder when one is in one', async () => {
     sending()
-    showOrganization(7)
     const progress = vi.fn()
     const items = [
       { file: file('a.md'), folder: '' },
@@ -199,7 +193,6 @@ describe('an upload, which says how far it has gone', () => {
     const [request] = FakeRequest.made
     expect([request.method, request.url]).toEqual(['POST', '/api/projects/3/documents?folder_id=12'])
     expect(request.headers.get('X-Requested-With')).toBe('fetch')
-    expect(request.headers.get('X-Organization')).toBe('7')
     const form = request.body as FormData
     expect((form.getAll('files') as File[]).map((sent) => sent.name)).toEqual(['a.md', 'b.md'])
     expect(form.getAll('paths')).toEqual(['', 'Invoices/2026'])

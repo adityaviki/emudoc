@@ -16,7 +16,7 @@ import { setSignedIn, useMe } from '../auth.ts'
 import { SentInvitation } from '../components/HandedLink.tsx'
 import { PlanLimitNotice, PlanOffer } from '../components/PlanLimit.tsx'
 import { Button, IconButton, InputField, Notice, SelectField } from '../components/ui.tsx'
-import { INVITATIONS_SECTION, JOINING_SECTION } from '../onboarding.ts'
+import { INVITATIONS_SECTION } from '../onboarding.ts'
 
 const LINK = 'font-medium text-accent hover:underline'
 
@@ -111,13 +111,6 @@ export function InviteTeam({ room, onInvited }: { room: boolean; onInvited: () =
                 )}
               </div>
             )}
-            <p className="mt-2 text-xs text-muted">
-              Or let everyone at your company’s domain join, on the{' '}
-              <Link to={`/organization#${JOINING_SECTION}`} className={LINK}>
-                organisation page
-              </Link>
-              .
-            </p>
           </>
         ) : (
           <div className="text-muted">

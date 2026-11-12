@@ -725,7 +725,7 @@ def test_the_owners_are_told_before_a_trial_ends(client, session, stripe, mailer
     assert (to, subject) == ("ada@acme.com", "Your Emudoc trial ends soon")
     assert f"ends on {day(ends)}" in body and "first payment is taken" in body
     # An owner may work in another of their organisations when they open it.
-    assert f"{APP}/organization?organization={ada.organization.id}\n" in body
+    assert f"{APP}/organization\n" in body
 
 
 def test_a_renewing_subscription_holds_its_only_member_s_account(client, session, stripe, ada):

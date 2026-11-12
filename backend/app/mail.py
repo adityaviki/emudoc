@@ -9,8 +9,7 @@ the notices about a member's work, which they choose how to be told of, kind by 
 indexed and why, and to an organisation's owners and admins that its month's pages or questions
 are mostly or all used; a notice's `brief` is what the app's notification centre shows of it.
 And to the support address, what a member wrote to it from the app (app/api/help.py). Stripe
-sends the receipts and the invoices itself (deploying.md, "Billing"). A link into an
-organisation's pages names it (`in_organization`), since its reader may work in another.
+sends the receipts and the invoices itself (deploying.md, "Billing").
 
 A template writes `Content`: the subject, and the body as paragraphs and links. Both the plain
 text and the HTML of a message are made from it (`compose`), so they say the same: the text has
@@ -76,18 +75,6 @@ class Link:
 
 
 Block = str | Link
-
-# The query a link to a page of the app names the organisation it is about with (`in_organization`).
-ORGANIZATION_QUERY = "organization"
-
-
-def in_organization(url: str, org_id: int) -> str:
-    """A link to a page of the app that opens it in the organisation `org_id`: a member of
-    several reads the mail of each, and the page switches to the one named first when the
-    session works in another (`useLinkedOrganization` in frontend/src/App.tsx), where the
-    project or the usage would be another's or not found."""
-    separator = "&" if "?" in url else "?"
-    return f"{url}{separator}{ORGANIZATION_QUERY}={org_id}"
 
 
 @dataclass(frozen=True)
@@ -479,45 +466,6 @@ def account_deletion_email(name: str, due: str, link: str) -> Content:
             Link(link, "Sign in"),
             "If you did not ask for this, someone else could use your account: sign in, keep "
             "it, and change your password.",
-        ),
-    )
-
-
-def organization_deletion_email(
-    name: str, asker: str, organization: str, due: str, link: str, owner: bool
-) -> Content:
-    """To every member of an organisation an owner asked to delete: when it goes and what with,
-    what they can do until then, and how it is kept, which an owner does on the organisation
-    page and anyone else asks an owner to. Its audit log goes with it, so this is the record."""
-    keep = (
-        "To keep it, open the organisation page before then and choose to keep it:"
-        if owner
-        else "If it should stay, ask one of its owners to keep it before then:"
-    )
-    return Content(
-        "An organisation you belong to is set to be deleted",
-        (
-            _greeting(name),
-            f"{asker} asked for {organization} to be deleted. On {due} it goes for good with "
-            "everything in it: its projects, documents, chats, usage and audit log. Your "
-            "account stays, with any other organisation you belong to.",
-            "Until then nothing can be added to its projects or changed in them, and what it "
-            "holds can still be read, asked about, downloaded and exported, a project at a "
-            "time on the projects page: save what you need.",
-            keep,
-            Link(link, "Open the organisation page"),
-        ),
-    )
-
-
-def organization_kept_email(name: str, keeper: str, organization: str) -> Content:
-    """To every member of an organisation that was set to be deleted, once an owner kept it."""
-    return Content(
-        "An organisation you belong to is kept",
-        (
-            _greeting(name),
-            f"{keeper} chose to keep {organization}, which was set to be deleted. Nothing of it "
-            "is deleted, and its projects can be changed again.",
         ),
     )
 

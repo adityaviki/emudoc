@@ -257,7 +257,7 @@ def offers_drafts(session: Session, organization: Organization, user_id: int) ->
     """Whether an answer to the member may offer a draft: drafts are on for the organisation, and
     the member could have one written there now, as the route that writes it holds them to
     (`get_editor` in app/api/deps.py): a role that changes what the organisation holds, in an
-    organisation that is neither set to be deleted nor past its plan. The route checks again
+    organisation that is not past its plan. The route checks again
     when the member presses the offer."""
     if not flag_on(organization, DRAFTS):
         return False
@@ -268,14 +268,14 @@ def offers_drafts(session: Session, organization: Organization, user_id: int) ->
     )
     if role is None or ROLES.index(role) > ROLES.index("member"):
         return False
-    return organization.deletion_due_at is None and read_only(session, organization) is None
+    return read_only(session, organization) is None
 
 
 def offers_my_files(session: Session, organization: Organization, user_id: int) -> bool:
     """Whether an answer to the member may write their My files: the flag is on for the
     organisation, and the member could keep a file there now, as the routes hold them to
     (`get_writer` in app/api/deps.py): any role, a viewer's too, since My files change nothing the
-    members share, in an organisation that is neither set to be deleted nor past its plan."""
+    members share, in an organisation that is not past its plan."""
     if not flag_on(organization, MY_FILES):
         return False
     member = session.scalar(
@@ -285,7 +285,7 @@ def offers_my_files(session: Session, organization: Organization, user_id: int) 
     )
     if member is None:
         return False
-    return organization.deletion_due_at is None and read_only(session, organization) is None
+    return read_only(session, organization) is None
 
 
 def answers_in_flight(session: Session, org_id: int) -> int:

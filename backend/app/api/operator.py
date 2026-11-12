@@ -201,7 +201,6 @@ def list_organizations(
                 members=count,
                 created_at=organization.created_at,
                 subscription_status=organization.subscription_status,
-                deletion_due_at=organization.deletion_due_at,
                 cost_micros=cost.cost_micros if (cost := costs.get(organization.id)) else None,
             )
             for organization, count in shown

@@ -1172,6 +1172,11 @@ server's shell prints one:
 maintenance reset-password grace@example.com   # the link, working once within a day; the account's earlier ones stop
 ```
 
+The install holds that one workspace: nobody starts another, leaves it, joins it by their
+address's domain or deletes it. A member an owner or admin removes keeps their account, in no
+workspace, and signing in shows them a page that says so and to ask an admin; an invitation to
+their address brings them back.
+
 `SIGNUP_OPEN` is off by default: the sign-up form refuses every address alike, with a sentence
 that says to ask the team's admin, and a first sign-in through Google or Microsoft makes no
 account. The site's home page says "Private beta" beside its way in ("The public site"), until
@@ -1749,9 +1754,7 @@ member typed (an inviter's, an organisation's) stay text there, however much the
 address. A subject is the app's own sentence, which the log may repeat; names are in the body
 alone. The links lead to `APP_URL`, which production requires; in development without it, a
 request's mail links to the address the request came to, and the worker's to the frontend's
-development server, `http://localhost:5173`. A link to an organisation's page, a notice's or an
-owner's mail about billing, names the organisation (`?organization=<id>`): a member of several
-may work in another when they open it, and the page switches to the one named first.
+development server, `http://localhost:5173`.
 
 An upload is the files of one request (`uploads`, with the member who sent them, made once the
 request has stored them all). Whoever ends its last piece of work finds it indexed: the worker
@@ -1889,7 +1892,7 @@ sender wrote, so a message counts as its sender's only when the provider proved 
 passed for the From domain, or a DKIM signature of that domain did. One that is not proven, or
 from anyone else, is turned away, and nothing is sent back, since a reply to a forged address
 reaches someone who sent nothing; so is one for a project in the trash or an organisation past
-its plan or set to be deleted. The address's page tells its members why a sender's mail was
+its plan. The address's page tells its members why a sender's mail was
 turned away: for want of DKIM, the sender's mail administrator can sign it, or a member can
 forward it.
 
@@ -1990,10 +1993,10 @@ sync puts in the trash are rows of their own.
 
 A connector pauses, and its member connects it again, when the service no longer takes the grant
 (the member took the access back, or it lapsed), or when the member no longer may change the project;
-it goes, its grant with it, when they leave the organisation or their account is deleted, and
+it goes, its grant with it, when they are removed from the workspace or their account is deleted, and
 when a member disconnects it, which gives the grant back to the service. Its documents stay in the
 library either way. A plan without connected folders, a project in the trash, or an organisation
-read-only or set to be deleted holds its syncs back, which the page says. A connector whose
+read-only holds its syncs back, which the page says. A connector whose
 folder was never chosen is forgotten after a day. The log names a connector by its id, never a
 file or a folder; `emudoc_connector_syncs_total` and `emudoc_connector_files_total` count the
 syncs and the files they read ("Metrics"), and a sync that raised is among the failed jobs,
@@ -2268,7 +2271,7 @@ every six hours), and so what the privacy notice can promise:
   waiting for a question set's report (`question_set_arrivals`); a membership keeps the Monday
   of its last weekly digest (`memberships.digested_on`), as long as the membership; a notice
   in a member's notification centre goes after `NOTIFICATION_DAYS` (90), read or not, and those
-  about an organisation when they leave it or are removed from it.
+  about the workspace when they are removed from it.
 
 Backups (and a bucket's object versions) keep a purged account until they expire, so the
 privacy policy names that window, `BACKUP_DAYS`, as the outer bound of a deletion. A restore must not bring the
@@ -2280,14 +2283,10 @@ must leave `erasures/` as it is: restored to an older point, it forgets the purg
 ("Backups", below). The records are kept for good. They say nothing about the person, and
 backups may be kept for any length of time.
 
-An organisation an owner deletes goes the same way, 14 days after the request, which every
-member is mailed: the housekeeping round deletes it with its rows and files ("Deleted
-organisation …" in the worker's log), gives each member it was the only organisation of one of
-their own, and leaves `erasures/organizations/<id>-<created>.json`, which `after-restore` reads
-like the accounts' ("Organisations […] were deleted before and are back"). The request is
-refused while the organisation's subscription renews; one renewed at Stripe after the request
-is kept and logged at ERROR every round ("… its subscription renews again"), until someone
-cancels it there, since deleting the organisation would leave the subscription charging.
+The workspace itself is not deleted from the app, since it is the install: drop the database and
+the storage to start over. Until 2026-11-12 an owner could ask for an organisation's deletion, and
+a bucket of a deployment from before may still hold `erasures/organizations/`, which nothing reads
+now.
 
 Logs carry no email address of the app's making: a refused sign-in names the address by its
 SHA-256, as the rate limits count it, and a mail that fails is logged with its subject and the
@@ -4679,10 +4678,7 @@ repository's policy among them.
     in elsewhere shows the same. Keep it, delete it again, and check after the 14 days (or move
     `users.deletion_due_at` into the past and wait for a housekeeping round) that signing in
     with it fails, the worker's log says "Deleted account", and the bucket or directory holds
-    its record under `erasures/users/`. Likewise start an organisation, delete it from the foot
-    of its page: the banner says the day, a new project is refused, "Keep it" undoes it; delete
-    it again, move `organizations.deletion_due_at` into the past, and after a round its files
-    are gone and its record is under `erasures/organizations/`. Export a project from its card
+    its record under `erasures/users/`. Export a project from its card
     on the projects page: the notice comes, and the ZIP file holds `project.json`, the
     originals and `documents/<id>.json`; the bucket or directory holds it under the project's
     `exports/`.
@@ -4897,7 +4893,6 @@ and the like), named on its models' pages.
 | `AUTOMATION_WAIT` | `120` | | Seconds an automation waits for the documents it watches to stop arriving before it runs a project's cross-checks |
 | `MAX_ANSWERS` | `20` | | Answers one organisation may have in flight |
 | `MAX_QUESTION_CHARS` | `20000` | | The longest question |
-| `MAX_FREE_ORGANIZATIONS` | `2` | | Organisations on the free plan one user may own; 0 is no ceiling |
 | `RATE_UPLOADS` | `20` | | Upload requests a minute, per member ("Rates") |
 | `RATE_QUESTIONS` | `20` | | Questions a minute, per member |
 | `RATE_SEARCHES` | `120` | | Searches a minute, per member: a project's search and facts, and the search of every project |

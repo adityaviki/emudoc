@@ -29,7 +29,7 @@ import uvicorn
 from fastapi.testclient import TestClient
 from sqlalchemy import select, update
 
-from app.api.deps import get_account
+from app.api.deps import get_person
 from app.apikeys import KEY_UNKNOWN, READ_ONLY_KEY
 from app.client import UPLOAD_CLIENT
 from app.client import emudoc_upload as uploader
@@ -617,7 +617,7 @@ def test_a_plan_without_room_stops_the_sending_and_says_why(
     create_project(client)
     key = make_key(client, scope="write")["key"]
     # From here on the key alone says who calls.
-    client.app.dependency_overrides.pop(get_account)
+    client.app.dependency_overrides.pop(get_person)
     monkeypatch.setattr(get_settings(), "max_upload_files", 2)
     folder = write(tmp_path / "Many", {"a.txt": "One.", "b.txt": "Two.", "c.txt": "Three."})
     calls: list[uploader.Request] = []
@@ -864,7 +864,7 @@ def test_watch_waits_while_the_plan_has_no_room(
     plan(documents=1, api_access=True)
     project = create_project(client)
     key = make_key(client, scope="write")["key"]
-    client.app.dependency_overrides.pop(get_account)
+    client.app.dependency_overrides.pop(get_person)
     api = TestClient(client.app, headers={"Authorization": f"Bearer {key}"})
     folder = write(tmp_path / "Scanner", {"a.txt": "One.", "b.txt": "Two."})
     now = [0.0]

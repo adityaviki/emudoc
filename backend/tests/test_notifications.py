@@ -1,7 +1,7 @@
 """The notification centre: each notice told in the app beside its mail, each way as its member
-chose for its kind; listed newest first across the organisations they belong to, a page at a
-time, with how many are unread, even to a tab left in another organisation; marked read, one or
-all, of the member's own alone; and gone with the membership and after NOTIFICATION_DAYS."""
+chose for its kind; listed newest first, the workspace's alone, a page at a time, with how many
+are unread; marked read, one or all, of the member's own alone; and gone with the membership and
+after NOTIFICATION_DAYS."""
 
 from dataclasses import replace
 
@@ -9,7 +9,6 @@ import pytest
 from sqlalchemy import select, text
 
 from app.accounts import Account
-from app.api.deps import ORGANIZATION_HEADER
 from app.config import get_settings
 from app.db import engine
 from app.entitlements import MONTHS, PLANS, month_of
@@ -20,7 +19,7 @@ from app.schemas import NoticeKind
 from tests.test_api import create_project
 from tests.test_chats import new_chat
 from tests.test_notices import told
-from tests.test_organizations import join, remove, switch, team  # noqa: F401
+from tests.test_organizations import join, remove, team  # noqa: F401
 
 APP = "https://emudoc.example.com"
 
@@ -72,11 +71,9 @@ def test_a_notice_is_told_in_the_app_beside_its_mail(client, session, mailer, an
         "body": f"Globex has used all the 2 questions it may ask on Emudoc in {month}. No more "
         f"questions are answered until 1 {following}, when the count starts afresh.",
         "link": "/organization/usage",
-        "org_id": ann.organization.id,
-        "organization": "Globex",
         "read_at": None,
     }
-    assert f"{APP}/organization/usage?organization={ann.organization.id}" in mail.text
+    assert f"{APP}/organization/usage" in mail.text
 
 
 def test_each_way_of_each_kind_is_chosen_apart(client, session, mailer, ann):
@@ -93,27 +90,23 @@ def test_each_way_of_each_kind_is_chosen_apart(client, session, mailer, ann):
     assert [message.subject for message in told(mailer)] == ["By email"]
 
 
-def test_the_centre_holds_every_organisation_newest_first_even_for_a_tab_left_in_another(
-    client, session, ann, make_account
-):
+def test_the_centre_holds_the_workspaces_notices_newest_first(client, session, ann, make_account):
+    # A database that holds another organisation, as development's does, keeps its notices apart.
     other = make_account("ivy@initech.example").organization
     join(session, other.id, ann.user.id, "admin")
-    for number, org_id in enumerate([ann.organization.id, other.id, ann.organization.id]):
+    for number, org_id in enumerate([ann.organization.id, other.id, ann.organization.id] * 2):
         tell(session, ann.user, org_id, "upload_indexed", news(f"Notice {number}"), "/", APP)
     session.commit()
 
     first = centre(client, limit=2)
-    assert titles(first) == ["Notice 2", "Notice 1"]
-    assert [notice["organization"] for notice in first["notifications"]] == ["Globex", "Initech"]
-    assert first["unread"] == 3
+    assert titles(first) == ["Notice 5", "Notice 3"]
+    assert first["unread"] == 4
     rest = centre(client, limit=2, before=first["next_before"])
-    assert titles(rest) == ["Notice 0"] and rest["next_before"] is None
-
-    # A tab that still shows another organisation asks for its bell every minute, and is
-    # answered, where a change it made would be refused.
-    stale = {ORGANIZATION_HEADER: str(other.id)}
-    assert client.get("/api/projects", headers=stale).status_code == 409
-    assert client.get("/api/notifications", headers=stale).status_code == 200
+    assert titles(rest) == ["Notice 2", "Notice 0"] and rest["next_before"] is None
+    client.post("/api/notifications/read", json={})
+    assert centre(client)["unread"] == 0
+    unread = select(Notification.id).where(Notification.read_at.is_(None))
+    assert len(session.scalars(unread).all()) == 2
 
 
 def test_notices_are_marked_read_one_or_all_and_only_the_members_own(
@@ -139,28 +132,18 @@ def test_notices_are_marked_read_one_or_all_and_only_the_members_own(
     assert session.get(Notification, bobs).read_at is None
 
 
-def test_a_member_who_leaves_or_is_removed_loses_the_organisations_notices(
-    client, session, request
-):
-    # Ada and Bob, a member of her organisation, each signed in (`team`).
+def test_a_member_removed_loses_the_workspaces_notices(client, session, request):
+    # Ada and Bob, a member of her workspace, each signed in (`team`).
     ada, bob, bob_client = request.getfixturevalue("team")
-    shared, own = ada["organization"]["id"], bob["organization"]["id"]
+    workspace = ada["organization"]["id"]
+    tell(session, session.get(User, bob["id"]), workspace, "quota", news("About it"), "/", APP)
+    session.commit()
+    assert titles(centre(bob_client)) == ["About it"]
 
-    def tell_bob() -> None:
-        user = session.get(User, bob["id"])
-        for org_id in (shared, own):
-            tell(session, user, org_id, "quota", news(f"About {org_id}"), "/", APP)
-        session.commit()
-
-    tell_bob()
-    switch(bob_client, shared)
-    assert bob_client.post("/api/organization/leave").status_code == 200
-    assert titles(centre(bob_client)) == [f"About {own}"]
-
-    join(session, shared, bob["id"])
-    tell_bob()
     assert remove(client, bob["id"]).status_code == 204
-    assert titles(centre(bob_client)) == [f"About {own}", f"About {own}"]
+    assert session.scalars(select(Notification.id)).all() == []
+    join(session, workspace, bob["id"])
+    assert titles(centre(bob_client)) == []
 
 
 def test_the_housekeeper_removes_notices_older_than_their_days(client, session, ann):

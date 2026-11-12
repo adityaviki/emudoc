@@ -16,6 +16,12 @@ newest entry first.
 
 Members:
 
+- Emudoc holds one workspace, your team's. The header names it and opens its page, where its
+  menu of organisations was: nobody starts another, switches, leaves it, joins it by their email
+  address's domain or deletes it. A member an admin removes keeps their account, and signing in
+  then shows a page that says to ask an admin to invite them again; the invitation's link brings
+  them back. The bell lists the workspace's notices, and a notice's link opens its page directly.
+
 - When you invite someone, or send an invitation again, you are shown its link to copy and send
   them yourself, beside the email: where this Emudoc sends no mail, the page says so, and the link
   is how the invitation arrives. An owner or admin can also make a member who forgot their
@@ -47,6 +53,18 @@ Members:
 
 Operators:
 
+- An install holds one workspace: `POST /api/organizations` (start one), `POST
+  /api/organizations/{id}/switch`, `POST /api/organization/leave`, `POST|DELETE
+  /api/organization/deletion`, `PUT /api/organization/joining` and `POST
+  /api/organizations/{id}/join` are gone, with `MAX_FREE_ORGANIZATIONS`, the mails of an
+  organisation's deletion and the housekeeping's purge of one. A member removed keeps their
+  account, in no workspace: `GET /api/auth/me` answers with `organization` and `role` null, every
+  other route 403, and `POST /api/auth/invitation/accept` brings them back. `MeOut` no longer
+  carries `organizations` or `joinable`, `OrganizationOut` `join_domains`, `join_role` or
+  `deletion_due_at`, and a notice `org_id` or `organization`; the notification centre lists the
+  workspace's notices. The app's requests no longer send `X-Organization`, and mail links no
+  longer carry `?organization=`. Migration 5c1e9a7d3b20 drops `organizations.join_domains`,
+  `join_role` and `deletion_due_at`; the audit log keeps its entries of those actions.
 - A new install opens on a setup page while it has no account: it makes the admin, with the
   address confirmed, an owner of the workspace named as typed, which starts with the sample
   project, and is refused once any account exists. `maintenance create-admin <address> --name

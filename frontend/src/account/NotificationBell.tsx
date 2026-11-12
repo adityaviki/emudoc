@@ -1,9 +1,8 @@
 // The bell in the header: how many of the user's notices are unread, asked every minute, and the
-// notification centre it opens, their notices about every organisation they belong to, the
-// newest first. Opening one marks it read and goes to its page, in its organisation: one the
-// session does not work in is switched to first, which loads the page again. While the browser
-// is told to show the notices as they come (the account page), one that arrives while the tab is
-// hidden is shown as the browser's own notification too.
+// notification centre it opens, their notices of the workspace, the newest first. Opening one
+// marks it read and goes to its page. While the browser is told to show the notices as they come
+// (the account page), one that arrives while the tab is hidden is shown as the browser's own
+// notification too.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bell, Settings } from 'lucide-react'
@@ -11,7 +10,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { notifications } from '../api.ts'
 import type { NotificationItem, NotificationPage } from '../api.ts'
-import { openInOrganization, useMe } from '../auth.ts'
+import { useMe } from '../auth.ts'
 import { Floating } from '../components/Menu.tsx'
 import { IconButton, Spinner } from '../components/ui.tsx'
 import { NOTIFICATIONS_KEY, ago, arrived, browserNoticesOn, markRead, pageRead, unreadLabel } from '../notifications.ts'
@@ -60,7 +59,6 @@ export function NotificationBell() {
 
 /** The list the bell opens: the newest page, which the bell keeps asking for, and older ones asked for while it is open. */
 function Centre({ page, onClose }: { page: NotificationPage; onClose: () => void }) {
-  const me = useMe()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [older, setOlder] = useState<NotificationItem[]>([])
@@ -90,14 +88,11 @@ function Centre({ page, onClose }: { page: NotificationPage; onClose: () => void
     const first = panel.current?.querySelector<HTMLButtonElement>('li button') ?? panel.current?.querySelector('button')
     first?.focus()
   }, [])
-  // The organisation is named when the user belongs to more than one.
-  const several = me.organizations.length > 1
 
   function open(item: NotificationItem) {
     onClose()
-    const marked = item.read_at ? Promise.resolve() : read.mutateAsync([item.id]).catch(() => {})
-    if (item.org_id === me.organization.id) navigate(item.link)
-    else void marked.then(() => openInOrganization(item.org_id, item.link))
+    if (!item.read_at) read.mutate([item.id])
+    navigate(item.link)
   }
 
   return (
@@ -135,10 +130,7 @@ function Centre({ page, onClose }: { page: NotificationPage; onClose: () => void
                   <span className="min-w-0">
                     <span className={`block text-[13px] leading-snug ${item.read_at ? '' : 'font-medium'}`}>{item.title}</span>
                     <span className="mt-0.5 line-clamp-3 block text-xs leading-relaxed whitespace-pre-line text-muted">{item.body}</span>
-                    <span className="mt-1 block text-[11px] text-muted">
-                      {several && `${item.organization} · `}
-                      {ago(item.created_at)}
-                    </span>
+                    <span className="mt-1 block text-[11px] text-muted">{ago(item.created_at)}</span>
                   </span>
                 </span>
               </button>

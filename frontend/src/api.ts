@@ -1448,11 +1448,6 @@ export interface Organization {
   max_session_days: number
   /** Whether its members may share a document by a link that needs no account, where its plan includes them (backend/app/share_links.py); off, every link it has stops. */
   share_links: boolean
-  /** The domains whose confirmed addresses may join it, and the role they join with (backend/app/invitations.py). */
-  join_domains: string[]
-  join_role: JoinRole
-  /** When it is deleted with everything in it, as an owner asked; until then it is held as it stands and an owner may keep it (backend/app/retention.py). Null when nobody asked. */
-  deletion_due_at: string | null
   /** The feature flags on for it (backend/app/flags.py): a page shows a feature being rolled out where its flag is here. */
   flags_on: Flag[]
 }
@@ -1617,16 +1612,6 @@ export type UsagePage = Record<Figured, Figure> & {
   months: MeteredMonth[]
 }
 
-/** The roles an organisation may let everyone at its domains join with. */
-export type JoinRole = 'member' | 'viewer'
-
-/** An organisation the user may join, since it lets everyone at their confirmed address's domain. */
-export interface Joinable {
-  id: number
-  name: string
-  role: JoinRole
-}
-
 /** An invitation still open, or expired and not sent again, as its organisation's owners and admins see it. */
 export interface Invitation {
   id: number
@@ -1666,13 +1651,6 @@ export interface InvitationLink {
   expired: boolean
   /** Whether an account has the address, which then signs in to accept rather than signing up. */
   has_account: boolean
-}
-
-/** One of the organisations a user is a member of, which they can switch to. */
-export interface Membership {
-  id: number
-  name: string
-  role: Role
 }
 
 /** From most to least permitted: each role may do everything the roles after it may (ROLES in backend/app/models.py). */
@@ -1728,11 +1706,8 @@ export interface NotificationItem {
   kind: NoticeKind
   title: string
   body: string
-  /** The page it leads to, a path in the organisation `org_id`, which may be another than the one the page shows. */
+  /** The page it leads to, a path of the app. */
   link: string
-  org_id: number
-  /** The organisation's name as it is now. */
-  organization: string
   created_at: string
   read_at: string | null
 }
@@ -1756,16 +1731,12 @@ export interface Me {
   notices: NoticeChoice[]
   email_verified: boolean
   mfa_enabled: boolean
-  /** Whether the organisation requires two-factor sign-in and the account signs in without it; until it is set up, the app offers only that, a switch, leaving, and signing out. */
+  /** Whether the workspace requires two-factor sign-in and the account signs in without it; until it is set up, the app offers only that and signing out. */
   mfa_due: boolean
   /** Providers the account can sign in through, such as "google". */
   identities: string[]
   organization: Organization
   role: Role
-  /** Every organisation the user is a member of, the current one among them, by name. */
-  organizations: Membership[]
-  /** The organisations the domain of the user's confirmed address lets them join, by name. */
-  joinable: Joinable[]
   /** Whether the account has a password, which then confirms its deletion. */
   has_password: boolean
   /** When the account will be deleted, if its user asked; until then the app offers only to keep it. */
@@ -1784,6 +1755,12 @@ export interface Me {
   /** Set while one of Emudoc's operators views the account as support rather than the user signed in: read only, this organisation alone, until `ends_at`. */
   support_view: { ends_at: string } | null
 }
+
+/** A signed-in user an admin removed from the workspace: in none until invited again (backend/app/api/deps.py), which is all the app shows them. */
+export type Outsider = Omit<Me, 'organization' | 'role'> & { organization: null; role: null }
+
+/** Whoever is signed in: a member of the workspace, or one removed from it. */
+export type SignedIn = Me | Outsider
 
 /** The first steps the projects page lists (backend/app/onboarding.py), in its order. */
 export type OnboardingStepKey = 'upload' | 'ask' | 'invite'
@@ -2247,7 +2224,6 @@ let onUnauthorized: (() => void) | null = null
 let onSwitched: (() => void) | null = null
 let onForbidden: (() => void) | null = null
 let onPlanLimit: (() => void) | null = null
-let shownOrganization: number | null = null
 let lastFailure: FailedRequest | null = null
 
 /**
@@ -2260,9 +2236,9 @@ export function handleUnauthorized(handler: (() => void) | null) {
 }
 
 /**
- * What happens when the server refused a request because the page shows an organisation the
- * session no longer works in, since another tab switched: the app registers a handler that
- * starts it again in the one the session works in.
+ * What happens when the server refused a request because the session works in another
+ * organisation than the page shows, as when a view by support ends: the app registers a handler
+ * that starts it again there.
  */
 export function handleSwitched(handler: (() => void) | null) {
   onSwitched = handler
@@ -2297,24 +2273,17 @@ export function lastFailedRequest(): FailedRequest | null {
   return lastFailure
 }
 
-/** The organisation the page shows, which every request names from now on; null for none. */
-export function showOrganization(id: number | null) {
-  shownOrganization = id
-}
-
-// The header that names the organisation the page shows, and on a refusal the one the session
-// works in (ORGANIZATION_HEADER in backend/app/api/deps.py).
+// The header a refusal names the organisation the session works in by, once a view by support
+// ended (ORGANIZATION_HEADER in backend/app/api/deps.py).
 const ORGANIZATION_HEADER = 'X-Organization'
 
 /**
- * Every request carries these headers. The server refuses a change without the first, which is
- * what keeps a page on another site from making one with the user's cookie, and anything a tab
- * asks in an organisation other than the one the session works in now (backend/app/api/deps.py).
+ * Every request carries this header. The server refuses a change without it, which is what keeps
+ * a page on another site from making one with the user's cookie (backend/app/api/deps.py).
  */
 async function send(path: string, init?: RequestInit, onProgress?: Progress): Promise<Response> {
   const headers = new Headers(init?.headers)
   headers.set('X-Requested-With', 'fetch')
-  if (shownOrganization !== null) headers.set(ORGANIZATION_HEADER, String(shownOrganization))
   let response: Response
   try {
     const sent = { ...init, headers }
@@ -2393,7 +2362,7 @@ function json(method: string, body: unknown): RequestInit {
 /** Sign-in and the account. Mirrors the routes in backend/app/api/auth.py. */
 export const auth = {
   /** The signed-in user, or null when there is no usable session. */
-  me: async (): Promise<Me | null> => {
+  me: async (): Promise<SignedIn | null> => {
     const response = await send('/auth/me')
     if (response.status === 401) return null
     if (!response.ok) throw new ApiError(response.status, response.statusText)
@@ -2432,7 +2401,7 @@ export const auth = {
   }) => request<Me>('/auth/signup/finish', json('POST', body)),
   /** What an invitation's link is for; an expired one too, a gone one is a 400. */
   invitation: (token: string) => request<InvitationLink>('/auth/invitation', json('POST', { token })),
-  /** Joins the organisation an invitation to the signed-in account's address is to, and works in it. */
+  /** Joins the workspace an invitation to the signed-in account's address is to, a member removed from it too. */
   acceptInvitation: (token: string) => request<Me>('/auth/invitation/accept', json('POST', { token })),
   /** Makes an account for an invitation's address, a member of that organisation alone, and signs it in. */
   signUpInvited: (body: { token: string; name: string; password: string; terms_version: string; time_zone: string }) =>
@@ -2442,7 +2411,7 @@ export const auth = {
   /** With two-factor on, the session grants nothing until `verifyMfa` succeeds. */
   login: (body: { email: string; password: string }) =>
     request<{ mfa_required: boolean }>('/auth/login', json('POST', body)),
-  verifyMfa: (code: string) => request<Me>('/auth/mfa/verify', json('POST', { code })),
+  verifyMfa: (code: string) => request<SignedIn>('/auth/mfa/verify', json('POST', { code })),
   logout: () => request<void>('/auth/logout', { method: 'POST' }),
 
   /** A field left out stays as it is, and so does a way of a kind of notice; turning one on by email writes again to an address that bounced. */
@@ -2519,15 +2488,11 @@ export function oauthStartUrl(provider: string, next: string, timeZone: string, 
 }
 
 /**
- * The user's organisations: starting, switching and joining one by the domain of the address,
- * which the session keeps for every tab, and the current one's name, members and their roles,
- * owner, invitations, API keys, who may join it and leaving it. Mirrors backend/app/api/organizations.py,
- * backend/app/api/invitations.py and backend/app/api/apikeys.py; each change of the organisation answers with the
- * account as `auth.me` does.
+ * The workspace: its name, settings, members and their roles, owner, invitations and API keys.
+ * Mirrors backend/app/api/organizations.py, backend/app/api/invitations.py and
+ * backend/app/api/apikeys.py; each change of the workspace answers with the account as `auth.me` does.
  */
 export const organizations = {
-  start: (name: string) => request<Me>('/organizations', json('POST', { name })),
-  switch: (id: number) => request<Me>(`/organizations/${id}/switch`, { method: 'POST' }),
   /** Owners and admins only: its name or its settings; what is left out stays, a null setting goes back to the deployment's or the plan's. */
   change: (body: OrganizationChange) => request<Me>('/organization', json('PATCH', body)),
   /** The languages its documents may be searched in, and the deployment's. */
@@ -2535,19 +2500,14 @@ export const organizations = {
   members: () => request<Member[]>('/organization/members'),
   /** Owners and admins only, for another member whose role is within their own, to a role within it. */
   changeRole: (userId: number, role: Role) => request<Member>(`/organization/members/${userId}`, json('PATCH', { role })),
-  /** As `changeRole`; the member's private chats in its projects go, as when they leave. */
+  /** As `changeRole`; the member's private chats in its projects go, and they keep their account in no workspace until invited again. */
   removeMember: (userId: number) => request<void>(`/organization/members/${userId}`, { method: 'DELETE' }),
   /** As `changeRole`, for another member: a link that sets their password, which stops their earlier ones. */
   resetLink: (userId: number) => request<ResetLink>(`/organization/members/${userId}/reset-link`, { method: 'POST' }),
   /** Owners only, confirmed by the password, or by the email address for an account without one. */
   handOver: (body: { user_id: number; password?: string; email?: string }) =>
     request<Me>('/organization/owner', json('POST', body)),
-  leave: () => request<Me>('/organization/leave', { method: 'POST' }),
-  /** Owners only, confirmed as `handOver` is: deleted with everything in it once the grace period is over, every member told; a 409 while its subscription renews. */
-  delete: (body: { password?: string; email?: string }) => request<Me>('/organization/deletion', json('POST', body)),
-  /** Owners only: kept, as though nobody had asked. */
-  keep: () => request<Me>('/organization/deletion', { method: 'DELETE' }),
-  /** Owners and admins only, as is everything about invitations and joining. */
+  /** Owners and admins only, as is everything about invitations. */
   invitations: () => request<Invitation[]>('/organization/invitations'),
   /** Mails the address its link, also given back; a 402 when the plan has no room, a 409 for a member or one invited already. */
   invite: (body: { email: string; role: Role }) => request<InvitationSent>('/organization/invitations', json('POST', body)),
@@ -2577,10 +2537,6 @@ export const organizations = {
   shareLinks: () => request<OrganizationShareLink[]>('/organization/share-links'),
   webhookDeliveries: (id: number, before: number | null = null) =>
     request<WebhookDeliveries>(`/organization/webhooks/${id}/deliveries${before === null ? '' : `?before=${before}`}`),
-  /** A domain is added only by someone whose own confirmed address is at it. */
-  setJoining: (body: { domains: string[]; role: JoinRole }) => request<Me>('/organization/joining', json('PUT', body)),
-  /** One of `me.joinable`. */
-  join: (id: number) => request<Me>(`/organizations/${id}/join`, { method: 'POST' }),
   /** Owners only: the address of Stripe's Checkout page that sells the plan, with seats on Team. */
   checkout: (body: { plan: SoldPlan; seats?: number }) =>
     request<{ url: string }>('/organization/billing/checkout', json('POST', body)),

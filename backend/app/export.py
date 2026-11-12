@@ -50,7 +50,7 @@ from app.extraction import templates_for
 from app.fact_checks import check_out
 from app.folders import PATH_SEPARATOR, folder_paths
 from app.jobs import EXPORT_PROJECT, Lease, LeaseLost, enqueue, renew
-from app.mail import in_organization, project_export_email
+from app.mail import project_export_email
 from app.models import (
     AuditEvent,
     Browser,
@@ -1009,7 +1009,7 @@ def _settle(
             user.name,
             project.name,
             organization.name,
-            in_organization(f"{url}{path}", organization.id),
+            f"{url}{path}",
             None if error else day(export.expires_at, zone_of(user.time_zone)),
             export.chosen,
         ),

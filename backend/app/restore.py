@@ -25,8 +25,7 @@ again, and the accounts purged since are back. `after_restore` sets each right, 
 4. Every organisation's audit log records the restore and its point, since what was done
    after that moment is gone from it.
 5. The accounts purged since are purged again at once (`reapply_erasures` in
-   app/retention.py), rather than at the worker's first housekeeping round, and so are the
-   organisations deleted since at their owners' request (`reapply_organization_erasures`).
+   app/retention.py), rather than at the worker's first housekeeping round.
 
 It then reports what it cannot set right by itself: documents whose original the storage
 lacks, as a storage restored to an earlier point than the database leaves them, the files of
@@ -55,15 +54,9 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.audit import audit_event
-from app.billing import renews
 from app.db import SessionLocal, unbounded
 from app.encrypted import Standing, keys, lost_line, standing
-from app.retention import (
-    purge_due_accounts,
-    purge_due_organizations,
-    reapply_erasures,
-    reapply_organization_erasures,
-)
+from app.retention import purge_due_accounts, reapply_erasures
 from app.storage import (
     ROOT_PREFIX,
     Deletion,
@@ -163,10 +156,8 @@ class Restored:
     invitations: int = 0
     share_links: int = 0
     organizations: int = 0
-    # The accounts purged since the restore point, purged again, and the organisations deleted
-    # since at their owners' request, deleted again.
+    # The accounts purged since the restore point, purged again.
     purged: list[int] = field(default_factory=list)
-    deleted_organizations: list[int] = field(default_factory=list)
     # Documents whose original the storage does not have.
     missing: list[int] = field(default_factory=list)
     # The storage's folders of documents the database does not know, and their size.
@@ -246,10 +237,8 @@ def after_restore(storage: Storage, restored_to: datetime, *, dry_run: bool = Fa
     restored.unknown = len(unknown)
     restored.unknown_bytes = sum(survey.folders[folder] for folder in unknown)
     restored.purged = reapply_erasures(storage, dry_run=dry_run)
-    restored.deleted_organizations = reapply_organization_erasures(storage, dry_run=dry_run)
     if not dry_run:
         purge_due_accounts(storage)
-        purge_due_organizations(storage, renews=renews)
     restored.took = time.monotonic() - started
     return restored
 
@@ -349,12 +338,6 @@ def describe_restore(restored: Restored, restored_to: datetime) -> list[str]:
             f"{'Would purge' if would else 'Purged'} again "
             f"{_count(len(restored.purged), 'account')} deleted since the restore point: "
             f"{', '.join(map(str, restored.purged))}."
-        )
-    if deleted := restored.deleted_organizations:
-        lines.append(
-            f"{'Would delete' if would else 'Deleted'} again "
-            f"{_count(len(deleted), 'organisation')} deleted since the restore point: "
-            f"{', '.join(map(str, deleted))}."
         )
     if missing := restored.missing:
         shown = ", ".join(map(str, missing[:MISSING_SHOWN]))

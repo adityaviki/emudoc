@@ -19,7 +19,7 @@ from tests.test_audit import rows
 from tests.test_auth import PASSWORD, me
 from tests.test_logs import logged  # noqa: F401 (a fixture)
 from tests.test_operator import ELSEWHERE, HERE, browser, operator_on
-from tests.test_organizations import switch, team  # noqa: F401  (a fixture)
+from tests.test_organizations import team  # noqa: F401  (a fixture)
 
 SUBJECT = "Emudoc's support opened your account"
 
@@ -45,10 +45,8 @@ def support_rows(session, org_id: int, *names: str) -> list[tuple[str, int | Non
 @pytest.fixture
 def crew(request, client, session):
     """Ada, owner of an organisation with a project, signed in on `client`; Bob its member on a
-    browser of his own, working in it (a session starts in the organisation joined first, his
-    own); and Olga, an operator on this machine, who belongs to none of it."""
+    browser of his own; and Olga, an operator on this machine, who belongs to none of it."""
     ada, bob, bob_client = request.getfixturevalue("team")
-    switch(bob_client, ada["organization"]["id"])
     project = create_project(client)
     olga = operator_on(client.app, session)
     return ada, bob, bob_client, project, olga
@@ -70,7 +68,7 @@ def test_a_member_lets_support_in_for_a_while_and_takes_it_back(client, session,
     # It is the member's for the organisation they work in: Ada sees none of his.
     assert me(client).json()["support_until"] is None
     exported = bob_client.get("/api/auth/account/export").json()["organizations"]
-    assert [m["support_until"] is not None for m in exported] == [False, True]
+    assert [m["support_until"] is not None for m in exported] == [True]
 
     taken = bob_client.delete("/api/auth/support-access")
     assert taken.status_code == 200 and taken.json()["support_until"] is None
@@ -91,7 +89,9 @@ def test_an_operator_views_the_member_read_only_as_the_member_sees_it(
     client, session, services, crew, mailer, sample_pdf
 ):
     ada, bob, bob_client, project, olga = crew
-    org_id, own_org = ada["organization"]["id"], bob["organization"]["id"]
+    org_id = ada["organization"]["id"]
+    # Olga's own organisation, from the operator's sign-up, holds a notice of Bob's too.
+    own_org = me(olga).json()["organization"]["id"]
     olga_id = session.scalar(select(User.id).where(User.email == "olga@example.com"))
     pdf = upload(client, project["id"], sample_pdf)["documents"][0]
     process_document(pdf["id"], services)
@@ -128,12 +128,11 @@ def test_an_operator_views_the_member_read_only_as_the_member_sees_it(
     # Her session is Bob's account in Ada's organisation, and that organisation alone.
     seen = me(olga).json()
     assert (seen["id"], seen["organization"]["id"], seen["role"]) == (bob["id"], org_id, "member")
-    assert [o["id"] for o in seen["organizations"]] == [org_id]
     ends = datetime.fromisoformat(seen["support_view"]["ends_at"])
     assert ends - datetime.now(UTC) <= SUPPORT_SESSION
     assert [p["id"] for p in olga.get("/api/projects").json()] == [project["id"]]
     notices = olga.get("/api/notifications").json()["notifications"]
-    assert [n["org_id"] for n in notices] == [org_id]
+    assert len(notices) == 1
     assert me(bob_client).json()["support_view"] is None
 
     # Nothing changes through it, and the member's data is not support's to download.

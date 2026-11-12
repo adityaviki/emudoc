@@ -5,7 +5,7 @@ and the types to narrow by."""
 
 from sqlalchemy import text
 
-from app.api.deps import get_account
+from app.api.deps import get_person
 from app.apikeys import ELSEWHERE
 from app.document_filter import BACKWARDS
 from app.indexing.pipeline import process_document
@@ -108,7 +108,7 @@ def test_a_search_finds_what_every_project_the_member_sees_holds_in_one_ranking(
     assert searched(client, projects=[archive["id"]]).status_code == 404
 
     # The page's alone: a program searches one project through the versioned API.
-    client.app.dependency_overrides.pop(get_account)
+    client.app.dependency_overrides.pop(get_person)
     api = program(client, make_key(client)["key"])
     refused = api.get("/api/search", params={"q": "delivery"})
     assert (refused.status_code, refused.json()["detail"]) == (403, ELSEWHERE)

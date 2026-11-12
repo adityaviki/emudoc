@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { NotificationItem, NotificationPage } from './api.ts'
-import { ago, arrived, linkedOrganization, pageRead, unreadLabel } from './notifications.ts'
+import { ago, arrived, pageRead, unreadLabel } from './notifications.ts'
 
 const item = (id: number, read_at: string | null = null): NotificationItem => ({
   id,
@@ -8,8 +8,6 @@ const item = (id: number, read_at: string | null = null): NotificationItem => ({
   title: `Notice ${id}`,
   body: 'Globex has used 80 of the 100 questions it may ask on Emudoc in October, 80 %.',
   link: '/organization/usage',
-  org_id: 3,
-  organization: 'Globex',
   created_at: '2026-10-20T10:00:00Z',
   read_at,
 })
@@ -51,19 +49,5 @@ describe('the notices that arrived', () => {
   it('are the unread ones newer than the newest seen, oldest first', () => {
     expect(arrived([item(5), item(4, 'read elsewhere'), item(3), item(2)], 2).map((notice) => notice.id)).toEqual([3, 5])
     expect(arrived([item(2)], 2)).toEqual([])
-  })
-})
-
-describe('the organisation a link names', () => {
-  it('is read from the query, and the link kept without it', () => {
-    expect(linkedOrganization('/organization/usage', '?organization=3', '')).toEqual({ id: 3, rest: '/organization/usage' })
-    expect(linkedOrganization('/organization', '?billing=back&organization=7', '#plan')).toEqual({
-      id: 7,
-      rest: '/organization?billing=back#plan',
-    })
-  })
-
-  it('is none when the link names none', () => {
-    expect(linkedOrganization('/projects/12', '?chat=4', '')).toBeNull()
   })
 })
