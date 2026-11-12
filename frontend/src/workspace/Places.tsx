@@ -43,10 +43,10 @@ const segment = (pressed: boolean) =>
   `flex size-6.5 items-center justify-center rounded-[5px] transition ${pressed ? 'bg-surface text-ink shadow-xs' : 'text-muted hover:text-ink'}`
 
 /**
- * Above the library's filter by name: what it shows, each place an icon pressed while it is shown (all its files, the
+ * Above the library's search box: what it shows, each place an icon pressed while it is shown (all its files, the
  * member's favourites or recent ones), and in the same group the way to the project's trash, a page of its own that is
- * never pressed here; then the order it lists them in, and as a list or a grid. A name filter narrows the place shown,
- * all the files of the project from a folder.
+ * never pressed here; then the order it lists them in, and as a list or a grid. A search matches the names of the place
+ * shown, all the files of the project from a folder.
  */
 export function PlaceBar(props: PlaceBarProps) {
   const { place, arrangement, layout } = props

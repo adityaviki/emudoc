@@ -99,7 +99,7 @@ template's fields first, under the fields' names and of their types, then any ot
 before; a long document's first part names its kind, and the parts after it are shown that
 template alone. The document takes the template's kind, and its stage says which of the fields
 every document of the kind states were not found in it. The library's "Extraction templates"
-button, beside the filter by name, lists them with their fields; whoever may change the project makes a
+button, above the project's search box, lists them with their fields; whoever may change the project makes a
 template, customises a built-in one into the project's own, changes and deletes them, each a row
 of the audit log. After a change they have the template's documents read again from their
 summaries and facts ("Read them again", `POST /api/projects/{id}/templates/read-again`): those
@@ -596,17 +596,18 @@ all the files in their folders, or instead, across all of them, the member's own
 (starred from a file's menu) and **recent** documents (the last 20 of the project they opened in
 the middle pane, `backend/app/recents.py`), the icon of the place shown pressed, and in the same
 group the way to the project's trash. The path above them is always there, "All files" alone at
-the top, so that choosing a place moves nothing. The box under them **filters the files by name** (`name` on the
-listing: the letters anywhere in a file's name, in any case, from every folder of the project,
-each file shown with its folder, or narrowing the favourites or the recent ones). The project is
-searched from the **header's search box**, its hits in a Search tab at the front of the middle
-pane's tabs, beside the open documents, each opening its document at the passage in a tab of its
-own; it is narrowed by the documents' types, a span of the documents' own dates, review states and a folder with its
-subfolders (its "Filter" dialog, each part a chip that takes it off; the search route takes them
+the top, so that choosing a place moves nothing. The box under them **searches the project** in
+the library's place: first the **files whose names hold the words** (`name` on the listing: the
+letters anywhere in a file's name, in any case, from every folder of the project, each file shown
+with its folder, or narrowing the favourites or the recent ones), then below them the
+**passages** the words find, by their exact words and by their meaning, each opening its
+document at the passage in a tab of the middle pane while the search stays in the library beside
+it. The passages are narrowed by the documents' types, a span of the documents' own dates, review states and a folder with its
+subfolders (their "Filter" dialog, each part a chip that takes it off; the search route takes them
 as query parameters, `SearchIn`, and `backend/app/document_filter.py` resolves the documents' ids
 before the ranking); "Search within these" makes the words searched one of those parts, so that
-the next words search only the documents with a passage holding every one of them. Outside a
-project the header's box searches **every project** the member sees at
+the next words search only the documents with a passage holding every one of them. The projects
+page's box searches **every project** the member sees at
 once (`/search`, `backend/app/api/search.py`, one ranking over all their passages, each hit
 naming its project and opening its document at the passage), narrowed to some of those projects,
 to types and to a span of dates; a private project is searched by those who see it alone, and

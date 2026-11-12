@@ -12,12 +12,15 @@ import { Button, Checkbox, EmptyState, FIELD, IconButton, Loading, Notice } from
 import { DUPLICATES_KEY, duplicatesWords } from '../details.ts'
 import { formatDate } from '../format.ts'
 import { EXPORT_QUERY } from '../exports.ts'
+import { SearchBox } from '../components/SearchBox.tsx'
+import { EMPTY_SEARCH_ALL, searchAllUrl } from '../search.ts'
 import { describeTrashedProject, projectPurgeQuestion, TRASHED_PROJECTS_KEY } from '../trash.ts'
 import { ProjectAccessForm } from './ProjectAccessForm.tsx'
 import { ProjectExports } from './ProjectExports.tsx'
 
 export function ProjectsPage() {
   const me = useMe()
+  const navigate = useNavigate()
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects })
   const [creating, setCreating] = useState(false)
   // The project whose access the form above the projects shows, by id.
@@ -50,6 +53,19 @@ export function ProjectsPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {(projects.data?.length ?? 0) > 0 && (
+              // The search of every project the member sees, which its own page runs once Enter gives the words.
+              <div role="search">
+                <SearchBox
+                  label="Search all projects"
+                  placeholder="Search all projects"
+                  query=""
+                  live={false}
+                  onSearch={(q) => navigate(searchAllUrl({ q, filter: EMPTY_SEARCH_ALL }))}
+                  className="w-60"
+                />
+              </div>
+            )}
             {changes && !creating && (
               <Button variant="primary" icon={<Plus className="size-4" />} onClick={create}>
                 New project

@@ -38,7 +38,7 @@ import {
   X,
 } from 'lucide-react'
 import { createElement, Fragment, useEffect, useRef, useState } from 'react'
-import type { DragEvent, FocusEvent, KeyboardEvent, MouseEvent, RefObject } from 'react'
+import type { DragEvent, FocusEvent, KeyboardEvent, MouseEvent, ReactNode, RefObject } from 'react'
 import {
   ACCEPTED_EXTENSIONS,
   ACCEPTED_TYPES_LABEL,
@@ -64,17 +64,21 @@ import { useFolders, useLocalStorage, useOnline, useStatus } from '../hooks.ts'
 import type { FolderTree } from '../hooks.ts'
 import { partlyIndexedWords, restHeld, unfinishedStages } from '../indexing.ts'
 import {
+  EMPTY_FILTER,
   SORT_NAMES,
   allNamed,
   emptyPlaceWords,
   gridMove,
   hasThumbnail,
+  narrows,
+  noNameWords,
   placeName,
   placeOf,
 } from '../library.ts'
 import type { LibraryLayout } from '../library.ts'
 import { stateMoves } from '../reviews.ts'
 import { SUMMARY_QUESTION, comparisonQuestion } from '../scopes.ts'
+import { LIBRARY_SEARCH, librarySearchPlaceholder } from '../search.ts'
 import { MAX_CHOSEN } from '../selection.ts'
 import { askHeld } from '../status.ts'
 import { VERSION_EXTENSIONS } from '../versions.ts'
@@ -99,6 +103,7 @@ import type { LibraryMutations } from './mutations.ts'
 import { useDocumentMarks, useFavorites } from './organizing.ts'
 import { PlaceBar, Seen } from './Places.tsx'
 import { ReviewMark, ReviewsView } from './Reviews.tsx'
+import { SearchResults } from './SearchResults.tsx'
 import { useWorkspace } from './state.ts'
 import { TemplatesView } from './Templates.tsx'
 import { TrashView } from './Trash.tsx'
@@ -170,14 +175,14 @@ const isLayout = (value: unknown): value is LibraryLayout => value === 'list' ||
 const TILE_WIDTH = 128
 
 /**
- * The file manager: a folder's contents, with search over the whole project or the folder. A
- * viewer reads and searches it; uploading, folders, renaming, moving, deleting and indexing
- * again are offered only to a role the server lets change them.
+ * The file manager: a folder's contents, and the project's search in their place, the files whose names hold its words
+ * first and the passages it finds below them. A viewer reads and searches it; uploading, folders, renaming, moving,
+ * deleting and indexing again are offered only to a role the server lets change them.
  */
 export function Library() {
   const workspace = useWorkspace()
   const { tree, project } = workspace
-  const { folderId, name } = workspace.url.library
+  const { folderId, search } = workspace.url.library
   const folders = useFolders(project.id)
   const mutations = useLibraryMutations()
   const byPlan = mutations.rejected.find((file) => file.limit !== null)
@@ -222,7 +227,7 @@ export function Library() {
   const { followed } = mutations
 
   // The member's favourites or recent ones, each across the project's folders, or the files whose
-  // names hold what the filter was given, every folder's or those of one of those; else the folder's tree.
+  // names hold the search's words, every folder's or those of one of those; else the folder's tree.
   const place: ListingPlace = placeOf(workspace.url.library) ?? { folder: folderId }
   const flat = !('folder' in place)
   const [arrangement, setArrangement] = useLocalStorage<Arrangement>(ARRANGEMENT_KEY, BY_NAME, isArrangement)
@@ -267,8 +272,14 @@ export function Library() {
   if (workspace.url.library.draftTemplates && drafts) return <DraftTemplatesView />
   if (workspace.url.library.mail && mail) return <MailboxView />
   if (workspace.url.library.connectors && connectors) return <ConnectorsView />
-  // The files of the whole project a name filter finds are no place of their own: "All files", pressed, says where they are.
+  // The files of the whole project a search finds are no place of their own: "All files", pressed, says where they are.
   const placeLabel = flat && !allNamed(place) ? placeName(place) : null
+  const searchResults = search && (
+    // Passages that break leave the files above them, and the box.
+    <ErrorBoundary part="library" resetKey={JSON.stringify(search)}>
+      <SearchResults search={search} />
+    </ErrorBoundary>
+  )
   return (
     <div
       data-tour="library"
@@ -293,14 +304,14 @@ export function Library() {
         {/* Always there, "All files" alone at the root, so that choosing a place or a folder moves nothing under it. */}
         <div className="flex h-11 items-center gap-1 px-3">
           <Breadcrumb
-            folderId={allNamed(place) ? null : folderId}
+            folderId={search || allNamed(place) ? null : folderId}
             placeLabel={placeLabel}
             mutations={mutations}
             dragging={dragging}
             onUpload={uploads ? uploadDropped : null}
           />
         </div>
-        {/* The library's buttons, then what it shows and how, then the filter by name over the files it narrows. */}
+        {/* The library's buttons, then what it shows and how, then the project's search. */}
         <div className="flex flex-col gap-2 px-3 pb-2.5">
         {/* With every feature on, its buttons take a second line rather than run under the pane beside it; none, no line. */}
         <div className="flex flex-wrap items-center gap-2 empty:hidden">
@@ -430,7 +441,18 @@ export function Library() {
           onPlace={(chosen) => ('folder' in chosen ? workspace.goToFolder(null) : workspace.showPlace(chosen))}
           onTrash={workspace.showTrash}
         />
-        <SearchBox label="Filter by name" placeholder="Filter by name" query={name ?? ''} onSearch={workspace.filterByName} className="w-full" />
+        {/* A search begun is a step of the history, its words changed as they rest are not. */}
+        <div role="search">
+          <SearchBox
+            id={LIBRARY_SEARCH}
+            tour="search"
+            label="Search the project"
+            placeholder={librarySearchPlaceholder(search != null && narrows(search.filter))}
+            query={search?.q ?? ''}
+            onSearch={(q) => workspace.showSearch({ q, filter: search?.filter ?? EMPTY_FILTER }, { replace: search != null })}
+            className="w-full"
+          />
+        </div>
         </div>
       </div>
 
@@ -547,34 +569,41 @@ export function Library() {
         )}
       </div>
 
-      {/* A folder or a filter that breaks leaves the path and the filter's box, from which another opens. */}
+      {/* A folder or a search that breaks leaves the path and the search's box, from which another opens. */}
       <ErrorBoundary part="library" resetKey={libraryPlace(workspace.url.library)}>
-        <Listing
-          key={`${placeKey(place)}:${nameOf(place) ?? ''}:${layout}`}
-          place={place}
-          arrangement={arrangement}
-          layout={layout}
-          creating={creating}
-          onCreatingChange={setCreating}
-          mutations={mutations}
-          changes={changes}
-          reviews={templates}
-          dragging={dragging}
-          onDragChange={(payload) => {
-            dragging.current = payload
-          }}
-          onUploadDropped={uploadDropped}
-          onPickFiles={() => fileInput.current?.click()}
-          onPickFolder={() => folderInput.current?.click()}
-          onPickVersion={
-            uploads
-              ? (document) => {
-                  versionOf.current = document
-                  versionInput.current?.click()
-                }
-              : undefined
-          }
-        />
+        {search && !search.q ? (
+          // A search without words, narrowed already: what narrows it, waiting for the words.
+          <div className="min-h-0 flex-1 overflow-y-auto p-2">{searchResults}</div>
+        ) : (
+          <Listing
+            key={`${placeKey(place)}:${nameOf(place) ?? ''}:${layout}`}
+            place={place}
+            heading={search ? (allNamed(place) ? 'Files' : placeName(place)) : undefined}
+            after={searchResults || undefined}
+            arrangement={arrangement}
+            layout={layout}
+            creating={creating}
+            onCreatingChange={setCreating}
+            mutations={mutations}
+            changes={changes}
+            reviews={templates}
+            dragging={dragging}
+            onDragChange={(payload) => {
+              dragging.current = payload
+            }}
+            onUploadDropped={uploadDropped}
+            onPickFiles={() => fileInput.current?.click()}
+            onPickFolder={() => folderInput.current?.click()}
+            onPickVersion={
+              uploads
+                ? (document) => {
+                    versionOf.current = document
+                    versionInput.current?.click()
+                  }
+                : undefined
+            }
+          />
+        )}
       </ErrorBoundary>
 
       {uploads && (
@@ -762,6 +791,9 @@ interface ListingProps {
   onPickFolder: () => void
   /** Choose a file to give the document as its new version; none where the library takes no uploads. */
   onPickVersion?: (document: Document) => void
+  /** A search's: what the files whose names hold its words are headed by, and its passages below them, in one scroller. */
+  heading?: string
+  after?: ReactNode
 }
 
 /** The folders and files in one place, with selection, renaming, drag and drop and a menu. */
@@ -780,6 +812,8 @@ function Listing({
   onPickFiles,
   onPickFolder,
   onPickVersion,
+  heading,
+  after,
 }: ListingProps) {
   const workspace = useWorkspace()
   const queryClient = useQueryClient()
@@ -1314,8 +1348,12 @@ function Listing({
   }
 
   const empty = lines.length === 0 && !creating
+  const name = nameOf(place)
   const emptyState = empty &&
-    (flat ? (
+    // A search's files say so in a line, leaving the room to its passages below.
+    (name != null && after !== undefined ? (
+      <p className="px-2 py-1.5 text-[13px] text-muted">{noNameWords({ ...place, name })}</p>
+    ) : flat ? (
       <EmptyState icon={<FolderIcon />} title={emptyPlaceWords(place).title}>
         {emptyPlaceWords(place).body}
       </EmptyState>
@@ -1439,6 +1477,7 @@ function Listing({
   }
   // What the items selected together offer, from the bar under the listing as from the menu of one of them.
   const selectionMenu = liveSelected.size ? itemsMenu(selectedItems) : []
+  const treeRows = lines.map((line) => (isEntry(line) ? <Row key={itemKey(line.item)} {...propsOf(line.item, line.depth)} /> : gapOf(line)))
   // The grid's rows, each `columns` tiles, a gap after a place's files on a row of its own.
   const gridRows: Line[][] = []
   for (const line of lines) {
@@ -1450,6 +1489,7 @@ function Listing({
     <>
       {grid ? (
         <div ref={scroller} {...background} className="min-h-0 flex-1 overflow-y-auto p-2">
+          {heading && <ListingHeading>{heading}</ListingHeading>}
           {emptyState}
           {ghost}
           {lines.length > 0 && (
@@ -1473,13 +1513,27 @@ function Listing({
             </div>
           )}
           {menu.element}
+          {after}
         </div>
-      ) : (
+      ) : after === undefined ? (
         <div {...keyboard} {...background} role="tree" className="group/list min-h-0 flex-1 overflow-y-auto p-2 outline-none">
           {emptyState}
           {ghost}
-          {lines.map((line) => (isEntry(line) ? <Row key={itemKey(line.item)} {...propsOf(line.item, line.depth)} /> : gapOf(line)))}
+          {treeRows}
           {menu.element}
+        </div>
+      ) : (
+        // A search's files and its passages scroll together; the tree holds its rows alone.
+        <div {...background} className="min-h-0 flex-1 overflow-y-auto p-2">
+          {heading && <ListingHeading>{heading}</ListingHeading>}
+          {emptyState}
+          {lines.length > 0 && (
+            <div {...keyboard} role="tree" className="group/list outline-none">
+              {treeRows}
+            </div>
+          )}
+          {menu.element}
+          {after}
         </div>
       )}
       {/* Under the listing, so that it shifts no item the next click aims at; its Actions the one button that stands out. */}
@@ -1523,6 +1577,11 @@ function Listing({
       )}
     </>
   )
+}
+
+/** The heading of a search's files, above them as the passages' is above theirs. */
+function ListingHeading({ children }: { children: string }) {
+  return <h2 className="px-2 pb-1.5 text-xs font-semibold text-muted">{children}</h2>
 }
 
 interface MoveDialogProps {

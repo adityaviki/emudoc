@@ -1,6 +1,6 @@
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { UseQueryResult } from '@tanstack/react-query'
-import { FileText, Library as LibraryIcon, MessageSquare, Search } from 'lucide-react'
+import { FileText, Library as LibraryIcon, MessageSquare } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { api, auth } from '../api.ts'
@@ -19,24 +19,23 @@ import { documentQuery, isGone, placeListingsKey } from '../workspace/listing.ts
 import { WorkspaceShortcuts } from '../workspace/Shortcuts.tsx'
 import { SplitPanes } from '../workspace/SplitPane.tsx'
 import type { Pane as SplitPane } from '../workspace/SplitPane.tsx'
-import { SearchTab } from '../workspace/SearchTab.tsx'
-import { DOCUMENT_PANEL, SEARCH_TAB, TAB_ID, TabStrip } from '../workspace/TabStrip.tsx'
+import { DOCUMENT_PANEL, TAB_ID, TabStrip } from '../workspace/TabStrip.tsx'
 import { SPLIT_KEY, WorkspaceContext, isTabsStore, moved, pinned, tabsStorageKey, useWorkspace } from '../workspace/state.ts'
 import type { OpenTab, Pane, TabsStore, Workspace as WorkspaceState } from '../workspace/state.ts'
-import { buildWorkspaceUrl, sameFocus, searching, useWorkspaceUrl } from '../workspace/url.ts'
+import { buildWorkspaceUrl, sameFocus, useWorkspaceUrl, withSearch } from '../workspace/url.ts'
 import type { Go, WorkspaceUrl } from '../workspace/url.ts'
 
 const EMPTY_TABS: TabsStore = { v: 1, open: [] }
 
 /**
- * A project's panes: the library on the left, the agent on the right, and while a document or
- * the search is open, the tabs of both between them.
+ * A project's panes: the library on the left, with the project's search, the agent on the right, and while a document is
+ * open, the documents' tabs between them.
  */
 export function Workspace() {
   const [url, go] = useWorkspaceUrl()
   const navigate = useNavigate()
 
-  // Old URL shapes (/ask, a search without /search) are rewritten to the current one.
+  // Old URL shapes (/ask, the search tab's /search, a filter by name) are rewritten to the current one.
   useEffect(() => {
     if (url && !url.canonical) navigate(buildWorkspaceUrl(url), { replace: true })
   }, [url, navigate])
@@ -59,14 +58,6 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
 
   const activeDocumentId = url.document?.id ?? null
   const activeFocus = url.document?.focus ?? null
-  const searchShown = searching(url)
-  // A search run from the header shows its tab on a narrow screen too, where one pane fits.
-  const shownWords = searchShown ? (url.search?.q ?? '') : null
-  const [lastWords, setLastWords] = useState(shownWords)
-  if (shownWords !== lastWords) {
-    setLastWords(shownWords)
-    if (shownWords != null) setMobilePane('document')
-  }
 
   // The URL is the active tab: make sure it is in the open list, and remember where it points
   // so that coming back to it restores the highlight.
@@ -162,17 +153,9 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
         if (activeDocumentId != null) go({ document: { id: activeDocumentId, focus: null } }, { replace: true })
       },
       goToFolder,
-      filterByName(name) {
-        go({ library: { ...url.library, name: name.trim() || undefined } }, { replace: true })
-      },
       showSearch(search, options) {
-        setMobilePane('document')
-        go({ document: null, search: { ...search, q: search.q.trim() } }, options)
-      },
-      closeSearch() {
-        // Shown, it gives its place to the first document's tab, the one beside it; else the document stays.
-        const next = activeDocumentId == null ? openTabs[0] : undefined
-        go({ search: null, ...(next ? { document: { id: next.id, focus: next.focus ?? null } } : {}) }, { replace: true })
+        setMobilePane('library')
+        go({ library: withSearch(url.library, search) }, options)
       },
       showTrash() {
         setMobilePane('library')
@@ -267,11 +250,8 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
     )
   }
 
-  const hasDocument = activeDocumentId != null
-  // The middle pane holds the documents' tabs and the search's; it goes away with the last of them, and a narrow screen
-  // then shows the library.
-  const hasMiddle = hasDocument || url.search != null
-  const middleLabel = searchShown ? 'Search' : 'Document'
+  // The middle pane holds the documents' tabs; it goes away with the last of them, and a narrow screen then shows the library.
+  const hasMiddle = activeDocumentId != null
   const shown: Pane = mobilePane === 'document' && !hasMiddle ? 'library' : mobilePane
   // Beside a document the library is a sidebar; alone with the agent it is the main view.
   // Each pane breaks alone, and starts afresh once it is moved elsewhere (src/failures.ts).
@@ -291,10 +271,10 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
       ? [
           {
             key: 'document',
-            label: middleLabel,
+            label: 'Document',
             node: (
-              <ErrorBoundary part="document" resetKey={activeDocumentId ?? SEARCH_TAB}>
-                <MiddlePane documentId={activeDocumentId} />
+              <ErrorBoundary part="document" resetKey={activeDocumentId}>
+                {activeDocumentId != null && <MiddlePane documentId={activeDocumentId} />}
               </ErrorBoundary>
             ),
             share: 45,
@@ -330,7 +310,7 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
             onChange={setMobilePane}
             options={[
               { value: 'library', label: 'Library', icon: LibraryIcon },
-              ...(hasMiddle ? [{ value: 'document' as const, label: middleLabel, icon: searchShown ? Search : FileText }] : []),
+              ...(hasMiddle ? [{ value: 'document' as const, label: 'Document', icon: FileText }] : []),
               { value: 'chat', label: 'Chat', icon: MessageSquare },
             ]}
           />
@@ -382,22 +362,12 @@ function tabsCame(results: UseQueryResult<Document>[]) {
   }
 }
 
-/** The middle pane: the tab strip with the search or the active document below it. */
-function MiddlePane({ documentId }: { documentId: number | null }) {
-  const workspace = useWorkspace()
+/** The middle pane: the tab strip with the active document below it. */
+function MiddlePane({ documentId }: { documentId: number }) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-page">
       <TabStrip />
-      {documentId == null ? (
-        <div id={DOCUMENT_PANEL} role="tabpanel" aria-labelledby={SEARCH_TAB} className="flex min-h-0 flex-1 flex-col">
-          {/* A search that breaks leaves the tabs and the header's box, from which another runs. */}
-          <ErrorBoundary part="document" resetKey={JSON.stringify(workspace.url.search)}>
-            {workspace.url.search && <SearchTab search={workspace.url.search} />}
-          </ErrorBoundary>
-        </div>
-      ) : (
-        <DocumentPanel documentId={documentId} />
-      )}
+      <DocumentPanel documentId={documentId} />
     </div>
   )
 }

@@ -1,6 +1,6 @@
-// The header's search box: in a project the project's search, shown in a tab beside its documents (workspace/url.ts holds
-// its address), elsewhere the search of every project a member sees (backend/app/api/search.py), a page of its own at
-// /search beside the projects: its address, what narrows it in words, and where a hit opens.
+// The searches: a project's, in its library (workspace/SearchResults.tsx, workspace/url.ts holds its address), its box's
+// words; and the search of every project a member sees (backend/app/api/search.py), a page of its own at /search beside
+// the projects: its address, what narrows it in words, and where a hit opens.
 
 import type { Project, SearchAllFilter, SearchAllHit } from './api.ts'
 import { EMPTY_FILTER, datesProblem, filterParts, listed } from './library.ts'
@@ -8,8 +8,8 @@ import { buildWorkspaceUrl } from './workspace/url.ts'
 
 export const SEARCH_PATH = '/search'
 
-/** The header's search box, which the search's "Search within these" gives the focus to. */
-export const HEADER_SEARCH = 'header-search'
+/** The library's search box, which the search's "Search within these" gives the focus to. */
+export const LIBRARY_SEARCH = 'library-search'
 
 export const EMPTY_SEARCH_ALL: SearchAllFilter = { projects: [], types: [], after: null, before: null }
 
@@ -94,20 +94,13 @@ export function hitUrl(hit: Pick<SearchAllHit, 'project_id' | 'document_id' | 'p
     projectId: hit.project_id,
     library: { folderId: null },
     document: { id: hit.document_id, focus: { passage: hit.passage_id } },
-    search: null,
     chatId: null,
     about: null,
   })
 }
 
-/** What the project's search tab is called: its words after "Search", or that alone while it has none. */
-export const searchTabName = (q: string) => (q ? `Search: ${q}` : 'Search')
-
 /**
- * What the header's box searches, as its name and its placeholder say: in a project the project, or within what the search
- * tab's filter narrows it to; elsewhere every project.
+ * What the library's box searches, as its placeholder says: the files' names and the documents' text, or, while the
+ * search's filter narrows its passages, within those documents.
  */
-export function headerSearchWords(project: { name: string; narrowed: boolean } | null): { label: string; placeholder: string } {
-  if (!project) return { label: 'Search all projects', placeholder: 'Search all projects' }
-  return { label: 'Search the project', placeholder: project.narrowed ? 'Search within these documents' : `Search ${project.name}` }
-}
+export const librarySearchPlaceholder = (narrowed: boolean) => (narrowed ? 'Search within these documents' : 'Search names and text')

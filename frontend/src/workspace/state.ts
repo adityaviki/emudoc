@@ -95,12 +95,11 @@ export interface Workspace {
   clearFocus(): void
   /** Shows a folder in the library; the open document stays where it is. */
   goToFolder(folderId: number | null, options?: { replace?: boolean }): void
-  /** Narrows what the library shows to the files whose names hold these letters, every folder's from a folder; '' for all. */
-  filterByName(name: string): void
-  /** Runs a search in the search tab, what narrows it given whole, and brings the tab to the front. */
+  /**
+   * Shows a search in the library, what narrows it given whole: the files whose names hold its words, then the passages it
+   * finds; the place it was run from stays, to go back to once it has no words and nothing narrows it.
+   */
   showSearch(search: WorkspaceSearch, options?: { replace?: boolean }): void
-  /** Closes the search tab, the next document's tab taking its place when it was the one shown. */
-  closeSearch(): void
   /** Shows the project's trash in the library; going to a folder leaves it. */
   showTrash(): void
   /** Shows the project's extraction templates in the library, likewise. */

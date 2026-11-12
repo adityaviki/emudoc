@@ -6,7 +6,7 @@ interface SearchBoxProps {
   query: string
   placeholder: string
   onSearch: (q: string) => void
-  /** Its name, where the page has more than one box: the header's search, the library's filter by name. */
+  /** Its name, which says what it searches: the project, or every project. */
   label?: string
   inputRef?: RefObject<HTMLInputElement | null>
   id?: string
