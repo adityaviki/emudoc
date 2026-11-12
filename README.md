@@ -541,7 +541,9 @@ the order they are dragged into, and closing the last one leaves
 the library and the agent side by side again. A tab pinned from its menu stays before the others,
 shows a pin in place of its cross, and stays open through "Close others" and "Close all". As more
 files open the tabs narrow together, each name and then its status dot giving way, down to the
-file's icon and its cross; past that the row of tabs scrolls.
+file's icon and its cross; past that the row of tabs scrolls. A tab closed with the mouse leaves
+the others as wide as they were until the mouse leaves the row, so the next tab's cross comes
+under it.
 
 Everything there works by the keyboard as well (WCAG 2.2 AA). The library is one stop of Tab:
 the arrows move through its rows, which a screen reader reads out by name and state (its star and,

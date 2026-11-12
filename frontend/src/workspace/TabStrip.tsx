@@ -18,7 +18,8 @@ import { closedByMenu, droppedAt, moved, useWorkspace } from './state.ts'
  * "Close all"; it closes by its menu's "Close", by Delete and by a middle click. The tabs share the
  * strip: each as wide as its name (up to a cap) while they fit, then narrower together as more
  * open, the name and then the status dot giving way, down to the icon and the close button, past
- * which the strip scrolls.
+ * which the strip scrolls. A tab the mouse closes leaves the others as wide as they were until it
+ * leaves the strip, so the next tab's close button comes under it.
  */
 export function TabStrip() {
   const workspace = useWorkspace()
@@ -31,6 +32,11 @@ export function TabStrip() {
   // documents' tabs before it), while that would move it.
   const dragged = useRef<number | null>(null)
   const [gap, setGap] = useState<number | null>(null)
+  // The tabs' widths by document when the mouse closed one, kept while it stays on the strip, so
+  // that they do not widen into the room left (Chrome's way); and the kind of pointer last pressed
+  // there, since a touch leaves nothing resting on the strip to wait for.
+  const [held, setHeld] = useState<ReadonlyMap<number, number> | null>(null)
+  const pointer = useRef('')
   // The tabs in the order the keys move through them.
   const order = openTabs.map((tab) => tab.id)
   const mac = onMac()
@@ -90,6 +96,14 @@ export function TabStrip() {
     workspace.closeTabs([id])
   }
 
+  // A close by the cross or a middle click.
+  function closeByPointer(id: number) {
+    if (pointer.current === 'mouse') {
+      setHeld(new Map(tabElements().map((tab) => [Number(tab.id.slice(TAB_ID.length)), tab.getBoundingClientRect().width])))
+    }
+    workspace.closeTabs([id])
+  }
+
   function onKeyDown(event: KeyboardEvent, id: number) {
     const step = tabMoveOf(event, mac)
     if (step != null) {
@@ -114,10 +128,14 @@ export function TabStrip() {
     }
   }
 
+  function tabElements(): HTMLElement[] {
+    return [...(strip.current?.querySelectorAll<HTMLElement>(`[id^="${TAB_ID}"]`) ?? [])]
+  }
+
   // The gap among the documents' tabs a point of the strip is nearest: before the first tab whose
   // middle is past it, else after the last.
   function gapAt(x: number): number {
-    const tabs = [...(strip.current?.querySelectorAll<HTMLElement>(`[id^="${TAB_ID}"]`) ?? [])]
+    const tabs = tabElements()
     const after = tabs.findIndex((tab) => {
       const box = tab.getBoundingClientRect()
       return x < box.left + box.width / 2
@@ -173,6 +191,10 @@ export function TabStrip() {
       onWheel={(event) => {
         event.currentTarget.scrollLeft += event.deltaY
       }}
+      onPointerDown={(event) => {
+        pointer.current = event.pointerType
+      }}
+      onPointerLeave={() => setHeld(null)}
       onDragOver={onDragOver}
       onDragLeave={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setGap(null)
@@ -187,6 +209,7 @@ export function TabStrip() {
         const Icon = kind?.icon ?? FileText
         // Where the dragged tab would drop: a line at this tab's left edge, or the last's right.
         const mark = gap === index ? DROP_BEFORE : gap === openTabs.length && index === openTabs.length - 1 ? DROP_AFTER : ''
+        const width = held?.get(tab.id)
         return (
           <div
             key={tab.id}
@@ -210,13 +233,14 @@ export function TabStrip() {
             onClick={() => workspace.openDocument(tab.id, tab.focus ?? null)}
             onKeyDown={(event) => onKeyDown(event, tab.id)}
             onAuxClick={(event) => {
-              if (event.button === 1) workspace.closeTabs([tab.id])
+              if (event.button === 1) closeByPointer(tab.id)
             }}
             // Middle-clicking would otherwise start the browser's autoscroll.
             onMouseDown={(event) => {
               if (event.button === 1) event.preventDefault()
             }}
             onContextMenu={(event) => document && tabMenu(event, document)}
+            style={width == null ? undefined : { flex: 'none', width }}
             className={`${base} relative cursor-pointer pr-1.5 ${selected ? active : inactive} ${mark}`}
           >
             <Icon className={`size-4 shrink-0 ${kind?.color ?? ''}`} />
@@ -245,7 +269,7 @@ export function TabStrip() {
                 title="Close tab"
                 onClick={(event) => {
                   event.stopPropagation()
-                  workspace.closeTabs([tab.id])
+                  closeByPointer(tab.id)
                 }}
                 className={`-mr-0.5 rounded p-0.5 text-muted transition hover:bg-line hover:text-ink ${selected ? '' : 'opacity-0 group-hover:opacity-100'}`}
               >
