@@ -33,6 +33,7 @@ from app.db import (
 )
 from app.indexing.pipeline import LOST_DATABASE, process_document
 from app.jobs import INDEX_DOCUMENT, claim, listen
+from app.languages import detect_language
 from app.main import create_app
 from app.maintenance import housekeeping, main, rebuild_embeddings, requeue_stale_embeddings
 from app.models import Document, Job, Organization, Project
@@ -84,8 +85,11 @@ def role_timeouts():
     # Late in the suite a full collection of its heap pauses the process for half a second or
     # more, past these limits: one between a request's statements would end its connection for
     # idling, which is not what a test here means. So the heap is collected first, and not again
-    # until the test is done.
+    # until the test is done. Likewise the language identifier, which the worker loads once, on
+    # its first detection, in a parse's writing transaction: a third of a second that the role's
+    # five minutes never notice, but past these limits in a process that has detected nothing yet.
     gc.collect()
+    detect_language(["Words enough to load the identifier."], ())
     gc.disable()
     try:
         yield
