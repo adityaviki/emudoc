@@ -205,9 +205,19 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(tabs).toHaveText(['price-list.csv, pinned'])
     await csvTab.getByTitle('Unpin tab').click()
     await expect(tabs).toHaveText(['price-list.csv'])
-    await csvTab.focus()
+    // Closed by its cross, a tab leaves the others as wide as they were while the mouse stays on
+    // the strip, so the next one's cross comes under it; they share the strip again once it leaves.
+    await page.getByRole('treeitem', { name: 'acme-service-contract.pdf' }).click()
+    await expect(tabs).toHaveText(['price-list.csv', 'acme-service-contract.pdf'])
+    await csvTab.hover()
+    await csvTab.getByTitle('Close tab').click()
+    await expect(tabs).toHaveText(['acme-service-contract.pdf'])
+    await expect(pdfTab).toHaveAttribute('style', /width/)
+    await page.mouse.move(0, 0)
+    await expect(pdfTab).not.toHaveAttribute('style', /width/)
+    await pdfTab.focus()
     await page.keyboard.press('Delete')
-    await expect(csvTab).toHaveCount(0)
+    await expect(pdfTab).toHaveCount(0)
     // A menu takes the keyboard to its first item, and Escape gives it back to its button.
     const account = page.getByRole('button', { name: 'AL, your account' })
     await account.click()

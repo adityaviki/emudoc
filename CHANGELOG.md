@@ -16,6 +16,9 @@ newest entry first.
 
 Members:
 
+- Closing tabs one after another with the mouse is easier: the tabs left keep their width while
+  the mouse stays on the row of tabs, so the next tab's cross comes under it, and they widen
+  again once the mouse moves away.
 - The tabs of open documents narrow as more open, instead of running off the side at once: each
   shows less of its name, then only the file's icon and its cross, and only past that does the
   row of tabs scroll. Pointing at a tab still shows its whole name.
