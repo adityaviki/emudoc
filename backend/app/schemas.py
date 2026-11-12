@@ -1770,6 +1770,68 @@ class DraftTemplatesOut(BaseModel):
     templates: list[DraftTemplateOut]
 
 
+# MY_FILE_KINDS and MY_FILE_SCANS in app/models.py.
+MyFileKind = Literal["docx", "xlsx"]
+MyFileScan = Literal["pending", "passed", "skipped", "flagged"]
+
+
+class MyFileVersionOut(_FromORM):
+    """A version of a file in My files (app/my_files.py): who made it (`by_model` for the agent's
+    writing), what changed, its malware scan, and its view, whose pages the page draws."""
+
+    number: int
+    size_bytes: int
+    by_model: bool
+    note: str
+    scan: MyFileScan
+    view_state: Literal["queued", "ready", "failed"] | None
+    view_page_sizes: list[list[float]]
+    view_error: str | None
+    created_at: dt.datetime
+
+
+class MyFileOut(BaseModel):
+    """A file of the member's My files as their list shows it: its name and kind, the document of
+    the library it was copied from while that is there to see, its newest version and how many
+    it has."""
+
+    id: int
+    project_id: int
+    name: str
+    kind: MyFileKind
+    origin_document_id: int | None
+    origin_name: str | None
+    latest: MyFileVersionOut
+    versions: int
+    created_at: dt.datetime
+    updated_at: dt.datetime
+
+
+class MyFileDetailOut(MyFileOut):
+    """A file with every version, the newest first."""
+
+    history: list[MyFileVersionOut]
+
+
+class MyFilesOut(BaseModel):
+    """The member's files in the project, the one changed last first, and how many it keeps."""
+
+    files: list[MyFileOut]
+    limit: int
+
+
+class MyFileRenameIn(BaseModel):
+    name: str = Field(min_length=1, max_length=300)
+
+
+class MyFileCopyIn(BaseModel):
+    """Where a file goes in the project's library: a new document in `folder_id` (the root for
+    none), or with `as_version` the next version of the document it was copied from."""
+
+    folder_id: int | None = None
+    as_version: bool = False
+
+
 # Enough to catch a typo; the verification email settles whether the address is real.
 EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
 # NIST SP 800-63B: a minimum length and no composition rules; the routes refuse a breached
@@ -3017,6 +3079,27 @@ class ExportedPin(BaseModel):
     pinned_at: dt.datetime
 
 
+class ExportedMyFileVersion(BaseModel):
+    number: int
+    size_bytes: int
+    by_model: bool
+    note: str
+    created_at: dt.datetime
+
+
+class ExportedMyFile(BaseModel):
+    """A file of the user's My files in a project (app/my_files.py), with its versions; the files
+    themselves are downloaded from the app."""
+
+    organization: str
+    project: str
+    name: str
+    kind: MyFileKind
+    created_at: dt.datetime
+    updated_at: dt.datetime
+    versions: list[ExportedMyFileVersion]
+
+
 class ExportedFavorite(BaseModel):
     """A document the user starred, which the library lists among their favourites."""
 
@@ -3099,6 +3182,7 @@ class AccountExport(BaseModel):
     share_links: list[ExportedShareLink] = []
     question_sets: list[ExportedQuestionSet] = []
     comments: list[ExportedOwnComment] = []
+    my_files: list[ExportedMyFile] = []
     notifications: list[ExportedNotification]
     usage: list[ExportedUsage]
     activity: list[ExportedActivity]

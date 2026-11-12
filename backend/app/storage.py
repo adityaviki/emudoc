@@ -92,7 +92,7 @@ DELETE_BATCH = 1000
 # The prefix every key sits under, for a sweep that walks the whole storage.
 ROOT_PREFIX = "orgs/"
 _RENDERED = re.compile(
-    r"orgs/\d+/projects/\d+/documents/\d+/(versions/\d+/)?(pages/\d+|thumbnail)\.png"
+    r"orgs/\d+/projects/\d+/(documents|my-files)/\d+/(versions/\d+/)?(pages/\d+|thumbnail)\.png"
 )
 _EXPORT = re.compile(r"orgs/\d+/projects/\d+/exports/\d+\.zip")
 # The policy of a file the app sends from its own origin, in place of the page's. A browser that
@@ -139,6 +139,18 @@ def version_key(org_id: int, project_id: int, document_id: int, number: int, suf
     """The key of a document's version after the first (app/versions.py), under the document's
     prefix; the first is the document's `original_key`."""
     return f"{document_prefix(org_id, project_id, document_id)}versions/{number}/original{suffix}"
+
+
+def my_file_prefix(org_id: int, project_id: int, file_id: int) -> str:
+    """The prefix everything a file of a member's My files owns sits under (app/my_files.py),
+    in its project's, so that the project's deletion takes it."""
+    return f"{project_prefix(org_id, project_id)}my-files/{file_id}/"
+
+
+def my_file_key(org_id: int, project_id: int, file_id: int, number: int, suffix: str) -> str:
+    """The key of a version of a file in My files, each in a folder of its own beside which its
+    view and its pages are kept."""
+    return f"{my_file_prefix(org_id, project_id, file_id)}versions/{number}/original{suffix}"
 
 
 def files_prefix(storage_key: str) -> str:

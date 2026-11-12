@@ -268,6 +268,21 @@ question is. The drafts are the project's: everyone who sees it reads them (`GET
 may change it asks for, edits and deletes them, each a row of the audit log by the draft's kind,
 never what it says; a draft is kept as long as a chat, from when it was last written or saved.
 
+Each member also keeps files of their own in a project, their My files (`backend/app/my_files.py`,
+`GET|POST /api/projects/{id}/my-files`): Word documents and Excel workbooks that only they see,
+never the project's other members, its search, facts, share links, the versioned API, webhooks or
+export, until they copy one into the project's library (`POST /api/my-files/{id}/copy`), where it is
+an upload like any, as a new document in a folder or, for a copy of a library's document, as that
+document's next version. A file keeps every version (`POST /api/my-files/{id}/versions`, refused
+when another was added meanwhile); each version a member uploads is scanned for malware before it
+is served and is shown as it looks by the converter's PDF, both by the worker, and each can be
+downloaded. A viewer keeps files too, since they change nothing the members share; copying one in
+needs the role that uploads. The bytes count toward the plan's storage, a member keeps
+200 files in a project, and the files go when the member leaves the organisation, their account
+is deleted or the project goes; deleting one is for good. The library's "My files" lists them and
+opens each with its pages and versions. My files are behind the flag `my_files` while they are
+rolled out; the agent writes and edits files there in a later change.
+
 A project's question sets ask its documents the same questions on their own
 (`backend/app/question_sets.py`, `GET|POST /api/projects/{id}/question-sets`, `PUT|DELETE
 /api/question-sets/{id}`): every day or one day a week at an hour of its maker's zone, once new

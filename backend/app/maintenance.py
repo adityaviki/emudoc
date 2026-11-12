@@ -196,6 +196,7 @@ from app.storage import (
     files_prefix,
     is_export,
     is_rendered,
+    my_file_prefix,
     project_prefix,
     storage_from_settings,
 )
@@ -231,9 +232,10 @@ UPLOAD_GRACE = timedelta(hours=1)
 CHECK_BATCH = 500
 # How many of a document's index jobs `jobs --document` shows, newest first.
 DOCUMENT_JOBS = 5
-# What a key belongs to: the document's prefix when it has one, else the project's. The match
-# is the owner's prefix, as `document_prefix` and `project_prefix` in app/storage.py build it.
-_OWNER = re.compile(r"orgs/\d+/projects/\d+/(?:documents/\d+/)?")
+# What a key belongs to: the document's or the file of My files' prefix when it has one, else the
+# project's. The match is the owner's prefix, as `document_prefix`, `my_file_prefix` and
+# `project_prefix` in app/storage.py build it.
+_OWNER = re.compile(r"orgs/\d+/projects/\d+/(?:(?:documents|my-files)/\d+/)?")
 # A size as `plan --set storage_bytes=` takes it: 500 GB, 1.5TB, 100000000.
 _SIZE = re.compile(r"([\d.,]+)\s*(bytes|kb|mb|gb|tb)?", re.IGNORECASE)
 _UNITS = {"bytes": 1, "kb": 1_000, "mb": 1_000_000, "gb": 1_000_000_000, "tb": 10**12}
@@ -246,6 +248,7 @@ _STORED_DIM = text(
 _PENDING = '{"status": "pending", "detail": ""}'
 _DOCUMENT_KEYS = text("SELECT storage_key FROM documents WHERE id = ANY(:ids)")
 _PROJECT_IDS = text("SELECT org_id, id FROM projects WHERE id = ANY(:ids)")
+_MY_FILE_IDS = text("SELECT org_id, project_id, id FROM my_files WHERE id = ANY(:ids)")
 _ANY_DOCUMENTS = text("SELECT EXISTS (SELECT 1 FROM documents)")
 
 
@@ -506,17 +509,24 @@ def _find_orphans(connection: Connection, pending: dict[str, _Owned], found: lis
 
 
 def _live_prefixes(connection: Connection, prefixes: set[str]) -> set[str]:
-    """Which of these document and project prefixes still have their row.
+    """Which of these prefixes of documents, files of My files (app/my_files.py) and projects
+    still have their row.
 
     A document's prefix is checked against the key its row holds, not only its id, so a row
     with the same id in another organisation or project does not vouch for it.
     """
     documents = {prefix for prefix in prefixes if "/documents/" in prefix}
-    projects = prefixes - documents
+    my_files = {prefix for prefix in prefixes if "/my-files/" in prefix}
+    projects = prefixes - documents - my_files
     live: set[str] = set()
     if documents:
         keys = connection.scalars(_DOCUMENT_KEYS, {"ids": [_last_id(p) for p in documents]})
         live.update(files_prefix(key) for key in keys)
+    if my_files:
+        rows = connection.execute(_MY_FILE_IDS, {"ids": [_last_id(p) for p in my_files]})
+        live.update(
+            my_file_prefix(org_id, project_id, file_id) for org_id, project_id, file_id in rows
+        )
     if projects:
         rows = connection.execute(_PROJECT_IDS, {"ids": [_last_id(p) for p in projects]})
         live.update(project_prefix(org_id, project_id) for org_id, project_id in rows)
@@ -711,21 +721,25 @@ def describe_sweep(deleted: int, freed: int, days: int) -> str:
 
 
 def describe_orphans(orphans: list[Orphan], verb: str) -> str:
-    """What a sweep found or removed of deleted documents and projects, for the log and the
-    command: "Removed 12 objects (4.2 MB) of 3 documents and 1 project that no longer exist"."""
+    """What a sweep found or removed of deleted documents, files of My files and projects, for the
+    log and the command: "Removed 12 objects (4.2 MB) of 3 documents and 1 project that no longer
+    exist"."""
     exist = "exists" if len(orphans) == 1 else "exist"
     return f"{verb} {_orphan_summary(orphans)} that no longer {exist}"
 
 
 def _orphan_summary(orphans: list[Orphan]) -> str:
     documents = sum("/documents/" in orphan.prefix for orphan in orphans)
-    owners = [(documents, "document"), (len(orphans) - documents, "project")]
+    my_files = sum("/my-files/" in orphan.prefix for orphan in orphans)
+    projects = len(orphans) - documents - my_files
+    owners = [
+        _count(documents, "document") if documents else "",
+        f"{_count(my_files, 'file')} of My files" if my_files else "",
+        _count(projects, "project") if projects else "",
+    ]
     objects = sum(orphan.objects for orphan in orphans)
     size = sum(orphan.size for orphan in orphans)
-    return (
-        f"{_count(objects, 'object')} ({_mb(size)} MB) of "
-        f"{' and '.join(_count(number, noun) for number, noun in owners if number)}"
-    )
+    return f"{_count(objects, 'object')} ({_mb(size)} MB) of {' and '.join(filter(None, owners))}"
 
 
 def usage_report(session: Session, slug: str, days: int) -> list[str]:

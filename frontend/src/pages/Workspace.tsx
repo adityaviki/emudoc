@@ -221,6 +221,14 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
         setMobilePane('library')
         go({ library: { folderId: null, connectors: true } })
       },
+      showMyFiles() {
+        setMobilePane('library')
+        go({ library: { folderId: null, myFiles: true } })
+      },
+      showMyFile(fileId) {
+        setMobilePane('library')
+        go({ library: { folderId: null, myFile: fileId } })
+      },
       showPlace(place) {
         setMobilePane('library')
         go({ library: { folderId: null, ...place } })

@@ -70,6 +70,12 @@ REVIEW_STATES = ("to_review", "approved", "disputed")
 # or Excel file by (app/conversion.py): being made, made, or not made for the reason
 # `view_error` gives; null for none (a type that is not converted, or one not asked for yet).
 VIEW_STATES = ("queued", "ready", "failed")
+# What a file of a member's My files is (app/my_files.py): a Word document or an Excel workbook,
+# by the extension its versions carry.
+MY_FILE_KINDS = ("docx", "xlsx")
+# Where a version of a file in My files stands with the malware scan: waiting for it, passed,
+# skipped (no scanner, or the agent wrote it), or flagged, which leaves it unserved for good.
+MY_FILE_SCANS = ("pending", "passed", "skipped", "flagged")
 # A document's details that a member may set in place of what its reading found (app/details.py):
 # its title, its kind, its date and the language its words are searched in, each kept through
 # every later reading until the member takes the reading's again.
@@ -132,6 +138,7 @@ JOB_KINDS = (
     "write_question_report",
     "send_digests",
     "convert_document",
+    "view_my_file",
 )
 JOB_STATUSES = ("queued", "running", "done", "failed")
 # Why an address is sent no notices (app/bounces.py): mail to it bounced for good, or its reader
@@ -359,6 +366,12 @@ AUDIT_ACTIONS = (
     "thread_resolved",
     "thread_reopened",
     "database_restored",
+    "my_file_added",
+    "my_file_version_added",
+    "my_file_renamed",
+    "my_file_deleted",
+    "my_file_downloaded",
+    "my_file_copied",
 )
 
 
@@ -2427,6 +2440,103 @@ class DraftTemplate(Base):
     updated_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class MyFile(Base):
+    """A file of a member's own in a project, among their My files (app/my_files.py): a Word
+    document or an Excel workbook they keep there, which the agent writes or edits for them, seen
+    by them alone until they copy it into the project's library.
+
+    It is no document: nothing indexes, searches or counts it as one, and none of what reads a
+    project's documents reaches it. Its versions (`MyFileVersion`) hold its files, the newest
+    being the file; it goes with its member's account, their leaving the organisation and the
+    project, and is deleted for good, never put in the trash.
+    """
+
+    __tablename__ = "my_files"
+    __table_args__ = (
+        _one_of("kind", MY_FILE_KINDS, "my_files"),
+        # A member's files in a project, newest first, as their list shows them.
+        Index("ix_my_files_owner", "project_id", "user_id", "updated_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # The tenant, as for every row a member reaches by its id.
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    # Whose it is, the one member who reaches it. Indexed for an account purged and a member
+    # leaving the organisation, whose files go with them.
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    # Its name with its extension, which its kind keeps.
+    name: Mapped[str] = mapped_column(String(500))
+    # One of MY_FILE_KINDS.
+    kind: Mapped[str] = mapped_column(String(10))
+    # The document of the project's library it was copied from to be edited, which copying it
+    # back may give a new version; null for one of its own, and once that document is gone.
+    origin_document_id: Mapped[int | None] = mapped_column(
+        ForeignKey("documents.id", ondelete="SET NULL"), index=True
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    # When its last version was added or it was renamed, which its member's list is ordered by.
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class MyFileVersion(Base):
+    """A version of a file in My files, as its member uploaded it or the agent wrote it, never
+    changed after: its file, its malware scan, and its view, the PDF the converter makes of it,
+    whose pages the page shows it by as a Word or Excel document's are (app/conversion.py)."""
+
+    __tablename__ = "my_file_versions"
+    __table_args__ = (
+        UniqueConstraint("file_id", "number"),
+        _one_of("scan", MY_FILE_SCANS, "my_file_versions"),
+        _one_of("view_state", VIEW_STATES, "my_file_versions"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    file_id: Mapped[int] = mapped_column(ForeignKey("my_files.id", ondelete="CASCADE"))
+    # 1 for the first, each next one more.
+    number: Mapped[int] = mapped_column(Integer)
+    storage_key: Mapped[str] = mapped_column(Text)
+    size_bytes: Mapped[int] = mapped_column(BigInteger)
+    sha256: Mapped[str] = mapped_column(String(64))
+    # True for the agent's writing, which `user_id` asked for; false for the member's upload.
+    by_model: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # Who uploaded it or asked for it; null once their account is gone. Indexed for the purge.
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    # What changed in it, in the agent's words or the page's ("Uploaded"), for its list.
+    note: Mapped[str] = mapped_column(String(500), default="", server_default="")
+    # One of MY_FILE_SCANS; only a version `passed` or `skipped` is served, drawn or copied.
+    scan: Mapped[str] = mapped_column(String(20))
+    # Where its view stands, as a document's does (VIEW_STATES, null for none asked for yet),
+    # each of its pages' sizes once ready, and why it failed in the sentence its member reads.
+    view_state: Mapped[str | None] = mapped_column(String(20))
+    view_page_sizes: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
+    view_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    @property
+    def files_prefix(self) -> str:
+        """The prefix of this version's files: its original, its view and the pages drawn from
+        it."""
+        return self.storage_key.rpartition("/")[0] + "/"
+
+    @property
+    def view_key(self) -> str:
+        return f"{self.files_prefix}view.pdf"
+
+    def page_image_key(self, page: int) -> str:
+        return f"{self.files_prefix}pages/{page}.png"
 
 
 class Chat(Base):

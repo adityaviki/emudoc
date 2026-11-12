@@ -114,6 +114,7 @@ from app.jobs import (
     SEND_DIGESTS,
     SEND_EMAIL,
     SYNC_CONNECTOR,
+    VIEW_MY_FILE,
     WRITE_DRAFT,
     WRITE_QUESTION_REPORT,
     Lease,
@@ -144,6 +145,8 @@ from app.metrics import (
     lane_of,
 )
 from app.models import Document, Job
+from app.my_files import abandon_view as abandon_my_file_view
+from app.my_files import view_my_file
 from app.notices import after_index
 from app.postbox import abandon_email, run_email
 from app.question_reports import abandon_report, run_question_set, write_report
@@ -365,6 +368,14 @@ def _abandon_conversion(job: Job, services: Services) -> None:
     abandon_view(job)
 
 
+def _run_my_file_view(job: Job, services: Services) -> str | None:
+    return view_my_file(job, services.scanner, services.converter, services.storage)
+
+
+def _abandon_my_file_view(job: Job, services: Services) -> None:
+    abandon_my_file_view(job)
+
+
 def _run_export(job: Job, services: Services) -> str | None:
     return make_export(job.payload["export_id"], services.storage, Lease(job.id, job.worker_id))
 
@@ -492,6 +503,7 @@ HANDLERS: dict[str, Handler] = {
     WRITE_QUESTION_REPORT: Handler(_write_report, _abandon_report, _after_report),
     SEND_DIGESTS: Handler(_send_digests, _abandon_digests),
     CONVERT_DOCUMENT: Handler(_run_conversion, _abandon_conversion),
+    VIEW_MY_FILE: Handler(_run_my_file_view, _abandon_my_file_view),
 }
 LANE_KINDS = {
     ANSWERER: [

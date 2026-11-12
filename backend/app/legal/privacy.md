@@ -42,6 +42,7 @@ organisation uploaded a document about you, ask the organisation first; we help 
   another changes them, the runs of a project's
   cross-checks you made, with the values they compared and the reports the model wrote from them,
   the drafts you asked the model for or edited, with what you asked of them and every version,
+  the files you keep in your My files in a project, with every version, which only you see,
   the question sets you made, with their questions and when they are asked, and the reports
   of their answers, which your organisation's members who see the project read, and the comments
   you wrote on documents, with the words they quote and the members they mention, which those
@@ -175,6 +176,8 @@ $region
   sooner.
 - **Drafts**, with their versions, for as long as the organisation keeps a chat, counted from
   when one was last asked for or saved, unless a member deletes it sooner.
+- **Your My files**, with their versions, until you delete them, leave the organisation, your
+  account is deleted or their project goes.
 - **Question sets**, until a member deletes them or their project goes; **the reports of their
   answers**, for as long as the organisation keeps a chat, counted from when the report was
   made, unless a member deletes them sooner.

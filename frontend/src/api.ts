@@ -969,6 +969,43 @@ export interface RunFindings {
   gone: number[]
 }
 
+/** What a file of a member's My files is (MY_FILE_KINDS in backend/app/models.py). */
+export type MyFileKind = 'docx' | 'xlsx'
+/** Where a version stands with the malware scan: only `passed` and `skipped` are served, drawn or copied. */
+export type MyFileScan = 'pending' | 'passed' | 'skipped' | 'flagged'
+
+/** A version of a file in My files (MyFileVersionOut): the agent's writing or the member's upload, what changed, its scan and its view. */
+export interface MyFileVersion {
+  number: number
+  size_bytes: number
+  by_model: boolean
+  note: string
+  scan: MyFileScan
+  view_state: 'queued' | 'ready' | 'failed' | null
+  view_page_sizes: [number, number][]
+  view_error: string | null
+  created_at: string
+}
+
+/** A file of the member's own in a project (MyFileOut, backend/app/my_files.py), seen by them alone: its newest version, how many it has, and the library's document it was copied from while that is there. */
+export interface MyFile {
+  id: number
+  project_id: number
+  name: string
+  kind: MyFileKind
+  origin_document_id: number | null
+  origin_name: string | null
+  latest: MyFileVersion
+  versions: number
+  created_at: string
+  updated_at: string
+}
+
+/** A file with every version, the newest first (MyFileDetailOut). */
+export interface MyFileDetail extends MyFile {
+  history: MyFileVersion[]
+}
+
 /** What a draft is (backend/app/drafts.py), and how far the model's writing of it is. */
 export type DraftKind = 'reply_email' | 'dispute_letter' | 'summary_memo' | 'comparison_table' | 'report'
 export type DraftStatus = 'queued' | 'writing' | 'done' | 'failed'
@@ -1413,7 +1450,15 @@ export interface Organization {
 }
 
 /** The names of the feature flags (FLAGS in backend/app/flags.py), so that a page that reads a misspelt one fails the build. */
-export type Flag = 'extraction_templates' | 'drafts' | 'email_in' | 'connectors' | 'share_links' | 'question_sets' | 'comments'
+export type Flag =
+  | 'extraction_templates'
+  | 'drafts'
+  | 'email_in'
+  | 'connectors'
+  | 'share_links'
+  | 'question_sets'
+  | 'comments'
+  | 'my_files'
 
 /** What the organisation page changes about the organisation (OrganizationChangeIn in backend/app/schemas.py). */
 export interface OrganizationChange {
@@ -1903,6 +1948,12 @@ export type AuditAction =
   | 'thread_resolved'
   | 'thread_reopened'
   | 'database_restored'
+  | 'my_file_added'
+  | 'my_file_version_added'
+  | 'my_file_renamed'
+  | 'my_file_deleted'
+  | 'my_file_downloaded'
+  | 'my_file_copied'
 
 /** One row of the organisation's audit log, which its owners and admins read. */
 export interface AuditEvent {
@@ -2716,6 +2767,29 @@ export const api = {
   /** Have the model write the draft again as a new version, with what is asked of it now when given. */
   rewriteDraft: (id: number, body: { instructions?: string }) => request<Draft>(`/drafts/${id}/rewrite`, json('POST', body)),
   deleteDraft: (id: number) => request<void>(`/drafts/${id}`, { method: 'DELETE' }),
+  /** The member's own files in the project, the one changed last first, and how many it keeps. */
+  myFiles: (projectId: number) => request<{ files: MyFile[]; limit: number }>(`/projects/${projectId}/my-files`),
+  /** Keep a Word or Excel file in the member's My files. */
+  addMyFile: (projectId: number, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return request<MyFileDetail>(`/projects/${projectId}/my-files`, { method: 'POST', body: form })
+  },
+  myFile: (id: number) => request<MyFileDetail>(`/my-files/${id}`),
+  /** Keep a file edited elsewhere as the next version, made from version `base`, which must still be the newest. */
+  addMyFileVersion: (id: number, file: File, base: number) => {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('base', String(base))
+    return request<MyFileDetail>(`/my-files/${id}/versions`, { method: 'POST', body: form })
+  },
+  renameMyFile: (id: number, name: string) => request<MyFileDetail>(`/my-files/${id}`, json('PATCH', { name })),
+  deleteMyFile: (id: number) => request<void>(`/my-files/${id}`, { method: 'DELETE' }),
+  /** Have a version scanned and shown again, once either failed. */
+  showMyFile: (id: number, number: number) => request<MyFileDetail>(`/my-files/${id}/versions/${number}/view`, { method: 'POST' }),
+  /** Copy the newest version into the library: a new document in a folder, or the next version of the document it came from. */
+  copyMyFile: (id: number, body: { folder_id?: number | null; as_version?: boolean }) =>
+    request<Document>(`/my-files/${id}/copy`, json('POST', body)),
   draftTemplates: (projectId: number) => request<{ templates: DraftTemplate[] }>(`/projects/${projectId}/draft-templates`),
   saveDraftTemplate: (projectId: number, kind: DraftKind, body: DraftTemplateInput) =>
     request<DraftTemplate>(`/projects/${projectId}/draft-templates/${kind}`, json('PUT', body)),
@@ -2904,6 +2978,9 @@ export const api = {
 }
 
 export const fileUrl = (documentId: number) => `/api/documents/${documentId}/file`
+export const myFileUrl = (fileId: number, number: number) => `/api/my-files/${fileId}/versions/${number}/file`
+export const myFilePageUrl = (fileId: number, number: number, page: number) =>
+  `/api/my-files/${fileId}/versions/${number}/pages/${page}.png`
 export const versionFileUrl = (documentId: number, number: number) =>
   `/api/documents/${documentId}/versions/${number}/file`
 export const pageImageUrl = (documentId: number, page: number) =>
