@@ -10,7 +10,7 @@ organisation would not find.
 
 The page offers no sign-up of its own (2026-11-11, the owner's word): its way in is the booking
 page, or a message to the support address (`booking` in app/signups.py). While sign-up is closed
-(SIGNUP_OPEN=false), as for a private beta, it says so, by the parts marked `signup_closed`;
+(SIGNUP_OPEN=false, as an install starts), it says so, by the parts marked `signup_closed`;
 `signup_open` marks a part shown only while it is open.
 
 The plans' page, the help pages and the API reference are put away for now (the same day), and

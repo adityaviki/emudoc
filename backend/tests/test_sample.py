@@ -1,5 +1,5 @@
-"""The sample project a sign-up's organisation starts with (app/sample): the shipped index holds
-together and describes its files, a sign-up copies it ready to ask about, its index jobs embed it,
+"""The sample project the setup's workspace starts with (app/sample): the shipped index holds
+together and describes its files, the setup copies it ready to ask about, its index jobs embed it,
 it counts against nothing the plan holds and takes no uploads, and the builder writes an index
 from the pipeline's own rows."""
 
@@ -212,16 +212,23 @@ def test_the_copy_is_the_apps_own_act_in_the_audit_log(client, session, sample_o
     assert added.detail == {"name": NAME, "documents": FILE_COUNT}
 
 
-def test_a_sign_up_through_a_provider_starts_with_it_too(
-    client, identity_provider, sample_on, signed_in_only, request
+def test_a_sign_up_finds_the_workspaces_and_adds_none(
+    client, session, identity_provider, sample_on, signed_in_only, monkeypatch, request
 ):
     request.getfixturevalue("oauth")
+    monkeypatch.setattr(get_settings(), "signup_open", True)
+    monkeypatch.setitem(PLANS, "free", replace(PLANS["free"], members=2))
+    # The install's admin, whose workspace the setup gave the sample.
+    signup(another_browser(client), "ada@acme.com")
     _, handshake = start(client)
-    identity_provider.claims = google_claims(handshake.nonce)
+    identity_provider.claims = google_claims(
+        handshake.nonce, sub="google-grace", email="grace@example.com"
+    )
     assert callback(client, code="the-code", state=handshake.state).status_code == 302
     # Accepted on the page a provider's sign-up lands on, before anything else is shown.
     assert client.post("/api/auth/terms", json={"version": TERMS_VERSION}).status_code == 200
     assert the_sample(client)["document_count"] == FILE_COUNT
+    assert len(session.scalars(select(Project).where(Project.sample.is_(True))).all()) == 1
 
 
 def test_only_an_organisation_made_at_sign_up_has_it(

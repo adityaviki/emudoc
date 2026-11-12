@@ -81,8 +81,6 @@ from app.schemas import (
     OperatorPlanOut,
     OperatorProviderOut,
     OperatorServicesOut,
-    OperatorSignUpLinkIn,
-    OperatorSignUpLinkOut,
     OperatorUserMembershipOut,
     OperatorUserOut,
     OperatorUsersOut,
@@ -94,7 +92,6 @@ from app.schemas import (
     RequeueIn,
     RequeueOut,
 )
-from app.signups import HasAnAccount, send_sign_up_link
 from app.support import NO_LEAVE, leave_of, viewed
 from app.support import end as end_support
 from app.support import start as start_view
@@ -515,24 +512,6 @@ def list_users(session: SessionDep, q: str = Query("", max_length=320)):
         ],
         more=len(rows) > PAGE,
     )
-
-
-@router.post("/sign-up-links", response_model=OperatorSignUpLinkOut, status_code=201)
-def sign_up_link(
-    operator: OperatorDep,
-    session: SessionDep,
-    request: Request,
-    asked: Annotated[OperatorSignUpLinkIn, given(OperatorSignUpLinkIn)],
-):
-    """Mail an address the link that makes an account with an organisation of its own, which
-    works while sign-up is closed, as `maintenance invite` does (app/signups.py); 409 for an
-    address that has an account."""
-    try:
-        expires_at = send_sign_up_link(session, asked.email, app_url(request), operator.id)
-    except HasAnAccount as refusal:
-        raise HTTPException(409, str(refusal)) from None
-    session.commit()
-    return OperatorSignUpLinkOut(email=asked.email.strip().lower(), expires_at=expires_at)
 
 
 @router.get("/costs", response_model=OperatorCostsOut)

@@ -1,9 +1,7 @@
 // The users, found by a part of their address or name: their organisations and roles, and how
-// they sign in, for the operator answering one of them; and the sign-up link that lets someone in
-// while sign-up is closed (backend/app/signups.py).
+// they sign in, for the operator answering one of them.
 
-import { useMutation, useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import type { FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { Button, Chip, FIELD, Loading, Notice } from '../components/ui.tsx'
@@ -29,7 +27,6 @@ export function UsersPage() {
         <input key={q} name="q" defaultValue={q} aria-label="Find users" placeholder="A part of an address or a name" className={FIELD} />
         <Button type="submit">Find</Button>
       </form>
-      <SignUpLinkForm />
       {users.isPending ? (
         <Loading />
       ) : users.isError ? (
@@ -76,54 +73,5 @@ export function UsersPage() {
         </>
       )}
     </>
-  )
-}
-
-/** Mail an address the link that makes an account with an organisation of its own, as `maintenance invite` does. */
-function SignUpLinkForm() {
-  const [email, setEmail] = useState('')
-  const send = useMutation({
-    mutationFn: (address: string) => operatorApi.sendSignUpLink(address),
-    onSuccess: () => setEmail(''),
-  })
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (email.trim()) send.mutate(email.trim())
-  }
-  return (
-    <section aria-labelledby="sign-up-link" className="mb-6 max-w-xl rounded-lg border border-line bg-surface p-4">
-      <h2 id="sign-up-link" className="text-sm font-semibold">
-        Send a sign-up link
-      </h2>
-      <p className="mt-1 text-xs text-muted">
-        The link makes an account with an organisation of its own, even while sign-up is closed, and works for 14 days.
-      </p>
-      <form onSubmit={submit} className="mt-3 flex gap-2">
-        <input
-          type="email"
-          required
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          aria-label="Address to invite"
-          placeholder="name@example.com"
-          className={FIELD}
-        />
-        <Button type="submit" variant="primary" disabled={send.isPending}>
-          Send
-        </Button>
-      </form>
-      {send.isError && (
-        <div className="mt-3">
-          <Notice tone="bad">{send.error.message}</Notice>
-        </div>
-      )}
-      {send.isSuccess && (
-        <div className="mt-3">
-          <Notice tone="info">
-            A sign-up link is on its way to {send.data.email}. It works until {formatDateTime(send.data.expires_at)}.
-          </Notice>
-        </div>
-      )}
-    </section>
   )
 }

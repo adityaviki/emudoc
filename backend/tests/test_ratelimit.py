@@ -36,7 +36,16 @@ from app.ratelimit import (
 )
 from tests.test_api import create_project
 from tests.test_audit import actions
-from tests.test_auth import NEW_PASSWORD, PASSWORD, another_browser, login, signup
+from tests.test_auth import (
+    NEW_PASSWORD,
+    PASSWORD,
+    another_browser,
+    finish_signup,
+    login,
+    open_signup,  # noqa: F401 (a fixture)
+    sign_up_link,
+    signup,
+)
 from tests.test_chats import ask, new_chat, try_again
 
 FROM_ACCOUNT = "from your account"
@@ -175,11 +184,15 @@ def test_uploads_and_searches_have_rates_of_their_own(client, session, sample_cs
 
 
 def test_sign_in_requests_are_counted_per_address_and_per_email(
-    client, session, mailer, signed_in_only, monkeypatch
+    client,
+    session,
+    mailer,
+    open_signup,  # noqa: F811
+    monkeypatch,
 ):
     monkeypatch.setattr(get_settings(), "rate_sign_ins", 4)
     monkeypatch.setattr(get_settings(), "rate_sign_ins_per_address", 4)
-    signup(client, "ada@example.com")
+    assert finish_signup(client, sign_up_link(client, "ada@example.com")).status_code == 201
     ada, bob = by_email("ada@example.com").value, by_email("bob@example.com").value
     # Both of the sign-up's requests count for the client's address, and asking for the link
     # counts for the address it mails as well, as a reset link's request does.
@@ -225,7 +238,13 @@ def test_sign_in_requests_are_counted_per_address_and_per_email(
     assert login(guesser, "ada@example.com") == {"mfa_required": False}
 
 
-def test_sign_up_links_are_asked_for_at_the_sign_in_rate(client, session, mailer, monkeypatch):
+def test_sign_up_links_are_asked_for_at_the_sign_in_rate(
+    client,
+    session,
+    mailer,
+    open_signup,  # noqa: F811
+    monkeypatch,
+):
     monkeypatch.setattr(get_settings(), "rate_sign_ins", 1)
     signup(another_browser(client), "ada@example.com")
     counted_afresh(session)
@@ -237,7 +256,7 @@ def test_sign_up_links_are_asked_for_at_the_sign_in_rate(client, session, mailer
             client.post("/api/auth/signup", json={"email": address.upper()}),
             SIGN_INS.refusal(1, FOR_EMAIL),
         )
-    assert [to for to, _, _ in mailer.sent[1:]] == ["eve@example.com", "ada@example.com"]
+    assert [to for to, _, _ in mailer.sent] == ["eve@example.com", "ada@example.com"]
 
 
 def test_the_authenticator_code_is_held_to_the_accounts_rate(
@@ -365,7 +384,7 @@ def test_a_browser_that_signed_in_before_is_paused_by_itself(
     )
     # Nobody else is held by it, and the owner is not mailed about their own browser.
     assert login(another_browser(client)) == {"mfa_required": False}
-    assert [subject for _, subject, _ in mailer.sent] == ["Finish creating your Emudoc account"]
+    assert mailer.sent == []
 
 
 def test_a_new_password_ends_the_pause_and_the_browser_that_chose_it_is_the_accounts(
@@ -463,7 +482,7 @@ def test_resending_the_verification_link_is_held_per_user(
     assert client.post("/api/auth/verify/resend").status_code == 202
     assert client.post("/api/auth/verify/resend").status_code == 202
     refused(client.post("/api/auth/verify/resend"), SIGN_INS.refusal(2, FROM_ACCOUNT))
-    assert len(mailer.sent) == 3
+    assert len(mailer.sent) == 2
 
 
 def test_zero_removes_a_limit_and_counts_nothing(client, session, monkeypatch):

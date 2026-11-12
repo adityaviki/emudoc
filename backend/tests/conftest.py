@@ -139,6 +139,9 @@ os.environ["EMBEDDING_DIM"] = "768"
 os.environ["EMBEDDING_BASE_URL"] = "http://127.0.0.1:9/v1"
 # Most tests drive the API as the local account; `signed_in_only` restores the production rule.
 os.environ["LOCAL_ACCOUNT"] = "true"
+# Sign-up as an install starts, closed (app/signups.py), whatever `.env` says; the tests of an
+# open one open it with `monkeypatch.setattr(get_settings(), "signup_open", True)`.
+os.environ["SIGNUP_OPEN"] = "false"
 # The messages the tests pin tell a developer to edit `.env`; a production shell says otherwise.
 os.environ["ENVIRONMENT"] = "development"
 # Nothing the tests raise reaches the developer's tracker; tests/test_tracking.py starts one that

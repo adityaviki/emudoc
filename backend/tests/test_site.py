@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from app.accounts import create_account
 from app.auth import SESSION_COOKIE
 from app.config import ROOT_DIR, get_settings
 from app.flags import FLAGS
@@ -37,9 +38,21 @@ def dist(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def visitor(dist, signed_in_only, client):
-    """The app as someone without an account reaches it."""
+def visitor(dist, signed_in_only, client, session):
+    """The app as someone without an account reaches it, once its admin has set it up."""
+    create_account(session, "admin@example.com", "Admin")
+    session.commit()
     return client
+
+
+def test_a_new_install_sends_its_home_page_to_the_setup(dist, signed_in_only, client, session):
+    # With no account yet, the way in is the setup (app/signups.py), which the members' page shows.
+    first = client.get("/", follow_redirects=False)
+    assert (first.status_code, first.headers["location"]) == (302, "/setup")
+    assert client.get("/setup").text.endswith("<p>members")
+    create_account(session, "admin@example.com", "Admin")
+    session.commit()
+    assert "Ask your documents." in text_of(client.get("/").text)
 
 
 def text_of(html: str) -> str:

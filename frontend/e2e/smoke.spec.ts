@@ -5,13 +5,13 @@ import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import type { BrowserContext, Page } from '@playwright/test'
 import { expectAccessible } from './axe.ts'
-import { linkMailedTo, messageTo } from './mail.ts'
+import { messageTo } from './mail.ts'
 import { INBOUND_DOMAIN, chooseFlag, makeOperator, movePlan, receiveMail } from './operator.ts'
 import { printed } from './print.ts'
 import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, releaseTurns } from './standin.ts'
 
-// The member's way through the app, end to end: read the home page a visitor is shown, whose
-// old plans' address leads home, sign up through the link the app mails, skip the tour the first project shows, ask the sample
+// The member's way through the app, end to end: set the install up on the page its first visit opens, read the home
+// page a visitor is shown, whose old plans' address leads home, and the sign-up page, which says whom to ask, skip the tour the first project shows, ask the sample
 // project the organisation starts with whether an invoice applies its contract's discount, print its contract's pages, make a project, upload a contract,
 // begun offline and waiting for the connection, wait for it to be indexed, find it by searching, ask about it, stop the
 // answer while the model thinks and try it again, open the passage the answer
@@ -20,7 +20,7 @@ import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, rele
 // download it and open the bell's notice that it is ready, start a second
 // organisation, find its empty projects page, choose its settings, read them in its audit log and
 // download it, delete it and keep it, and switch back, and, on Team, invite a colleague as a
-// viewer from under that answer, who makes an account from the invitation's link, ends her tour, finds
+// viewer from under that answer, who makes an account from the invitation's link, copied since the run mails nothing, ends her tour, finds
 // the project and is offered no change to it until made a member, write to support from the
 // help menu, which mails the page written from, make a read key, which reads the
 // versioned API and its contract, add a webhook, then make the project private, which she no longer finds until chosen for it, and share the chat, which the
@@ -66,7 +66,7 @@ const SECOND_INVOICE = join(import.meta.dirname, 'fixtures', 'second-invoice.md'
 const THIRD_INVOICE = join(import.meta.dirname, 'fixtures', 'third-invoice.md')
 // A folder of two delivery notes, one of them in a folder of its own.
 const DELIVERIES = join(import.meta.dirname, 'fixtures', 'deliveries')
-// The project every sign-up's organisation starts with (backend/app/sample).
+// The project the workspace the setup makes starts with (backend/app/sample).
 const SAMPLE = 'Sample: Acme supplier contract'
 
 /** "New folder" from the menu of the listing's empty space, under its last row, where its own padding is. */
@@ -98,50 +98,56 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   const webhooks = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Webhooks', exact: true }) })
   let hookSecret = ''
 
-  await test.step('read the home page as a visitor, which offers a demo and no sign-up', async () => {
-    // Without a session, / is the public site's home page: plain HTML the server fills in.
-    const site = page.getByRole('navigation', { name: 'Site' })
-    await page.goto('/')
-    await expect(page.getByRole('heading', { level: 1, name: /^Ask your documents/ })).toBeVisible()
-    // Its way in is a mail to support, this run having no booking page, and never the sign-up.
-    await expect(site.getByRole('link', { name: 'Request access' })).toHaveAttribute('href', 'mailto:support@example.com?subject=Access%20to%20Emudoc')
-    await expect(page.locator('a[href^="/signup"]')).toHaveCount(0)
-    await expectAccessible(page, 'the home page')
-    // The header's links lead to the page's sections.
-    await site.getByRole('link', { name: 'Features' }).click()
-    await expect(page).toHaveURL(/#features$/)
-    await expect(page.getByRole('heading', { level: 2, name: /^Everything you need/ })).toBeInViewport()
-    // The plans, the help and the API reference are put away for now: an old link leads home.
-    await page.goto('/pricing')
-    await expect(page).toHaveURL(/\/$/)
-    await site.getByRole('link', { name: 'Sign in' }).click()
-    await expect(page).toHaveURL(/\/login$/)
-    // The sign-in page's logo leads a visitor back to the site.
-    await page.getByRole('link', { name: 'Emudoc' }).click()
-    await expect(page.getByRole('heading', { level: 1, name: /^Ask your documents/ })).toBeVisible()
-  })
-
-  await test.step('sign up', async () => {
-    // A new address every run, so that a server kept from an earlier run takes it too.
+  await test.step('set the install up on the page its first visit opens', async () => {
     address = `ada.${Date.now()}@example.com`
-    await page.goto('/login')
-    await expectAccessible(page, 'the sign-in page')
-    await page.goto('/signup')
-    await expectAccessible(page, 'the sign-up page')
+    // A new install has no account, so every page sends to its setup, the home page too.
+    await page.goto('/')
+    await expect(page).toHaveURL(/\/setup$/)
+    await page.goto('/projects/1')
+    await expect(page).toHaveURL(/\/setup$/)
+    await expect(page.getByRole('heading', { name: 'Set up Emudoc' })).toBeVisible()
+    await expectAccessible(page, 'the setup page')
+    await page.getByLabel('Workspace name').fill('Analytical Engines')
+    await page.getByLabel('Your name').fill('Ada Lovelace')
     await page.getByLabel('Email', { exact: true }).fill(address)
-    await page.getByRole('button', { name: 'Continue' }).click()
-    await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible()
-    await page.goto(await linkMailedTo(address))
-    await expect(page.getByRole('heading', { name: 'Finish creating your account' })).toBeVisible()
-    await expect(page.getByText(address)).toBeVisible()
-    await expectAccessible(page, 'the page that finishes a sign-up')
-    await page.getByLabel('Name', { exact: true }).fill('Ada Lovelace')
     await page.getByLabel('Password', { exact: true }).fill('a sentence to remember')
     await page.getByLabel(/I accept the terms of service/).check()
-    await page.getByRole('button', { name: 'Create account' }).click()
+    await page.getByRole('button', { name: 'Create the workspace' }).click()
     await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
     await expect(page.getByText(SAMPLE)).toBeVisible()
     await expectAccessible(page, 'the projects page')
+  })
+
+  await test.step('read the home page as a visitor, which offers a demo, and the sign-up page, which says whom to ask', async () => {
+    // A browser of nobody's: without a session, / is the public site's home page, plain HTML the server fills in.
+    const visit = await browser.newContext()
+    const visitor = await visit.newPage()
+    const site = visitor.getByRole('navigation', { name: 'Site' })
+    await visitor.goto('/')
+    await expect(visitor.getByRole('heading', { level: 1, name: /^Ask your documents/ })).toBeVisible()
+    // Its way in is a mail to support, this run having no booking page, and never the sign-up.
+    await expect(site.getByRole('link', { name: 'Request access' })).toHaveAttribute('href', 'mailto:support@example.com?subject=Access%20to%20Emudoc')
+    await expect(visitor.locator('a[href^="/signup"]')).toHaveCount(0)
+    await expectAccessible(visitor, 'the home page')
+    // The header's links lead to the page's sections.
+    await site.getByRole('link', { name: 'Features' }).click()
+    await expect(visitor).toHaveURL(/#features$/)
+    await expect(visitor.getByRole('heading', { level: 2, name: /^Everything you need/ })).toBeInViewport()
+    // The plans, the help and the API reference are put away for now: an old link leads home.
+    await visitor.goto('/pricing')
+    await expect(visitor).toHaveURL(/\/$/)
+    await site.getByRole('link', { name: 'Sign in' }).click()
+    await expect(visitor).toHaveURL(/\/login$/)
+    await expectAccessible(visitor, 'the sign-in page')
+    // Sign-up is closed, as an install starts: its page says to ask the team's admin.
+    await visitor.goto('/signup')
+    await expect(visitor.getByRole('heading', { name: 'Accounts are made by invitation' })).toBeVisible()
+    await expectAccessible(visitor, 'the sign-up page')
+    // The sign-in page's logo leads a visitor back to the site.
+    await visitor.goto('/login')
+    await visitor.getByRole('link', { name: 'Emudoc' }).click()
+    await expect(visitor.getByRole('heading', { level: 1, name: /^Ask your documents/ })).toBeVisible()
+    await visit.close()
   })
 
   await test.step('skip the tour, and ask the sample project whether an invoice applies the contract\'s discount', async () => {
@@ -614,10 +620,10 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     // From the projects page: a menu closes when anything scrolls, as the passage still may.
     await page.getByRole('link', { name: 'Emudoc', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
-    const switcher = page.getByRole('button', { name: "Ada Lovelace's workspace" })
+    const switcher = page.getByRole('button', { name: "Analytical Engines" })
     await switcher.click()
     // Tab leaves a menu, closing it, and goes on from its button.
-    await expect(page.getByRole('menuitem', { name: "Ada Lovelace's workspace" })).toBeFocused()
+    await expect(page.getByRole('menuitem', { name: "Analytical Engines" })).toBeFocused()
     await page.keyboard.press('Shift+Tab')
     await expect(page.getByRole('menu')).toHaveCount(0)
     await expect(switcher).toBeFocused()
@@ -680,7 +686,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(other.getByRole('button', { name: 'Lovelace Legal' })).toBeVisible()
 
     await page.getByRole('button', { name: 'Lovelace Legal' }).click()
-    await page.getByRole('menuitem', { name: "Ada Lovelace's workspace" }).click()
+    await page.getByRole('menuitem', { name: "Analytical Engines" }).click()
     await expect(page.getByText('Supplier contracts')).toBeVisible()
     // The other tab still shows the new organisation: what it asks is refused, and it starts
     // again in the one the session works in, with nothing made in the wrong one.
@@ -693,7 +699,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
 
   await test.step('invite a viewer, who makes an account from the link, reads, and is made a member', async () => {
     await page.goto('/organization')
-    slug = (await page.locator('code').filter({ hasText: /^ada-lovelace/ }).textContent()) ?? ''
+    slug = (await page.locator('code').filter({ hasText: /^analytical-engines/ }).textContent()) ?? ''
     movePlan(slug, 'team', '--seats', '2')
     await page.reload()
     // The plan's figures, with the seats bought for its members.
@@ -708,7 +714,11 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await inviteTeam.getByLabel('Email', { exact: true }).fill(colleague)
     await inviteTeam.getByLabel('Role', { exact: true }).selectOption('viewer')
     await inviteTeam.getByRole('button', { name: 'Invite', exact: true }).click()
-    await expect(inviteTeam).toContainText(`An invitation is on its way to ${colleague}.`)
+    // The run mails nothing, so the link is handed on: copied from the field that holds it.
+    await expect(inviteTeam).toContainText(`This Emudoc sends no mail, so nothing went to ${colleague}`)
+    const invitation = await inviteTeam.getByLabel(`Invitation link for ${colleague}`).inputValue()
+    expect(invitation).toMatch(/\/invitation#token=/)
+    await expectAccessible(page, "an invitation's link to copy")
     await inviteTeam.getByRole('link', { name: 'See the invitations' }).click()
     await expect(page).toHaveURL(/\/organization#invitations$/)
     await expect(page.getByRole('listitem').filter({ hasText: colleague })).toContainText('Viewer')
@@ -716,15 +726,15 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     // Another browser, signed in as nobody, as the colleague's is.
     theirs = await browser.newContext()
     grace = await theirs.newPage()
-    await grace.goto(await linkMailedTo(colleague))
-    await expect(grace.getByRole('heading', { name: "Join Ada Lovelace's workspace" })).toBeVisible()
+    await grace.goto(invitation)
+    await expect(grace.getByRole('heading', { name: "Join Analytical Engines" })).toBeVisible()
     await expectAccessible(grace, "an invitation's page")
     await grace.getByLabel('Name', { exact: true }).fill('Grace Hopper')
     await grace.getByLabel('Password', { exact: true }).fill('another sentence to remember')
     await grace.getByLabel(/I accept the terms of service/).check()
     await grace.getByRole('button', { name: 'Create account' }).click()
     await expect(grace.getByText('Supplier contracts')).toBeVisible()
-    await expect(grace.getByRole('button', { name: "Ada Lovelace's workspace" })).toBeVisible()
+    await expect(grace.getByRole('button', { name: "Analytical Engines" })).toBeVisible()
     // A viewer reads and asks: the pages offer no change the server would refuse.
     await expect(grace.getByRole('button', { name: 'New project' })).toHaveCount(0)
     await grace.getByText('Supplier contracts').click()
@@ -872,9 +882,9 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     // She asks for help, and lets Emudoc's support see her account here for a day.
     await grace.goto('/account')
     const support = grace.locator('section').filter({ has: grace.getByRole('heading', { name: "Emudoc's support" }) })
-    await expect(support).toContainText("Emudoc's support cannot see your account in Ada Lovelace's workspace.")
+    await expect(support).toContainText("Emudoc's support cannot see your account in Analytical Engines.")
     await support.getByRole('button', { name: 'Let support in for a day' }).click()
-    await expect(support).toContainText("Emudoc's support may see your account in Ada Lovelace's workspace until")
+    await expect(support).toContainText("Emudoc's support may see your account in Analytical Engines until")
     await expect(support.getByRole('button', { name: 'Withdraw' })).toBeVisible()
     await theirs.close()
   })
@@ -889,16 +899,16 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     expect((await asked).status()).toBe(201)
 
     await page.getByRole('link', { name: 'Emudoc' }).click()
-    await page.getByRole('button', { name: "Ada Lovelace's workspace" }).click()
+    await page.getByRole('button', { name: "Analytical Engines" }).click()
     await page.getByRole('menuitem', { name: 'Lovelace Legal' }).click()
     await expect(page.getByText('No projects yet')).toBeVisible()
     await page.getByRole('button', { name: 'Notifications, 1 unread' }).click()
     const notice = page.getByRole('dialog', { name: 'Notifications' }).getByRole('button', { name: /used all its questions for the month/ })
-    await expect(notice).toContainText("Ada Lovelace's workspace has used all the 3 questions it may ask")
+    await expect(notice).toContainText("Analytical Engines has used all the 3 questions it may ask")
     // Opened in the organisation it is about, read.
     await notice.click()
     await expect(page).toHaveURL(/\/organization\/usage$/)
-    await expect(page.getByRole('button', { name: "Ada Lovelace's workspace" })).toBeVisible()
+    await expect(page.getByRole('button', { name: "Analytical Engines" })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Notifications', exact: true })).toBeVisible()
   })
 
@@ -912,8 +922,8 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('heading', { name: 'Organisations', exact: true })).toBeVisible()
     await page.getByLabel('Find organisations').fill(slug)
     await page.getByLabel('Find organisations').press('Enter')
-    await page.getByRole('link', { name: "Ada Lovelace's workspace" }).click()
-    await expect(page.getByRole('heading', { name: "Ada Lovelace's workspace" })).toBeVisible()
+    await page.getByRole('link', { name: "Analytical Engines" }).click()
+    await expect(page.getByRole('heading', { name: "Analytical Engines" })).toBeVisible()
     const members = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Members', exact: true }) })
     await expect(members.getByRole('row').filter({ hasText: address })).toContainText('owner')
     await expect(members.getByRole('row').filter({ hasText: 'Grace Hopper' })).toContainText('member')
@@ -939,7 +949,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
 
     // Grace let support in: her account, as she sees it, read only, until the view ends.
     await members.getByRole('button', { name: 'View as Grace Hopper' }).click()
-    await expect(page.getByText(/^You are viewing Grace Hopper's account in Ada Lovelace's workspace as Emudoc's support, read only/)).toBeVisible()
+    await expect(page.getByText(/^You are viewing Grace Hopper's account in Analytical Engines as Emudoc's support, read only/)).toBeVisible()
     await expect(page.getByText('Supplier contracts')).toBeVisible()
     await page.getByRole('button', { name: 'End the view' }).click()
     await expect(page.getByRole('heading', { name: 'Organisations', exact: true })).toBeVisible()
@@ -947,7 +957,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     // The flag across the deployment: on for this organisation alone, which its owner reads in its audit log.
     await page.getByRole('navigation', { name: 'Views' }).getByRole('link', { name: 'Flags' }).click()
     const rollout = page.getByRole('row').filter({ hasText: 'extraction_templates' })
-    await expect(rollout.getByRole('link', { name: "Ada Lovelace's workspace" })).toBeVisible()
+    await expect(rollout.getByRole('link', { name: "Analytical Engines" })).toBeVisible()
     await page.goto('/organization/audit')
     // The whole log first, which holds every kind of row this organisation has, its export's among them.
     await expect(page.getByRole('listitem').filter({ hasText: 'Exported a project' })).toContainText('Supplier contracts')
@@ -1715,7 +1725,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(visitor.getByRole('alert')).toHaveText("That is not this link's password. Check it with whoever sent the link.")
     await visitor.getByLabel('Password', { exact: true }).fill('harbour lights')
     await visitor.getByRole('button', { name: 'Open the link' }).click()
-    await expect(visitor.getByText(/^Shared by Ada Lovelace of Ada Lovelace's workspace, until /)).toBeVisible()
+    await expect(visitor.getByText(/^Shared by Ada Lovelace of Analytical Engines, until /)).toBeVisible()
     await expect(visitor.getByText('Invoice number: INV-2026-0412')).toBeVisible()
     await expectAccessible(visitor, 'a shared document')
     // Printed, it is the invoice alone, under its name: not the page's header, who shared it or its buttons.

@@ -4,13 +4,15 @@ through Google and Microsoft."""
 import base64
 import logging
 import time
+from dataclasses import replace
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
+from fastapi import Request
 from fastapi.testclient import TestClient
-from sqlalchemy import update
+from sqlalchemy import func, select, update
 
-from app.accounts import LOCAL_OWNER_EMAIL, create_account
+from app.accounts import LOCAL_OWNER_EMAIL, create_account, create_user
 from app.api.auth import (
     ADDRESS_TAKEN,
     CODE_INVALID,
@@ -25,13 +27,27 @@ from app.api.auth import (
     WRONG_PASSWORD,
 )
 from app.api.deps import CROSS_SITE, SAME_APP_HEADER, SIGN_IN
-from app.auth import totp_code, totp_step
+from app.audit import audit
+from app.auth import (
+    BROWSER_COOKIE,
+    BROWSER_PATH,
+    SESSION_COOKIE,
+    hash_password,
+    now,
+    remember_browser,
+    start_session,
+    totp_code,
+    totp_step,
+)
 from app.config import Settings, get_settings
+from app.db import SessionLocal
+from app.entitlements import PLANS
 from app.legal import TERMS_VERSION
 from app.mail import MailError, Message
-from app.models import User
+from app.models import Organization, User
 from app.oidc import Handshake
-from app.signups import SIGNUP_CLOSED
+from app.sample import add_sample
+from app.signups import NOT_SET_UP, SIGNUP_CLOSED
 from tests.conftest import APP_HEADERS
 from tests.test_api import listed
 
@@ -63,11 +79,53 @@ def finish_signup(
 
 
 def signup(client, email="ada@example.com", password=PASSWORD, name="Ada", time_zone="") -> dict:
-    """Sign up as a person does: ask for the link with the address, then make the account on
-    the page it opens, with the box ticked for the current terms."""
-    token = sign_up_link(client, email)
-    response = finish_signup(client, token, password, name, time_zone=time_zone)
-    assert response.status_code == 201, response.text
+    """An account with an organisation of its own, signed in on `client`, as signing up made
+    one until 2026-11-12 and the setup makes an install's first (app/signups.py): the address
+    confirmed, the current terms accepted, the sample project given, the same rows in the audit
+    log, and the session and the browser started as a sign-in starts them. Made directly, since
+    no route makes a second organisation's owner any more, so that a test may hold several
+    organisations, as development's database does; the ways in themselves are the setup's,
+    the sign-up's and the invitations' own tests."""
+    # The request a sign-up came as, for the session's and the audit log's address and browser.
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/auth/setup",
+            "headers": [
+                (b"user-agent", b"testclient"),
+                (b"cookie", "; ".join(f"{k}={v}" for k, v in client.cookies.items()).encode()),
+            ],
+            "client": ("testclient", 50000),
+        }
+    )
+    with SessionLocal() as session:
+        account = create_account(
+            session,
+            email.strip().lower(),
+            name,
+            hash_password(password),
+            email_verified=True,
+            time_zone=time_zone,
+        )
+        account.user.terms_version = TERMS_VERSION
+        account.user.terms_accepted_at = now()
+        user_session, token = start_session(session, account.user, request)
+        browser = remember_browser(session, account.user, request)
+        account = replace(account, session_id=user_session.id)
+        audit(session, account, request, "sign_up", detail={"method": "password"})
+        audit(session, account, request, "terms_accepted", detail={"version": TERMS_VERSION})
+        add_sample(session, account.organization, client.app.state.services.storage)
+        session.commit()
+    # Whoever was signed in on the client before is not the new account.
+    for cookie, value, path in (
+        (SESSION_COOKIE, token, "/"),
+        (BROWSER_COOKIE, browser, BROWSER_PATH),
+    ):
+        client.cookies.delete(cookie)
+        client.cookies.set(cookie, value, domain="testserver.local", path=path)
+    response = me(client)
+    assert response.status_code == 200, response.text
     return response.json()
 
 
@@ -86,10 +144,21 @@ def another_browser(client, **headers) -> TestClient:
     return TestClient(client.app, headers={**APP_HEADERS, **headers})
 
 
+@pytest.fixture
+def open_signup(session, monkeypatch, signed_in_only) -> int:
+    """Sign-up open on an install its admin set up, whose workspace has room for everyone: the
+    id of the workspace a sign-up joins (app/signups.py)."""
+    monkeypatch.setattr(get_settings(), "signup_open", True)
+    monkeypatch.setitem(PLANS, "free", replace(PLANS["free"], members=None))
+    admin = create_account(session, "admin@example.com", "Admin", email_verified=True)
+    session.commit()
+    return admin.organization.id
+
+
 # Accounts, passwords and sessions
 
 
-def test_signup_mails_a_link_whose_page_makes_the_account(client, mailer, signed_in_only):
+def test_signup_mails_a_link_whose_page_makes_the_account(client, session, mailer, open_signup):
     assert me(client).status_code == 401
     asked = client.post("/api/auth/signup", json={"email": "Ada@Example.com"})
     assert asked.status_code == 202 and asked.content == b"null"
@@ -118,13 +187,14 @@ def test_signup_mails_a_link_whose_page_makes_the_account(client, mailer, signed
     assert account["time_zone"] == "Europe/Berlin"
     # Opening the link proved the address, so there is nothing more to confirm.
     assert account["email_verified"] is True and account["mfa_enabled"] is False
-    assert account["identities"] == [] and account["role"] == "owner"
-    assert account["organization"]["name"] == "Ada's workspace"
-    assert account["organization"]["slug"] == "ada"
+    # A member of the install's workspace, and of no organisation of her own.
+    assert account["identities"] == [] and account["role"] == "member"
+    assert account["organization"]["id"] == open_signup
+    assert [organization["id"] for organization in account["organizations"]] == [open_signup]
+    assert session.scalar(select(func.count()).select_from(Organization)) == 1
     assert me(other).json() == account and me(client).status_code == 401
     assert len(mailer.sent) == 1
-    # The new organisation is empty, and its owner may fill it.
-    assert other.get("/api/projects").json() == []
+    # A member changes the workspace's projects.
     assert other.post("/api/projects", json={"name": "Audit"}).status_code == 201
     login(client)
 
@@ -147,12 +217,9 @@ def test_signup_mails_a_link_whose_page_makes_the_account(client, mailer, signed
     assert "a-sign-up-token" not in short.text
     unfinished = client.post("/api/auth/password/reset", json={"token": "a-reset-token"})
     assert unfinished.status_code == 422 and "a-reset-token" not in unfinished.text
-    # Names make the organisation; a second Ada gets the next slug.
-    second = signup(another_browser(client), "ada@elsewhere.org", name="Ada")
-    assert second["organization"]["slug"] == "ada-2"
 
 
-def test_signup_is_answered_alike_for_an_address_with_an_account(client, mailer, signed_in_only):
+def test_signup_is_answered_alike_for_an_address_with_an_account(client, mailer, open_signup):
     signup(client)
     stranger = another_browser(client)
     free = stranger.post("/api/auth/signup", json={"email": "eve@example.com"})
@@ -197,7 +264,7 @@ def test_signup_is_answered_alike_for_an_address_with_an_account(client, mailer,
 
 
 def test_an_account_made_with_the_address_at_the_same_moment_is_the_databases_to_see(
-    client, session, monkeypatch, signed_in_only
+    client, session, monkeypatch, open_signup
 ):
     token = sign_up_link(client)
 
@@ -205,9 +272,9 @@ def test_an_account_made_with_the_address_at_the_same_moment_is_the_databases_to
         # Another sign-up, through a provider say, commits between the check and the insert.
         session.add(User(email="ada@example.com", name="Ada"))
         session.commit()
-        return create_account(*args, **kwargs)
+        return create_user(*args, **kwargs)
 
-    monkeypatch.setattr("app.api.auth.create_account", made_meanwhile)
+    monkeypatch.setattr("app.api.auth.create_user", made_meanwhile)
     raced = finish_signup(client, token)
     assert raced.status_code == 409 and raced.json()["detail"] == SIGNED_UP_ALREADY
     assert me(client).status_code == 401
@@ -231,7 +298,7 @@ def test_resending_the_verification_link_voids_the_earlier_one(
     assert me(client).json()["email_verified"] is True
     # Once verified there is nothing to resend.
     assert client.post("/api/auth/verify/resend").status_code == 202
-    assert len(mailer.sent) == 3
+    assert len(mailer.sent) == 2
 
 
 def test_login_and_logout(client, signed_in_only):
@@ -259,7 +326,7 @@ def test_login_and_logout(client, signed_in_only):
 
 
 def test_cookies_are_secure_in_production_whatever_the_scheme(
-    client, signed_in_only, oauth, monkeypatch, caplog
+    client, open_signup, oauth, monkeypatch, caplog
 ):
     # The test client reaches the app as plain HTTP, as uvicorn sees a request from a proxy
     # that ends TLS but does not say so. In development that is a cookie without Secure, so
@@ -320,7 +387,7 @@ def test_a_reset_link_sets_a_new_password_and_signs_out_everywhere(client, maile
         client.post("/api/auth/password/forgot", json={"email": "nobody@example.com"}).status_code
         == 202
     )
-    assert len(mailer.sent) == 1
+    assert mailer.sent == []
 
     # A relay that is down answers the same as an address without an account: the mail waits
     # in the queue for the worker, which tries it again later.
@@ -529,7 +596,7 @@ def test_an_address_is_asked_for_at_a_rate(client, mailer, monkeypatch, signed_i
     signup(bob, "bob@example.com")
     flood = change_email(bob, "Ada@Analytical.org", password=PASSWORD)
     assert flood.status_code == 429 and "for this email address" in flood.json()["detail"]
-    assert len(mailer.sent) == 3
+    assert len(mailer.sent) == 1
 
 
 def test_an_account_without_a_password_confirms_with_its_address_typed_out(
@@ -792,7 +859,7 @@ def test_providers_are_offered_only_when_set_up(client, oauth, monkeypatch):
 
 
 def test_google_sign_in_creates_an_account_and_links_verified_ones(
-    client, session, mailer, identity_provider, oauth, signed_in_only
+    client, session, mailer, identity_provider, oauth, open_signup
 ):
     query, handshake = start(client, next="/projects/3", time_zone="America/New_York")
     assert query["_host"] == "accounts.google.com"
@@ -827,7 +894,8 @@ def test_google_sign_in_creates_an_account_and_links_verified_ones(
     account = me(client).json()
     assert account["email"] == "ada@example.com" and account["name"] == "Ada Lovelace"
     assert account["email_verified"] is True and account["identities"] == ["google"]
-    assert account["organization"]["slug"] == "ada-lovelace"
+    # A sign-up, which joins the install's workspace.
+    assert (account["organization"]["id"], account["role"]) == (open_signup, "member")
     assert account["time_zone"] == "America/New_York"
     assert mailer.sent == []
 
@@ -871,7 +939,7 @@ def test_google_sign_in_creates_an_account_and_links_verified_ones(
 
 
 def test_a_provider_makes_no_new_account_while_sign_up_is_closed(
-    client, identity_provider, oauth, monkeypatch, signed_in_only
+    client, identity_provider, oauth, monkeypatch, open_signup
 ):
     # An account made before signs in through Google as ever.
     ada = another_browser(client)
@@ -896,8 +964,18 @@ def test_a_provider_makes_no_new_account_while_sign_up_is_closed(
     assert me(client).status_code == 401
 
 
+def test_a_provider_makes_no_account_before_the_setup(
+    client, identity_provider, oauth, monkeypatch, signed_in_only
+):
+    monkeypatch.setattr(get_settings(), "signup_open", True)
+    _, handshake = start(client)
+    identity_provider.claims = google_claims(handshake.nonce)
+    assert error_of(callback(client, code="the-code", state=handshake.state)) == NOT_SET_UP
+    assert me(client).status_code == 401
+
+
 def test_microsoft_addresses_count_as_verified_only_when_the_provider_says_so(
-    client, mailer, identity_provider, oauth, signed_in_only
+    client, mailer, identity_provider, oauth, open_signup
 ):
     query, handshake = start(client, "microsoft")
     assert query["_host"] == "login.microsoftonline.com"

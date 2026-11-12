@@ -32,6 +32,7 @@ export function LoginPage() {
   const next = safeNext(params.get('next'))
   const [codeStep, setCodeStep] = useState(params.has('mfa'))
   const signingOut = Boolean(me && state?.signOut)
+  const setupNeeded = useAuthOptions().data?.setup_needed
 
   useEffect(() => {
     if (!signingOut) return
@@ -41,6 +42,8 @@ export function LoginPage() {
   }, [signingOut, queryClient, navigate, location.pathname, location.search])
 
   if (me && !signingOut) return <Navigate to={next} replace />
+  // A new install has no account to sign in with: its admin makes the first (backend/app/signups.py).
+  if (setupNeeded && !me) return <Navigate to="/setup" replace />
   return codeStep ? (
     <CodeStep next={next} onRestart={() => setCodeStep(false)} />
   ) : (

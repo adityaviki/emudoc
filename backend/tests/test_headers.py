@@ -14,7 +14,6 @@ from app.site import PAGES
 from app.storage import SANDBOX, S3Storage
 from tests.conftest import APP_HEADERS, FakeEmbedder, FakeLLM, FakeS3Client
 from tests.test_api import create_project, upload
-from tests.test_auth import sign_up_link
 from tests.test_site import built
 
 POLICY = (
@@ -194,17 +193,19 @@ def test_no_other_origin_is_answered(client):
         },
     )
     assert preflight.status_code == 405
-    signup = client.post(
-        "/api/auth/signup/finish",
+    # The setup signs its admin in, as any sign-in does, with the cookie that holds.
+    signed_in = client.post(
+        "/api/auth/setup",
         json={
-            "token": sign_up_link(client),
+            "email": "ada@example.com",
             "password": "correct horse battery",
+            "workspace": "Acme",
             "terms_version": TERMS_VERSION,
         },
         headers=other,
     )
-    assert signup.status_code == 201, signup.text
-    assert "; samesite=lax" in signup.headers["set-cookie"].lower()
-    for response in (preflight, signup, client.get("/api/health", headers=other)):
+    assert signed_in.status_code == 201, signed_in.text
+    assert "; samesite=lax" in signed_in.headers["set-cookie"].lower()
+    for response in (preflight, signed_in, client.get("/api/health", headers=other)):
         assert not [name for name in response.headers if name.lower().startswith("access-control-")]
         carries_the_headers(response)

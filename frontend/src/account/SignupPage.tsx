@@ -4,12 +4,13 @@ import type { FormEvent, ReactNode } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router'
 import { ApiError, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, auth } from '../api.ts'
 import { MeContext, forgetUser, safeNext, setSignedIn } from '../auth.ts'
-import { Button, ButtonLink, Checkbox, InputField, Notice, Spinner } from '../components/ui.tsx'
-import { useLegal, usePageTitle } from '../hooks.ts'
+import { Button, ButtonLink, InputField, Notice, Spinner } from '../components/ui.tsx'
+import { usePageTitle } from '../hooks.ts'
 import { browserTimeZone } from '../timeZones.ts'
 import { useLinkToken } from './linkToken.ts'
 import { AuthCard, PasswordField, ProviderButtons } from './shared.tsx'
 import { useAuthOptions } from './authOptions.ts'
+import { useTermsBox } from './termsBox.tsx'
 
 const ASK_AGAIN = (
   <Link to="/signup" className="font-medium text-accent hover:underline">
@@ -21,8 +22,9 @@ const ASK_AGAIN = (
  * The start of a new account: the address alone, which is mailed the link to the page that makes
  * the account (FinishSignupPage). The server answers alike whether the address has an account or
  * not, and this page says the same either way; the mail tells an address that has one how to sign
- * in instead. An account made through a provider needs no link. While sign-up is closed, as for a
- * private beta, the page offers the way to ask for an account instead (backend/app/signups.py).
+ * in instead. An account made through a provider needs no link. The account joins the team's workspace. While
+ * sign-up is closed, as an install starts, the page says to ask the team's admin, with the way to ask
+ * (backend/app/signups.py).
  */
 export function SignupPage() {
   const me = useContext(MeContext)
@@ -33,6 +35,7 @@ export function SignupPage() {
   const options = useAuthOptions()
   usePageTitle('Sign up · Emudoc')
   if (me) return <Navigate to={next} replace />
+  if (options.data?.setup_needed) return <Navigate to="/setup" replace />
   const signIn = (
     <>
       Already have an account?{' '}
@@ -51,10 +54,10 @@ export function SignupPage() {
   }
   if (options.data && !options.data.signup_open) {
     return (
-      <AuthCard title="Emudoc is in a private beta" intro="We are opening it to a few teams at a time, so accounts are made by invitation for now." footer={signIn}>
+      <AuthCard title="Accounts are made by invitation" intro="Your team's admin invites the people who work here." footer={signIn}>
         <p className="text-[13px] leading-relaxed text-muted">
-          Tell us about the documents you work with, and we will set up an account for your team. Invited already? Open the
-          link in the invitation's email.
+          Ask them to invite you. Invited already? Open the link in the invitation, from its email or wherever the admin
+          sent it.
         </p>
         <ButtonLink href={options.data.book_url} variant="primary" className="mt-5 w-full">
           {options.data.book_label}
@@ -90,7 +93,7 @@ export function SignupPage() {
   return (
     <AuthCard
       title="Create your account"
-      intro="You get a workspace of your own to upload documents into and ask questions about."
+      intro="You join your team's workspace, to upload documents into and ask questions about."
       footer={signIn}
     >
       <ProviderButtons next={next} verb="Sign up" />
@@ -190,7 +193,7 @@ export function FinishSignupPage() {
       title="Finish creating your account"
       intro={
         <>
-          For <span className="font-medium text-ink">{email}</span>. You get a workspace of your own to upload documents
+          For <span className="font-medium text-ink">{email}</span>. You join your team's workspace, to upload documents
           into and ask questions about.
         </>
       }
@@ -255,23 +258,16 @@ interface NewAccountFormProps {
   children?: ReactNode
 }
 
-/**
- * The name, the password and the acceptance of the terms that a sign-up link's page and an
- * invitation's page make an account with. The box accepts the edition the page shows, which the
- * server records; a newer one, fetched after a 409, unticks it.
- */
+/** The name, the password and the acceptance of the terms that a sign-up link's page and an invitation's page make an account with. */
 export function NewAccountForm({ email, pending, onSubmit, error, children }: NewAccountFormProps) {
   const [name, setName] = useState('')
   const [password, setPassword] = useState('')
-  const legal = useLegal()
-  // The edition that was on show when the box was ticked: a newer one unticks it.
-  const [acceptedVersion, setAcceptedVersion] = useState<string | null>(null)
-  const accepted = acceptedVersion !== null && acceptedVersion === legal.data?.version
+  const terms = useTermsBox()
 
   function submit(event: FormEvent) {
     event.preventDefault()
-    if (password.length >= PASSWORD_MIN_LENGTH && accepted && acceptedVersion) {
-      onSubmit({ name: name.trim(), password, terms_version: acceptedVersion })
+    if (password.length >= PASSWORD_MIN_LENGTH && terms.version) {
+      onSubmit({ name: name.trim(), password, terms_version: terms.version })
     }
   }
 
@@ -288,40 +284,28 @@ export function NewAccountForm({ email, pending, onSubmit, error, children }: Ne
         value={name}
         onChange={(event) => setName(event.target.value)}
       />
-      <PasswordField
-        label="Password"
-        autoComplete="new-password"
-        required
-        minLength={PASSWORD_MIN_LENGTH}
-        maxLength={PASSWORD_MAX_LENGTH}
-        hint={`At least ${PASSWORD_MIN_LENGTH} characters; a sentence you can remember is a good choice.`}
-        value={password}
-        onChange={(event) => setPassword(event.target.value)}
-      />
-      <Checkbox
-        required
-        disabled={!legal.data}
-        checked={accepted}
-        onChange={(event) => setAcceptedVersion(event.target.checked ? (legal.data?.version ?? null) : null)}
-        label={
-          <>
-            I accept the{' '}
-            <a href="/terms" target="_blank" rel="noreferrer" className="font-medium text-accent hover:underline">
-              terms of service
-            </a>{' '}
-            and have read the{' '}
-            <a href="/privacy" target="_blank" rel="noreferrer" className="font-medium text-accent hover:underline">
-              privacy policy
-            </a>
-            .
-          </>
-        }
-      />
-      {legal.isError && <Notice tone="bad">{legal.error.message}</Notice>}
+      <NewPasswordField value={password} onChange={setPassword} />
+      {terms.box}
       {error}
-      <Button type="submit" variant="primary" className="w-full" disabled={pending || !legal.data}>
+      <Button type="submit" variant="primary" className="w-full" disabled={pending || !terms.ready}>
         Create account
       </Button>
     </form>
+  )
+}
+
+/** The password a new account chooses, with what it takes. */
+export function NewPasswordField({ value, onChange }: { value: string; onChange: (password: string) => void }) {
+  return (
+    <PasswordField
+      label="Password"
+      autoComplete="new-password"
+      required
+      minLength={PASSWORD_MIN_LENGTH}
+      maxLength={PASSWORD_MAX_LENGTH}
+      hint={`At least ${PASSWORD_MIN_LENGTH} characters; a sentence you can remember is a good choice.`}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    />
   )
 }

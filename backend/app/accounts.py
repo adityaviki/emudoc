@@ -6,12 +6,14 @@ or have left that one since, the one they joined first. The choice is the sessio
 tab of a browser works in the same organisation; a tab that still shows the one before is
 refused until it catches up (`get_current_account` in app/api/deps.py).
 
-Signing up makes a user and an organisation of their own, which they own, and a user may start
-more (`create_organization`), each with its own plan. So that new organisations are no way past
-the free plan's limits, one user may own MAX_FREE_ORGANIZATIONS on it at most. Signing up from
-an invitation makes the user alone (`create_user`), a member of the organisation that invited
-them (`add_member`, app/invitations.py) and of none of their own. A user removed from their last
-organisation is given one of their own as at sign-up (`create_workspace`).
+An install's setup makes its first user and the workspace they own (app/signups.py), and a
+user may start more organisations (`create_organization`), each with its own plan. So that new
+organisations are no way past the free plan's limits, one user may own MAX_FREE_ORGANIZATIONS on
+it at most. Everyone else is made alone (`create_user`), a member of the organisation that
+invited them (`add_member`, app/invitations.py), or of the workspace when they signed up while
+sign-up is open. A user removed from their last organisation is given one of their own
+(`create_workspace`). `create_account`, a user with an organisation of their own, is what
+signing up made until 2026-11-12, and what the tests make each account they need with.
 
 For development on one machine, a request without a session can act as the local account
 instead: an organisation of one, created on first use, which has no session to switch in.
@@ -184,9 +186,8 @@ def create_account(
 
 
 def create_workspace(session: Session, user: User) -> Account:
-    """An organisation of the user's own, named after them, as signing up makes: also what a
-    member removed from their last organisation is given, since an account in none can do
-    nothing. The caller commits."""
+    """An organisation of the user's own, named after them: what a member removed from their
+    last organisation is given, since an account in none can do nothing. The caller commits."""
     stem = user.name or user.email.split("@")[0]
     return create_organization(session, user, f"{stem}'s workspace", stem)
 

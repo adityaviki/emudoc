@@ -942,7 +942,7 @@ the sample project ("The sample project", below) whose answers are known
 the delivery log, a detail of each kind
 of document, two figures worked out from several (the three invoices' total, the end of the
 contract's term), and one the documents do not answer. It copies the sample into an
-organisation of its own, as a sign-up does, embeds it when the embeddings endpoint answers (the
+organisation of its own, as the setup does, embeds it when the embeddings endpoint answers (the
 search matches words alone otherwise, which its last lines say), asks each question as a
 member's is asked, by `AGENT_MODEL` and its fallback, and deletes the organisation with whatever
 it recorded: it costs the answers, about a dozen with a few tool calls each (USD 1.21 to 1.28 on
@@ -1095,17 +1095,16 @@ found, or is served no longer".
 
 ## The sample project
 
-The organisation an account signs up with, by its link or through a provider, starts with a
-project named "Sample: Acme supplier contract": a supplier's contract, three of its invoices,
-the price list, the delivery log, an email and meeting notes, which a question can read
-against each other (an invoice that bills 340 pallets without the contract's discount, two late
-deliveries). A colleague who signs
-up from an invitation joins an organisation instead and makes none; a member removed from
-their last organisation is given one without it. `SAMPLE_PROJECT=false` turns it off.
+The workspace the setup makes ("The first run, and who signs up") starts with a project named
+"Sample: Acme supplier contract": a supplier's contract, three of its invoices, the price list,
+the delivery log, an email and meeting notes, which a question can read against each other (an
+invoice that bills 340 pallets without the contract's discount, two late deliveries). Everyone
+who joins later, by an invitation or a sign-up, finds it there; a member removed from their last
+organisation is given one of their own without it. `SAMPLE_PROJECT=false` turns it off.
 
-Nothing is indexed as an account is made. The image carries the files and what the pipeline
+Nothing is indexed as the workspace is made. The image carries the files and what the pipeline
 made of them (`backend/app/sample/index.json`: blocks, outline, passages, summaries, facts), and
-the sign-up copies them in its own transaction: the files into the storage under the new
+the setup copies them in its own transaction: the files into the storage under the new
 documents' keys, the rows with new ids. So the copy calls no model and costs the organisation
 nothing of its month; only the vectors are the deployment's, made by each document's index job,
 which runs the embed stage alone at once (a few seconds against the compose file's server, the
@@ -1146,26 +1145,40 @@ are put away for now (2026-11-11): `/pricing`, `/help`, `/help/…` and `/api-re
 visitor to `/`, and no search engine is told of them. The versioned API itself, and its contract
 at `/api/v1/openapi.json`, stay.
 
-### The private beta
+### The first run, and who signs up
 
-`SIGNUP_OPEN=false` closes the sign-up, as for a private beta, while the app is shown to a few
-teams at a time (`backend/app/signups.py`; the AWS module sets it for staging and production).
-The sign-up form refuses every address alike, with a sentence that says Emudoc is in a private
-beta, and a first sign-in through Google or Microsoft makes no account. The site's home page
-says "Private beta" beside its "Book a demo" ("The public site"). The sign-up page says the same
-as the home page, with the button, and the sign-in page's "New to Emudoc?" leads to it.
-
-Two ways in stay. A member invites colleagues into their organisation as ever ("Invitations"),
-by the password page or through a provider. And the operator sends someone a sign-up link, which
-makes an account with an organisation of its own and the sample project, from the operator's
-area ("The operator's area", Users) or the command:
+An install starts with no account (`backend/app/signups.py`). Until one exists every page sends
+to `/setup`, the home page too, where whoever runs the install types the admin's name, address
+and password and the team's name. The page makes the account, its address confirmed, an owner of
+the workspace named so, which starts with the sample project ("The sample project"), and signs
+it in. It is refused once any account exists, under a lock, so that two browsers at once make
+one admin. Until then whoever reaches the install first makes themselves its admin, so set it
+up before its address is public, or from the shell. A script makes the same without a browser,
+with no password, and prints the link that sets one:
 
 ```bash
-maintenance invite grace@example.com   # the link mailed, working for 14 days; refused for an address with an account
+maintenance create-admin ada@example.com --name "Ada Lovelace" --workspace Acme   # refused once any account exists; the link works once, within a day
 ```
 
-A link sent before the sign-up closed still makes its account until it expires. Setting
-`SIGNUP_OPEN=true` (the default) opens the sign-up again, at once, with no release.
+After that, people come in by invitation. The owner or admin who invites someone, or sends an
+invitation again, is shown its link to copy and hand on as well as the mail sent with it, since
+an install may have no mail relay ("Mail"); without one, the page says that nothing was mailed.
+The address is then the inviter's word rather than the mail's proof. A member who forgot their
+password where nothing is mailed is given a link that sets it: an owner or admin makes one from
+the members list, for a member within their own role, which the audit log keeps, and the
+server's shell prints one:
+
+```bash
+maintenance reset-password grace@example.com   # the link, working once within a day; the account's earlier ones stop
+```
+
+`SIGNUP_OPEN` is off by default: the sign-up form refuses every address alike, with a sentence
+that says to ask the team's admin, and a first sign-in through Google or Microsoft makes no
+account. The site's home page says "Private beta" beside its way in ("The public site"), until
+the site is taken out. Set to `true`, anyone who reaches the install signs up by the link mailed
+to their address, or through a provider, and joins the workspace as a member, within the members
+its plan allows; a sign-up link stops working once the sign-up is closed again. Either change
+takes effect at once, with no release.
 
 `SEARCH_ENGINES=true` asks search engines to list the public pages: robots.txt keeps them from
 `/api/` alone and names `/sitemap.xml` (the home page, the terms, the privacy policy, the
@@ -3834,12 +3847,6 @@ It changes five things, as the commands do:
   belong to no organisation: each is a line of the log naming the operator's id, `Operator 7
   switched the model provider google off`. `maintenance models` asks every model whatever the
   page says, which is how to try a provider before switching it on.
-- **A sign-up link sent.** Under Users, "Send a sign-up link" mails an address the link that
-  makes an account with an organisation of its own, which works for 14 days whether or not
-  anyone may sign up: how a private beta lets someone in ("The private beta"), as `invite
-  <address>` does. An address that has an account is refused with that said. A second link to
-  the address stops the first. It belongs to no organisation: a line of the log names the
-  operator's id, `Operator 7 sent a sign-up link`, never the address.
 
 And it opens a member's account as support, which no command does:
 
@@ -3868,7 +3875,7 @@ nothing:
 
 ```bash
 maintenance operators                       # who, since when, with or without two-factor
-maintenance operators add ops@example.com   # the account signs up first
+maintenance operators add ops@example.com   # the account exists first
 maintenance operators remove ops@example.com
 ```
 
@@ -4667,7 +4674,7 @@ repository's policy among them.
     first answer comes back from `eu.openrouter.ai` (or `us.`); a refusal there means the
     OpenRouter account has no in-region routing.
 11. On the account page, "Download your data" saves `emudoc-account-<date>.json` with your
-    account, sessions and chats and no password hash. Sign up a throwaway account, delete it
+    account, sessions and chats and no password hash. Invite a throwaway account, delete it
     with its password: the notice arrives by mail, the page offers only to keep it, and signing
     in elsewhere shows the same. Keep it, delete it again, and check after the 14 days (or move
     `users.deletion_due_at` into the past and wait for a housekeeping round) that signing in
@@ -4683,7 +4690,7 @@ repository's policy among them.
     privacy policy says `BACKUP_DAYS`, `SERVER_LOG_DAYS`, the region and whether uploads are
     scanned as the deployment has them, and whatever collects the logs deletes them by
     `SERVER_LOG_DAYS` ("How long they are kept": on AWS, `sudo journalctl -q -o short-iso |
-    head -n 1` on an instance that has run that long shows a line no older). Sign up a
+    head -n 1` on an instance that has run that long shows a line no older). Invite a
     throwaway account: the box must be ticked, and the account page says when the terms were
     accepted. Any `/api` response carries `Cache-Control: no-store`, and signing out answers
     with `Clear-Site-Data: "cache"`.
@@ -4790,11 +4797,11 @@ the roots' `settings` the others ("The settings").
 | `LOCAL_ACCOUNT` | `false` | refused when true | Requests without a session act as a local owner, for development |
 | `APP_URL` | the request's origin | required | Where members reach the app: the links in mail, the OAuth redirect |
 | `SEARCH_ENGINES` | `false` | `true` on the deployment the public reaches, never staging | Whether search engines are asked to list the public pages ("The public site") |
-| `SIGNUP_OPEN` | `true` | `false` during the private beta, which the AWS module sets | Whether anyone may make an account with an organisation of its own ("The private beta") |
+| `SIGNUP_OPEN` | `false` | | Whether anyone who reaches the install may make an account, which joins the workspace ("The first run, and who signs up") |
 | `BOOKING_URL` | none | | The `https://` page the home page's "Book a demo" opens, and the sign-up page's while sign-up is closed; none mails the support address ("The public site") |
 | `SESSION_DAYS` | `30` | | How long a sign-in lasts; an organisation may sign its members in again sooner |
 | `OPERATOR_NETWORKS` | `127.0.0.1/32,::1/128` in development, none in production | the operators' addresses | Where the operator's area answers from ("The operator's area") |
-| `SAMPLE_PROJECT` | `true` | | Whether the organisation an account signs up with starts with the sample project ("The sample project") |
+| `SAMPLE_PROJECT` | `true` | | Whether the workspace the setup makes starts with the sample project ("The sample project") |
 | `FORWARDED_ALLOW_IPS` | `127.0.0.1,::1` | the proxy's address | uvicorn's: whose `X-Forwarded-*` headers are believed ("TLS at a reverse proxy") |
 | `TMPDIR` | `/tmp` | | Where uploads pass through and a worker copies an original to ("The image") |
 | `EMUDOC_VERSION` | `unknown` in an image built without `VERSION`, `development` in a checkout | | The image's `VERSION`, which `/api/health` names; not set by hand |

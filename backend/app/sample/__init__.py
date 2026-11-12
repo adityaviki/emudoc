@@ -1,12 +1,12 @@
-"""The sample project the organisation an account signs up with starts with (SAMPLE_PROJECT):
+"""The sample project the workspace an install's setup makes starts with (SAMPLE_PROJECT):
 Emudoc's own documents of one supplier, the canonical scenario of checking an invoice against
 the contract, the price list and the delivery log, with three questions to ask about them.
 
-Nothing is indexed at sign-up. The files in `files/` were indexed once by the pipeline, as an
+Nothing is indexed at the setup. The files in `files/` were indexed once by the pipeline, as an
 upload is (`build_sample`, the `build-sample` maintenance command, which a developer runs with a
 model), and `index.json` holds what it made of them: each document's blocks, outline, passages,
 summaries and facts. A new organisation gets a copy (`add_sample`): the files put into the
-storage under the new documents' keys and the rows written with new ids, in the sign-up's
+storage under the new documents' keys and the rows written with new ids, in the setup's
 transaction, so that the first answer with a citation waits for no upload and no model. Only
 the vectors are left out, since they are the deployment's embedding model's: each document's
 index job runs the embed stage alone, a few seconds, and a search finds the passages by their
@@ -138,14 +138,14 @@ def sample_files() -> tuple[SampleFile, ...]:
 
 def check_sample(settings: Settings) -> None:
     """Refuse to start with SAMPLE_PROJECT on and a sample that cannot be copied, which would
-    otherwise be found at the first sign-up."""
+    otherwise be found at the setup."""
     if settings.sample_project:
         sample_files()
 
 
 def add_sample(session: Session, organization: Organization, storage: Storage) -> Project | None:
-    """Give the organisation the sample project, as the account it was made for signs up, in
-    the caller's transaction, which commits it with each document's index job.
+    """Give the organisation the sample project, as the install's setup makes it
+    (app/signups.py), in the caller's transaction, which commits it with each document's index job.
 
     None when SAMPLE_PROJECT is off, or when the storage would not take the files, which is
     logged: an account is never refused for its sample. A file stored before the failure is left
@@ -182,7 +182,7 @@ def copy_sample(
 ) -> tuple[Project, list[Document]]:
     """The sample project and its documents written into the organisation from the index, and
     their files put into the storage, each document ready but for its embed stage, which
-    nothing is queued to run: a sign-up queues it (`add_sample`), and the golden questions run
+    nothing is queued to run: the setup queues it (`add_sample`), and the golden questions run
     it themselves (app/golden.py)."""
     files = sample_files()
     project = Project(

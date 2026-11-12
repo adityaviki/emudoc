@@ -16,6 +16,13 @@ newest entry first.
 
 Members:
 
+- When you invite someone, or send an invitation again, you are shown its link to copy and send
+  them yourself, beside the email: where this Emudoc sends no mail, the page says so, and the link
+  is how the invitation arrives. An owner or admin can also make a member who forgot their
+  password a link that sets it, from "Reset password…" in the members list.
+- Accounts are made by invitation: the sign-up page says to ask your team's admin. Where
+  sign-up is open, signing up joins your team's workspace rather than making one of your own.
+
 - Where My files are on, the agent writes Word documents for you there: ask in a chat for a
   letter, a memo or a report and it writes the file, its sources as numbered notes, and the
   answer's step opens it. Ask it to change one of your files, or a Word document of the project,
@@ -40,6 +47,17 @@ Members:
 
 Operators:
 
+- A new install opens on a setup page while it has no account: it makes the admin, with the
+  address confirmed, an owner of the workspace named as typed, which starts with the sample
+  project, and is refused once any account exists. `maintenance create-admin <address> --name
+  … --workspace …` does the same from a shell, without a password, and prints the link that sets
+  one. `SIGNUP_OPEN` now defaults to `false`; set to `true`, a sign-up joins the workspace as a
+  member. `maintenance invite`, the operator's "Send a sign-up link" and its route `POST
+  /api/operator/sign-up-links` are gone. Making or sending an invitation answers with its link
+  (`link`, and `mailed`, whether a relay is set), and `POST
+  /api/organization/members/{id}/reset-link` and `maintenance reset-password <address>` make a
+  link that sets a member's password, working once within a day, kept in the audit log as
+  `reset_link_made` (migration b7d4e1f20c93).
 - My files, behind the flag `my_files`: each member's own Word and Excel files in a project, in
   the tables `my_files` and `my_file_versions` (migration 562af5b541e8), stored under
   `orgs/{o}/projects/{p}/my-files/{f}/`, whose leftovers the storage walk sweeps once their row is

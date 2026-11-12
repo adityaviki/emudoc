@@ -34,6 +34,7 @@ import { ME_KEY, setSignedIn, startAgainInOrganization, useMe } from '../auth.ts
 import { describeBilling, describeChange, describeExcess, describeHeld, mayBuy, mayChange, thisMonth } from '../billing.ts'
 import { PasswordField } from '../account/shared.tsx'
 import { NoticeChoices } from '../components/NoticeChoices.tsx'
+import { HandedLink, SentInvitation } from '../components/HandedLink.tsx'
 import { PlanLimitNotice, PlanOffer } from '../components/PlanLimit.tsx'
 import { Button, Checkbox, Chip, FIELD, InputField, LinkButton, Loading, Notice, Radio, Row, Section, SelectField } from '../components/ui.tsx'
 import { formatDate, formatDateTime, formatSize } from '../format.ts'
@@ -1249,8 +1250,8 @@ function MembersSection({ me }: { me: Me }) {
 // anyone but an owner (backend/app/api/organizations.py); their own role nobody changes here.
 function MemberRow({ me, member }: { me: Me; member: Member }) {
   const queryClient = useQueryClient()
-  // Handing the organisation over asks for the password; removing asks to be sure.
-  const [open, setOpen] = useState<'hand over' | 'remove' | null>(null)
+  // Handing the organisation over asks for the password; removing and a reset link ask to be sure.
+  const [open, setOpen] = useState<'hand over' | 'remove' | 'reset' | null>(null)
   const refresh = () => queryClient.invalidateQueries({ queryKey: MEMBERS_KEY })
   const changeRole = useMutation({
     mutationFn: (role: Role) => organizations.changeRole(member.user_id, role),
@@ -1308,6 +1309,11 @@ function MemberRow({ me, member }: { me: Me; member: Member }) {
           </Button>
         )}
         {manageable && open === null && (
+          <Button variant="ghost" onClick={() => setOpen('reset')}>
+            Reset password…
+          </Button>
+        )}
+        {manageable && open === null && (
           <Button variant="ghost" onClick={() => setOpen('remove')}>
             Remove…
           </Button>
@@ -1319,6 +1325,7 @@ function MemberRow({ me, member }: { me: Me; member: Member }) {
         </div>
       )}
       {open === 'hand over' && <HandOverForm me={me} successor={member} onClose={() => setOpen(null)} />}
+      {open === 'reset' && <ResetLinkForm member={member} onClose={() => setOpen(null)} />}
       {open === 'remove' && (
         <div className="mt-3 max-w-md space-y-3">
           <Notice tone="warn">
@@ -1337,6 +1344,47 @@ function MemberRow({ me, member }: { me: Me; member: Member }) {
         </div>
       )}
     </li>
+  )
+}
+
+// A link that sets the member's password, for a member who forgot theirs where the install mails
+// nothing (backend/app/signups.py). Whoever opens it chooses the password, so it is made only once
+// asked twice, and its making is in the audit log.
+function ResetLinkForm({ member, onClose }: { member: Member; onClose: () => void }) {
+  const make = useMutation({ mutationFn: () => organizations.resetLink(member.user_id) })
+  const name = member.name || member.email
+
+  return (
+    <div className="mt-3 max-w-lg space-y-3">
+      {make.isSuccess ? (
+        <>
+          <HandedLink label={`Password link for ${name}`} link={make.data.link} />
+          <p className="text-xs text-muted">
+            It works once, until {formatDateTime(make.data.expires_at)}, and signs {name} out everywhere; two-factor
+            sign-in, if on, still holds. It is not shown again.
+          </p>
+          <Button variant="ghost" onClick={onClose}>
+            Done
+          </Button>
+        </>
+      ) : (
+        <>
+          <Notice tone="warn">
+            Make a link that sets {name}'s password? Whoever opens it chooses the password, so hand it to {name} alone.
+            Their earlier links stop working.
+          </Notice>
+          {make.isError && <Notice tone="bad">{make.error.message}</Notice>}
+          <div className="flex gap-2">
+            <Button variant="primary" icon={<KeyRound className="size-4" />} onClick={() => make.mutate()} disabled={make.isPending}>
+              Make the link
+            </Button>
+            <Button variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+          </div>
+        </>
+      )}
+    </div>
   )
 }
 
@@ -1453,9 +1501,7 @@ function InvitationsSection({ me }: { me: Me }) {
           ) : (
             <Notice tone="bad">{invite.error.message}</Notice>
           ))}
-        {invite.isSuccess && (
-          <p className="text-[13px] text-muted">An invitation is on its way to {invite.data.email}.</p>
-        )}
+        {invite.isSuccess && <SentInvitation sent={invite.data} />}
       </div>
       {invitations.isPending && <Loading />}
       {invitations.isError && <Notice tone="bad">{invitations.error.message}</Notice>}
@@ -1515,6 +1561,11 @@ function InvitationRow({ me, invitation }: { me: Me; invitation: Invitation }) {
       {error && (
         <div className="mt-2">
           {isPlanLimit(error) ? <PlanLimitNotice refusal={error} /> : <Notice tone="bad">{error.message}</Notice>}
+        </div>
+      )}
+      {resend.isSuccess && (
+        <div className="mt-2">
+          <SentInvitation sent={resend.data} />
         </div>
       )}
     </li>

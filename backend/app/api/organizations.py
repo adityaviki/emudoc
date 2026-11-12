@@ -25,7 +25,9 @@ chats stay with the project. Nobody leaves an organisation that would be left wi
 or with nobody, nor their last one, since an account in none can do nothing.
 
 Owners and admins change the other members' roles and remove them: an admin anyone's but an
-owner's, and to any role but owner; an owner anyone's. Nobody changes their own role or removes
+owner's, and to any role but owner; an owner anyone's. Within the same bounds they make a member
+a link that sets the member's password, shown to copy and hand on, for a member who forgot it
+where the install mails nothing. Nobody changes their own role or removes
 themselves here, so the owner who asks is still one after. These two, handing over and leaving
 hold the organisation until they commit and read the asker's role again under it, so that two
 owners cannot take each other's role at once. A member removed loses what leaving loses; one
@@ -92,8 +94,10 @@ from app.schemas import (
     OrganizationDeletionIn,
     OrganizationIn,
     OwnershipIn,
+    ResetLinkOut,
 )
 from app.security import MFA_YOURS_FIRST, longer_than_sessions
+from app.signups import handed_reset_link
 
 router = APIRouter(tags=["organizations"])
 
@@ -122,6 +126,12 @@ YOUR_OWN_ROLE = (
     "another admin if you are an admin."
 )
 REMOVE_YOURSELF = "To stop being a member of the organisation yourself, leave it instead."
+ADMINS_RESET = (
+    "Only the owners and admins of the organisation can make a link that resets a member's "
+    "password. Ask one of them to, or reset yours from the sign-in page."
+)
+OWNERS_RESET_OWNERS = "Only an owner can make a link that resets an owner's password."
+YOUR_OWN_PASSWORD = "Change your own password on your account page instead."
 LAST_ORGANISATION = (
     "This is the only organisation you are a member of, and an account in none can do "
     "nothing. Join or start another first, or delete your account instead."
@@ -323,6 +333,32 @@ def remove_member(user_id: int, account: AccountDep, request: Request, session: 
             detail={"name": own.name},
         )
     session.commit()
+
+
+@router.post(
+    "/organization/members/{user_id}/reset-link",
+    response_model=ResetLinkOut,
+    dependencies=[Depends(limited(SIGN_INS))],
+)
+def make_reset_link(user_id: int, account: AccountDep, request: Request, session: SessionDep):
+    """A link to the page that sets another member's password, for the owner or admin who asks
+    to copy and hand on, which works for HANDED_LINK_TTL: how a member who forgot theirs signs
+    in again where the install mails nothing (app/signups.py). Held to the asker's role as
+    changing one is, since whoever opens the link chooses the member's password; their
+    two-factor sign-in still holds. Their earlier links stop working, and the audit log keeps
+    who made it."""
+    if not account.is_at_least("admin"):
+        raise HTTPException(403, ADMINS_RESET)
+    manager = _manager(session, account)
+    if user_id == account.user.id:
+        raise HTTPException(400, YOUR_OWN_PASSWORD)
+    membership = _membership(session, account, user_id)
+    if not manager.is_at_least(membership.role):
+        raise HTTPException(403, OWNERS_RESET_OWNERS)
+    link, ends = handed_reset_link(session, session.get(User, user_id), app_url(request))
+    audit(session, account, request, "reset_link_made", target=("user", user_id))
+    session.commit()
+    return ResetLinkOut(link=link, expires_at=ends)
 
 
 @router.post("/organization/owner", response_model=MeOut, dependencies=[Depends(limited(SIGN_INS))])

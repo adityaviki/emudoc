@@ -7,8 +7,11 @@ revokes one. Each is held to the plan's members, an open invitation counted (`ch
 and an organisation that holds more than its plan allows invites nobody until it is within it
 (`read_only`). The mail is posted with the invitation (app/postbox.py), as every link the app
 mails is; the route is held to a rate per user and per address mailed, so that no inbox can be
-flooded from one organisation. Whoever opens the link accepts it on the invitation's page
-(app/api/auth.py).
+flooded from one organisation. The link is also the answer to whoever sent it, to copy and hand
+on: an install may have no mail relay (app/signups.py), and then that is the only way it
+arrives, which the answer says (`mailed`). The address is then the sender's word rather than
+the mail's proof, which an owner or admin, who could invite any address, may give. Whoever
+opens the link accepts it on the invitation's page (app/api/auth.py).
 
 The domains are chosen by an owner or admin too, and one is added only by someone whose own
 confirmed address is at it. A user whose confirmed address is at one is offered the
@@ -32,14 +35,15 @@ from app.api.deps import (
 from app.api.organizations import NO_SESSION, NOT_FOUND, locked
 from app.audit import audit
 from app.auth import now
+from app.config import get_settings
 from app.entitlements import PlanRefused, Refusal, check_member, read_only
 from app.invitations import INVITATION_TTL, domain_of, is_open, issue, joining_refusal
-from app.mail import invitation_email
+from app.mail import invitation_email, relay_set
 from app.models import Invitation, Membership, User, UserSession
 from app.postbox import post
 from app.ratelimit import SIGN_INS, by_email
 from app.retention import held_for_deletion
-from app.schemas import InvitationIn, InvitationOut, JoiningIn, MeOut
+from app.schemas import InvitationIn, InvitationOut, InvitationSentOut, JoiningIn, MeOut
 
 router = APIRouter(tags=["invitations"])
 
@@ -70,13 +74,13 @@ def list_invitations(account: AccountDep, session: SessionDep):
 
 @router.post(
     "/organization/invitations",
-    response_model=InvitationOut,
+    response_model=InvitationSentOut,
     status_code=201,
     dependencies=[Depends(limited(SIGN_INS))],
 )
 def invite(body: InvitationIn, account: AccountDep, request: Request, session: SessionDep):
-    """Invite an address to the organisation with a role, and mail it the link. An address
-    whose invitation expired is invited afresh."""
+    """Invite an address to the organisation with a role, mail it the link, and give the link
+    to the sender too. An address whose invitation expired is invited afresh."""
     _refuse_unless_admin(account)
     if not account.is_at_least(body.role):
         raise HTTPException(403, OWNERS_INVITE_OWNERS)
@@ -124,21 +128,22 @@ def invite(body: InvitationIn, account: AccountDep, request: Request, session: S
         target=("invitation", invitation.id),
         detail={"role": invitation.role},
     )
-    _mail(session, request, account, invitation, token)
+    link = _mail(session, request, account, invitation, token)
     session.commit()
-    return _out(invitation, account.user)
+    return _sent(invitation, account.user, link)
 
 
 @router.post(
     "/organization/invitations/{invitation_id}/resend",
-    response_model=InvitationOut,
+    response_model=InvitationSentOut,
     dependencies=[Depends(limited(SIGN_INS))],
 )
 def resend_invitation(
     invitation_id: int, account: AccountDep, request: Request, session: SessionDep
 ):
-    """Mail the invitation again, with a new link for INVITATION_TTL from now; the link mailed
-    before stops working. One that expired takes a place among the plan's members again."""
+    """Mail the invitation again, with a new link for INVITATION_TTL from now, given to the
+    sender too; the link before stops working. One that expired takes a place among the plan's
+    members again."""
     _refuse_unless_admin(account)
     email = _invitation(session, account, invitation_id).email
     refuse_past(session, (SIGN_INS, by_email(email)))
@@ -163,9 +168,9 @@ def resend_invitation(
         target=("invitation", invitation.id),
         detail={"role": invitation.role, "again": True},
     )
-    _mail(session, request, account, invitation, token)
+    link = _mail(session, request, account, invitation, token)
     session.commit()
-    return _out(invitation, account.user)
+    return _sent(invitation, account.user, link)
 
 
 @router.delete("/organization/invitations/{invitation_id}", status_code=204)
@@ -288,16 +293,24 @@ def _invitation(
 
 def _mail(
     session: Session, request: Request, account: Account, invitation: Invitation, token: str
-) -> None:
-    """Post the invitation's link with the change that made it."""
+) -> str:
+    """Post the invitation's link with the change that made it, and return the link."""
+    link = mailed_link(request, INVITATION_PAGE, token)
     content = invitation_email(
         account.user.name or account.user.email,
         account.organization.name,
         invitation.role,
-        mailed_link(request, INVITATION_PAGE, token),
+        link,
         INVITATION_TTL.days,
     )
     post(session, invitation.email, content, account.organization.id)
+    return link
+
+
+def _sent(invitation: Invitation, inviter: User, link: str) -> InvitationSentOut:
+    return InvitationSentOut(
+        **_out(invitation, inviter).model_dump(), link=link, mailed=relay_set(get_settings())
+    )
 
 
 def _out(invitation: Invitation, inviter: User | None) -> InvitationOut:

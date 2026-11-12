@@ -1093,20 +1093,22 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
 
 ## Accounts
 
-Signing up starts with an email address alone, which is sent a link; the page it opens takes a
-name and a password and makes a user and an organisation of their own, which they own, signed in
-and with the address confirmed, since whoever chose the password holds the mail. The organisation
-starts with the sample project, "Sample: Acme supplier contract": a supplier's contract, three of
-its invoices, the price list, the delivery log, an email and meeting notes, indexed already
+An install holds one team's workspace. It starts with no account: every page sends to the setup
+page, `/setup`, which takes the admin's name, address and password and the team's name, and makes
+the account, with the address confirmed, an owner of the workspace named so, signed in; it is
+refused once any account exists (`backend/app/signups.py`; `maintenance create-admin` does the
+same from a shell; deploying.md, "The first run, and who signs up"). The workspace starts with
+the sample project, "Sample: Acme supplier contract": a supplier's contract, three of its
+invoices, the price list, the delivery log, an email and meeting notes, indexed already
 (`backend/app/sample`), so that the first question gets its answer and citations without waiting
 for an upload. It counts against nothing on the plan and takes no uploads; its questions count, and
 it is deleted like any project (`SAMPLE_PROJECT=false` turns it off; deploying.md, "The sample
-project"). A deployment can close the sign-up, as for a private beta (`SIGNUP_OPEN=false`,
-`backend/app/signups.py`; deploying.md, "The private beta"): the form and a first sign-in
-through Google or Microsoft then make no account, the sign-up page offers the home page's
-"Book a demo" (`BOOKING_URL`) instead, and an account comes only from an invitation into
-an organisation or a sign-up link the operator sends from the operator's area or with
-`maintenance invite <address>`. The first project a member opens shows a short tour of the workspace, card by card,
+project"). Everyone after the admin comes in by invitation (below). Sign-up is closed unless
+`SIGNUP_OPEN=true`: the form and a first sign-in through Google or Microsoft make no account, and
+the sign-up page says to ask the team's admin. Open, signing up starts with an email address
+alone, which is sent a link; the page it opens takes a name and a password and makes a user who
+joins the workspace as a member, signed in and with the address confirmed, since whoever chose
+the password holds the mail. The first project a member opens shows a short tour of the workspace, card by card,
 which "Skip the tour" or Escape ends; the user menu offers it again inside a project. Once an
 answer about the organisation's own documents is done (not the sample's), the chat suggests
 inviting the team under it to an owner or admin while nobody else is a member or invited (read
@@ -1295,7 +1297,10 @@ and admins change the other members' roles and remove members: an admin anyone's
 owner's, and to any role but owner; an owner anyone's, so an owner can make another without
 handing the organisation over. Nobody changes their own role there, so an organisation always
 keeps an owner. A member removed loses what leaving loses, and one removed from their last
-organisation gets an empty one of their own, as at sign-up. A project is seen by everyone in the
+organisation gets an empty one of their own. For a member who forgot their password where the
+install mails nothing, an owner or admin makes a link that sets it from the members list ("Reset
+link…"), shown to copy and hand on, for a member within their own role, which works once within
+a day and is kept in the audit log; `maintenance reset-password <address>` prints one too. A project is seen by everyone in the
 organisation until it is made private ("Who sees it" on its card, or "Private" when making it):
 then only the members chosen for it see it, and the owners and admins, who see every project,
 so that none is left that nobody can manage. Whoever may change the project chooses; a member
@@ -1312,7 +1317,9 @@ pages `frontend/src/organization/`.
 
 People join an organisation by invitation. Its owners and admins invite an address with a role,
 never above their own, from the organisation's page; the address is mailed a link to
-`/invitation`, which shows who invited it to what. Signed in with the address, one click joins;
+`/invitation`, which shows who invited it to what, and whoever sent it is shown the link to copy
+and hand on, the one way it arrives where the install has no mail relay, which the page then
+says. Signed in with the address, one click joins;
 an address with an account signs in first and comes back; one without makes its account there,
 or through Google or Microsoft from there, and that account is a member of the inviting
 organisation and of none of its own. Another account cannot accept it, since the link proves
@@ -1535,7 +1542,7 @@ shows what each file now reads as.
 The frontend's unit tests (`pnpm test`, Vitest) sit beside the modules they test
 (`src/**/*.test.ts`) and run in Node with `fetch` stubbed: the chat's events and its
 reconnections, the workspace's URLs, the formatting. `pnpm e2e` (Playwright) drives the built
-page in Chromium as a new member: sign up through the link the app mails, skip the tour, ask the
+page in Chromium as a new member: set the install up on its setup page, skip the tour, ask the
 sample project one of its questions, make a project, upload a contract, wait for it to be indexed, search for it, ask about it and open the passage the
 answer cites, then invite a colleague from under that answer, checking each kind of page, panel
 and dialog against axe-core's rules for WCAG 2.2 AA in both themes along the way
@@ -1658,7 +1665,7 @@ backend/app/
   folders.py    the folder tree as paths and subtrees
   agent/        the five tools and the tool-use loop
   accounts.py   who a request acts as; signing up makes a user and their organisation
-  sample/       the sample project a sign-up's organisation starts with: its files, the index
+  sample/       the sample project the setup's workspace starts with: its files, the index
                 the pipeline made of them, the copy and the build-sample command's build
   onboarding.py the organisation's first steps, read from what it did, which the invite
                 suggestion reads, and the account's choices about the tour and the suggestion

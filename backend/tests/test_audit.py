@@ -36,6 +36,7 @@ from tests.test_auth import (
     callback,
     google_claims,
     login,
+    open_signup,  # noqa: F401 (a fixture)
     signup,
     start,
 )
@@ -298,14 +299,19 @@ def google(monkeypatch):
 
 
 def test_a_sign_in_through_a_provider_is_recorded_with_it(
-    client, session, identity_provider, google, signed_in_only
+    client,
+    session,
+    identity_provider,
+    google,
+    open_signup,  # noqa: F811
 ):
     for _ in range(2):
         _, handshake = start(client)
         identity_provider.claims = google_claims(handshake.nonce)
         assert callback(client, code="the-code", state=handshake.state).status_code == 302
         client.post("/api/auth/logout")
-    assert actions(session) == [
+    # In the workspace the sign-up joined.
+    assert actions(session, open_signup) == [
         ("sign_up", {"method": "google"}),
         ("sign_in", {"method": "google"}),
         ("sign_out", {}),

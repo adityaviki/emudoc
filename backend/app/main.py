@@ -105,7 +105,9 @@ from app.schemas import (
     WorkerStatus,
 )
 from app.shutdown import Stop, heard_stop
+from app.signups import needs_setup
 from app.site import (
+    HOME_PAGE,
     NOT_LISTED,
     PAGES,
     fill,
@@ -440,6 +442,12 @@ async def unexpected_error(request: Request, error: Exception) -> JSONResponse:
     return response
 
 
+def _set_up_first() -> bool:
+    """Whether the install has no account yet, so that its home page sends to the setup."""
+    with SessionLocal() as session:
+        return needs_setup(session)
+
+
 def _from_operator(request: Request) -> bool:
     """Whether the operator's page may be sent: to an operator, from an operator's network. One
     whom the area still refuses, for want of two-factor sign-in, is sent it, and told why by
@@ -645,6 +653,10 @@ def create_app(
                 # A page put away: the plans, the help, the API reference, what's new (app/site.py).
                 return RedirectResponse(elsewhere, status_code=302)
             if (site_page := page_at(path, request, settings)) is not None:
+                # An install with no account yet is entered through its setup (app/signups.py),
+                # which the members' page shows at once.
+                if site_page == HOME_PAGE and await to_thread.run_sync(_set_up_first):
+                    return RedirectResponse(auth.SETUP_PAGE, status_code=302)
                 if served := await to_thread.run_sync(_site_page, site_page, request):
                     return served
             if _OPERATOR_PATH.fullmatch(path):

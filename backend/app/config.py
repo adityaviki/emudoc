@@ -633,11 +633,10 @@ class Settings(BaseSettings):
     # robots.txt turns every crawler away and every page says not to be listed, as a staging
     # deployment or one on a machine of its own should, so it is on only where it is said to be.
     search_engines: bool = False
-    # Whether anyone may make an account with an organisation of its own, by email or through
-    # Google or Microsoft (app/signups.py). Off, as for a private beta, the sign-up page and the
-    # public site offer BOOKING_URL instead, and an account comes
-    # only from an invitation into an organisation or a sign-up link the operator sends.
-    signup_open: bool = True
+    # Whether anyone who reaches the install may make an account, by email or through Google or
+    # Microsoft, which joins the workspace as a member (app/signups.py). Off, an account comes
+    # from the setup or an invitation alone, and the sign-up page says to ask the team's admin.
+    signup_open: bool = False
     # The page a visitor books a demo on (Cal.com, Calendly or the like), which "Book a demo"
     # opens on the public site, and on the sign-up page while sign-up is closed. Empty offers a
     # message to the support address instead ("Request access").

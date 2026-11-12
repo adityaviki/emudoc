@@ -532,9 +532,11 @@ def answer_links(w: World) -> list[Route]:
 
 
 def members(w: World) -> list[Route]:
-    """Changing a member's role and removing them, which only the owners and admins may."""
+    """Changing a member's role, making them a link that resets their password and removing
+    them, which only the owners and admins may."""
     return [
         ("PATCH", f"/api/organization/members/{w.member_id}", {"json": {"role": "viewer"}}),
+        ("POST", f"/api/organization/members/{w.member_id}/reset-link", {}),
         ("DELETE", f"/api/organization/members/{w.member_id}", {}),
     ]
 
