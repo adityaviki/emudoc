@@ -44,15 +44,9 @@ from tests.test_check_runs import TOTAL, invoices, made, shown
 from tests.test_cross_checks import DUE, read
 from tests.test_folders import make_folder
 from tests.test_notices import told
-from tests.test_templates import turn_on
 
 APP = "https://emudoc.example.com"
 AUTOMATION = {"title": "New invoices", "kind": "invoice"}
-
-
-@pytest.fixture(autouse=True)
-def templates_on(monkeypatch):
-    turn_on(monkeypatch)
 
 
 @pytest.fixture(autouse=True)
@@ -488,24 +482,14 @@ def test_an_automation_that_is_off_or_whose_project_is_in_the_trash_runs_nothing
     assert runs(session) == []
 
 
-def test_an_automation_with_nothing_to_run_or_whose_flag_is_off_runs_nothing(
-    client, session, services, ann, monkeypatch
-):
+def test_an_automation_with_nothing_to_run_runs_nothing(client, session, services, ann):
     project = create_project(client)
     check = made(client, project["id"], TOTAL)[0]
-    automation = make(client, project["id"], check_ids=[check])
+    make(client, project["id"], check_ids=[check])
     documents = invoices(session, project["id"])
     assert client.delete(f"/api/cross-checks/{check}").status_code == 204
     assert listed(client, project["id"])[0]["problem"] == CHECKS_GONE
     arrive(session, project["id"], ann.user.id, documents["INV-1"])
-    next_job(services, RUN_AUTOMATION)
-    assert runs(session) == []
-
-    made(client, project["id"], TOTAL)
-    client.put(f"/api/automations/{automation['id']}", json=AUTOMATION)
-    arrive(session, project["id"], ann.user.id, documents["INV-2"])
-    monkeypatch.undo()
-    monkeypatch.setattr(get_settings(), "automation_wait", 0)
     next_job(services, RUN_AUTOMATION)
     assert runs(session) == []
 
@@ -655,13 +639,6 @@ def test_a_project_has_at_most_so_many_automations(client, session, ann):
     response = client.post(f"/api/projects/{project['id']}/automations", json=AUTOMATION)
     assert response.status_code == 409
     assert f"at most {MAX_AUTOMATIONS} automations" in response.text
-
-
-def test_automations_are_behind_the_templates_flag(client, session, ann, monkeypatch):
-    project = create_project(client)
-    monkeypatch.undo()
-    response = client.get(f"/api/projects/{project['id']}/automations")
-    assert response.status_code == 404
 
 
 def test_the_notice_says_what_arrived_in_so_many_words():

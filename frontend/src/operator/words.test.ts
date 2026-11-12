@@ -3,14 +3,10 @@ import type { Cost, Job, Worker } from './api.ts'
 import {
   ago,
   amount,
-  choiceOf,
-  chosenOf,
   count,
-  flagWords,
   known,
   lease,
   release,
-  rolledOut,
   span,
   topDay,
   workerStands,
@@ -93,25 +89,5 @@ describe('time', () => {
   it('counts with the noun that fits', () => {
     expect(count(1, 'member')).toBe('1 member')
     expect(count(1200, 'job')).toBe('1,200 jobs')
-  })
-})
-
-describe('feature flags', () => {
-  const flag = (on: boolean, chosen: boolean | null) => ({ name: 'early', title: 'Early access', share: 30, chosen, on })
-
-  it('words how far a flag is rolled out, as the command does', () => {
-    expect(rolledOut(0)).toBe('none')
-    expect(rolledOut(30)).toBe('30 % of organisations')
-    expect(rolledOut(100)).toBe('every organisation')
-  })
-
-  it('says whether a flag is on for an organisation and why', () => {
-    expect(flagWords(flag(true, null))).toBe('on, as rolled out')
-    expect(flagWords(flag(false, false))).toBe('off, chosen here')
-  })
-
-  it('holds a choice as the select does, and gives it back as the server takes it', () => {
-    for (const chosen of [true, false, null]) expect(chosenOf(choiceOf(chosen))).toBe(chosen)
-    expect(choiceOf(null)).toBe('rollout')
   })
 })

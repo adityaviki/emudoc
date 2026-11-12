@@ -6,13 +6,13 @@ kind read is its template (app/draft_templates.py): the built-in one, or the pro
 place. A draft an answer offers (`create_draft`, app/agent/tools.py) is written by the member's
 press under it, as one asked for here.
 
-Every route is behind the flag `drafts` (app/flags.py). Whoever may change the project asks for a
-draft, saves a version and deletes one, and writes its templates, each a row of the
-organisation's audit log naming the draft by its kind and id alone, never what it says, and a
-template by its kind and its parts' names; anyone who sees the project reads them, and downloads
-a draft, which the audit log keeps too. A writing is a run of the agent, so asking for one is held
-to what holds a question: the agent's runs in flight and the day's spending; it counts as one of
-the workspace's questions, and a draft an answer offered counts none, its question counted already.
+Whoever may change the project asks for a draft, saves a version and deletes one, and writes its
+templates, each a row of the organisation's audit log naming the draft by its kind and id alone,
+never what it says, and a template by its kind and its parts' names; anyone who sees the project
+reads them, and downloads a draft, which the audit log keeps too. A writing is a run of the agent,
+so asking for one is held to what holds a question: the agent's runs in flight and the day's
+spending; it counts as one of the workspace's questions, and a draft an answer offered counts none,
+its question counted already.
 """
 
 from typing import Annotated, Any
@@ -38,7 +38,6 @@ from app.api.deps import (
     OwnChatDep,
     ProjectDep,
     SessionDep,
-    flagged,
     limited,
 )
 from app.audit import audit
@@ -46,7 +45,6 @@ from app.check_runs import gone_documents
 from app.draft_export import MEDIA_TYPES, ExportFormat, ExportRefused, draft_file, file_name
 from app.draft_templates import Template, template_of, templates_for
 from app.drafts import WRITING, latest_number, queue_draft, save_version, start_draft
-from app.flags import DRAFTS
 from app.models import ChatMessage, Document, Draft, DraftTemplate, DraftVersion, Project, User
 from app.ratelimit import EXPORTS, QUESTIONS
 from app.schemas import (
@@ -67,7 +65,7 @@ from app.schemas import (
 )
 from app.storage import content_disposition
 
-router = APIRouter(tags=["drafts"], dependencies=[Depends(flagged(DRAFTS))])
+router = APIRouter(tags=["drafts"])
 
 WRITING_NOW = (
     "The model is writing this draft now. Wait for its version, then edit that one or ask again."

@@ -150,7 +150,7 @@ MAIL_EVENT_KINDS = ("bounce", "complaint")
 WEBHOOK_OUTCOMES = ("delivered", "retried", "failed", "refused")
 # What became of a message sent to a project's address (app/inbound.py): kept, with nothing in it
 # to keep, or turned away by its sender (not listed, not proven, unreadable), its size, the
-# project's trash; for no project's address; or come while email in was off.
+# project's trash; or for no project's address.
 INBOUND_OUTCOMES = (
     "kept",
     "empty",
@@ -160,13 +160,12 @@ INBOUND_OUTCOMES = (
     "too_large",
     "refused_project",
     "unknown_address",
-    "off",
 )
 # How a connected folder's sync went (app/connectors/sync.py): files taken or noted, nothing
 # changed since the last, stopped partway or before it began (the service, the folder), paused
-# (the grant, the member), held back (the project), or the flag off; and what became of
+# (the grant, the member), or held back (the project); and what became of
 # each file it read: kept, rejected, its document to the trash, or replaced by a new version.
-SYNC_OUTCOMES = ("synced", "unchanged", "failed", "paused", "held", "off")
+SYNC_OUTCOMES = ("synced", "unchanged", "failed", "paused", "held")
 SYNCED_FILE_OUTCOMES = ("kept", "rejected", "trashed", "replaced")
 UPLOAD_REFUSALS = (
     "too_many",

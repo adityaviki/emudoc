@@ -3,14 +3,13 @@ when documents of a kind, or any, arrive in a folder or anywhere in the project,
 they name what the run found, which the library's Cross-checks view lists beside the rules and
 the runs they make.
 
-Every route is behind the flag `extraction_templates` (app/flags.py), as the cross-checks are.
 Whoever may change the project makes, changes, turns off and deletes its automations, each change
 a row of the organisation's audit log naming the kind, the folder and the cross-checks, never a
 value; an automation is written whole and deleted for good, with no trash, the runs it made
 staying with the project's. Anyone who sees the project reads them.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import delete, func, insert, select
 from sqlalchemy.orm import Session
 
@@ -20,12 +19,10 @@ from app.api.deps import (
     EditableProjectDep,
     ProjectDep,
     SessionDep,
-    flagged,
 )
 from app.audit import audit
 from app.automations import MAX_AUTOMATIONS, checks_of, problem_of
 from app.extraction import kind_of, templates_for
-from app.flags import EXTRACTION_TEMPLATES
 from app.folders import folder_paths
 from app.models import (
     Automation,
@@ -39,7 +36,7 @@ from app.models import (
 from app.reviews import NOT_A_REVIEWER, may_review
 from app.schemas import AutomationIn, AutomationOut, AutomationsOut
 
-router = APIRouter(tags=["automations"], dependencies=[Depends(flagged(EXTRACTION_TEMPLATES))])
+router = APIRouter(tags=["automations"])
 
 TOO_MANY = (
     f"A project has at most {MAX_AUTOMATIONS} automations. Delete one it no longer needs before "

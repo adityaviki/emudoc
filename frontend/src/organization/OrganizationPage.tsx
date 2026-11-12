@@ -79,7 +79,7 @@ export function OrganizationPage() {
             <>
               <ApiKeysSection me={me} />
               <WebhooksSection />
-              {me.organization.flags_on.includes('share_links') && <ShareLinksSection me={me} />}
+              <ShareLinksSection me={me} />
             </>
           )}
           <MembersSection me={me} />

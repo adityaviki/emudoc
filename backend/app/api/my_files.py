@@ -3,11 +3,11 @@ look at as they look, download, give new versions, rename, delete and copy into 
 library. A member reaches their own files alone (`MyFileDep`): another member's, an owner's or an
 admin's included, are not found.
 
-Every route is behind the flag `my_files` (app/flags.py), and takes a session alone, never an API
-key, since a program has no files of its own here. Whoever sees the project keeps files there, a
-viewer too; copying one into the library adds a document, so it is held to what holds an upload
-(`EditorDep`, the sample project's refusal). Each change is a row of the organisation's audit log
-naming the file by its kind and id, never its name, which is its member's own.
+Every route takes a session alone, never an API key, since a program has no files of its own here.
+Whoever sees the project keeps files there, a viewer too; copying one into the library adds a
+document, so it is held to what holds an upload (`EditorDep`, the sample project's refusal). Each
+change is a row of the organisation's audit log naming the file by its kind and id, never its name,
+which is its member's own.
 """
 
 import io
@@ -38,13 +38,11 @@ from app.api.deps import (
     ServicesDep,
     SessionDep,
     WorkerDep,
-    flagged,
     limited,
 )
 from app.api.documents import _draw_page, _drawn
 from app.api.folders import resolve_folder
 from app.audit import audit
-from app.flags import MY_FILES
 from app.models import Document, MyFile, MyFileVersion, Project
 from app.my_files import (
     MAX_FILES,
@@ -75,7 +73,7 @@ from app.uploads import Incoming, take_files
 from app.usage import RENDER, record
 from app.versions import VersionRefused, take_version
 
-router = APIRouter(tags=["my files"], dependencies=[Depends(flagged(MY_FILES))])
+router = APIRouter(tags=["my files"])
 
 NO_SUCH_VERSION = "This file has no such version."
 UNSCANNED = (

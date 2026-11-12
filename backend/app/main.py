@@ -69,6 +69,7 @@ from app.api.deps import (
 )
 from app.api.v1.contract import published as published_contract
 from app.config import ROOT_DIR, get_settings
+from app.connectors import providers
 from app.conversion import check_converter
 from app.costs import CostsWithheld
 from app.db import BUSY, TOO_SLOW, SessionLocal, canceled, engine
@@ -236,6 +237,8 @@ def status(services: ServicesDep, account: AccountDep, session: SessionDep):
             currency=settings.price_currency,
             uploads=upload_limits(settings),
             views=services.converter is not None,
+            email_in=bool(settings.inbound_domain),
+            connectors=bool(providers(settings)),
         )
     if problem:
         # The settings are read once, at the start: a key added to .env is used by the backend
@@ -257,6 +260,8 @@ def status(services: ServicesDep, account: AccountDep, session: SessionDep):
         currency=settings.price_currency,
         uploads=upload_limits(settings),
         views=services.converter is not None,
+        email_in=bool(settings.inbound_domain),
+        connectors=bool(providers(settings)),
     )
 
 

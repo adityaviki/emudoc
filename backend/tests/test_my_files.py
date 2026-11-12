@@ -4,7 +4,6 @@ copied into the project's library as a new document or as the next version of th
 copied from."""
 
 import io
-from dataclasses import replace
 from datetime import timedelta
 
 import pytest
@@ -15,7 +14,6 @@ from sqlalchemy import func, select
 from app.config import get_settings
 from app.conversion import GAVE_UP, MAX_TRIES, UNSHOWN, ConvertError
 from app.db import engine
-from app.flags import FLAGS, MY_FILES
 from app.indexing.pipeline import process_document
 from app.jobs import VIEW_MY_FILE, claim
 from app.maintenance import describe_orphans, sweep_storage
@@ -29,12 +27,6 @@ from tests.test_api import create_project
 from tests.test_audit import actions as audited
 from tests.test_conversion import FakeConverter
 from tests.test_maintenance import age
-from tests.test_templates import turn_on
-
-
-@pytest.fixture(autouse=True)
-def flag_on(monkeypatch):
-    turn_on(monkeypatch, MY_FILES)
 
 
 @pytest.fixture
@@ -97,12 +89,6 @@ def queued(session) -> list[Job]:
     return session.scalars(
         select(Job).where(Job.kind == VIEW_MY_FILE, Job.status == "queued").order_by(Job.id)
     ).all()
-
-
-def test_the_routes_are_hidden_while_the_flag_is_off(client, project, monkeypatch):
-    monkeypatch.setitem(FLAGS, MY_FILES, replace(FLAGS[MY_FILES], share=0))
-    assert client.get(f"/api/projects/{project['id']}/my-files").status_code == 404
-    assert keep(client, project["id"]).status_code == 404
 
 
 def test_a_member_keeps_a_word_file_scanned_before_it_is_served(client, session, services, project):

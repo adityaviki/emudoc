@@ -29,8 +29,7 @@ from tests.test_audit import actions
 from tests.test_drafts import (
     LETTER,
     ask,
-    disputed,
-    flags_on,  # noqa: F401 (fixture)
+    disputed,  # noqa: F401 (fixture)
     saved,
     write,
 )

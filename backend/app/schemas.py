@@ -2094,9 +2094,6 @@ class OrganizationOut(_FromORM):
     # Whether its members may share a document by a link that needs no account
     # (app/share_links.py).
     share_links: bool = True
-    # The feature flags on for it (app/flags.py), by name: the features being rolled out that
-    # the page shows it.
-    flags_on: list[str] = []
 
 
 class MeOut(BaseModel):
@@ -2630,6 +2627,11 @@ class StatusOut(BaseModel):
     # Whether Word, PowerPoint, Excel, RTF and HTML documents are shown as they look
     # (CONVERTER_URL, app/conversion.py); without, they are shown by their text.
     views: bool = False
+    # Whether projects may take mail at an address of their own (INBOUND_DOMAIN, app/inbound.py),
+    # and whether a folder may be connected from a service the deployment has an OAuth client for
+    # (app/connectors/): the page offers neither without.
+    email_in: bool = False
+    connectors: bool = False
     # The currency the costs on usage are in (PRICE_CURRENCY), an ISO 4217 code.
     currency: str
     uploads: UploadLimitsOut
@@ -3318,45 +3320,6 @@ class DayCostOut(BaseModel):
     cost_micros: int
 
 
-class OperatorFlagOut(BaseModel):
-    """A feature flag as it stands for one organisation (app/flags.py): what it turns on, the
-    percentage of organisations it is rolled out to, what an operator chose for this one (None
-    for the rollout's), and whether it is on for it now."""
-
-    name: str
-    title: str
-    share: int
-    chosen: bool | None
-    on: bool
-
-
-class OperatorFlagIn(BaseModel):
-    """A feature flag turned on or off for an organisation, or None back to its rollout."""
-
-    on: bool | None
-
-
-class OperatorFlagChoiceOut(BaseModel):
-    """An organisation an operator turned a flag on or off for."""
-
-    org_id: int
-    slug: str
-    name: str
-    on: bool
-
-
-class OperatorFlagSummaryOut(BaseModel):
-    """A feature flag across the deployment: its rollout, how many organisations it is on for
-    of all of them, and those an operator chose for, by name."""
-
-    name: str
-    title: str
-    share: int
-    on: int
-    organizations: int
-    chosen: list[OperatorFlagChoiceOut]
-
-
 class OperatorOrganizationOut(BaseModel):
     organization: OrganizationOut
     usage: UsagePageOut
@@ -3366,8 +3329,6 @@ class OperatorOrganizationOut(BaseModel):
     cost: CostOut
     # The known cost of each day of the span that has one, the oldest first.
     cost_days: list[DayCostOut]
-    # Every feature flag, as it stands for the organisation, in the order of FLAGS.
-    flags: list[OperatorFlagOut]
 
 
 class OperatorUserMembershipOut(BaseModel):

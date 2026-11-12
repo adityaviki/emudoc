@@ -147,6 +147,8 @@ function status(llm: boolean, embeddings: boolean): SystemStatus {
     currency: 'EUR',
     uploads: { files: 50, request_bytes: 100, file_bytes: 50, extensions: ['.pdf'] },
     views: false,
+    email_in: false,
+    connectors: false,
   }
 }
 

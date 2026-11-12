@@ -3,9 +3,8 @@ command prints (app/maintenance.py): `usage` for one organisation, `costs` acros
 `failed-jobs`, and the worker's watch (app/watch.py) for the services. They read through the same
 functions as the commands, so a page and a command never disagree.
 
-Three of them act, as the commands do: a feature flag turned on or off for an organisation
-(`choose`, app/flags.py, whose audit rows name the operator by id in the organisation's own log),
-failed documents queued again (`requeue`, likewise), and a model provider switched off or on again
+Two of them act, as the commands do: failed documents queued again (`requeue`, whose audit rows name
+the operator by id in the organisation's own log), and a model provider switched off or on again
 without a restart (app/switches.py), which belongs to no organisation and is logged instead. One has
 no command: viewing a member's account as support, with the member's leave (app/support.py), from
 the operator's own session, which the app then shows as the member's.
@@ -30,11 +29,9 @@ from sqlalchemy.orm import Session
 from app.accounts import zone_of
 from app.api.auth import ACCOUNT_PAGE, app_url, organization_out
 from app.api.deps import NOT_FOUND, ServicesDep, SessionDep, refuse_cross_site
-from app.api.organizations import locked
 from app.api.usage import usage_page
 from app.config import get_settings, model_provider
 from app.deadletters import NamedJob, named_jobs, requeue
-from app.flags import FLAGS, choose, chosen, flag_on, rollouts
 from app.jobs import HISTORY, JOB_STATES, QUEUE_BY_STATE, workers_seen
 from app.logs import about
 from app.mail import support_view_email
@@ -60,10 +57,6 @@ from app.schemas import (
     DayCostOut,
     ModelCostOut,
     OperatorCostsOut,
-    OperatorFlagChoiceOut,
-    OperatorFlagIn,
-    OperatorFlagOut,
-    OperatorFlagSummaryOut,
     OperatorJobOut,
     OperatorJobsOut,
     OperatorMemberOut,
@@ -263,61 +256,7 @@ def show_organization(org_id: int, session: SessionDep):
         cost_days=[
             DayCostOut(day=day, cost_micros=spent) for day, spent in sorted(cost.days.items())
         ],
-        flags=[
-            OperatorFlagOut(
-                name=name,
-                title=flag.title,
-                share=flag.share,
-                chosen=chosen(organization, name),
-                on=flag_on(organization, name),
-            )
-            for name, flag in FLAGS.items()
-        ],
     )
-
-
-@router.put("/organizations/{org_id}/flags/{name}", response_model=OperatorOrganizationOut)
-def choose_flag(
-    org_id: int,
-    operator: OperatorDep,
-    session: SessionDep,
-    choice: Annotated[OperatorFlagIn, given(OperatorFlagIn)],
-    name: str = Path(max_length=63),
-):
-    """Turn a feature flag on or off for the organisation, whatever its rollout, or back to its
-    rollout (None), as the `flags` command does: a row of the organisation's audit log naming
-    the operator, unless that was the choice already."""
-    if name not in FLAGS:
-        raise HTTPException(
-            404, f"There is no feature flag {name!r}; FLAGS in app/flags.py names them."
-        )
-    organization = locked(session, org_id)
-    if organization is None:
-        raise HTTPException(404, "No organisation has this id; it may have been deleted.")
-    about(org_id=organization.id)
-    choose(session, organization, name, choice.on, operator=operator.id)
-    session.commit()
-    return show_organization(org_id, session)
-
-
-@router.get("/flags", response_model=list[OperatorFlagSummaryOut])
-def list_flags(session: SessionDep):
-    """Every feature flag across the deployment, as the `flags` command prints them: its
-    rollout, how many organisations it is on for now, and those an operator chose for."""
-    return [
-        OperatorFlagSummaryOut(
-            name=standing.name,
-            title=standing.flag.title,
-            share=standing.flag.share,
-            on=standing.on,
-            organizations=standing.organizations,
-            chosen=[
-                OperatorFlagChoiceOut(org_id=org_id, slug=slug, name=named, on=on)
-                for org_id, slug, named, on in standing.chosen
-            ],
-        )
-        for standing in rollouts(session)
-    ]
 
 
 @router.post("/organizations/{org_id}/members/{user_id}/support", response_model=OperatorViewOut)

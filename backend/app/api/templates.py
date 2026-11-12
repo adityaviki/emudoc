@@ -4,8 +4,7 @@ the facts table of each kind's documents (app/fact_table.py), a column for each 
 same as a file to save (app/fact_export.py); and the members' checks and corrections of its facts
 (app/fact_checks.py).
 
-Every route is behind the flag `extraction_templates` (app/flags.py), answering an organisation it
-is off for as a path no route takes. Whoever may change the project changes its templates, each
+Whoever may change the project changes its templates, each
 change a row of the organisation's audit log; a template is written whole, and deleted for good,
 with no trash, since what it holds is the members' choice of fields and no document. A change
 applies to the documents indexed after it, and to those of its kind once they are read again
@@ -33,7 +32,6 @@ from app.api.deps import (
     ProjectDep,
     SessionDep,
     WorkerDep,
-    flagged,
     limited,
 )
 from app.audit import audit
@@ -55,7 +53,6 @@ from app.fact_changes import (
 from app.fact_checks import FACT_GONE, CheckRefused, check_out, fact_out, written
 from app.fact_export import MEDIA_TYPES, ExportFormat, csv_file, read_out, workbook_file
 from app.fact_table import Ask, TableRefusal, condition_of, read_table
-from app.flags import EXTRACTION_TEMPLATES
 from app.indexing.enrich import normalize_fact_name
 from app.indexing.pipeline import reset_stages
 from app.jobs import BULK, queue_index
@@ -78,7 +75,7 @@ from app.schemas import (
 )
 from app.storage import content_disposition
 
-router = APIRouter(tags=["templates"], dependencies=[Depends(flagged(EXTRACTION_TEMPLATES))])
+router = APIRouter(tags=["templates"])
 
 TOO_MANY = (
     f"A project has at most {MAX_TEMPLATES} templates of its own. Delete one it no longer needs "

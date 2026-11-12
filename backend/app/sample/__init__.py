@@ -307,15 +307,15 @@ def build_sample(settings: Settings, llm: LLM | None = None) -> dict[str, Any]:
 
 @contextmanager
 def indexed_sample(
-    settings: Settings, llm: LLM | None, name: str, flags: dict[str, bool] | None = None
+    settings: Settings, llm: LLM | None, name: str
 ) -> Iterator[tuple[int, list[int]]]:
     """The sample's files indexed by the pipeline as an upload is, by `llm` or the models the
-    settings name, in an organisation called `name` made for the run with the feature `flags`
-    chosen for it, yielding its id and the documents' in the files' order; the organisation is
-    deleted after with what the run recorded of its usage, so that the calls are no
-    organisation's (`indexed_files`). Refused with `RuntimeError` without a model.
+    settings name, in an organisation called `name` made for the run, yielding its id and the
+    documents' in the files' order; the organisation is deleted after with what the run recorded
+    of its usage, so that the calls are no organisation's (`indexed_files`). Refused with
+    `RuntimeError` without a model.
     """
-    with indexed_files(settings, llm, name, {NAME: _files()}, flags) as (_, org_id, ids):
+    with indexed_files(settings, llm, name, {NAME: _files()}) as (_, org_id, ids):
         yield org_id, ids
 
 
@@ -325,12 +325,11 @@ def indexed_files(
     llm: LLM | None,
     name: str,
     projects: dict[str, list[Path]],
-    flags: dict[str, bool] | None = None,
     embedder: Embedder | None = None,
 ) -> Iterator[tuple[Services, int, list[int]]]:
     """Files indexed by the pipeline as an upload is, by `llm` or the models the settings name,
     into `projects` (each a name and its files) of an organisation called `name` made for the
-    run with the feature `flags` chosen for it, yielding the services the run used, the
+    run, yielding the services the run used, the
     organisation's id and the documents' in the projects' and their files' order; the
     organisation is deleted after with what the run recorded of its usage, so that the calls are
     no organisation's.
@@ -347,11 +346,7 @@ def indexed_files(
     with TemporaryDirectory(prefix=f"emudoc-{slug}-") as directory:
         services = Services(llm, embedder or Embedder(settings), LocalStorage(Path(directory)))
         with SessionLocal() as session:
-            organization = Organization(
-                name=name,
-                slug=f"{slug}-{uuid4().hex[:12]}",
-                flags=dict(flags or {}),
-            )
+            organization = Organization(name=name, slug=f"{slug}-{uuid4().hex[:12]}")
             session.add(organization)
             session.flush()
             org_id = organization.id

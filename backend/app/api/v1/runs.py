@@ -2,8 +2,7 @@
 (app/check_runs.py) that a program starts with an Idempotency-Key, follows until they are worked
 out and reads what each rule found of, with the discrepancy report the agent writes when asked.
 
-Behind the flag `extraction_templates` (app/flags.py), as the page's routes are, so an
-organisation it is off for finds none of them. A run is made and its findings read through the
+A run is made and its findings read through the
 page's routes (app/api/check_runs.py), whose checks, refusals and audit rows hold here as there.
 """
 
@@ -19,7 +18,6 @@ from app.api.deps import (
     ProjectDep,
     RunDep,
     SessionDep,
-    flagged,
     limited,
 )
 from app.api.v1.chats import source_of
@@ -38,14 +36,13 @@ from app.api.v1.schemas import (
 )
 from app.cross_checks import rule_of, sides_of
 from app.extraction import templates_for
-from app.flags import EXTRACTION_TEMPLATES
 from app.idempotency import fingerprint
 from app.models import CrossCheck as CrossCheckRow
 from app.models import WorkflowRun
 from app.ratelimit import SEARCHES
 from app.schemas import CheckRunIn, FindingOutcome
 
-router = APIRouter(dependencies=[Depends(flagged(EXTRACTION_TEMPLATES))])
+router = APIRouter()
 
 
 @router.get(

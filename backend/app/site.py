@@ -4,9 +4,9 @@ are told (robots.txt, the sitemap, and which pages they may list).
 The page is plain HTML that the frontend's build writes (`frontend/home.html`, `vite build
 --mode site`), so that a search engine reads it whole without running a script. What it says of
 the deployment is filled in here as it is served: each `$name` from the code and the settings,
-and a part between `<!-- if flag -->` and `<!-- end flag -->` is kept only once that feature's
-flag is on for every organisation (app/flags.py), so that the site offers nothing a new
-organisation would not find.
+and a part between `<!-- if name -->` and `<!-- end name -->` kept or left out by the settings:
+by SIGNUP_OPEN, or for a feature that needs an outside service (email in, connected folders),
+once the deployment has it, so that the site offers nothing a new workspace would not find.
 
 The page offers no sign-up of its own (2026-11-11, the owner's word): its way in is the booking
 page, or a message to the support address (`booking` in app/signups.py). While sign-up is closed
@@ -36,7 +36,7 @@ from fastapi.responses import HTMLResponse
 
 from app.auth import SESSION_COOKIE
 from app.config import REGIONS, Settings, parse_scanner_url
-from app.flags import flag
+from app.connectors import providers
 from app.headers import PAGE_KEPT
 from app.parsing import IMAGE_TYPES, SCAN_TYPES, SUPPORTED_EXTENSIONS
 from app.signups import booking
@@ -52,10 +52,14 @@ NOT_LISTED = "noindex"
 # The pages put away for now, whose addresses send a visitor home: the plans, the API reference,
 # the help with each of its articles, and what's new, which is gone.
 AWAY = re.compile(r"pricing|api-reference|help(?:/.*)?|whats-new")
-# A part of a page shown only while its feature's flag is on for every organisation, or while
-# sign-up is open or closed (`SIGNUP`).
-_FLAGGED = re.compile(r"[ \t]*<!-- if (\w+) -->\n?(.*?)[ \t]*<!-- end \1 -->\n?", re.S)
+# A part of a page shown only while sign-up is open or closed (`SIGNUP`), or while the
+# deployment has the outside service its feature needs (`SERVICES`).
+_MARKED = re.compile(r"[ \t]*<!-- if (\w+) -->\n?(.*?)[ \t]*<!-- end \1 -->\n?", re.S)
 SIGNUP = {"signup_open": True, "signup_closed": False}
+SERVICES = {
+    "email_in": lambda settings: bool(settings.inbound_domain),
+    "connectors": lambda settings: bool(providers(settings)),
+}
 # The file types an upload takes, as a member knows them, in the order the page names them; an
 # extension the parsers take that is not here stops the page from being served at all.
 DOCUMENT_FORMATS = {
@@ -97,17 +101,18 @@ def moved(path: str) -> str | None:
 
 
 def fill(html: str, settings: Settings, app_url: str) -> str:
-    """The page with its flagged parts kept or left out and every `$name` filled in."""
-    shown = _FLAGGED.sub(lambda part: part[2] if _shown(part[1], settings) else "", html)
+    """The page with its marked parts kept or left out and every `$name` filled in."""
+    shown = _MARKED.sub(lambda part: part[2] if _shown(part[1], settings) else "", html)
     return Template(shown).substitute(values(settings, app_url))
 
 
 def _shown(name: str, settings: Settings) -> bool:
-    """Whether a page's part marked `name` is kept: one about sign-up by SIGNUP_OPEN, one about
-    a feature once its flag is on for every organisation."""
+    """Whether a page's part marked `name` is kept: one about sign-up by SIGNUP_OPEN, one about a
+    feature by whether the deployment has its service. A mark neither names raises KeyError, so
+    that a misspelt one stops the page rather than show or hide it."""
     if name in SIGNUP:
         return settings.signup_open == SIGNUP[name]
-    return flag(name).share == 100
+    return SERVICES[name](settings)
 
 
 def values(settings: Settings, app_url: str) -> dict[str, str]:

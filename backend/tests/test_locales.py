@@ -50,7 +50,9 @@ def fact(
 def asked(services) -> str:
     """What the last request that read a document's facts asked."""
     return next(
-        content for schema, content in reversed(services.llm.calls) if schema == "DocumentAnalysis"
+        content
+        for schema, content in reversed(services.llm.calls)
+        if schema.endswith("DocumentAnalysis")
     )
 
 
@@ -205,7 +207,7 @@ def test_every_request_of_a_long_document_says_how_it_writes_its_dates_and_numbe
     requests = [
         (schema, content)
         for schema, content in services.llm.calls
-        if schema in ("WindowAnalysis", "ProfileWithSections")
+        if schema.endswith("WindowAnalysis") or schema == "ProfileWithSections"
     ]
     assert [schema for schema, _ in requests][-1] == "ProfileWithSections"
     assert len(requests) > 2

@@ -78,7 +78,6 @@ from app.audit import audit, audit_sign_in
 from app.bounces import forget
 from app.config import get_settings
 from app.export import account_export
-from app.flags import flags_on
 from app.invitations import find_invitation, is_open
 from app.legal import TERMS_VERSION, terms_due, terms_pending
 from app.mail import (
@@ -1252,7 +1251,6 @@ def organization_out(organization: Organization) -> OrganizationOut:
         update={
             "max_session_days": get_settings().session_days,
             "notice_defaults": organization_choices(organization),
-            "flags_on": flags_on(organization),
         }
     )
 

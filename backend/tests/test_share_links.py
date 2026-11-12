@@ -1,6 +1,6 @@
 """Share links (app/share_links.py): a member shows a document to whoever holds the link, with no
 account, for a few days, with a password or not, and every link works only while what it rests
-on holds: its maker's place, the organisation's switch, the flag and the document."""
+on holds: its maker's place, the organisation's switch and the document."""
 
 from datetime import UTC, datetime, timedelta
 from urllib.parse import unquote
@@ -13,7 +13,6 @@ from sqlalchemy import select, update
 from app.answers import answer
 from app.config import get_settings
 from app.export import _share_links, account_export
-from app.flags import SHARE_LINKS
 from app.indexing.pipeline import process_document
 from app.models import Document, Organization, ShareLink, ShareView, UsageEvent
 from app.share_links import (
@@ -34,14 +33,8 @@ from tests.test_api import create_project, upload
 from tests.test_audit import actions, rows
 from tests.test_chats import ask, new_chat
 from tests.test_organizations import set_role
-from tests.test_templates import turn_on
 
 PASSWORD = "harbour lights"
-
-
-@pytest.fixture(autouse=True)
-def links_on(monkeypatch):
-    turn_on(monkeypatch, SHARE_LINKS)
 
 
 @pytest.fixture
@@ -217,9 +210,7 @@ def stops(visitor, made: dict) -> bool:
     )
 
 
-def test_a_link_stops_with_the_document_the_switch_and_the_flag(
-    client, session, account, shared, visitor, monkeypatch
-):
+def test_a_link_stops_with_the_document_and_the_switch(client, session, account, shared, visitor):
     made = make(client, shared["id"])
     assert opened(visitor, made).status_code == 200
 
@@ -236,9 +227,6 @@ def test_a_link_stops_with_the_document_the_switch_and_the_flag(
     organization.share_links = True
     session.commit()
     assert opened(visitor, made).status_code == 200
-
-    monkeypatch.undo()
-    assert stops(visitor, made)
 
 
 def test_a_link_works_as_its_maker_while_they_may_make_it(
@@ -304,10 +292,6 @@ def test_making_a_link_is_held_to_the_role_and_the_switch(
     ).json()["documents"][0]
     waiting = client.post(f"/api/documents/{note['id']}/share-links", json={})
     assert (waiting.status_code, waiting.json()["detail"]) == (409, NOT_READY)
-
-    monkeypatch.undo()
-    assert client.post(path, json={}).status_code == 404
-    assert client.get(path).status_code == 404
 
 
 def test_its_maker_or_an_owner_or_admin_revokes_a_link(

@@ -2,23 +2,19 @@
 sets, which members write in the app and which run on a schedule or as documents arrive. A
 program hears of a report kept by the `report.completed` webhook event, which names it, and
 reads its answers here.
-
-Behind the flag `question_sets` (app/flags.py), as the page's routes are, so an organisation it
-is off for finds none of them.
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from sqlalchemy import select
 
-from app.api.deps import ProjectDep, ReportDep, SessionDep, flagged
+from app.api.deps import ProjectDep, ReportDep, SessionDep
 from app.api.v1.chats import source_of
 from app.api.v1.deps import PAGE, After, Limit, cursor, cursor_of, shown
 from app.api.v1.schemas import Report, ReportAnswer, ReportList, ReportSummary
-from app.flags import QUESTION_SETS
 from app.models import QuestionReport
 from app.question_reports import counted
 
-router = APIRouter(dependencies=[Depends(flagged(QUESTION_SETS))], tags=["reports"])
+router = APIRouter(tags=["reports"])
 
 
 @router.get("/projects/{project_id}/reports", response_model=ReportList)

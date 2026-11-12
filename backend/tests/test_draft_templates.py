@@ -10,7 +10,7 @@ from app.models import DRAFT_KINDS
 from tests.conftest import FakeTurn
 from tests.test_api import create_project
 from tests.test_audit import actions
-from tests.test_drafts import LETTER, ask, disputed, flags_on, write  # noqa: F401 (fixture)
+from tests.test_drafts import LETTER, ask, disputed, write  # noqa: F401 (fixture)
 
 HOUSE_STYLE = {
     "tone": "  Formal, in British English.  ",

@@ -86,8 +86,7 @@ document that tells the assistant what to do (to say an invoice is approved, to 
 offer a draft, to describe other projects) is reported, not obeyed, and a document that writes
 one of those tags writes text, not a tag.
 
-The facts are read for each document's kind, by extraction templates (`backend/app/extraction.py`;
-being rolled out, behind the flag `extraction_templates`, and read as before where it is off). A
+The facts are read for each document's kind, by extraction templates (`backend/app/extraction.py`). A
 template is a kind of document and the fields read from it, each with a name, a type (text,
 number, date or an amount of money), what it is, whether every document of the kind states it,
 and examples as documents write them. Seven are built in (invoice, contract, purchase order,
@@ -242,7 +241,6 @@ moved and assigned, comments and threads resolved, drafts, runs of the cross-che
 question sets, chats shared, each by names alone and leading to what it was about while that is
 there; it reads the project's rows of the audit log, which record each comment added and deleted
 and each thread resolved by the document's name, so it is kept as long as the audit log is.
-Comments and the activity are behind the flag `comments` while they are rolled out.
 
 The agent also writes drafts for the members to edit and send (`backend/app/drafts.py`, `POST
 /api/projects/{id}/drafts`): a reply email, a dispute letter, a summary memo, a comparison table or
@@ -280,8 +278,7 @@ downloaded. A viewer keeps files too, since they change nothing the members shar
 needs the role that uploads. The bytes count toward the workspace's storage, a member keeps
 200 files in a project, and the files go when the member leaves the organisation, their account
 is deleted or the project goes; deleting one is for good. The library's "My files" lists them and
-opens each with its pages and versions. My files are behind the flag `my_files` while they are
-rolled out.
+opens each with its pages and versions.
 
 Asked in a chat, the agent writes and edits Word documents in the asker's My files
 (`backend/app/agent/writing.py`): it writes a new one from what it found, its citations numbered
@@ -309,8 +306,8 @@ told to the set's maker, everyone who sees the project or nobody (a member's own
 in the app and by email as each chose for the notice, by the set's name and how many questions
 were answered, never an answer; programs hear of it by the `report.completed` webhook and read
 it from the API (`GET /api/v1/reports/{id}`). The library's "Question sets" lists the sets with
-when each runs next and the reports, newest first, each opening its answers. Question sets are
-behind the flag `question_sets` while they are rolled out; making, changing, running and deleting one, or deleting a report, is a row of the audit log
+when each runs next and the reports, newest first, each opening its answers. Making, changing,
+running and deleting a question set, or deleting a report, is a row of the audit log
 naming the set and counting its questions, never one of them, and a report is kept as long as a
 chat.
 Each version downloads as a Word document, a PDF or its Markdown (`GET
@@ -325,8 +322,8 @@ the rules every draft keeps, its citations and its placeholders, stay the code's
 template says; a writing follows the template in force as it starts, so a draft written again
 after a change follows the new one.
 
-A project can take its documents by email too, where the deployment receives mail and the flag
-`email_in` is on (`backend/app/inbound.py`, `GET|PUT|DELETE /api/projects/{id}/mailbox`): the
+A project can take its documents by email too, where the deployment receives mail
+(`backend/app/inbound.py`, `GET|PUT|DELETE /api/projects/{id}/mailbox`): the
 library's "Email in" gives it an address of its own, `<token>@INBOUND_DOMAIN`, and whoever may
 change the project chooses whom it takes mail from, besides themselves from their own confirmed
 addresses: addresses and domains, but never a mail service's whole domain. A message from one
@@ -344,8 +341,8 @@ sender (`backend/app/receiving.py`): Resend through its webhook and API, Amazon 
 SQS queue its notices reach, which the worker waits on (deploying.md, "Mail in").
 
 A project can also keep in step with a folder of a member's Google Drive, Dropbox, OneDrive or
-SharePoint, where the deployment has an OAuth client for the service, and the flag `connectors`
-is on (`backend/app/connectors/`, `GET|POST
+SharePoint, where the deployment has an OAuth client for the service (`backend/app/connectors/`,
+`GET|POST
 /api/projects/{id}/connectors`): the library's "Connected folders" sends the browser to the
 service for the member's consent to read their files, keeps the grant it gives encrypted, and
 lets the member browse their folders and choose one, and where its files go in the project. The
@@ -477,12 +474,8 @@ failed jobs, and how the models and services stand. `uv run python -m app.mainte
 add <address>` (in `backend/`) lets an account in, from an address `OPERATOR_NETWORKS` lists
 (this machine alone in development) and, in production, with two-factor sign-in on; to anyone
 else the area is not there. From there an operator also queues failed documents again from the
-stage each stopped at, switches a model provider off or on again without a
-restart, and turns a feature being rolled out on or off for one organisation
-(`backend/app/flags.py`: each flag is on for a share of the organisations the code names, which
-grows release by release, and for those turned on here; `maintenance flags` does the same); a
-document queued again and a flag's choice are rows of the organisation's audit
-log, by Emudoc's operators. And when a member asks for help, the member lets Emudoc's support see
+stage each stopped at, and switches a model provider off or on again without a restart; a
+document queued again is a row of the organisation's audit log, by Emudoc's operators. And when a member asks for help, the member lets Emudoc's support see
 their account in the organisation they work in for a day or a week from their account page
 (`backend/app/support.py`), and the operator opens it from the organisation's members, as the
 member sees it and read only, an hour at a time, under a banner saying so: the member is mailed,
@@ -1210,9 +1203,8 @@ webhook added, changed, rolled or removed is a row of the audit log, which names
 alone.
 A member who may change a project shares one of its documents with someone outside the
 organisation by a link that needs no account (`backend/app/share_links.py`, "Share by link" on
-the document's tab), on Pro and above and while the feature is rolled out to the organisation:
-the link runs 1, 7 or 30 days, a week unless chosen, and may have a password, which is sent apart
-from it. Its address carries a random token in the fragment, shown to its maker once and kept as
+the document's tab): the link runs 1, 7 or 30 days, a week unless chosen, and may have a
+password, which is sent apart from it. Its address carries a random token in the fragment, shown to its maker once and kept as
 a hash only, and opens `/shared`, where the visitor reads the document as a member's tab shows it,
 its text, its pages and its file to download, read only, with who shared it and until when. A
 link works only while its maker could still make it: a member who sees the document, not a
@@ -1413,7 +1405,7 @@ failed ones for their accounts), profile, address, password, two-factor and sess
 exports and deletion requests, every upload, download and deletion of a document, folder or
 project and its restore from the trash or deletion for good there, who sees a project, chats
 shared, taken private, downloaded, deleted or restored, and answers downloaded, a member's leave for support to see their account
-and each view of it, and what the operator (a requeue, a flag's choice) and the app (a quarantine,
+and each view of it, and what the operator (a requeue) and the app (a quarantine,
 an account purge with the owner it promoted) did on their own; what was downloaded in support's
 view names the operator too. A row names the member, the project and the object, the client's address, and names or
 settings as they were (a file's name, a role before and after), never what a document, a
@@ -1615,7 +1607,6 @@ backend/app/
   restore.py    what the app sets right after its database is restored to an earlier point
   usage.py      what each organisation used, recorded as it happens, and the daily rollup
   spending.py   the daily spending cap, its checks and the warning as a day nears it
-  flags.py      the feature flags: what is being rolled out, to how many organisations, and to which
   extraction.py the extraction templates: the built-in ones, and those in force for a project
   fact_table.py the facts table: a kind's documents side by side, sorted, kept and paged
   fact_export.py

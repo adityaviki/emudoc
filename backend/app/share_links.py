@@ -3,18 +3,17 @@ whoever holds it, without an account.
 
 A member who may change the project makes one from the document or the answer
 (app/api/share_links.py), in an organisation whose owners and admins allow them
-(`organizations.share_links`), while the feature is rolled out to it (SHARE_LINKS,
-app/flags.py). It runs one of DAYS, DEFAULT_DAYS unless its maker chooses, never longer, and may
-have a password, hashed as an account's is. The link carries a random token in its fragment,
-which the browser never sends, so it lands in no server's or proxy's log and in no Referer; only
-the token's SHA-256 is stored, as an API key's is, so a copy of the database opens nothing, and
-the link is shown to its maker once.
+(`organizations.share_links`). It runs one of DAYS, DEFAULT_DAYS unless its maker chooses, never
+longer, and may have a password, hashed as an account's is. The link carries a random token in its
+fragment, which the browser never sends, so it lands in no server's or proxy's log and in no
+Referer; only the token's SHA-256 is stored, as an API key's is, so a copy of the database opens
+nothing, and the link is shown to its maker once.
 
 A link works as its maker's (`shown`): only while they are a member who may change the project,
 see what it shows and are not leaving Emudoc, so a member removed, made a viewer, or left out of
 a project made private stops their links, and a link goes with its maker's membership by the
 database's cascade, as an API key does; and only while the organisation's owners and admins allow
-them, the flag is on for it, and what it shows is out of the trash: a
+them, and what it shows is out of the trash: a
 document indexed and passed by the malware scan, or an answer finished in a chat its maker sees,
 their own or one shared with the project. Every check is made again at every request the link
 makes, so any of those changes stops it at once, and the visitor is told the same sentence for
@@ -49,7 +48,6 @@ from sqlalchemy.orm import Session
 from app.access import visible_to
 from app.accounts import Account
 from app.auth import cookie_secure, hash_password, new_token, now, token_hash
-from app.flags import SHARE_LINKS, flag_on
 from app.models import (
     Chat,
     ChatMessage,
@@ -187,7 +185,7 @@ def shown(session: Session, link: ShareLink) -> Shared | None:
     if link.expires_at <= now():
         return None
     organization = session.get(Organization, link.org_id)
-    if not organization.share_links or not flag_on(organization, SHARE_LINKS):
+    if not organization.share_links:
         return None
     found = session.execute(
         select(User, Membership.role)

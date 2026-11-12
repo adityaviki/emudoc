@@ -17,13 +17,8 @@ from app.trash import DOCUMENT_IN_TRASH
 from tests.test_api import create_project, upload
 from tests.test_audit import actions
 from tests.test_exports import archive_of, ask, run_export
-from tests.test_fact_table import invoice, invoices, names, table
-from tests.test_templates import fact, turn_on
-
-
-@pytest.fixture
-def templates_on(monkeypatch):
-    turn_on(monkeypatch)
+from tests.test_fact_table import invoices, names, table
+from tests.test_templates import fact
 
 
 @pytest.fixture
@@ -61,17 +56,7 @@ def checks_of(session, org_id: int) -> list[tuple[str, dict]]:
     return [(action, detail) for action, detail in actions(session, org_id) if "fact" in action]
 
 
-def test_checks_are_refused_while_the_flag_is_off(client, session):
-    project = create_project(client)["id"]
-    document = invoice(session, project, "a.pdf", invoice_number="INV-1")
-    fact_id = session.scalar(select(Fact.id).where(Fact.document_id == document))
-    response = client.put(f"/api/facts/{fact_id}/check", json={})
-    assert response.status_code == 404
-
-
-def test_a_member_checks_a_fact_as_read_and_takes_the_check_back(
-    client, session, account, templates_on, three
-):
+def test_a_member_checks_a_fact_as_read_and_takes_the_check_back(client, session, account, three):
     [number] = cell(table(client, three), "acme-2.pdf", "invoice_number")
     assert number["check"] is None
 
@@ -95,7 +80,7 @@ def test_a_member_checks_a_fact_as_read_and_takes_the_check_back(
 
 
 def test_a_correction_is_the_value_the_table_sorts_and_keeps_rows_by(
-    client, session, account, templates_on, three
+    client, session, account, three
 ):
     [total] = cell(table(client, three), "acme-2.pdf", "total_amount")
     corrected = check(client, total["id"], "2000")
@@ -131,7 +116,7 @@ def test_a_correction_is_the_value_the_table_sorts_and_keeps_rows_by(
     ]
 
 
-def test_a_value_is_written_as_its_field_s_type_takes_it(client, session, templates_on, three):
+def test_a_value_is_written_as_its_field_s_type_takes_it(client, session, three):
     shown = table(client, three)
     [day] = cell(shown, "acme-2.pdf", "issue_date")
     [number] = cell(shown, "acme-2.pdf", "invoice_number")
@@ -150,7 +135,7 @@ def test_a_value_is_written_as_its_field_s_type_takes_it(client, session, templa
     assert check(client, total["id"], "1234567.891")["value"] == "1,234,567.891"
 
 
-def test_the_unchecked_rows_are_those_with_a_fact_nobody_checked(client, templates_on, three):
+def test_the_unchecked_rows_are_those_with_a_fact_nobody_checked(client, three):
     shown = table(client, three)
     assert (shown["total"], shown["unchecked"]) == (3, 3)
     for facts in row_of(shown, "globex.pdf")["cells"].values():
@@ -172,9 +157,7 @@ def test_the_unchecked_rows_are_those_with_a_fact_nobody_checked(client, templat
     assert names(table(client, three, filter="line_item:unchecked")) == ["acme-2.pdf"]
 
 
-def test_a_fact_of_a_document_in_the_trash_or_read_again_is_gone(
-    client, session, templates_on, three
-):
+def test_a_fact_of_a_document_in_the_trash_or_read_again_is_gone(client, session, three):
     [number] = cell(table(client, three), "acme-2.pdf", "invoice_number")
     held = check(client, number["id"])["check"]
     document = session.get(Document, number["document_id"])
@@ -220,9 +203,7 @@ def read_again(client, services, document: int, stage: str = "enrich") -> None:
     process_document(document, services)
 
 
-def test_a_check_outlives_the_document_s_next_reading(
-    client, session, services, sample_pdf, templates_on
-):
+def test_a_check_outlives_the_document_s_next_reading(client, session, services, sample_pdf):
     project, document = read_contract(client, services, sample_pdf)
     shown = table(client, project, "contract")
     [party] = cell(shown, "msa.pdf", "party")
@@ -274,9 +255,7 @@ def test_a_check_outlives_the_document_s_next_reading(
     assert session.scalar(select(FactCheck.name)) == "party"
 
 
-def test_the_agent_and_the_export_read_what_the_members_said(
-    client, session, services, sample_pdf, templates_on
-):
+def test_the_agent_and_the_export_read_what_the_members_said(client, session, services, sample_pdf):
     project, document = read_contract(client, services, sample_pdf)
     shown = table(client, project, "contract")
     [party] = cell(shown, "msa.pdf", "party")
@@ -303,7 +282,7 @@ def test_the_agent_and_the_export_read_what_the_members_said(
     assert kept["notice_period"]["check"] is None
 
 
-def test_a_viewer_checks_nothing(client, account, templates_on, three, make_account, act_as):
+def test_a_viewer_checks_nothing(client, account, three, make_account, act_as):
     [number] = cell(table(client, three), "acme-2.pdf", "invoice_number")
     held = check(client, number["id"])["check"]
     act_as(make_account("vic@example.com", account.organization, role="viewer"))

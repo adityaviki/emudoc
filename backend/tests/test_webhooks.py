@@ -20,7 +20,6 @@ from app.api.v1.reports import summary_of
 from app.api.v1.runs import run_of
 from app.config import get_settings
 from app.encrypted import WEBHOOK_SECRETS, decrypt, encrypt_secrets
-from app.flags import QUESTION_SETS
 from app.jobs import (
     DELIVER_WEBHOOK,
     INDEX_DOCUMENT,
@@ -64,7 +63,6 @@ from tests.test_audit import actions
 from tests.test_authorization import QUESTION_SET
 from tests.test_check_runs import TOTAL, invoices, made, run
 from tests.test_encrypted import fingerprint, keyed, new_key  # noqa: F401 (a fixture)
-from tests.test_templates import turn_on
 
 # Names the receivers are reached by, and the addresses they resolve to: really public ones,
 # since Python counts the documentation ranges as private (tests/test_network.py).
@@ -439,10 +437,7 @@ def test_development_sends_to_its_own_receivers(client, services, receiver):
     assert log_of(client, hook["id"])["deliveries"][0]["status"] == "delivered"
 
 
-def test_a_run_of_cross_checks_worked_out_is_announced(
-    client, session, services, receiver, monkeypatch
-):
-    turn_on(monkeypatch)
+def test_a_run_of_cross_checks_worked_out_is_announced(client, session, services, receiver):
     hook = add(client, events=["check_run.completed"])
     project = create_project(client)
     invoices(session, project["id"])
@@ -470,9 +465,8 @@ def test_a_run_of_cross_checks_worked_out_is_announced(
 
 
 def test_a_report_of_a_question_set_is_announced_without_its_answers(
-    client, session, services, receiver, monkeypatch
+    client, session, services, receiver
 ):
-    turn_on(monkeypatch, QUESTION_SETS)
     hook = add(client, events=["report.completed"])
     project = create_project(client)
     question_set = client.post(f"/api/projects/{project['id']}/question-sets", json=QUESTION_SET)

@@ -575,7 +575,6 @@ class Organization(Base):
         CheckConstraint("audit_days > 0", name="ck_organizations_audit_days"),
         CheckConstraint("jsonb_typeof(notices) = 'object'", name="ck_organizations_notices"),
         CheckConstraint("session_days > 0", name="ck_organizations_session_days"),
-        CheckConstraint("jsonb_typeof(flags) = 'object'", name="ck_organizations_flags"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -609,9 +608,6 @@ class Organization(Base):
     # Whether its members may share a document by a link that needs no account
     # (app/share_links.py); turned off, every link it has stops.
     share_links: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
-    # The feature flags an operator turned on or off for it (app/flags.py), by name; a flag not
-    # named here is on as the share of organisations it is rolled out to takes it.
-    flags: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

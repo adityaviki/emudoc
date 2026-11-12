@@ -12,7 +12,7 @@ from app.fact_table import BAD_CURSOR
 from app.indexing.pipeline import process_document
 from app.models import Document, Fact
 from tests.test_api import create_project, upload
-from tests.test_templates import make, turn_on
+from tests.test_templates import make
 
 Value = str | tuple[str, float | dt.date]
 
@@ -77,11 +77,6 @@ def refusal(client, project_id: int, **params) -> tuple[int, str]:
 
 
 @pytest.fixture
-def templates_on(monkeypatch):
-    turn_on(monkeypatch)
-
-
-@pytest.fixture
 def three(client, session) -> int:
     return invoices(client, session)
 
@@ -127,15 +122,7 @@ def invoices(client, session) -> int:
     return project
 
 
-def test_the_table_is_hidden_while_the_flag_is_off(client):
-    project = create_project(client)
-    response = client.get(f"/api/projects/{project['id']}/fact-table", params={"kind": "invoice"})
-    assert response.status_code == 404
-
-
-def test_a_row_for_each_document_read_for_the_template_and_a_column_for_each_field(
-    client, templates_on, three
-):
+def test_a_row_for_each_document_read_for_the_template_and_a_column_for_each_field(client, three):
     shown = table(client, three)
     assert shown["total"] == 3 and shown["next_after"] is None
     # The live documents of the kind read for its template, by name in the natural order.
@@ -165,7 +152,7 @@ def test_a_row_for_each_document_read_for_the_template_and_a_column_for_each_fie
 
 
 def test_a_document_indexed_for_a_template_is_a_row_whose_facts_open_their_passage(
-    client, session, services, sample_pdf, templates_on
+    client, session, services, sample_pdf
 ):
     project = create_project(client)
     document = upload(client, project["id"], sample_pdf)["documents"][0]
@@ -182,9 +169,7 @@ def test_a_document_indexed_for_a_template_is_a_row_whose_facts_open_their_passa
     assert row["cells"]["effective_date"][0]["date"] == "2024-03-01"
 
 
-def test_rows_are_sorted_by_a_field_s_typed_value_those_without_it_last(
-    client, templates_on, three
-):
+def test_rows_are_sorted_by_a_field_s_typed_value_those_without_it_last(client, three):
     def by(field, order="asc"):
         return names(table(client, three, sort=field, order=order))
 
@@ -201,7 +186,7 @@ def test_rows_are_sorted_by_a_field_s_typed_value_those_without_it_last(
     assert by(None, "desc") == ["globex.pdf", "acme-10.pdf", "acme-2.pdf"]
 
 
-def test_conditions_keep_the_rows_whose_facts_meet_them(client, templates_on, three):
+def test_conditions_keep_the_rows_whose_facts_meet_them(client, three):
     def kept(*conditions, q=""):
         return names(table(client, three, filter=list(conditions), q=q))
 
@@ -224,7 +209,7 @@ def test_conditions_keep_the_rows_whose_facts_meet_them(client, templates_on, th
     assert (shown["total"], shown["template"]["documents"]) == (2, 3)
 
 
-def test_what_the_table_cannot_take_is_refused_in_words(client, templates_on, three):
+def test_what_the_table_cannot_take_is_refused_in_words(client, three):
     assert refusal(client, three, filter="iban:has") == (
         422,
         "The Invoice template has no field named iban.",
@@ -263,9 +248,7 @@ def test_what_the_table_cannot_take_is_refused_in_words(client, templates_on, th
     ("sort", "order"),
     [(None, "asc"), ("total_amount", "asc"), ("total_amount", "desc"), ("vendor_name", "desc")],
 )
-def test_the_pages_hold_every_row_once_whatever_the_order(
-    client, session, templates_on, three, sort, order
-):
+def test_the_pages_hold_every_row_once_whatever_the_order(client, session, three, sort, order):
     # Ties and missing values among them: two of one amount, two of none.
     invoice(session, three, "b.pdf", total_amount=("EUR 90.00", 90.0), vendor_name="Beta")
     invoice(session, three, "c.pdf", vendor_name="Gamma")
@@ -288,9 +271,7 @@ def test_the_pages_hold_every_row_once_whatever_the_order(
     assert shown["total"] in (5, 6)
 
 
-def test_the_columns_are_the_project_s_own_template_once_it_has_one(
-    client, session, templates_on, three
-):
+def test_the_columns_are_the_project_s_own_template_once_it_has_one(client, session, three):
     invoice(session, three, "with-iban.pdf", invoice_number="INV-3", iban="DE89 3704")
     assert "iban" not in {name for row in table(client, three)["rows"] for name in row["cells"]}
     made = make(client, three)
@@ -305,6 +286,6 @@ def test_the_columns_are_the_project_s_own_template_once_it_has_one(
     assert shown["rows"][0]["cells"]["iban"][0]["value"] == "DE89 3704"
 
 
-def test_a_viewer_reads_the_table(client, account, make_account, act_as, templates_on, three):
+def test_a_viewer_reads_the_table(client, account, make_account, act_as, three):
     act_as(make_account("vic@example.com", account.organization, role="viewer"))
     assert table(client, three)["total"] == 3

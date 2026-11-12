@@ -2,16 +2,16 @@
 OneDrive whose files the project keeps in step with, which the library's "Connected folders"
 shows.
 
-Every route is behind the flag `connectors` (app/flags.py). A member who may change the project
-connects a service: the page posts which, gets the service's consent page to send the browser to,
-with the handshake in a short-lived cookie, and the service sends the browser back to the callback
-with a code, which is redeemed for the member's grant, kept encrypted. The member then browses their
-own folders there and chooses one, and where its files go in the project; the folder is chosen once,
-and another is another connector. Whoever may change the project changes where the files go, asks
-for a sync now and disconnects it; only its member browses their folders and connects it again once
-the service took its access back. Everyone who sees the project reads how each stands. Each
-connector made, changed and removed is a row of the audit log, which names the service and the
-folders.
+The services offered are those the deployment has an OAuth client for (`providers`). A member who
+may change the project connects one: the page posts which, gets the service's consent page to send
+the browser to, with the handshake in a short-lived cookie, and the service sends the browser back
+to the callback with a code, which is redeemed for the member's grant, kept encrypted. The member
+then browses their own folders there and chooses one, and where its files go in the project; the
+folder is chosen once, and another is another connector. Whoever may change the project changes
+where the files go, asks for a sync now and disconnects it; only its member browses their folders
+and connects it again once the service took its access back. Everyone who sees the project reads how
+each stands. Each connector made, changed and removed is a row of the audit log, which names the
+service and the folders.
 
 A request that asks the service something holds no transaction while it waits.
 """
@@ -23,7 +23,7 @@ from dataclasses import asdict, dataclass
 from typing import Annotated
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -37,7 +37,6 @@ from app.api.deps import (
     HttpDep,
     ProjectDep,
     SessionDep,
-    flagged,
     get_editable_project,
     get_project,
 )
@@ -54,7 +53,6 @@ from app.connectors.base import (
 from app.connectors.sync import SYNC_INTERVAL, label_of, queue_sync, sync_pending
 from app.encrypted import CONNECTOR_TOKENS, decrypt, encrypt
 from app.errors import shown
-from app.flags import CONNECTORS
 from app.folders import folder_paths
 from app.keyring import Undecryptable
 from app.models import Connector, ConnectorFile, Document, Folder, Project, User
@@ -72,7 +70,7 @@ from app.schemas import (
 
 log = logging.getLogger(__name__)
 
-router = APIRouter(tags=["connectors"], dependencies=[Depends(flagged(CONNECTORS))])
+router = APIRouter(tags=["connectors"])
 
 COOKIE_PATH = "/api/connectors"
 MAX_CONNECTORS = 10

@@ -3,11 +3,10 @@ one another by, which the library's Cross-checks view lists with what each finds
 suggested ones the project's templates allow, and what a rule finds, a finding a value of a
 checked document with the values it was compared with, each citing where it was found.
 
-Every route is behind the flag `extraction_templates` (app/flags.py), since a rule compares the
-fields of the project's templates, answering an organisation it is off for as a path no route
-takes. Whoever may change the project makes, changes and deletes its rules, each change a row of
-the organisation's audit log naming the kinds and fields, never a value; a rule is written whole
-and deleted for good, with no trash, since it holds the members' choice and no document.
+A rule compares the fields of the project's templates. Whoever may change the project makes, changes
+and deletes its rules, each change a row of the organisation's audit log naming the kinds and
+fields, never a value; a rule is written whole and deleted for good, with no trash, since it holds
+the members' choice and no document.
 """
 
 from typing import Annotated
@@ -23,7 +22,6 @@ from app.api.deps import (
     EditableProjectDep,
     ProjectDep,
     SessionDep,
-    flagged,
     limited,
 )
 from app.audit import audit
@@ -41,7 +39,6 @@ from app.cross_checks import (
 )
 from app.extraction import Template, kind_of, templates_for
 from app.fact_checks import fact_out
-from app.flags import EXTRACTION_TEMPLATES
 from app.indexing.enrich import normalize_fact_name
 from app.models import CrossCheck, Document, Fact, Project
 from app.ratelimit import SEARCHES
@@ -57,7 +54,7 @@ from app.schemas import (
     PartnerOut,
 )
 
-router = APIRouter(tags=["cross-checks"], dependencies=[Depends(flagged(EXTRACTION_TEMPLATES))])
+router = APIRouter(tags=["cross-checks"])
 
 TOO_MANY = (
     f"A project has at most {MAX_CROSS_CHECKS} cross-checks. Delete one it no longer needs before "

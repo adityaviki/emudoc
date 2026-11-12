@@ -1,5 +1,4 @@
-// The organisation page's share links, for its owners and admins while links are rolled out to it
-// (backend/app/share_links.py): whether its members may share documents by link at all, which off stops every link at
+// The workspace page's share links, for its owners and admins (backend/app/share_links.py): whether its members may share documents by link at all, which off stops every link at
 // once, and every link that has not expired, by what it shows, each revoked from its row.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'

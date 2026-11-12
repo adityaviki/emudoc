@@ -1,12 +1,11 @@
 """A project's question sets (app/question_sets.py) and the reports of their answers
 (app/question_reports.py), which the library's Reports view lists.
 
-Every route is behind the flag `question_sets` (app/flags.py). Whoever may change the project makes,
-changes, turns off and deletes its sets, and runs one there and then, each a row of the
-organisation's audit log naming the set and counting its questions, never one of them; a set is
-written whole and deleted for good, with no trash, the reports it made staying with the project's,
-naming it as it was. Anyone who sees the project reads the sets and the reports, and a member
-deletes a report.
+Whoever may change the project makes, changes, turns off and deletes its sets, and runs one there
+and then, each a row of the organisation's audit log naming the set and counting its questions,
+never one of them; a set is written whole and deleted for good, with no trash, the reports it made
+staying with the project's, naming it as it was. Anyone who sees the project reads the sets and the
+reports, and a member deletes a report.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -22,11 +21,9 @@ from app.api.deps import (
     ProjectDep,
     ReportDep,
     SessionDep,
-    flagged,
     limited,
 )
 from app.audit import audit
-from app.flags import QUESTION_SETS
 from app.models import Project, QuestionReport, QuestionSet, User
 from app.question_reports import counted, run_detail, start_report
 from app.question_sets import (
@@ -48,7 +45,7 @@ from app.schemas import (
     ReportAnswerOut,
 )
 
-router = APIRouter(tags=["question-sets"], dependencies=[Depends(flagged(QUESTION_SETS))])
+router = APIRouter(tags=["question-sets"])
 
 TOO_MANY = (
     f"A project has at most {MAX_QUESTION_SETS} question sets. Delete one it no longer needs "

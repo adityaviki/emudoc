@@ -1167,6 +1167,9 @@ export interface SystemStatus {
   uploads: UploadLimits
   /** Whether Word, PowerPoint, Excel, RTF and HTML documents are shown as they look (backend/app/conversion.py); without, by their text. */
   views: boolean
+  /** Whether projects may take mail at an address of their own (INBOUND_DOMAIN, backend/app/inbound.py), and whether a folder may be connected from a service the deployment has an OAuth client for (backend/app/connectors/): the page offers neither without. */
+  email_in: boolean
+  connectors: boolean
 }
 
 /** Whether the API can serve, and which version it runs (backend/app/version.py). */
@@ -1405,20 +1408,7 @@ export interface Organization {
   max_session_days: number
   /** Whether its members may share a document by a link that needs no account (backend/app/share_links.py); off, every link it has stops. */
   share_links: boolean
-  /** The feature flags on for it (backend/app/flags.py): a page shows a feature being rolled out where its flag is here. */
-  flags_on: Flag[]
 }
-
-/** The names of the feature flags (FLAGS in backend/app/flags.py), so that a page that reads a misspelt one fails the build. */
-export type Flag =
-  | 'extraction_templates'
-  | 'drafts'
-  | 'email_in'
-  | 'connectors'
-  | 'share_links'
-  | 'question_sets'
-  | 'comments'
-  | 'my_files'
 
 /** What the organisation page changes about the organisation (OrganizationChangeIn in backend/app/schemas.py). */
 export interface OrganizationChange {

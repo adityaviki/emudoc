@@ -8,7 +8,6 @@ import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { api, pageLabel, sectionPath } from '../api.ts'
 import type { SearchHit } from '../api.ts'
-import { useMe } from '../auth.ts'
 import { folderChoices } from '../automations.ts'
 import { Button, Chip, EmptyState, IconButton, Loading, Notice } from '../components/ui.tsx'
 import { EMPTY_FILTER, MAX_WITHIN, filterParts, filterWords, narrows, withoutPart } from '../library.ts'
@@ -22,11 +21,8 @@ import type { WorkspaceSearch } from './url.ts'
 export function SearchResults({ search }: { search: WorkspaceSearch }) {
   const workspace = useWorkspace()
   const navigate = useNavigate()
-  const me = useMe()
   const { project, folders } = workspace
   const { q: query, filter } = search
-  // Documents' reviews narrow a search where they are rolled out to the organisation (backend/app/flags.py).
-  const reviews = me.organization.flags_on.includes('extraction_templates')
   const [filtering, setFiltering] = useState(false)
   const filterButton = useRef<HTMLButtonElement>(null)
   const results = useQuery({
@@ -113,7 +109,6 @@ export function SearchResults({ search }: { search: WorkspaceSearch }) {
         <SearchFilterEditor
           filter={filter}
           folders={folders}
-          reviews={reviews}
           onApply={(chosen) => workspace.showSearch({ q: query, filter: chosen })}
           onClose={() => setFiltering(false)}
         />

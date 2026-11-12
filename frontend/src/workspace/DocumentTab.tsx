@@ -49,8 +49,6 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
   const workspace = useWorkspace()
   const me = useMe()
   const changes = mayChange(me.role)
-  // Its review, while reviews are rolled out to the organisation (backend/app/flags.py).
-  const reviews = me.organization.flags_on.includes('extraction_templates')
   // Where the keyboard goes on from once a button of the header it held is gone.
   const heading = useRef<HTMLHeadingElement>(null)
   const [outlineOpen, setOutlineOpen] = useState(true)
@@ -60,12 +58,10 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
   const [writing, setWriting] = useState(false)
   // Its note, which everyone who reads the project reads.
   const note = useQuery({ queryKey: noteKey(document.id), queryFn: () => api.note(document.id) })
-  // Its comments, which everyone who reads the project writes, while they are rolled out to the organisation.
-  const commenting = me.organization.flags_on.includes('comments')
-  const threads = useQuery({ queryKey: threadsKey(document.id), queryFn: () => api.threads(document.id), enabled: commenting })
+  // Its comments, which everyone who reads the project writes.
+  const threads = useQuery({ queryKey: threadsKey(document.id), queryFn: () => api.threads(document.id) })
   const counts = threadCounts(threads.data ?? [])
-  const [commentsShown, setCommentsShown] = useLocalStorage(COMMENTS_KEY, false, isBoolean)
-  const commentsOpen = commenting && commentsShown
+  const [commentsOpen, setCommentsShown] = useLocalStorage(COMMENTS_KEY, false, isBoolean)
   const [about, setAbout] = useState<ThreadAbout | null>(null)
   // What the comments read the words chosen in.
   const body = useRef<HTMLDivElement>(null)
@@ -236,19 +232,17 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
                 <StickyNote className="size-4" />
               </IconButton>
             )}
-            {commenting && (
-              <button
-                type="button"
-                aria-pressed={commentsOpen}
-                aria-label={`Comments, ${openWords(counts.open)}`}
-                title="Comments"
-                onClick={() => setCommentsShown((shown) => !shown)}
-                className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-muted transition hover:bg-sunken hover:text-ink aria-pressed:bg-sunken aria-pressed:text-ink"
-              >
-                <MessageSquare className="size-4" />
-                {counts.open > 0 && <span className="text-xs tabular-nums">{counts.open}</span>}
-              </button>
-            )}
+            <button
+              type="button"
+              aria-pressed={commentsOpen}
+              aria-label={`Comments, ${openWords(counts.open)}`}
+              title="Comments"
+              onClick={() => setCommentsShown((shown) => !shown)}
+              className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-muted transition hover:bg-sunken hover:text-ink aria-pressed:bg-sunken aria-pressed:text-ink"
+            >
+              <MessageSquare className="size-4" />
+              {counts.open > 0 && <span className="text-xs tabular-nums">{counts.open}</span>}
+            </button>
             <IconButton label="Versions" onClick={() => setVersioning(true)}>
               <History className="size-4" />
             </IconButton>
@@ -269,11 +263,9 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
           </div>
         </div>
         <Copies document={document} />
-        {reviews && (
-          <div className="mt-2 print:hidden">
-            <ReviewControls document={document} />
-          </div>
-        )}
+        <div className="mt-2 print:hidden">
+          <ReviewControls document={document} />
+        </div>
         <NotePanel
           document={document}
           note={note.data}
@@ -291,11 +283,9 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
         {focusLabel && (
           <p className="mt-1.5 inline-flex max-w-full items-center gap-1 rounded-md bg-mark/40 py-0.5 pr-0.5 pl-2 text-xs">
             <span className="truncate">Showing: {focusLabel}</span>
-            {commenting && (
-              <IconButton label="Comment on this" onClick={() => commentOn(aboutFocus())} className="size-5! print:hidden">
-                <MessageSquarePlus className="size-3.5" />
-              </IconButton>
-            )}
+            <IconButton label="Comment on this" onClick={() => commentOn(aboutFocus())} className="size-5! print:hidden">
+              <MessageSquarePlus className="size-3.5" />
+            </IconButton>
             <IconButton label="Clear highlight" onClick={onClearFocus} className="size-5! print:hidden">
               <X className="size-3.5" />
             </IconButton>

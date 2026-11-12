@@ -2,7 +2,6 @@
 put away for now, and what search engines are told."""
 
 import re
-from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
@@ -10,8 +9,7 @@ import pytest
 from app.accounts import create_account
 from app.auth import SESSION_COOKIE
 from app.config import ROOT_DIR, get_settings
-from app.flags import FLAGS
-from app.site import SIGNUP, file_types, fill
+from app.site import SERVICES, SIGNUP, file_types, fill
 from tests.test_auth import signup
 
 FRONTEND = ROOT_DIR / "frontend"
@@ -133,21 +131,22 @@ def test_every_file_type_the_parsers_take_is_named(monkeypatch):
         file_types()
 
 
-def test_a_feature_behind_a_flag_is_shown_once_every_organisation_has_it(monkeypatch):
-    # The site offers nothing a new organisation would not find: a part about a feature behind
-    # a flag is left out until the flag's share is everyone's.
+def test_a_feature_that_needs_a_service_is_shown_once_the_deployment_has_it(monkeypatch):
+    # The site offers nothing a new workspace would not find: every feature is on, and one that
+    # needs an outside service is left out until the deployment has it.
     html = built("home.html")
     marked = re.findall(r"<!-- if (\w+) -->", html)
     assert marked == re.findall(r"<!-- end (\w+) -->", html)
-    flagged = [each for each in marked if each not in SIGNUP]
-    assert flagged and set(flagged) <= FLAGS.keys()
+    assert {each for each in marked if each not in SIGNUP} == SERVICES.keys()
     settings = get_settings()
     hidden = fill(html, settings, APP)
-    for each in set(flagged):
-        monkeypatch.setitem(FLAGS, each, replace(FLAGS[each], share=100))
+    monkeypatch.setattr(settings, "inbound_domain", "in.example.com")
+    monkeypatch.setattr(settings, "dropbox_app_key", "key")
     shown = fill(html, settings, APP)
-    for words in ("Cross-checks compare", "Forward mail", "Share by a link", "Connect a folder"):
+    for words in ("Forward mail", "Connect a folder"):
         assert words in shown and words not in hidden, words
+    for words in ("Cross-checks compare", "Share by a link", "Write from what you found"):
+        assert words in shown and words in hidden, words
 
 
 @pytest.mark.parametrize(

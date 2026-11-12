@@ -37,7 +37,6 @@ from app.converter import (
     LibreOffice,
     Limits,
 )
-from app.flags import SHARE_LINKS
 from app.indexing.pipeline import process_document
 from app.jobs import CONVERT_DOCUMENT, LIVE, claim, finish
 from app.models import Document, Job
@@ -47,7 +46,6 @@ from app.worker import HANDLERS
 from tests.conftest import APP_HEADERS
 from tests.test_api import create_project, upload
 from tests.test_share_links import make, opened
-from tests.test_templates import turn_on
 from tests.test_versions import give
 
 # A stand-in for LibreOffice's command: it writes each command line it is run with to the log its
@@ -313,7 +311,7 @@ def indexed(client, services, path: Path) -> dict:
 
 
 def test_a_word_file_is_shown_by_the_pages_the_converter_made_of_it(
-    client, session, services, converter, sample_docx, sample_pdf, monkeypatch
+    client, session, services, converter, sample_docx, sample_pdf
 ):
     document = indexed(client, services, sample_docx)
     assert client.get(f"/api/documents/{document['id']}").json()["view_state"] == "queued"
@@ -337,7 +335,6 @@ def test_a_word_file_is_shown_by_the_pages_the_converter_made_of_it(
     assert client.get(f"/api/documents/{document['id']}/pages/3.png").status_code == 404
     assert client.get(f"/api/documents/{document['id']}/thumbnail.png").status_code == 200
     # A share link shows the same pages.
-    turn_on(monkeypatch, SHARE_LINKS)
     made = make(client, document["id"])
     with TestClient(client.app, headers=APP_HEADERS) as visitor:
         shared = opened(visitor, made)

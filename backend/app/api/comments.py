@@ -1,7 +1,7 @@
 """A document's comments, which everyone who sees its project reads and writes (app/comments.py),
 and the members a comment in a project may mention."""
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.accounts import Account
@@ -13,7 +13,6 @@ from app.api.deps import (
     ProjectDep,
     SessionDep,
     ThreadDep,
-    flagged,
 )
 from app.audit import audit
 from app.comments import (
@@ -31,11 +30,10 @@ from app.comments import (
     thread_out,
     threads_of,
 )
-from app.flags import COMMENTS
 from app.models import CommentThread, Document, Project
 from app.schemas import CommentIn, MentionableOut, ThreadChangeIn, ThreadIn, ThreadOut
 
-router = APIRouter(tags=["comments"], dependencies=[Depends(flagged(COMMENTS))])
+router = APIRouter(tags=["comments"])
 
 # What a member may not do to another's comment is a matter of who they are, not of what they
 # sent.

@@ -118,7 +118,7 @@ def test_a_change_made_while_the_document_is_read_holds(client, session, service
 
     def meanwhile(content, schema, usage=None):
         # The member sets the title while the model reads the document's summaries.
-        if schema.__name__ == "DocumentAnalysis":
+        if schema.__name__.endswith("DocumentAnalysis"):
             details(client, document["id"], title="Set while read")
         return answer(content, schema, usage)
 

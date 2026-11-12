@@ -43,7 +43,6 @@ from app.access import visible_to
 from app.accounts import Account
 from app.audit import audit_event
 from app.config import get_settings
-from app.flags import EMAIL_IN, flag_on
 from app.jobs import Lease, LeaseLost, renew
 from app.messages import MAX_MESSAGE_BYTES, Parsed, body_document, parse
 from app.metrics import INBOUND_MESSAGES
@@ -298,14 +297,6 @@ def _deliver(
     if project is None:
         return None
     organization = project.organization
-    if not flag_on(organization, EMAIL_IN):
-        INBOUND_MESSAGES.labels("off").inc()
-        log.info(
-            "A message (%s) for project %s came while email in is off",
-            received.delivery,
-            project.id,
-        )
-        return None
     if session.scalar(
         select(
             exists().where(
