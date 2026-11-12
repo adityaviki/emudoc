@@ -113,6 +113,7 @@ from app.models import (
     Fact,
     FactCheck,
     Folder,
+    MyFile,
     Passage,
     Project,
     QuestionReport,
@@ -352,12 +353,25 @@ def get_editor(account: AccountDep, session: SessionDep) -> Account:
     return account
 
 
+def get_writer(account: AccountDep, session: SessionDep) -> Account:
+    """The account, provided the organisation is not set to be deleted and holds no more than
+    its plan allows: whoever may keep things of their own in it, such as My files
+    (app/my_files.py), a viewer too, since those change nothing the organisation's members
+    share."""
+    if held := held_for_deletion(account.organization, zone_of(account.user.time_zone)):
+        raise HTTPException(409, held)
+    if refusal := read_only(session, account.organization):
+        raise PlanRefused(refusal)
+    return account
+
+
 def _refuse_viewer(account: Account) -> None:
     if not account.is_at_least("member"):
         raise HTTPException(403, READ_ONLY)
 
 
 EditorDep = Annotated[Account, Depends(get_editor)]
+WriterDep = Annotated[Account, Depends(get_writer)]
 
 
 def refuse_past(session: Session, *hits: tuple[Limit, Key]) -> None:
@@ -555,6 +569,21 @@ def get_draft(draft_id: int, session: SessionDep, account: AccountDep) -> Draft:
     return draft
 
 
+def get_my_file(file_id: int, session: SessionDep, account: AccountDep) -> MyFile:
+    """A file of the account's own My files (app/my_files.py), provided it still sees the
+    project and the project is out of the trash. Another member's file, the project's owners'
+    and admins' alike, is not found: it is its member's alone."""
+    file = session.scalar(
+        select(MyFile)
+        .join(Project, Project.id == MyFile.project_id)
+        .where(MyFile.id == file_id, MyFile.user_id == account.user.id, visible_to(account))
+    )
+    if file is None:
+        raise HTTPException(404, "File not found")
+    about(project_id=file.project_id)
+    return file
+
+
 def get_fact(fact_id: int, session: SessionDep, account: AccountDep) -> Fact:
     """A fact read from a document (app/fact_checks.py), provided the account sees the
     document's project and the document is out of the trash."""
@@ -605,6 +634,7 @@ FolderDep = Annotated[Folder, Depends(get_folder)]
 PassageDep = Annotated[Passage, Depends(get_passage)]
 ChatDep = Annotated[Chat, Depends(get_chat)]
 ThreadDep = Annotated[CommentThread, Depends(get_thread)]
+MyFileDep = Annotated[MyFile, Depends(get_my_file)]
 CommentDep = Annotated[Comment, Depends(get_comment)]
 
 

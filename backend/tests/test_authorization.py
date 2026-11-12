@@ -1,9 +1,11 @@
 """Who may see and change what: every route is scoped to the caller's organisation and role."""
 
+import io
 import re
 from dataclasses import dataclass
 
 import pytest
+from docx import Document as WordDocument
 from pydantic_ai.messages import TextPart
 
 from app.answers import answer
@@ -11,7 +13,15 @@ from app.check_runs import run_workflow
 from app.config import get_settings
 from app.drafts import write_draft
 from app.encrypted import CONNECTOR_TOKENS, encrypt
-from app.flags import COMMENTS, CONNECTORS, DRAFTS, EMAIL_IN, QUESTION_SETS, SHARE_LINKS
+from app.flags import (
+    COMMENTS,
+    CONNECTORS,
+    DRAFTS,
+    EMAIL_IN,
+    MY_FILES,
+    QUESTION_SETS,
+    SHARE_LINKS,
+)
 from app.indexing.pipeline import process_document
 from app.models import Connector
 from app.question_reports import write_report
@@ -27,6 +37,15 @@ Route = tuple[str, str, dict]
 AUTOMATION = {"title": "New invoices", "kind": "invoice"}
 # A question set of the world's project (tests/test_question_sets.py imports this module).
 QUESTION_SET = {"title": "Every morning", "questions": ["What is due?"], "schedule": "daily"}
+
+
+def word(text: str) -> bytes:
+    """A Word document of one paragraph, for My files (tests/test_my_files.py has more)."""
+    document = WordDocument()
+    document.add_paragraph(text)
+    out = io.BytesIO()
+    document.save(out)
+    return out.getvalue()
 
 
 @dataclass
@@ -74,6 +93,7 @@ class World:
     report_id: int
     thread_id: int
     comment_id: int
+    my_file_id: int
 
 
 @pytest.fixture
@@ -85,6 +105,7 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
     turn_on(monkeypatch, SHARE_LINKS)
     turn_on(monkeypatch, QUESTION_SETS)
     turn_on(monkeypatch, COMMENTS)
+    turn_on(monkeypatch, MY_FILES)
     monkeypatch.setattr(get_settings(), "inbound_domain", "in.emudoc.test")
     monkeypatch.setattr(get_settings(), "google_drive_client_id", "drive-client")
     monkeypatch.setattr(get_settings(), "google_drive_client_secret", "drive-secret")
@@ -153,6 +174,9 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
     report = client.post(f"/api/question-sets/{question_set.json()['id']}/run").json()
     services.llm.agent_turns.append(FakeTurn(TextPart("Nothing is due.")))
     write_report(report["id"], services)
+    letter = {"file": ("Letter.docx", word("Dear Acme,"))}
+    my_file = client.post(f"/api/projects/{project['id']}/my-files", files=letter)
+    assert my_file.status_code == 201, my_file.text
     for path in (
         f"/api/folders/{trashed_folder['id']}",
         f"/api/documents/{note['id']}",
@@ -191,6 +215,7 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
         report["id"],
         thread.json()["id"],
         thread.json()["comments"][0]["id"],
+        my_file.json()["id"],
     )
 
 
@@ -514,6 +539,33 @@ def members(w: World) -> list[Route]:
     ]
 
 
+def keeps(w: World) -> list[Route]:
+    """A reader's own My files in the project (test_my_files.py): their list, and a file kept
+    there, which a viewer keeps too, since it changes nothing the members share."""
+    letter = {"file": ("Notes.docx", word("My notes."))}
+    return [
+        ("GET", f"/api/projects/{w.project_id}/my-files", {}),
+        ("POST", f"/api/projects/{w.project_id}/my-files", {"files": letter}),
+    ]
+
+
+def own_files(w: World) -> list[Route]:
+    """The routes that name a file of the owner's My files, which nobody else finds, the
+    organisation's admins included."""
+    file = f"/api/my-files/{w.my_file_id}"
+    version = {"file": ("Letter.docx", word("Dear Acme, again."))}
+    return [
+        ("GET", file, {}),
+        ("PATCH", file, {"json": {"name": "Mine"}}),
+        ("POST", f"{file}/versions", {"files": version}),
+        ("GET", f"{file}/versions/1/file", {}),
+        ("GET", f"{file}/versions/1/pages/1.png", {}),
+        ("POST", f"{file}/versions/1/view", {}),
+        ("POST", f"{file}/copy", {"json": {}}),
+        ("DELETE", file, {}),
+    ]
+
+
 def scoped(w: World) -> list[Route]:
     return (
         reads(w)
@@ -536,6 +588,8 @@ def scoped(w: World) -> list[Route]:
         + marks(w)
         + talk(w)
         + comment(w)
+        + keeps(w)
+        + own_files(w)
     )
 
 
@@ -618,6 +672,8 @@ def test_a_private_project_is_found_by_nobody_else(client, world, account, make_
         + marks(world)
         + talk(world)
         + comment(world)
+        + keeps(world)
+        + own_files(world)
     )
 
     act_as(make_account("mo.too@example.com", account.organization, role="member"))
@@ -634,6 +690,9 @@ def test_a_private_project_is_found_by_nobody_else(client, world, account, make_
         assert set(marked.values()) == {204}, marked
         written = statuses(client, talk(world))
         assert set(written.values()) <= {200, 201}, written
+        # The owner's My files are the owner's alone, an admin's sight included.
+        hidden = statuses(client, own_files(world))
+        assert set(hidden.values()) == {404}, hidden
 
 
 def test_a_viewer_can_read_but_not_change(client, world, account, make_account, act_as):
@@ -649,8 +708,12 @@ def test_a_viewer_can_read_but_not_change(client, world, account, make_account, 
         client, writes(world) + trash_writes(world) + trashed_project(world) + comment(world)
     )
     assert set(refused.values()) == {403}, refused
-    # The owner's chat in the trash is the owner's alone, and so is the private chat's answer.
-    hidden = statuses(client, chat_trash(world) + answer_links(world))
+    # A viewer keeps My files of their own, changing nothing the members share.
+    kept = statuses(client, keeps(world))
+    assert set(kept.values()) <= {200, 201}, kept
+    # The owner's chat in the trash is the owner's alone, and so is the private chat's answer,
+    # and their My files.
+    hidden = statuses(client, chat_trash(world) + answer_links(world) + own_files(world))
     assert set(hidden.values()) == {404}, hidden
     assert client.post("/api/projects", json={"name": "Mine"}).status_code == 403
     detail = client.delete(f"/api/documents/{world.document_id}").json()["detail"]

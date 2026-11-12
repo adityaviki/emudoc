@@ -267,7 +267,7 @@ def convert_document(job: Job, converter: Converter | None, storage: Storage) ->
             CONVERTIBLE[document.mime_type],
         )
     try:
-        sizes = _convert(converter, storage, original, key, kind)
+        sizes = convert_file(converter, storage, original, key, kind)
     except (ConvertError, RenderError, StorageError, FileNotFoundError) as error:
         return _failed(job, lease, original, error, tries)
     except Exception as error:
@@ -291,7 +291,7 @@ def _wanted(document: Document) -> bool:
     )
 
 
-def _convert(
+def convert_file(
     converter: Converter, storage: Storage, original: str, key: str, kind: str
 ) -> list[list[float]]:
     """The view made and kept; each of its pages' sizes. No transaction is open meanwhile."""

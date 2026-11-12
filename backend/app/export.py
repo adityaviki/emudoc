@@ -69,6 +69,8 @@ from app.models import (
     Identity,
     MailSuppression,
     Membership,
+    MyFile,
+    MyFileVersion,
     Notification,
     Organization,
     Passage,
@@ -101,6 +103,8 @@ from app.schemas import (
     ExportedIdentity,
     ExportedMembership,
     ExportedMessage,
+    ExportedMyFile,
+    ExportedMyFileVersion,
     ExportedNote,
     ExportedNotification,
     ExportedOwnComment,
@@ -136,7 +140,8 @@ ABOUT = (
     "browser you signed in with did so first and last, the chats you started with every question "
     "and answer, the chats you pinned, the documents you starred and the ones you opened lately, "
     "the links you made that show a document or an answer to whoever holds them, the question "
-    "sets you made with their questions, the comments you wrote on documents, the notices in your "
+    "sets you made with their questions, the comments you wrote on documents, the files of your My "
+    "files with their versions (download the files themselves from the app), the notices in your "
     "notification centre, the usage counted to you, and what the audit logs of your organisations "
     "recorded you doing. Answers cite passages of documents as [P<number>]. The documents "
     "themselves are not in this file: they belong to the organisation that holds them. Your "
@@ -271,6 +276,21 @@ def account_export(session: Session, user: User) -> AccountExport:
         .order_by(Comment.id)
     ).all()
     mentions = mention_names(session, [row.text for row, *_ in comments])
+    my_files = session.execute(
+        select(MyFile, Organization.slug, Project.name)
+        .join(Project, Project.id == MyFile.project_id)
+        .join(Organization, Organization.id == MyFile.org_id)
+        .where(MyFile.user_id == user.id)
+        .order_by(MyFile.id)
+    ).all()
+    my_versions: dict[int, list[MyFileVersion]] = defaultdict(list)
+    for version in session.scalars(
+        select(MyFileVersion)
+        .join(MyFile, MyFile.id == MyFileVersion.file_id)
+        .where(MyFile.user_id == user.id)
+        .order_by(MyFileVersion.file_id, MyFileVersion.number)
+    ):
+        my_versions[version.file_id].append(version)
     question_sets = session.execute(
         select(QuestionSet, Organization.slug, Project.name)
         .join(Organization, Organization.id == QuestionSet.org_id)
@@ -432,6 +452,27 @@ def account_export(session: Session, user: User) -> AccountExport:
                 edited_at=row.edited_at,
             )
             for row, quote, slug, project, filename in comments
+        ],
+        my_files=[
+            ExportedMyFile(
+                organization=slug,
+                project=project,
+                name=row.name,
+                kind=row.kind,
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+                versions=[
+                    ExportedMyFileVersion(
+                        number=version.number,
+                        size_bytes=version.size_bytes,
+                        by_model=version.by_model,
+                        note=version.note,
+                        created_at=version.created_at,
+                    )
+                    for version in my_versions[row.id]
+                ],
+            )
+            for row, slug, project in my_files
         ],
         notifications=[
             ExportedNotification(

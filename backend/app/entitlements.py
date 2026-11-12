@@ -74,6 +74,8 @@ from app.models import (
     Document,
     Invitation,
     Membership,
+    MyFile,
+    MyFileVersion,
     Organization,
     Project,
     UsageEvent,
@@ -398,6 +400,13 @@ def check_version(session: Session, organization: Organization, size: int) -> Re
     return _no_room(organization, held, size) or _no_pages(session, organization)
 
 
+def check_room(session: Session, organization: Organization, size: int) -> Refusal | None:
+    """Why the plan refuses a file of `size` bytes into a member's My files (app/my_files.py),
+    or None when it has room: such a file is no document, but its bytes are held as one's."""
+    _, held = _documents(session, organization.id)
+    return _no_room(organization, held, size)
+
+
 def _no_room(organization: Organization, held: int, size: int | None) -> Refusal | None:
     """Why the plan's storage takes nothing more, or not a file of `size` bytes."""
     plan = entitlements_of(organization)
@@ -716,7 +725,19 @@ def _documents(session: Session, org_id: int) -> tuple[int, int]:
         .join(Project, Project.id == Document.project_id)
         .where(*_live_documents(org_id), Project.sample.is_(False))
     ).one()
-    return count, held
+    return count, held + my_files_bytes(session, org_id)
+
+
+def my_files_bytes(session: Session, org_id: int) -> int:
+    """The bytes of every version in the organisation's members' My files (app/my_files.py),
+    which its storage holds beside its documents', those of a project in the trash left out as
+    its documents are."""
+    return session.scalar(
+        select(func.coalesce(func.sum(MyFileVersion.size_bytes), 0))
+        .join(MyFile, MyFile.id == MyFileVersion.file_id)
+        .join(Project, Project.id == MyFile.project_id)
+        .where(MyFile.org_id == org_id, Project.deleted_at.is_(None))
+    )
 
 
 def stored_bytes() -> ColumnElement[int]:

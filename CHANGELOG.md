@@ -16,6 +16,11 @@ newest entry first.
 
 Members:
 
+- Where an operator turns them on, each member keeps their own Word documents and Excel workbooks
+  in a project, under "My files" in the library, which only they see. A file shows its pages as
+  it looks, keeps every version you upload after editing it, downloads any of them, and copies
+  into the project's library, as a new document or as the next version of the document it came
+  from, when you want the project's members to have it.
 - Closing tabs one after another with the mouse is easier: the tabs left keep their width while
   the mouse stays on the row of tabs, so the next tab's cross comes under it, and they widen
   again once the mouse moves away.
@@ -30,6 +35,13 @@ Members:
 
 Operators:
 
+- My files, behind the flag `my_files`: each member's own Word and Excel files in a project, in
+  the tables `my_files` and `my_file_versions` (migration 562af5b541e8), stored under
+  `orgs/{o}/projects/{p}/my-files/{f}/`, whose leftovers the storage walk sweeps once their row is
+  gone. A version a member uploads is scanned and converted by the worker's new `view_my_file`
+  job; its bytes count toward the plan's storage. The audit log gains `my_file_added`,
+  `my_file_version_added`, `my_file_renamed`, `my_file_deleted`, `my_file_downloaded` and
+  `my_file_copied`, by the file's kind and id, never its name.
 - The images are past the high CVEs Audit has found since 8 November: the app's image is built
   on the newer python:3.13 base (apt's CVE-2026-109518) and upgrades the base's Debian packages
   as it builds (zlib's CVE-2026-85091 and CVE-2026-76844, fixed after any base was), and the

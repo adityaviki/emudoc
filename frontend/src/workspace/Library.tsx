@@ -17,6 +17,7 @@ import {
   Flag,
   Folder as FolderIcon,
   FolderInput,
+  FolderLock,
   FolderPlus,
   FolderSync,
   FolderUp,
@@ -89,6 +90,7 @@ import { RunView } from './CheckRuns.tsx'
 import { CrossChecksView, FindingsView } from './CrossChecks.tsx'
 import { DraftTemplatesView } from './DraftTemplates.tsx'
 import { DraftView, DraftsView } from './Drafts.tsx'
+import { MyFileView, MyFilesView } from './MyFiles.tsx'
 import { ActivityView } from './Activity.tsx'
 import { ConnectorsView } from './Connectors.tsx'
 import { MailboxView } from './Mailbox.tsx'
@@ -198,6 +200,7 @@ export function Library() {
   // Behind its flag while it is rolled out (backend/app/flags.py).
   const templates = me.organization.flags_on.includes('extraction_templates')
   const drafts = me.organization.flags_on.includes('drafts')
+  const myFiles = me.organization.flags_on.includes('my_files')
   const mail = me.organization.flags_on.includes('email_in')
   const connectors = me.organization.flags_on.includes('connectors')
   const questionSets = me.organization.flags_on.includes('question_sets')
@@ -272,6 +275,8 @@ export function Library() {
   if (workspace.url.library.draftTemplates && drafts) return <DraftTemplatesView />
   if (workspace.url.library.mail && mail) return <MailboxView />
   if (workspace.url.library.connectors && connectors) return <ConnectorsView />
+  if (workspace.url.library.myFiles && myFiles) return <MyFilesView />
+  if (workspace.url.library.myFile != null && myFiles) return <MyFileView fileId={workspace.url.library.myFile} />
   // The files of the whole project a search finds are no place of their own: "All files", pressed, says where they are.
   const placeLabel = flat && !allNamed(place) ? placeName(place) : null
   const searchResults = search && (
@@ -348,6 +353,15 @@ export function Library() {
               onClick={workspace.showActivity}
               title="Activity: what was done in the project lately, its uploads, reviews, comments and runs"
               aria-label="Activity"
+              className="px-2"
+            />
+          )}
+          {myFiles && (
+            <Button
+              icon={<FolderLock className="size-4" />}
+              onClick={workspace.showMyFiles}
+              title="My files: your own Word and Excel files in this project, which only you see"
+              aria-label="My files"
               className="px-2"
             />
           )}

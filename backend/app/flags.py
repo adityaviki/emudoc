@@ -57,6 +57,7 @@ CONNECTORS = "connectors"
 SHARE_LINKS = "share_links"
 QUESTION_SETS = "question_sets"
 COMMENTS = "comments"
+MY_FILES = "my_files"
 
 # Every feature behind a flag, by name, in the order the operator's area lists them.
 FLAGS: dict[str, Flag] = {
@@ -106,6 +107,12 @@ FLAGS: dict[str, Flag] = {
     COMMENTS: Flag(
         "Comments and activity: threads on a document or a passage of it, members mentioned and "
         "told, and what was done lately in each project"
+    ),
+    # Each member's own files in a project (app/my_files.py), Word and Excel files they keep and
+    # the agent writes for them, seen by them alone until they copy one into the library.
+    MY_FILES: Flag(
+        "My files: each member's own Word and Excel files in a project, which the agent writes "
+        "and edits for them, seen by them alone until copied into the project's library"
     ),
 }
 

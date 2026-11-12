@@ -156,6 +156,12 @@ export const ACTIONS: Record<AuditAction, [label: string, kind: AuditKind]> = {
   comment_deleted: ['Deleted a comment', 'files'],
   thread_resolved: ['Resolved a thread of comments', 'files'],
   thread_reopened: ['Opened a thread of comments again', 'files'],
+  my_file_added: ['Added a file to My files', 'files'],
+  my_file_version_added: ['Gave a file in My files a new version', 'files'],
+  my_file_renamed: ['Renamed a file in My files', 'files'],
+  my_file_deleted: ['Deleted a file in My files', 'files'],
+  my_file_downloaded: ['Downloaded a file in My files', 'files'],
+  my_file_copied: ['Copied a file in My files into the library', 'files'],
 }
 
 /** What a row's action is called: by ACTIONS, or for one a page loaded before a release does not know, by its name. */
@@ -230,6 +236,7 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   else if (FILING_ACTIONS.has(event.action)) parts.push(describeFilingRule(detail))
   else if (DRAFT_ACTIONS.has(event.action)) parts.push(describeDraft(detail))
   else if (DRAFT_TEMPLATE_ACTIONS.has(event.action)) parts.push(describeDraftTemplate(detail))
+  else if (event.action.startsWith('my_file_')) parts.push(describeMyFile(event.action, detail))
   else if (MAILBOX_ACTIONS.has(event.action) && event.action !== 'mailbox_deleted') parts.push(describeMailbox(detail))
   else if (CONNECTOR_ACTIONS.has(event.action)) parts.push(describeConnector(detail))
   else if (WEBHOOK_ACTIONS.has(event.action)) parts.push(describeWebhookChange(detail))
@@ -244,6 +251,8 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   // A document's version (backend/app/versions.py): the one it was given, or the earlier one downloaded.
   if (event.action.startsWith('document_') && typeof detail.version === 'number') parts.push(`version ${detail.version}`)
   if (event.action === 'document_uploaded' && detail.by_email === true) parts.push('by email')
+  // A file a member copied in from their My files (backend/app/api/my_files.py).
+  if (detail.from_my_files === true) parts.push('from My files')
   // An export of the documents a member chose in the library, rather than the whole project.
   if (event.action === 'project_exported' && typeof detail.documents === 'number') {
     parts.push(`${detail.documents} chosen document${detail.documents === 1 ? '' : 's'}`)
@@ -507,6 +516,14 @@ function describeDraft(detail: AuditEvent['detail']): string {
   const file = TEXT_FILES.find((option) => option.format === detail.format)
   if (typeof detail.version === 'number') parts.push(file ? `version ${detail.version} as ${file.words}` : `saved as version ${detail.version}`)
   if (detail.rewritten === true) parts.push('written again by the model')
+  return parts.join(', ')
+}
+
+/** A file of a member's My files added, changed, downloaded or copied into the library: its kind and the version, never its name, which is its member's own. */
+function describeMyFile(action: AuditAction, detail: AuditEvent['detail']): string {
+  const parts = [detail.kind === 'xlsx' ? 'an Excel workbook' : 'a Word document']
+  if (typeof detail.version === 'number') parts.push(`version ${detail.version}`)
+  if (action === 'my_file_copied') parts.push(detail.as_version === true ? 'as a new version of its document' : 'as a new document')
   return parts.join(', ')
 }
 

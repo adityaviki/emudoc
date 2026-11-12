@@ -40,6 +40,7 @@ from app.api import (
     invitations,
     mail,
     mailbox,
+    my_files,
     notes,
     notifications,
     onboarding,
@@ -476,6 +477,7 @@ KEYED = (
     reviews.router,
     drafts.router,
     mailbox.router,
+    my_files.router,
 )
 
 
