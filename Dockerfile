@@ -40,9 +40,12 @@ FROM base
 # most, so a page breaks where it did where it was written: Carlito and Caladea measure as
 # Calibri and Cambria, Liberation as Arial, Times New Roman and Courier New, and Noto draws the
 # other scripts, Chinese, Japanese and Korean among them. Debian's security updates reach it as
-# the image is built again. The font packages build fontconfig's cache as they install, since
-# the running image cannot write one.
+# the image is built again, the base's own packages too: the upgrade takes those Debian fixed
+# after the base's digest was built (zlib1g's +deb13u1 of November 2026, which no python:3.13
+# digest held yet). The font packages build fontconfig's cache as they install, since the
+# running image cannot write one.
 RUN apt-get update \
+  && apt-get upgrade --yes --no-install-recommends \
   && apt-get install --yes --no-install-recommends \
       libreoffice-writer-nogui libreoffice-calc-nogui libreoffice-impress-nogui \
       fonts-liberation fonts-crosextra-carlito fonts-crosextra-caladea fonts-dejavu-core \

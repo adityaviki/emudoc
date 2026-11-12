@@ -28,6 +28,17 @@ Members:
   staying where it was, and "Filter" narrows the passages as before. Every project is searched
   from the box on the projects page.
 
+Operators:
+
+- The images are past the high CVEs Audit has found since 8 November: the app's image is built
+  on the newer python:3.13 base (apt's CVE-2026-109518) and upgrades the base's Debian packages
+  as it builds (zlib's CVE-2026-85091 and CVE-2026-76844, fixed after any base was), and the
+  deployment runs Caddy 2.11.9, Prometheus 3.16.0, Alertmanager 0.35.0 and the newest builds of
+  ClamAV 1.5 and llama.cpp's server, whose vectors the embeddings check found unchanged.
+  golang.org/x/net's CVE-2026-78661 in Caddy, Prometheus and Alertmanager, its HTML parser slow
+  on a crafted page, is accepted in `deploy/.trivyignore.yaml` until 26 November: none of them
+  parses HTML a peer wrote there.
+
 ## 2026-11-11
 
 Members:
