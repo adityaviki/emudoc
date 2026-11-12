@@ -7,7 +7,7 @@ Every route is behind the flag `extraction_templates` (app/flags.py), as the rul
 may change the project runs its checks, asks for a report and deletes a run, each a row of the
 organisation's audit log naming the rules, never a value; anyone who sees the project reads them.
 A report is a run of the agent, so asking for one is held to what holds a question: the agent's
-runs in flight, the month's questions, of which it counts one, and the day's spending.
+runs in flight and the day's spending; it counts as one of the workspace's questions.
 """
 
 from typing import Annotated
@@ -17,11 +17,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.accounts import Account
-from app.api.auth import app_url
 from app.api.chats import refuse_past_answers_in_flight, refuse_past_spending
 from app.api.deps import (
     AccountDep,
-    DeletableRunDep,
     EditableProjectDep,
     EditableRunDep,
     ProjectDep,
@@ -33,10 +31,8 @@ from app.api.deps import (
 from app.audit import audit
 from app.check_runs import gone_documents, queue_run, start_run
 from app.cross_checks import OUTCOMES
-from app.entitlements import PlanRefused, check_question
 from app.flags import EXTRACTION_TEMPLATES
 from app.models import CrossCheck, Project, User, WorkflowFinding, WorkflowRun
-from app.notices import MONTH_QUESTIONS, note_quota
 from app.ratelimit import QUESTIONS, SEARCHES
 from app.schemas import (
     CheckRunIn,
@@ -106,7 +102,7 @@ def run_checks(
         refuse_agent_run(session, account, f"A report of project {project.id}'s checks")
     run = start_run(session, project, account.user.id, list(rows), report=body.report)
     if body.report:
-        count_question(session, account, project.id, request)
+        count_question(session, account, project.id)
     audit(
         session,
         account,
@@ -226,7 +222,7 @@ def ask_report(run: EditableRunDep, session: SessionDep, account: AccountDep, re
     run.report, run.report_sources = "", []
     run.report_notice = run.report_error = None
     queue_run(session, run)
-    count_question(session, account, run.project_id, request)
+    count_question(session, account, run.project_id)
     audit(
         session,
         account,
@@ -241,7 +237,7 @@ def ask_report(run: EditableRunDep, session: SessionDep, account: AccountDep, re
 
 
 @router.delete("/check-runs/{run_id}", status_code=204)
-def delete_run(run: DeletableRunDep, session: SessionDep, account: AccountDep, request: Request):
+def delete_run(run: EditableRunDep, session: SessionDep, account: AccountDep, request: Request):
     """Delete the run for good, with what it found and its report; its rules stay."""
     audit(
         session,
@@ -258,17 +254,14 @@ def delete_run(run: DeletableRunDep, session: SessionDep, account: AccountDep, r
 
 def refuse_agent_run(session: Session, account: Account, what: str) -> None:
     """Refuse a run of the agent asked for without a question, a report or a draft
-    (app/api/drafts.py), past what holds a question: the agent's runs in flight, the month's
-    questions and the day's spending; `what` names it for the log."""
+    (app/api/drafts.py), past what holds a question: the agent's runs in flight and the day's
+    spending; `what` names it for the log."""
     refuse_past_answers_in_flight(session, account, what)
-    if refusal := check_question(session, account.organization):
-        raise PlanRefused(refusal)
-    refuse_past_spending(session, account, what)
+    refuse_past_spending(session, what)
 
 
-def count_question(session: Session, account: Account, project_id: int, request: Request) -> None:
-    """Count a report or a draft as one of the month's questions, as asking does
-    (app/api/chats.py)."""
+def count_question(session: Session, account: Account, project_id: int) -> None:
+    """Count a report or a draft as a question asked, as asking does (app/api/chats.py)."""
     record(
         session,
         org_id=account.organization.id,
@@ -277,7 +270,6 @@ def count_question(session: Session, account: Account, project_id: int, request:
         kind=ANSWER,
         measures={"questions": 1},
     )
-    note_quota(session, account.organization, MONTH_QUESTIONS, app_url(request))
 
 
 def _rule_out(kept: dict) -> CheckRunRuleOut:

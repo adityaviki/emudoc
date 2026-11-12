@@ -75,26 +75,8 @@ from app.api.deps import (
     refuse_past,
 )
 from app.audit import audit, audit_sign_in
-from app.billing import (
-    PAST_DUE,
-    grace_end,
-    managed,
-    packs_for,
-    sold,
-    subscription_refusal,
-    trial_days,
-)
 from app.bounces import forget
 from app.config import get_settings
-from app.entitlements import (
-    PlanRefused,
-    agreed_with,
-    bought_this_month,
-    entitlements_of,
-    month_of,
-    over_limits,
-    seats_of,
-)
 from app.export import account_export
 from app.flags import flags_on
 from app.invitations import find_invitation, is_open
@@ -142,25 +124,18 @@ from app.ratelimit import (
 from app.retention import (
     DELETION_GRACE,
     LOCAL_ACCOUNT,
-    Held,
-    chosen,
     day,
     deletion_pending,
     deletion_refusal,
-    hold_in_force,
-    kept_by,
 )
 from app.sample import add_sample
 from app.schemas import (
     AccountDeletionIn,
     AccountExport,
-    AllowanceOut,
     AuthOptions,
-    BillingOut,
     CodeIn,
     EmailChangeIn,
     EmailIn,
-    ExcessOut,
     InvitationLinkOut,
     InvitationSignupIn,
     LinkTokenIn,
@@ -171,12 +146,10 @@ from app.schemas import (
     MfaSetupOut,
     OAuthProviderOut,
     OrganizationOut,
-    PackOut,
     PasswordChangeIn,
     PasswordResetIn,
     ProfileIn,
     RecoveryCodesOut,
-    RetentionHeldOut,
     SessionOut,
     SetupIn,
     SignupFinishIn,
@@ -424,11 +397,10 @@ def finish_signup(
     body: SignupFinishIn, request: Request, response: Response, session: SessionDep, http: HttpDep
 ):
     """Make the account a sign-up link was sent for, a member of the install's workspace
-    (app/signups.py), and sign it in. Opening the link proves the address, so it starts
-    confirmed, and whoever holds the address chooses the password and accepts the terms, never
-    whoever typed it into the form. The edition accepted must be the current one. Refused once
-    sign-up has closed since the link was sent, and while the workspace's plan has no room. A
-    refusal leaves the link working, since nothing is committed."""
+    (app/signups.py), and sign it in. Opening the link proves the address, so it starts confirmed,
+    and whoever holds the address chooses the password and accepts the terms, never whoever typed it
+    into the form. The edition accepted must be the current one. Refused once sign-up has closed
+    since the link was sent. A refusal leaves the link working, since nothing is committed."""
     refuse_past(session, (ADDRESSES, by_address(request)))
     if not get_settings().signup_open:
         raise HTTPException(403, SIGNUP_CLOSED)
@@ -946,7 +918,7 @@ def delete_account(
     if account.session_id is None:
         raise HTTPException(409, LOCAL_ACCOUNT)
     confirm_account(session, account, request, body.password, body.email)
-    if refusal := deletion_refusal(session, user) or subscription_refusal(session, user):
+    if refusal := deletion_refusal(session, user):
         raise HTTPException(409, refusal)
     user.deletion_due_at = auth.now() + DELETION_GRACE
     auth.revoke_sessions(session, user.id, except_id=account.session_id)
@@ -1183,7 +1155,7 @@ def _user_for_claims(
         )
         try:
             account = join_workspace(session, user)
-        except (NotSetUp, PlanRefused) as refusal:
+        except NotSetUp as refusal:
             raise SignInRefused(str(refusal)) from None
         audit(session, account, request, "sign_up", detail={"method": provider.name})
         if not claims.email_verified:
@@ -1265,7 +1237,7 @@ def me_out(session: Session, person: Account | Outsider) -> MeOut:
         **shared,
         notices=choices(user, account.organization.notices),
         mfa_due=mfa_due(account),
-        organization=organization_out(session, account.organization),
+        organization=organization_out(account.organization),
         role=account.role,
         terms_due=terms_due(account),
         support_until=leave.expires_at if leave is not None else None,
@@ -1273,80 +1245,15 @@ def me_out(session: Session, person: Account | Outsider) -> MeOut:
     )
 
 
-# The entitlements the organisation page shows, which are what a member may ask about.
-SHOWN = tuple(AllowanceOut.model_fields.keys() - {"agreed", "pages_bought", "questions_bought"})
-
-
-def organization_out(session: Session, organization: Organization) -> OrganizationOut:
-    """The organisation as the page shows it, with what it may keep and use, the packs bought
-    for the month among it, what it holds past it, what it keeps as before after a lower plan,
-    and how it buys its plan."""
-    entitlements = entitlements_of(organization)
-    settings = get_settings()
-    on_sale = list(sold(settings))
-    failed = organization.payment_failed_at
-    start = month_of()[0]
+def organization_out(organization: Organization) -> OrganizationOut:
+    """The organisation as the page shows it, with the most its settings may choose and how its
+    members are told each kind of notice until they choose."""
     return OrganizationOut.model_validate(organization).model_copy(
         update={
-            "billing": BillingOut(
-                sold=on_sale,
-                managed=managed(organization),
-                status=organization.subscription_status,
-                trial_ends_at=organization.trial_ends_at,
-                renews_at=organization.renews_at,
-                ends_at=organization.ends_at,
-                payment_failed_at=failed,
-                grace_ends_at=(
-                    grace_end(organization, settings)
-                    if failed and organization.subscription_status == PAST_DUE
-                    else None
-                ),
-                customer=organization.stripe_customer_id is not None,
-                trial_days=trial_days(settings, organization) if on_sale else None,
-                packs=[
-                    PackOut(unit=pack.unit, quantity=pack.quantity)
-                    for pack in packs_for(settings, organization)
-                ],
-            ),
-            "seats": seats_of(organization),
-            "max_session_days": settings.session_days,
-            "chat_retention_days": chosen(kept_by(entitlements), organization).chat_days,
-            "audit_retention_days": entitlements.audit_days,
-            "retention_held": held_out(hold_in_force(organization)),
+            "max_session_days": get_settings().session_days,
             "notice_defaults": organization_choices(organization),
             "flags_on": flags_on(organization),
-            "allowance": AllowanceOut(
-                projects=entitlements.projects,
-                documents=entitlements.documents,
-                storage_bytes=entitlements.storage_bytes,
-                pages_per_month=entitlements.pages_per_month,
-                questions_per_month=entitlements.questions_per_month,
-                members=entitlements.members,
-                retention_days=entitlements.retention_days,
-                api_access=entitlements.api_access,
-                connectors=entitlements.connectors,
-                share_links=entitlements.share_links,
-                question_sets=entitlements.question_sets,
-                agreed=[name for name in agreed_with(organization) if name in SHOWN],
-                pages_bought=bought_this_month(session, organization.id, "pages", start),
-                questions_bought=bought_this_month(session, organization.id, "questions", start),
-                over=[
-                    ExcessOut(limit=excess.limit, words=excess.words)
-                    for excess in over_limits(session, organization)
-                ],
-            ),
         }
-    )
-
-
-def held_out(standing: Held | None) -> RetentionHeldOut | None:
-    """What an organisation keeps as before after a move to a lower plan, as the page shows it."""
-    if standing is None:
-        return None
-    return RetentionHeldOut(
-        until=standing.until,
-        chat_days=standing.kept.chat_days,
-        audit_days=standing.kept.audit_days,
     )
 
 

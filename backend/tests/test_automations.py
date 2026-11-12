@@ -3,6 +3,7 @@ cross-checks on their own once the documents they watch have arrived and gone qu
 whom they name what the run found about them, as a member's run is made and kept."""
 
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 from pydantic_ai.messages import TextPart
@@ -34,13 +35,13 @@ from app.models import (
 )
 from app.notices import settle_upload
 from app.reviews import NOT_A_REVIEWER
+from app.usage import ANSWER, record
 from app.worker import Worker
 from tests.conftest import FakeTurn
 from tests.test_api import create_project
 from tests.test_chats import questions_counted
 from tests.test_check_runs import TOTAL, invoices, made, shown
 from tests.test_cross_checks import DUE, read
-from tests.test_entitlements import plan  # noqa: F401 (a fixture)
 from tests.test_folders import make_folder
 from tests.test_notices import told
 from tests.test_templates import turn_on
@@ -63,7 +64,7 @@ def at_once(monkeypatch):
 
 @pytest.fixture
 def ann(make_account, act_as):
-    """The API acts as Ann, the owner of Globex, a fresh organisation on the free plan."""
+    """The API acts as Ann, the owner of Globex, a fresh organisation."""
     account = make_account("ann@globex.example")
     act_as(account)
     return account
@@ -334,9 +335,7 @@ def test_whom_an_automation_tells(
     mailer,
     ann,
     make_account,
-    plan,  # noqa: F811
 ):
-    plan(members=3)
     make_account("grace@globex.example", ann.organization, role="viewer")
     project = create_project(client)
     made(client, project["id"], TOTAL)
@@ -378,9 +377,7 @@ def test_a_maker_who_left_is_told_nothing_and_the_automation_says_so(
     ann,
     make_account,
     act_as,
-    plan,  # noqa: F811
 ):
-    plan(members=3)
     bob = make_account("bob@globex.example", ann.organization, role="member")
     act_as(bob)
     project = create_project(client)
@@ -420,7 +417,7 @@ def test_an_automation_s_report_counts_a_question_and_a_refusal_leaves_the_run_w
     services,
     mailer,
     ann,
-    plan,  # noqa: F811
+    monkeypatch,
 ):
     project = create_project(client)
     made(client, project["id"], TOTAL)
@@ -437,17 +434,28 @@ def test_an_automation_s_report_counts_a_question_and_a_refusal_leaves_the_run_w
     (notice,) = told(mailer)
     assert "The model's discrepancy report is written." in notice.text
 
-    # With the month's questions used, the run goes ahead and says why it has no report.
-    plan(questions_per_month=1)
+    # With the day's spending reached, the run goes ahead and says why it has no report.
+    monkeypatch.setattr(get_settings(), "daily_spend_cap", Decimal("0.000001"))
+    monkeypatch.setattr(get_settings(), "model_prices", f"{get_settings().agent_model}=1/1")
+    record(
+        session,
+        org_id=ann.organization.id,
+        project_id=None,
+        user_id=None,
+        kind=ANSWER,
+        measures={"input_tokens": 1_000},
+        model=get_settings().agent_model,
+    )
+    session.commit()
     arrive(session, project["id"], ann.user.id, documents["INV-2"])
     next_job(services, RUN_AUTOMATION)
     _, refused = runs(session)
     assert refused.report_status == "failed"
-    assert "answers 1 question a month" in refused.report_error
+    assert refused.report_error.startswith("Emudoc has reached its spending limit")
     assert questions_counted(session) == 1
     next_job(services, RUN_WORKFLOW)
     _, notice = told(mailer)
-    assert "The discrepancy report could not be written: The Free plan answers" in notice.text
+    assert "The discrepancy report could not be written: Emudoc has reached" in notice.text
     row = session.scalars(
         select(AuditEvent).where(AuditEvent.action == "cross_checks_run").order_by(AuditEvent.id)
     ).all()[-1]
@@ -535,9 +543,7 @@ def test_an_automation_is_written_whole_and_refused_what_the_project_does_not_ho
     client,
     session,
     ann,
-    plan,  # noqa: F811
 ):
-    plan(projects=2)
     project = create_project(client)
     other = create_project(client, "Other")
     check, due = made(client, project["id"], TOTAL, DUE)
@@ -683,18 +689,16 @@ def test_the_notice_says_what_arrived_in_so_many_words():
     assert some.subject == "The cross-checks could not check everything"
     assert "after 3 documents arrived, and 2 that its cross-checks compare them with." in some.brief
     assert said(0, 4, ["a.md"], holds=1).brief.count("4 documents that its cross-checks") == 1
-    failed = said(2, 0, ["a.md", "b.md"], "failed", "The plan answers no more.", holds=2)
+    failed = said(2, 0, ["a.md", "b.md"], "failed", "The day's spending is reached.", holds=2)
     assert failed.subject == "The cross-checks found nothing amiss"
     assert failed.brief.endswith(
-        "The discrepancy report could not be written: The plan answers no more."
+        "The discrepancy report could not be written: The day's spending is reached."
     )
 
 
 @pytest.fixture
 def bob(session, make_account, ann):
-    """Bob, a member of Ann's organisation, on a plan with room for him."""
-    ann.organization.plan = "enterprise"
-    session.commit()
+    """Bob, a member of Ann's organisation."""
     return make_account("bob@globex.example", ann.organization, role="member")
 
 

@@ -8,7 +8,6 @@ from sqlalchemy import and_, func, select
 from app.access import access_refusal, chosen_members, set_access, visible_to
 from app.api.deps import (
     AccountDep,
-    DeletableProjectDep,
     EditableProjectDep,
     EditorDep,
     ProjectDep,
@@ -16,7 +15,6 @@ from app.api.deps import (
     WorkerDep,
 )
 from app.audit import audit
-from app.entitlements import PlanRefused, check_project
 from app.indexing.pipeline import OPTIONAL_STAGES, reset_stages, unfinished_stages, went_without
 from app.jobs import BULK, queue_index
 from app.models import Document, Project, ProjectMember
@@ -90,8 +88,6 @@ def list_projects(session: SessionDep, account: AccountDep):
 @router.post("", response_model=ProjectOut, status_code=201)
 def create_project(body: NewProjectIn, session: SessionDep, account: EditorDep):
     """Make a project, open to everyone in the organisation or private to its maker."""
-    if refusal := check_project(session, account.organization):
-        raise PlanRefused(refusal)
     project = Project(
         org_id=account.organization.id,
         name=body.name.strip(),
@@ -161,7 +157,7 @@ def change_access(
 
 @router.delete("/{project_id}", status_code=204)
 def delete_project(
-    project: DeletableProjectDep, session: SessionDep, account: AccountDep, request: Request
+    project: EditableProjectDep, session: SessionDep, account: AccountDep, request: Request
 ):
     """Put the project in the organisation's trash with everything in it, until a member
     restores it or deletes it for good, or the housekeeper does TRASH_DAYS later."""

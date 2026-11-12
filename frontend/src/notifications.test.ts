@@ -4,10 +4,10 @@ import { ago, arrived, pageRead, unreadLabel } from './notifications.ts'
 
 const item = (id: number, read_at: string | null = null): NotificationItem => ({
   id,
-  kind: 'quota',
+  kind: 'upload_indexed',
   title: `Notice ${id}`,
-  body: 'Globex has used 80 of the 100 questions it may ask on Emudoc in October, 80 %.',
-  link: '/organization/usage',
+  body: 'The 3 documents you uploaded to Contracts at 14:05 are indexed.',
+  link: '/projects/1',
   created_at: '2026-10-20T10:00:00Z',
   read_at,
 })

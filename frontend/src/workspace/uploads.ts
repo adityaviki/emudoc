@@ -58,7 +58,7 @@ const UNREAD = 'Your browser could not read it from your computer.'
  */
 export function screen(items: UploadItem[], limits: UploadLimits, unread: string[] = []): { items: UploadItem[]; left: Rejected[] } {
   const largest = Math.min(limits.file_bytes, limits.request_bytes)
-  const left: Rejected[] = unread.map((filename) => ({ filename, reason: UNREAD, limit: null }))
+  const left: Rejected[] = unread.map((filename) => ({ filename, reason: UNREAD }))
   const kept: UploadItem[] = []
   for (const item of items) {
     if (hidden(item)) continue
@@ -67,7 +67,7 @@ export function screen(items: UploadItem[], limits: UploadLimits, unread: string
       : item.file.size > largest
         ? `Larger than ${Math.floor(largest / MB)} MB.`
         : null
-    if (reason) left.push({ filename: pathOf(item), reason, limit: null })
+    if (reason) left.push({ filename: pathOf(item), reason })
     else kept.push(item)
   }
   return { items: kept, left }

@@ -1,13 +1,10 @@
 """A chat's last answer written again in its place, from its question as it is or as its member
-edited it, which the plan counts as a question asked (`regenerate` in app/api/chats.py)."""
-
-from dataclasses import replace
+edited it, which counts as a question asked (`regenerate` in app/api/chats.py)."""
 
 from pydantic_ai.messages import TextPart
 from sqlalchemy import select
 
 from app.api.chats import NOT_THE_LAST_QUESTION, STILL_ANSWERING
-from app.entitlements import PLANS
 from app.jobs import ANSWER_QUESTION
 from app.models import Job
 from tests.conftest import FakeTurn
@@ -114,24 +111,3 @@ def test_only_the_chats_last_answer_is_written_again(client, services, indexed):
     third = ask(client, chat["id"], "Third?")
     client.post(f"/api/chats/{chat['id']}/messages/{third['answer']['id']}/stop")
     assert regenerate(client, chat["id"], third["answer"]["id"]).status_code == 200
-
-
-def test_writing_an_answer_again_is_held_to_the_plan(
-    client, session, services, indexed, make_account, act_as, monkeypatch
-):
-    services.llm.agent_turns = [FakeTurn(TextPart("A."))]
-    account = make_account("ann@globex.example")
-    act_as(account)
-    monkeypatch.setitem(PLANS, "free", replace(PLANS["free"], questions_per_month=1))
-    project = client.post("/api/projects", json={"name": "Contracts"}).json()
-    chat = new_chat(client, project["id"])
-    asked = ask(client, chat["id"], "Notice period?")
-    run_next(services)
-
-    refused = regenerate(client, chat["id"], asked["answer"]["id"], "What is the notice?")
-    assert refused.status_code == 402 and refused.json()["limit"] == "questions_per_month"
-    # Nothing changed: the question and its answer stand as they were.
-    detail = client.get(f"/api/chats/{chat['id']}").json()
-    assert [m["content"] for m in detail["messages"]] == ["Notice period?", "A."]
-    assert detail["messages"][-1]["status"] == "done"
-    assert questions_counted(session) == 1

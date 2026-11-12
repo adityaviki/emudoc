@@ -172,7 +172,7 @@ def test_the_worker_sends_the_mail_in_a_lane_of_its_own(session, services):
 
 
 def test_a_notice_carries_the_way_to_stop_it(session, account):
-    message = notice(account.user, "quota", NEWS, APP)
+    message = notice(account.user, "checks_run", NEWS, APP)
     assert message.text.endswith(
         f"{STOP_NOTICES}\n\n{APP}{UNSUBSCRIBE_PAGE}#token=" + token_of(message) + "\n"
     )
@@ -192,20 +192,20 @@ def token_of(message: Message) -> str:
 
 def test_a_notice_is_posted_to_whoever_wants_it_at_an_address_that_takes_it(session, account):
     user = account.user
-    assert post_notice(session, user, "quota", NEWS, APP) is not None
+    assert post_notice(session, user, "checks_run", NEWS, APP) is not None
     # Each kind's email is chosen apart.
-    user.choose("quota", "email", False)
-    assert post_notice(session, user, "quota", NEWS, APP) is None
+    user.choose("checks_run", "email", False)
+    assert post_notice(session, user, "checks_run", NEWS, APP) is None
     assert post_notice(session, user, "upload_indexed", NEWS, APP) is not None
-    user.choose("quota", "email", True)
+    user.choose("checks_run", "email", True)
     # However the provider writes the address.
     spare(session, [Undeliverable(f" {user.email.upper()}", "bounce")])
-    assert post_notice(session, user, "quota", NEWS, APP) is None
+    assert post_notice(session, user, "checks_run", NEWS, APP) is None
     session.rollback()
 
 
 def test_the_link_in_a_notice_stops_its_kind_by_email_without_signing_in(client, session, account):
-    message = notice(account.user, "quota", NEWS, APP)
+    message = notice(account.user, "checks_run", NEWS, APP)
     token = parse_qs(urlsplit(message.headers["List-Unsubscribe"].strip("<>")).query)["token"][0]
     # A mail program posts the form RFC 8058 names, with no header of the app's.
     program = TestClient(client.app)
@@ -217,15 +217,15 @@ def test_the_link_in_a_notice_stops_its_kind_by_email_without_signing_in(client,
     assert one_click.status_code == 204
     session.expire_all()
     user = session.get(User, account.user.id)
-    assert user.notices == {"quota": {"email": False}}
+    assert user.notices == {"checks_run": {"email": False}}
     # The other kind still comes by email, and this one still in the app.
-    assert user.wants("upload_indexed", "email") and user.wants("quota", "app")
+    assert user.wants("upload_indexed", "email") and user.wants("checks_run", "app")
     # Again changes nothing, and says nothing either.
     assert program.post("/api/mail/unsubscribe", params={"token": token}).status_code == 204
 
     for forged in (
         "1",
-        unsubscribe_token(account.user.id, "quota")[:-4] + "AAAA",
+        unsubscribe_token(account.user.id, "checks_run")[:-4] + "AAAA",
         "v1.0000.x",
         # A kind there is none of.
         keys().encrypt(f"{account.user.id}:digest", UNSUBSCRIBE_PLACE),
@@ -244,15 +244,14 @@ def test_the_link_in_a_notice_stops_its_kind_by_email_without_signing_in(client,
     assert program.post("/api/mail/unsubscribe", params={"token": before}).status_code == 204
     session.expire_all()
     user = session.get(User, account.user.id)
-    assert not user.wants("upload_indexed", "email") and not user.wants("quota", "email")
-    assert user.wants("upload_indexed", "app") and user.wants("quota", "app")
+    assert not user.wants("upload_indexed", "email") and not user.wants("checks_run", "email")
+    assert user.wants("upload_indexed", "app") and user.wants("checks_run", "app")
 
 
 def test_the_account_page_chooses_how_each_kind_of_notice_is_told(client, session, signed_in_only):
     signup(client)
     assert client.get("/api/auth/me").json()["notices"] == [
         {"kind": "upload_indexed", "app": True, "email": True},
-        {"kind": "quota", "app": True, "email": True},
         {"kind": "project_export", "app": True, "email": True},
         {"kind": "checks_run", "app": True, "email": True},
         {"kind": "review_assigned", "app": True, "email": True},
@@ -261,13 +260,17 @@ def test_the_account_page_chooses_how_each_kind_of_notice_is_told(client, sessio
         {"kind": "mentioned", "app": True, "email": True},
         {"kind": "thread_replied", "app": True, "email": True},
     ]
-    off = client.patch("/api/auth/profile", json={"notices": [{"kind": "quota", "email": False}]})
+    off = client.patch(
+        "/api/auth/profile", json={"notices": [{"kind": "checks_run", "email": False}]}
+    )
     assert off.status_code == 200
-    assert off.json()["notices"][1] == {"kind": "quota", "app": True, "email": False}
+    assert off.json()["notices"][2] == {"kind": "checks_run", "app": True, "email": False}
     rows = session.scalars(select(AuditEvent).where(AuditEvent.action == "profile_changed")).all()
     assert [row.detail for row in rows] == [{"changed": ["notices"]}]
     # What is so already changes nothing, and records nothing.
-    same = client.patch("/api/auth/profile", json={"notices": [{"kind": "quota", "app": True}]})
+    same = client.patch(
+        "/api/auth/profile", json={"notices": [{"kind": "checks_run", "app": True}]}
+    )
     assert same.status_code == 200
     assert session.scalar(select(func.count()).where(AuditEvent.action == "profile_changed")) == 1
     refused = client.patch("/api/auth/profile", json={"notices": [{"kind": "digest"}]})
@@ -279,10 +282,11 @@ def test_the_account_page_chooses_how_each_kind_of_notice_is_told(client, sessio
     session.commit()
     client.patch("/api/auth/profile", json={"notices": [{"kind": "upload_indexed", "app": False}]})
     assert suppressed(session, "ada@example.com")
-    on = client.patch("/api/auth/profile", json={"notices": [{"kind": "quota", "email": True}]})
+    on = client.patch(
+        "/api/auth/profile", json={"notices": [{"kind": "checks_run", "email": True}]}
+    )
     assert on.json()["notices"] == [
         {"kind": "upload_indexed", "app": False, "email": True},
-        {"kind": "quota", "app": True, "email": True},
         {"kind": "project_export", "app": True, "email": True},
         {"kind": "checks_run", "app": True, "email": True},
         {"kind": "review_assigned", "app": True, "email": True},

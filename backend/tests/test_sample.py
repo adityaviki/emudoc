@@ -1,19 +1,17 @@
 """The sample project the setup's workspace starts with (app/sample): the shipped index holds
 together and describes its files, the setup copies it ready to ask about, its index jobs embed it,
-it counts against nothing the plan holds and takes no uploads, and the builder writes an index
-from the pipeline's own rows."""
+the usage page leaves it out of what the workspace holds and it takes no uploads, and the builder
+writes an index from the pipeline's own rows."""
 
 import hashlib
 import json
 import logging
 import shutil
-from dataclasses import replace
 
 import pytest
 from sqlalchemy import select
 
 from app.config import get_settings
-from app.entitlements import PLANS
 from app.indexing.pipeline import process_document
 from app.jobs import LIVE
 from app.legal import TERMS_VERSION
@@ -164,15 +162,14 @@ def test_its_index_jobs_embed_it_alone(client, session, services, sample_on, sig
     )
 
 
-def test_it_counts_against_nothing_the_plan_holds_and_takes_no_uploads(
+def test_the_usage_page_leaves_it_out_and_it_takes_no_uploads(
     client, session, services, sample_on, signed_in_only, sample_pdf
 ):
     signup(client)
     sample = the_sample(client)
     usage = client.get("/api/organization/usage").json()
-    assert usage["projects"]["used"] == 0 and usage["documents"]["used"] == 0
-    assert usage["storage_bytes"]["used"] == 0 and usage["sample_documents"] == FILE_COUNT
-    assert client.get("/api/auth/me").json()["organization"]["allowance"]["over"] == []
+    assert usage["projects"] == 0 and usage["documents"] == 0
+    assert usage["storage_bytes"] == 0 and usage["sample_documents"] == FILE_COUNT
 
     with sample_pdf.open("rb") as handle:
         refused = client.post(
@@ -182,14 +179,14 @@ def test_it_counts_against_nothing_the_plan_holds_and_takes_no_uploads(
     assert refused.status_code == 409 and refused.json()["detail"] == SAMPLE_UPLOADS
     assert len(documents_of(client, sample["id"])) == FILE_COUNT
 
-    # The free plan's one project is the member's own.
+    # The member's own projects are theirs, and the usage page leaves the sample out.
     made = client.post("/api/projects", json={"name": "Contracts"})
     assert made.status_code == 201, made.text
     assert made.json()["sample"] is False
-    assert client.post("/api/projects", json={"name": "More"}).status_code == 402
+    assert client.get("/api/organization/usage").json()["projects"] == 1
 
     # Deleting it is deleting a project, into the trash and from there for good; restored, it
-    # counts against nothing again.
+    # is left out again.
     org_id = client.get("/api/auth/me").json()["organization"]["id"]
     assert list(services.storage.list(project_prefix(org_id, sample["id"])))
     assert client.delete(f"/api/projects/{sample['id']}").status_code == 204
@@ -217,7 +214,6 @@ def test_a_sign_up_finds_the_workspaces_and_adds_none(
 ):
     request.getfixturevalue("oauth")
     monkeypatch.setattr(get_settings(), "signup_open", True)
-    monkeypatch.setitem(PLANS, "free", replace(PLANS["free"], members=2))
     # The install's admin, whose workspace the setup gave the sample.
     signup(another_browser(client), "ada@acme.com")
     _, handshake = start(client)
@@ -232,9 +228,8 @@ def test_a_sign_up_finds_the_workspaces_and_adds_none(
 
 
 def test_only_an_organisation_made_at_sign_up_has_it(
-    client, mailer, session, sample_on, signed_in_only, monkeypatch
+    client, mailer, session, sample_on, signed_in_only
 ):
-    monkeypatch.setitem(PLANS, "free", replace(PLANS["free"], members=2))
     signup(client, "ada@acme.com")
     invite(client, "bob@acme.com")
     bob = another_browser(client)

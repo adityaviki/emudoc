@@ -60,13 +60,11 @@ import { ErrorBoundary } from '../components/ErrorBoundary.tsx'
 import { Markdown, SourceText } from '../components/Markdown.tsx'
 import { Floating, Menu } from '../components/Menu.tsx'
 import type { MenuItem } from '../components/Menu.tsx'
-import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, IconButton, Loading, Notice, Spinner } from '../components/ui.tsx'
 import { ANSWER_OFFLINE, QUESTION_OFFLINE } from '../connection.ts'
 import { formatDate } from '../format.ts'
 import { useOnline, useStatus } from '../hooks.ts'
 import { inviteNudgeOf, mayInvite } from '../onboarding.ts'
-import type { InviteNudge } from '../onboarding.ts'
 import { offersLinks } from '../shareLinks.ts'
 import { sameScope, scopeIn, scopeOf, scopeWords } from '../scopes.ts'
 import { askForComposer, listHint, onMac, takeComposerAsk, useComposerAsks } from '../shortcuts.ts'
@@ -133,9 +131,9 @@ interface ChatHeaderProps {
 function ChatHeader({ pinned, own, shared, activeId }: ChatHeaderProps) {
   const workspace = useWorkspace()
   const me = useMe()
-  // How long the organisation keeps a chat after its last question, by its plan or its own choice
-  // (backend/app/retention.py).
-  const keptFor = me.organization.chat_retention_days
+  // How long the organisation keeps a chat after its last question, by its own choice
+  // (backend/app/retention.py); until deleted unless it chose.
+  const keptFor = me.organization.chat_days
   // Where the list opens: set from the button's position when it is clicked.
   const [anchor, setAnchor] = useState<DOMRect | null>(null)
   const button = useRef<HTMLButtonElement>(null)
@@ -534,9 +532,8 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
   const steps = onboarding.isFetchedAfterMount ? onboarding.data?.steps : undefined
   // Kept once the member invited someone from it, which takes the step, to read where it went,
   // until hidden.
-  const [invitedFrom, setInvitedFrom] = useState<InviteNudge | null>(null)
-  const nudge = me.invite_hidden ? null : (invitedFrom ?? (starter ? null : inviteNudgeOf(me, project, messages, steps)))
-  const nudged = nudge !== null
+  const [invitedFrom, setInvitedFrom] = useState(false)
+  const nudged = !me.invite_hidden && (invitedFrom || (!starter && inviteNudgeOf(me, project, messages, steps)))
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: 'end' })
   }, [messages, nudged])
@@ -665,7 +662,7 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
               />
             ),
           )}
-          {nudge && <InviteTeam room={nudge.room} onInvited={() => setInvitedFrom(nudge)} />}
+          {nudged && <InviteTeam onInvited={() => setInvitedFrom(true)} />}
           {sharing != null && chatId != null && (
             <ShareDialog target={{ kind: 'answer', chatId, id: sharing }} onClose={() => setSharing(null)} />
           )}
@@ -1032,17 +1029,14 @@ function Answer({ message, currency, onOpen, onReconnect, onRetry, onRegenerate,
           {!message.error && action}
         </div>
       )}
-      {message.error &&
-        (message.refusedByPlan ? (
-          <PlanLimitNotice refusal={message.refusedByPlan} />
-        ) : (
-          <Notice tone="bad">
-            <div className="flex items-start justify-between gap-3">
-              <span>{message.error}</span>
-              {action}
-            </div>
-          </Notice>
-        ))}
+      {message.error && (
+        <Notice tone="bad">
+          <div className="flex items-start justify-between gap-3">
+            <span>{message.error}</span>
+            {action}
+          </div>
+        </Notice>
+      )}
       {cited.length > 0 && (
         <div className="border-t border-line pt-2.5">
           <p className="mb-1 text-[11px] font-medium tracking-wide text-muted uppercase">Sources</p>

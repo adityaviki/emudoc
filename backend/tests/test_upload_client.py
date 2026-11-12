@@ -29,7 +29,6 @@ import uvicorn
 from fastapi.testclient import TestClient
 from sqlalchemy import select, update
 
-from app.api.deps import get_person
 from app.apikeys import KEY_UNKNOWN, READ_ONLY_KEY
 from app.client import UPLOAD_CLIENT
 from app.client import emudoc_upload as uploader
@@ -40,7 +39,6 @@ from app.parsing import SUPPORTED_EXTENSIONS
 from app.parsing.signatures import RENAME
 from tests.test_api import create_project, listed
 from tests.test_apikeys import make_key
-from tests.test_entitlements import ONE_DOCUMENT, member, plan  # noqa: F401 (fixtures)
 from tests.test_folders import tree
 from tests.test_jobs import read_until
 from tests.test_ratelimit import minute_turned
@@ -94,7 +92,6 @@ def run(
     sleep: Callable[[float], None] = lambda seconds: None,
     calls: list | None = None,
     transport: uploader.Transport | None = None,
-    clock: Callable[[], float] = time.monotonic,
 ) -> Run:
     out, err = io.StringIO(), io.StringIO()
     environ = {uploader.SERVER_VARIABLE: SERVER}
@@ -105,7 +102,6 @@ def run(
         transport=transport or through(client, calls),
         environ=environ,
         sleep=sleep,
-        clock=clock,
         out=out,
         err=err,
     )
@@ -606,40 +602,6 @@ def test_the_proxies_take_a_large_body_on_the_routes_the_clients_upload_to(clien
         assert not any(re.search(rule, path) for path in others), rule
 
 
-def test_a_plan_without_room_stops_the_sending_and_says_why(
-    member,  # noqa: F811
-    plan,  # noqa: F811
-    client,
-    tmp_path,
-    monkeypatch,
-):
-    plan(documents=1, api_access=True)
-    create_project(client)
-    key = make_key(client, scope="write")["key"]
-    # From here on the key alone says who calls.
-    client.app.dependency_overrides.pop(get_person)
-    monkeypatch.setattr(get_settings(), "max_upload_files", 2)
-    folder = write(tmp_path / "Many", {"a.txt": "One.", "b.txt": "Two.", "c.txt": "Three."})
-    calls: list[uploader.Request] = []
-    done = run(
-        client, "send", "--project", "Contracts", "--no-wait", str(folder), key=key, calls=calls
-    )
-    assert (done.code, done.out) == (
-        1,
-        [
-            "Sending 3 files into Contracts.",
-            "Sent 1 file (1 upload).",
-            f"2 files not sent: {ONE_DOCUMENT}",
-        ],
-    )
-    # The file the plan refused stops the sending: the third is not sent to be refused too.
-    assert [files_in(call) for call in posts(calls)] == [2]
-
-    # With the plan full, the request is refused whole.
-    full = run(client, "send", "--project", "Contracts", str(folder / "c.txt"), key=key)
-    assert (full.code, full.out[-1]) == (1, f"1 file not sent: {ONE_DOCUMENT}")
-
-
 def test_a_key_or_an_address_the_client_cannot_use_stops_it(client, tmp_path):
     create_project(client)
     folder = write(tmp_path / "In", {"a.txt": "A."})
@@ -851,66 +813,6 @@ def test_watch_says_once_what_it_refuses_and_sends_again_what_could_not_be_sent(
         "Read scan.txt.",
         "Stopped watching.",
     ]
-
-
-def test_watch_waits_while_the_plan_has_no_room(
-    member,  # noqa: F811
-    plan,  # noqa: F811
-    client,
-    session,
-    services,
-    tmp_path,
-):
-    plan(documents=1, api_access=True)
-    project = create_project(client)
-    key = make_key(client, scope="write")["key"]
-    client.app.dependency_overrides.pop(get_person)
-    api = TestClient(client.app, headers={"Authorization": f"Bearer {key}"})
-    folder = write(tmp_path / "Scanner", {"a.txt": "One.", "b.txt": "Two."})
-    now = [0.0]
-    read = reading(session, services)
-
-    def deleted() -> None:
-        (document,) = listed(api, project["id"])
-        assert api.delete(f"/api/documents/{document['id']}").status_code == 204
-
-    steps = iter(
-        [
-            lambda: None,
-            lambda: None,
-            # While the watch waits, the member makes room,
-            deleted,
-            # and the wait ends.
-            lambda: now.__setitem__(0, now[0] + uploader.PLAN_PAUSE),
-            lambda: None,
-        ]
-    )
-
-    def sleep(seconds: float) -> None:
-        now[0] += seconds
-        read(seconds)
-        step = next(steps, None)
-        if step is None:
-            raise KeyboardInterrupt
-        step()
-
-    calls: list[uploader.Request] = []
-    done = run(
-        client,
-        "watch",
-        "--project",
-        "Contracts",
-        str(folder),
-        key=key,
-        calls=calls,
-        sleep=sleep,
-        clock=lambda: now[0],
-    )
-    said = done.said
-    assert said[1] == "Sent a.txt."
-    assert said[2].startswith(f"{ONE_DOCUMENT} 1 file waiting, tried again at ")
-    assert said[3:] == ["Read a.txt.", "Sent b.txt.", "Read b.txt.", "Stopped watching."]
-    assert [files_in(call) for call in posts(calls)] == [2, 1]
 
 
 @contextmanager

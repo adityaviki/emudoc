@@ -2,7 +2,7 @@
 with an Idempotency-Key, changed, deleted into the trash, and a document's file and facts.
 
 What is made, changed or deleted goes through the page's own routes (app/api/projects.py,
-app/api/folders.py, app/api/documents.py), whose checks, plan, audit rows and refusals hold here
+app/api/folders.py, app/api/documents.py), whose checks, audit rows and refusals hold here
 as there; this module reads its own pages and words the answers in the API's models
 (app/api/v1/schemas.py).
 """
@@ -19,9 +19,6 @@ from app.access import visible_to
 from app.api import documents, folders, projects, versions
 from app.api.deps import (
     AccountDep,
-    DeletableDocumentDep,
-    DeletableFolderDep,
-    DeletableProjectDep,
     DocumentDep,
     EditableDocumentDep,
     EditableFolderDep,
@@ -100,7 +97,7 @@ def list_projects(
 def create_project(
     body: NewProject, request: Request, session: SessionDep, account: EditorDep, once: OnceDep
 ):
-    """Make a project, which the organisation's plan holds to how many it may have."""
+    """Make a project."""
 
     def work() -> Project:
         made = projects.create_project(NewProjectIn(**body.model_dump()), session, account)
@@ -126,7 +123,7 @@ def update_project(project: EditableProjectDep, body: ProjectChange, session: Se
 
 @router.delete("/projects/{project_id}", status_code=204, tags=["projects"])
 def delete_project(
-    project: DeletableProjectDep, session: SessionDep, account: AccountDep, request: Request
+    project: EditableProjectDep, session: SessionDep, account: AccountDep, request: Request
 ):
     """Put the project in the organisation's trash with everything in it, from which a member
     restores it in the app until it is deleted for good."""
@@ -191,7 +188,7 @@ def update_folder(folder: EditableFolderDep, body: FolderChange, session: Sessio
 
 @router.delete("/folders/{folder_id}", status_code=204, tags=["folders"])
 def delete_folder(
-    folder: DeletableFolderDep, session: SessionDep, account: AccountDep, request: Request
+    folder: EditableFolderDep, session: SessionDep, account: AccountDep, request: Request
 ):
     """Put the folder in the project's trash with its folders and every document in them."""
     folders.delete_folder(folder, session, account, request)
@@ -266,12 +263,11 @@ def upload_documents(
     ] = None,
 ):
     """Upload files into the project, as a multipart form of `files`, each indexed in the
-    background. The request is refused whole when it carries more files or bytes than one upload
-    may (413; `GET /api/v1/status` says how many), and when the plan has no room for a document
-    (402); a file is refused alone, with why, for its size, for bytes that are not the type its
-    name says, for the plan, or as a file the project holds already (`duplicate_of`), while the
-    others are kept. With an Idempotency-Key, the upload sent again is given the first one's
-    answer."""
+    background. The request is refused whole when it carries more files or bytes than one upload may
+    (413; `GET /api/v1/status` says how many); a file is refused alone, with why, for its size, for
+    bytes that are not the type its name says, or as a file the project holds already
+    (`duplicate_of`), while the others are kept. With an Idempotency-Key, the upload sent again is
+    given the first one's answer."""
 
     def asked() -> str:
         sent = [[upload.filename, _sha256(upload.file)] for upload in files]
@@ -284,7 +280,10 @@ def upload_documents(
         kept = [session.get(DocumentRow, document.id) for document in result.documents]
         return Upload(
             documents=[document_of(document) for document in kept],
-            rejected=[RejectedFile.model_validate(file.model_dump()) for file in result.rejected],
+            rejected=[
+                RejectedFile.model_validate({**file.model_dump(), "limit": None})
+                for file in result.rejected
+            ],
         )
 
     return once.run(asked, 201, work)
@@ -305,7 +304,7 @@ def update_document(document: EditableDocumentDep, body: DocumentChange, session
 
 @router.delete("/documents/{document_id}", status_code=204, tags=["documents"])
 def delete_document(
-    document: DeletableDocumentDep, session: SessionDep, account: AccountDep, request: Request
+    document: EditableDocumentDep, session: SessionDep, account: AccountDep, request: Request
 ):
     """Put the document in the project's trash, where nothing reads it until it is restored."""
     documents.delete_document(document, session, account, request)
@@ -388,12 +387,11 @@ def upload_version(
     once: OnceDep,
 ):
     """Give the document a new file, as a multipart form of `file`, which it reads in the earlier
-    one's place, keeping its id, its review and what names it; the earlier file stays as a
-    version to download, and its pages count again as the new one is read. Refused, with nothing
-    changed, for a file an upload would refuse (400, 413), for bytes the project holds already
-    (409), while the document is being indexed (409; send it again once it is not), and when the
-    plan has no room for its bytes or its pages (402). With an Idempotency-Key, the version sent
-    again is given the first one's answer."""
+    one's place, keeping its id, its review and what names it; the earlier file stays as a version
+    to download, and its pages count again as the new one is read. Refused, with nothing changed,
+    for a file an upload would refuse (400, 413), for bytes the project holds already (409), and
+    while the document is being indexed (409; send it again once it is not). With an
+    Idempotency-Key, the version sent again is given the first one's answer."""
 
     def asked() -> str:
         return fingerprint(request, {"file": [file.filename, _sha256(file.file)]})

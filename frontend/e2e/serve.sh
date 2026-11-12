@@ -78,10 +78,6 @@ export DAILY_SPEND_CAP=0
 export AUTOMATION_WAIT=1
 export SENTRY_DSN=
 export METRICS_ADDRESS=
-export STRIPE_SECRET_KEY=
-export STRIPE_WEBHOOK_SECRET=
-export STRIPE_PRICES=
-export STRIPE_PACKS=
 
 uv --directory "$root/backend" run --locked alembic upgrade head
 exec uv --directory "$root/backend" run --locked uvicorn app.main:app --host 127.0.0.1 --port "$port"

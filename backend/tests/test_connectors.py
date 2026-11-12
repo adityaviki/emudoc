@@ -7,7 +7,6 @@ whole. Google's API is a fake behind httpx's MockTransport, reached at CONNECTOR
 import hashlib
 import json
 import re
-from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
 
@@ -16,7 +15,6 @@ import pytest
 from sqlalchemy import select, update
 
 from app.api.connectors import Handshake
-from app.billing import change_plan
 from app.config import get_settings
 from app.connectors import dropbox, google, onedrive, sync
 from app.connectors.base import CONNECT_COOKIE
@@ -29,13 +27,11 @@ from app.connectors.sync import (
 )
 from app.db import engine
 from app.encrypted import CONNECTOR_TOKENS, decrypt
-from app.entitlements import PLANS
 from app.flags import CONNECTORS
 from app.jobs import SYNC_CONNECTOR
 from app.models import AuditEvent, Connector, ConnectorFile, Document, Job, Membership, Upload
 from tests.test_api import create_project
 from tests.test_automations import next_job
-from tests.test_entitlements import member as member  # noqa: F401 (a fixture)
 from tests.test_folders import make_folder
 from tests.test_metrics import Counted
 from tests.test_templates import turn_on
@@ -940,13 +936,6 @@ def test_the_member_no_longer_one_who_may_change_the_project_pauses_it(
     assert library(session, project["id"]) == []
 
 
-def test_a_plan_without_connected_folders_refuses_them(client, drive, member):
-    project = create_project(client)
-    refused = client.post(f"/api/projects/{project['id']}/connectors", json={"provider": "google"})
-    assert refused.status_code == 402
-    assert refused.json()["limit"] == "connectors"
-
-
 def test_a_large_folder_is_taken_a_round_at_a_time(
     client, session, services, drive, sample_pdf, sample_docx, sample_csv, monkeypatch
 ):
@@ -963,32 +952,6 @@ def test_a_large_folder_is_taken_a_round_at_a_time(
     assert synced(services) is not None
     assert library(session, project["id"]) == ["a.pdf", "b.docx", "c.csv"]
     assert the_connector(session).cursor == str(drive.changes)
-
-
-def test_a_plan_out_of_room_leaves_the_files_for_the_next_sync(
-    client, session, services, drive, sample_pdf, sample_docx, member, monkeypatch
-):
-    change_plan(session, member.organization, "team")
-    session.commit()
-    project = create_project(client)
-    invoices = drive.folder("Invoices")
-    drive.file("a.pdf", sample_pdf.read_bytes(), invoices)
-    drive.file("b.docx", sample_docx.read_bytes(), invoices)
-    team = PLANS["team"]
-    monkeypatch.setitem(PLANS, "team", replace(team, documents=1))
-    chosen(client, drive, project["id"], invoices)
-    synced(services)
-    assert library(session, project["id"]) == ["a.pdf"]
-    assert "plan allows 1 document" in the_connector(session).problem
-    # The file the plan refused is the organisation's to make room for, not the file's.
-    assert [row.path for row in session.scalars(select(ConnectorFile))] == ["a.pdf"]
-
-    monkeypatch.setitem(PLANS, "team", team)
-    due(session)
-    queue_due_syncs()
-    synced(services)
-    assert library(session, project["id"]) == ["a.pdf", "b.docx"]
-    assert the_connector(session).problem == ""
 
 
 def test_a_folder_past_the_files_a_connected_folder_may_hold_syncs_nothing(

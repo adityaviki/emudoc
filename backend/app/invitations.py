@@ -8,9 +8,8 @@ it and of none of its own. Opening the link proves the address, so an account th
 confirmed it has then; an account with another address may not accept it, since the link is
 for whoever holds the address it was sent to. The token is random and only its SHA-256 is
 kept, as for sessions and one-time links, and sending the invitation again replaces it, so the
-link mailed before stops working. An invitation lasts INVITATION_TTL and holds a place among the
-members the plan allows while it is open (`check_member` in app/entitlements.py); an address
-has at most one to an organisation. Accepting or revoking it deletes it; one that expired stays,
+link mailed before stops working. An invitation lasts INVITATION_TTL; an address has at most
+one to an organisation. Accepting or revoking it deletes it; one that expired stays,
 for its inviter to send again, until CREDENTIAL_HISTORY after it expired (`prune_credentials`
 in app/auth.py), as a one-time link does. A member removed from the workspace keeps their
 account, and an invitation to its address is how it comes back (app/api/auth.py).

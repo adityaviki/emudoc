@@ -1,11 +1,10 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, CalendarClock, Pause, Pencil, Play, Plus, Trash2, X } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
-import { PLAN_LABELS, api, mayChange } from '../api.ts'
+import { api, mayChange } from '../api.ts'
 import type { QuestionSet, Source } from '../api.ts'
 import { useMe } from '../auth.ts'
 import { Confirm } from '../components/Confirm.tsx'
-import { PlanOffer } from '../components/PlanLimit.tsx'
 import { Button, Checkbox, EmptyState, FIELD, IconButton, InputField, Loading, Notice, SelectField, Spinner } from '../components/ui.tsx'
 import { useStatus } from '../hooks.ts'
 import {
@@ -53,7 +52,6 @@ export function QuestionSetsView() {
   const { project } = workspace
   const me = useMe()
   const changes = mayChange(me.role)
-  const allowed = me.organization.allowance.question_sets
   const queryClient = useQueryClient()
   const sets = useQuery({
     queryKey: questionSetsKey(project.id),
@@ -119,7 +117,7 @@ export function QuestionSetsView() {
         <h2 ref={heading} tabIndex={-1} className="flex-1 truncate text-[13px] font-semibold">
           Question sets
         </h2>
-        {changes && allowed && !editing && (
+        {changes && !editing && (
           <Button
             icon={<Plus className="size-4" />}
             disabled={!sets.data || !room}
@@ -138,12 +136,6 @@ export function QuestionSetsView() {
           A question set asks the project’s documents the same questions on a schedule or once new documents arrive, and keeps the answers as a report for whoever
           should read them.
         </p>
-        {!allowed && (
-          <Notice tone="info">
-            <p className="text-ink">The {PLAN_LABELS[me.organization.plan]} plan does not include question sets.</p>
-            <PlanOffer limit="question_sets" />
-          </Notice>
-        )}
         {refused && <Refused error={refused} onDismiss={() => setRefused(null)} />}
         {said && !editing && (
           <Notice tone="info">
@@ -170,7 +162,7 @@ export function QuestionSetsView() {
           <>
             {sets.data && listed.length === 0 && (
               <EmptyState icon={<CalendarClock className="size-5" />} title="No question sets yet">
-                {changes && allowed ? 'Save the questions you ask again and again, and have them asked for you.' : null}
+                {changes ? 'Save the questions you ask again and again, and have them asked for you.' : null}
               </EmptyState>
             )}
             {listed.length > 0 && (
@@ -189,36 +181,30 @@ export function QuestionSetsView() {
                       </div>
                       {changes && (
                         <span className="flex shrink-0 items-center gap-0.5">
-                          {allowed && (
-                            <Button
-                              aria-label={`Run now: ${set.title}`}
-                              disabled={run.isPending || set.running}
-                              title={set.running ? 'Its questions are being answered.' : COUNTS_NOTE}
-                              onClick={() => run.mutate(set)}
-                            >
-                              Run now
-                            </Button>
-                          )}
-                          {allowed && (
-                            <IconButton
-                              label={`${set.enabled ? 'Turn off' : 'Turn on'} ${set.title}`}
-                              disabled={turn.isPending}
-                              onClick={() => turn.mutate(set)}
-                            >
-                              {set.enabled ? <Pause className="size-4" /> : <Play className="size-4" />}
-                            </IconButton>
-                          )}
-                          {allowed && (
-                            <IconButton
-                              label={`Change ${set.title}`}
-                              onClick={() => {
-                                setSaid(null)
-                                setEditing({ set })
-                              }}
-                            >
-                              <Pencil className="size-4" />
-                            </IconButton>
-                          )}
+                          <Button
+                            aria-label={`Run now: ${set.title}`}
+                            disabled={run.isPending || set.running}
+                            title={set.running ? 'Its questions are being answered.' : COUNTS_NOTE}
+                            onClick={() => run.mutate(set)}
+                          >
+                            Run now
+                          </Button>
+                          <IconButton
+                            label={`${set.enabled ? 'Turn off' : 'Turn on'} ${set.title}`}
+                            disabled={turn.isPending}
+                            onClick={() => turn.mutate(set)}
+                          >
+                            {set.enabled ? <Pause className="size-4" /> : <Play className="size-4" />}
+                          </IconButton>
+                          <IconButton
+                            label={`Change ${set.title}`}
+                            onClick={() => {
+                              setSaid(null)
+                              setEditing({ set })
+                            }}
+                          >
+                            <Pencil className="size-4" />
+                          </IconButton>
                           <IconButton label={`Delete ${set.title}`} danger disabled={remove.isPending} onClick={() => setAsking(set)}>
                             <Trash2 className="size-4" />
                           </IconButton>

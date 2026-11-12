@@ -83,8 +83,8 @@ def send_feedback(body: FeedbackIn, account: AccountDep, request: Request, sessi
     details = (
         f"Account: user {user.id}, "
         f"address {'confirmed' if user.email_verified_at else 'not confirmed'}",
-        f"Organisation: {organization.name} ({organization.slug}), id {organization.id}, on "
-        f"the {organization.plan.title()} plan, where they are {account.role}",
+        f"Organisation: {organization.name} ({organization.slug}), id {organization.id}, where "
+        f"they are {account.role}",
         f"Page: {origin}{body.page}",
         failed,
         f"Version: {VERSION}",

@@ -3,7 +3,7 @@
 // as the server keeps them.
 
 import { ApiError } from '../api.ts'
-import type { Organization, Plan, Role, UsagePage } from '../api.ts'
+import type { Organization, Role, UsagePage } from '../api.ts'
 
 export interface Operator {
   user_id: number
@@ -29,11 +29,8 @@ export interface OrganizationRow {
   id: number
   name: string
   slug: string
-  plan: Plan
-  seats: number | null
   members: number
   created_at: string
-  subscription_status: string | null
   /** Its known model cost over the list's `cost_days`, null while none is known. */
   cost_micros: number | null
 }
@@ -42,14 +39,6 @@ export interface OrganizationList {
   organizations: OrganizationRow[]
   next_before: number | null
   cost_days: number
-}
-
-/** One figure the organisation is held to, worded as the `plan` command prints it, its plan's own beside it. */
-export interface Entitlement {
-  name: string
-  value: string
-  plan_value: string
-  agreed: boolean
 }
 
 export interface Member {
@@ -63,7 +52,7 @@ export interface Member {
   support_until: string | null
 }
 
-/** What work cost over a span of days, against the daily limit it is held to (null for none). */
+/** What work cost over a span of days, against DAILY_SPEND_CAP (null for none, and for one organisation by itself). */
 export interface Cost {
   cost_micros: number | null
   calls: number
@@ -76,23 +65,10 @@ export interface Cost {
   days_at_limit: number | null
 }
 
-/** A plan an organisation may be put on, with its own figures worded as the entitlements are. */
-export interface PlanOffered {
-  name: Plan
-  by_the_seat: boolean
-  figures: Record<string, string>
-}
-
 export interface OrganizationDetail {
   organization: Organization
   usage: UsagePage
-  entitlements: Entitlement[]
-  /** The figures agreed with it in place of its plan's, worded as the entitlements are; its seats are the organisation's. */
-  overrides: Record<string, string>
-  plans: PlanOffered[]
   members: Member[]
-  stripe_customer_id: string | null
-  stripe_subscription_id: string | null
   since: string
   until: string
   cost: Cost
@@ -120,13 +96,6 @@ export interface FlagRollout {
   chosen: { org_id: number; slug: string; name: string; on: boolean }[]
 }
 
-/** What an organisation is to be held to, as a whole: each agreed figure in the words the area shows, the rest the plan's own. */
-export interface PlanChange {
-  plan: Plan
-  seats: number | null
-  agreed: Record<string, string>
-}
-
 export interface User {
   id: number
   name: string
@@ -149,7 +118,6 @@ export interface OrganizationCost extends Cost {
   org_id: number
   slug: string
   name: string
-  plan: Plan
 }
 
 export interface ModelCost {
@@ -290,7 +258,6 @@ export const operatorApi = {
   costs: (days: number) => request<Costs>(`/costs${query({ days })}`),
   jobs: () => request<Jobs>('/jobs'),
   services: () => request<Services>('/services'),
-  changePlan: (id: number, change: PlanChange) => request<OrganizationDetail>(`/organizations/${id}/plan`, 'PUT', change),
   /** Turn a feature flag on or off for the organisation whatever its rollout, or back to its rollout for null. */
   chooseFlag: (id: number, name: string, on: boolean | null) => request<OrganizationDetail>(`/organizations/${id}/flags/${encodeURIComponent(name)}`, 'PUT', { on }),
   flags: () => request<FlagRollout[]>('/flags'),

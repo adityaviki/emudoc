@@ -7,11 +7,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Copy, X } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
-import { DEFAULT_SHARE_DAYS, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, PLAN_LABELS, api, isPlanLimit } from '../api.ts'
+import { DEFAULT_SHARE_DAYS, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, api } from '../api.ts'
 import type { ShareDays, ShareLink, ShareLinkMade } from '../api.ts'
 import { PasswordField } from '../account/shared.tsx'
 import { useMe } from '../auth.ts'
-import { PlanLimitNotice, PlanOffer } from '../components/PlanLimit.tsx'
 import { Button, IconButton, InputField, Notice, SelectField } from '../components/ui.tsx'
 import { formatDate } from '../format.ts'
 import { LINKS_OFF, ORGANIZATION_LINKS_KEY, SHARE_DAY_CHOICES, describeLink, linksHeld, mayRevoke, shareLinksKey } from '../shareLinks.ts'
@@ -72,14 +71,7 @@ export function ShareDialog({ target, onClose }: { target: ShareTarget; onClose:
   }
 
   let making: ReactNode
-  if (held === 'plan') {
-    making = (
-      <Notice tone="info">
-        <p className="text-ink">The {PLAN_LABELS[me.organization.plan]} plan does not include share links.</p>
-        <PlanOffer limit="share_links" />
-      </Notice>
-    )
-  } else if (held === 'off') {
+  if (held === 'off') {
     making = <Notice tone="warn">{LINKS_OFF}</Notice>
   } else if (made) {
     making = (
@@ -113,12 +105,7 @@ export function ShareDialog({ target, onClose }: { target: ShareTarget; onClose:
         <Button variant="primary" type="submit" disabled={make.isPending}>
           Make a link
         </Button>
-        {make.isError &&
-          (isPlanLimit(make.error) ? (
-            <PlanLimitNotice refusal={{ message: make.error.message, limit: make.error.limit }} />
-          ) : (
-            <Notice tone="bad">{make.error.message}</Notice>
-          ))}
+        {make.isError && <Notice tone="bad">{make.error.message}</Notice>}
       </form>
     )
   }

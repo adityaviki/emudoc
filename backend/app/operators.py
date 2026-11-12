@@ -1,6 +1,6 @@
 """The operator's area: the pages at /operator where the people who run the deployment read, in
 a browser, what its maintenance commands print in a shell (app/maintenance.py): the
-organisations with their plans, usage and members, the users, what the models cost, the job
+organisations with their usage and members, the users, what the models cost, the job
 queue with its dead letters, and how the models and services stand. The routes are in
 app/api/operator.py, the page in frontend/src/operator/, a bundle of its own.
 

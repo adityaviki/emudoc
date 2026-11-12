@@ -64,7 +64,6 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import SessionLocal
-from app.entitlements import share_weights
 from app.logs import current_context
 from app.models import JOB_KINDS, Document, Job
 
@@ -135,13 +134,10 @@ QUEUE_BY_STATE = text(
     "FROM jobs WHERE status IN ('queued', 'running', 'failed') GROUP BY 1, 2"
 )
 
-# The due jobs are ordered by priority, then by how much of the workers their organisation has
-# had lately (`share`: its jobs of these kinds running on a live lease or finished within
-# SHARE_WINDOW), divided by the weight its plan gives it (`weights`, by plan name, from
-# app/entitlements.py) or its agreed terms do (`overrides`), so that a paying organisation's
-# jobs count for less and its backlog gets the larger share; then by age. A job of no
-# organisation (mail about an account, app/postbox.py) has had no share. The due test is
-# repeated on `j`, where the lock is taken, so that a row another worker claimed and
+# The due jobs are ordered by priority, then by how much of the workers their organisation has had
+# lately (`share`: its jobs of these kinds running on a live lease or finished within SHARE_WINDOW);
+# then by age. A job of no organisation (mail about an account, app/postbox.py) has had no share.
+# The due test is repeated on `j`, where the lock is taken, so that a row another worker claimed and
 # committed since this statement's snapshot is checked again and skipped, not taken twice.
 _CLAIM = text(
     """
@@ -159,22 +155,17 @@ _CLAIM = text(
     WHERE id = (
         SELECT j.id
         FROM jobs AS j
-             LEFT JOIN organizations AS o ON o.id = j.org_id
              LEFT JOIN share ON share.org_id = j.org_id
         WHERE j.kind = ANY(:kinds)
           AND ((j.status = 'queued' AND j.run_at <= now())
                OR (j.status = 'running' AND j.lease_until < now()))
-        ORDER BY j.priority,
-                 coalesce(share.served, 0)
-                     / coalesce(CAST(o.overrides ->> 'priority' AS numeric),
-                                CAST(CAST(:weights AS jsonb) ->> o.plan AS numeric), 1),
-                 j.run_at, j.id
+        ORDER BY j.priority, coalesce(share.served, 0), j.run_at, j.id
         FOR UPDATE OF j SKIP LOCKED
         LIMIT 1
     )
     RETURNING *
     """
-).bindparams(bindparam("weights", type_=JSONB))
+)
 _EXTEND = text(
     """
     UPDATE jobs SET lease_until = now() + :lease
@@ -397,7 +388,6 @@ def claim_params(worker_id: str, kinds: list[str]) -> dict:
         "lease": LEASE,
         "kinds": kinds,
         "window": SHARE_WINDOW,
-        "weights": share_weights(),
     }
 
 

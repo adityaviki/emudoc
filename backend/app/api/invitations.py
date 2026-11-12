@@ -2,9 +2,7 @@
 
 An owner or admin invites an address with a role no higher than their own, sees the invitations
 still open or expired, sends one again, which mails a new link and stops the one before, and
-revokes one. Each is held to the plan's members, an open invitation counted (`check_member`),
-and an organisation that holds more than its plan allows invites nobody until it is within it
-(`read_only`). The mail is posted with the invitation (app/postbox.py), as every link the app
+revokes one. The mail is posted with the invitation (app/postbox.py), as every link the app
 mails is; the route is held to a rate per user and per address mailed, so that no inbox can be
 flooded from one organisation. The link is also the answer to whoever sent it, to copy and hand
 on: an install may have no mail relay (app/signups.py), and then that is the only way it
@@ -26,7 +24,6 @@ from app.api.organizations import locked
 from app.audit import audit
 from app.auth import now
 from app.config import get_settings
-from app.entitlements import PlanRefused, check_member, read_only
 from app.invitations import INVITATION_TTL, is_open, issue
 from app.mail import invitation_email, relay_set
 from app.models import Invitation, Membership, User
@@ -91,9 +88,6 @@ def invite(body: InvitationIn, account: AccountDep, request: Request, session: S
     )
     if invitation is not None and is_open(invitation):
         raise HTTPException(409, INVITED_ALREADY)
-    # An organisation past its plan takes nobody new, whatever it is past, until it is within it.
-    if refusal := read_only(session, organization) or check_member(session, organization):
-        raise PlanRefused(refusal)
     if invitation is None:
         invitation = Invitation(org_id=organization.id, email=email)
         session.add(invitation)
@@ -129,20 +123,14 @@ def resend_invitation(
     invitation_id: int, account: AccountDep, request: Request, session: SessionDep
 ):
     """Mail the invitation again, with a new link for INVITATION_TTL from now, given to the
-    sender too; the link before stops working. One that expired takes a place among the plan's
-    members again."""
+    sender too; the link before stops working."""
     _refuse_unless_admin(account)
     email = _invitation(session, account, invitation_id).email
     refuse_past(session, (SIGN_INS, by_email(email)))
-    organization = locked(session, account.organization.id)
     # Held, so that one accepted meanwhile is found gone rather than sent again.
     invitation = _invitation(session, account, invitation_id, lock=True)
     if not account.is_at_least(invitation.role):
         raise HTTPException(403, OWNERS_INVITE_OWNERS)
-    if not is_open(invitation) and (
-        refusal := read_only(session, organization) or check_member(session, organization)
-    ):
-        raise PlanRefused(refusal)
     invitation.invited_by_id = account.user.id
     token = issue(invitation)
     audit(

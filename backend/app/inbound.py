@@ -43,7 +43,6 @@ from app.access import visible_to
 from app.accounts import Account
 from app.audit import audit_event
 from app.config import get_settings
-from app.entitlements import check_upload, read_only
 from app.flags import EMAIL_IN, flag_on
 from app.jobs import Lease, LeaseLost, renew
 from app.messages import MAX_MESSAGE_BYTES, Parsed, body_document, parse
@@ -361,7 +360,6 @@ def _deliver(
         session,
         storage,
         project,
-        organization,
         target,
         (Incoming(name, [], BytesIO(content)) for name, content in taken),
         user_id=user_id,
@@ -405,8 +403,6 @@ def _refusal(
         return UNAUTHENTICATED, "unauthenticated"
     if user is None and not listed(mailbox.senders, parsed.sender):
         return not_listed(parsed.sender), "refused_sender"
-    if refusal := read_only(session, organization) or check_upload(session, organization):
-        return refusal.sentence, "refused_plan"
     return None
 
 

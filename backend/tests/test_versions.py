@@ -7,7 +7,6 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 
 from app.db import engine
-from app.entitlements import month_of, pages_this_month
 from app.indexing.pipeline import process_document
 from app.maintenance import sweep_storage
 from app.models import Document, DocumentVersion, Project
@@ -16,7 +15,6 @@ from app.versions import BEING_INDEXED, SAME_FILE
 from tests.conftest import columns_pdf
 from tests.test_api import create_project, upload
 from tests.test_audit import actions, rows_of_action
-from tests.test_entitlements import member, plan  # noqa: F401
 from tests.test_exports import archive_of, ask, run_export
 from tests.test_trash import hits
 
@@ -123,7 +121,7 @@ def test_each_version_is_an_upload_of_its_own_whose_pages_count_again(
     (earlier,) = session.scalars(select(DocumentVersion)).all()
     assert earlier.usage["upload"] == {"bytes": len(OLD), "pages": 1}
     assert earlier.upload_id == first_upload
-    assert pages_this_month(session, account.organization.id, month_of()[0]) == 2
+    assert client.get("/api/organization/usage").json()["months"][-1]["pages"] == 2
     assert row.versions_bytes == len(OLD)
 
 
@@ -248,21 +246,12 @@ def test_a_review_of_the_earlier_file_is_opened_again(client, services, session,
     ]
 
 
-def test_the_plan_holds_the_earlier_versions_bytes(client, services, request):
-    # The owner of a fresh organisation on the free plan (`member`), held to so many bytes.
-    request.getfixturevalue("member")
-    limits = request.getfixturevalue("plan")
+def test_the_storage_counts_the_earlier_versions_bytes(client, services):
     project = create_project(client)
     document = text_document(client, services, project["id"])
-    limits(storage_bytes=len(OLD) + len(NEW) - 1)
-    response = give(client, document["id"], "terms.txt", NEW)
-    assert response.status_code == 402
-    assert response.json()["limit"] == "storage_bytes"
-
-    limits(storage_bytes=len(OLD) + len(NEW))
     given(client, services, document["id"], "terms.txt", NEW)
     usage = client.get("/api/organization/usage").json()
-    assert usage["storage_bytes"]["used"] == len(OLD) + len(NEW)
+    assert usage["storage_bytes"] == len(OLD) + len(NEW)
 
 
 def test_a_projects_export_holds_each_documents_earlier_files_and_their_text(

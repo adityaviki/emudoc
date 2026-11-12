@@ -18,10 +18,9 @@ import { UnsubscribePage } from './account/UnsubscribePage.tsx'
 import { UserMenu } from './account/UserMenu.tsx'
 import { VerifyPage } from './account/VerifyPage.tsx'
 import { AuthLayout } from './account/shared.tsx'
-import { api, auth, handleForbidden, handlePlanLimit, handleSwitched, handleUnauthorized } from './api.ts'
+import { api, auth, handleForbidden, handleSwitched, handleUnauthorized } from './api.ts'
 import type { Me } from './api.ts'
 import { ME_KEY, MeContext, forgetUser, loginPath, startAgainInOrganization, useMe, useMeQuery } from './auth.ts'
-import { describeExcess } from './billing.ts'
 import { describeConnection } from './connection.ts'
 import { ErrorBoundary } from './components/ErrorBoundary.tsx'
 import { Floating, Menu } from './components/Menu.tsx'
@@ -69,13 +68,6 @@ function App() {
   useEffect(() => {
     handleForbidden(() => void queryClient.invalidateQueries({ queryKey: ME_KEY }))
     return () => handleForbidden(null)
-  }, [queryClient])
-
-  // A request the plan refused: the organisation may have been lowered under what it holds
-  // since the page asked, so ask again, and the banner says it is read-only.
-  useEffect(() => {
-    handlePlanLimit(() => void queryClient.invalidateQueries({ queryKey: ME_KEY }))
-    return () => handlePlanLimit(null)
   }, [queryClient])
 
   if (me.isPending) {
@@ -180,7 +172,6 @@ function Shell() {
         </div>
         <SupportBanner me={me} />
         <VerifyBanner me={me} />
-        <PlanBanner me={me} />
       </header>
       <main className="min-h-0 flex-1">
         {/* A page that breaks leaves the header, and with it the help menu and the way elsewhere. */}
@@ -336,28 +327,6 @@ function VerifyBanner({ me }: { me: Me }) {
       <IconButton label="Dismiss" onClick={() => setDismissed(true)}>
         <X className="size-3.5" />
       </IconButton>
-    </div>
-  )
-}
-
-/**
- * Says on every page that the organisation holds more than its plan allows, and so is read-only
- * until it is within it, with the way to its plan; it goes once a deletion or a purchase brings
- * it within.
- */
-function PlanBanner({ me }: { me: Me }) {
-  const location = useLocation()
-  const past = describeExcess(me.organization)
-  if (!past) return null
-
-  return (
-    <div className="flex items-center justify-center gap-3 border-t border-line bg-warn/5 px-4 py-1.5 text-[13px] text-warn">
-      <span className="min-w-0">{past}</span>
-      {location.pathname !== '/organization' && (
-        <Link to="/organization" className="shrink-0 font-medium text-accent hover:underline">
-          See the plan
-        </Link>
-      )}
     </div>
   )
 }

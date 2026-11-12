@@ -1,12 +1,12 @@
 """A project's question sets (app/question_sets.py) and the reports of their answers
 (app/question_reports.py), which the library's Reports view lists.
 
-Every route is behind the flag `question_sets` (app/flags.py), and making, changing and running a
-set behind the plan's `question_sets` (402). Whoever may change the project makes, changes, turns
-off and deletes its sets, and runs one there and then, each a row of the organisation's audit
-log naming the set and counting its questions, never one of them; a set is written whole and
-deleted for good, with no trash, the reports it made staying with the project's, naming it as it
-was. Anyone who sees the project reads the sets and the reports, and a member deletes a report.
+Every route is behind the flag `question_sets` (app/flags.py). Whoever may change the project makes,
+changes, turns off and deletes its sets, and runs one there and then, each a row of the
+organisation's audit log naming the set and counting its questions, never one of them; a set is
+written whole and deleted for good, with no trash, the reports it made staying with the project's,
+naming it as it was. Anyone who sees the project reads the sets and the reports, and a member
+deletes a report.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -16,10 +16,9 @@ from sqlalchemy.orm import Session
 from app.api.check_runs import refuse_agent_run
 from app.api.deps import (
     AccountDep,
-    DeletableQuestionSetDep,
-    DeletableReportDep,
     EditableProjectDep,
     EditableQuestionSetDep,
+    EditableReportDep,
     ProjectDep,
     ReportDep,
     SessionDep,
@@ -27,7 +26,6 @@ from app.api.deps import (
     limited,
 )
 from app.audit import audit
-from app.entitlements import PlanRefused, check_question_sets
 from app.flags import QUESTION_SETS
 from app.models import Project, QuestionReport, QuestionSet, User
 from app.question_reports import counted, run_detail, start_report
@@ -104,8 +102,6 @@ def create_question_set(
     request: Request,
 ):
     """Make a question set of the project, its schedule's first run queued."""
-    if refusal := check_question_sets(account.organization):
-        raise PlanRefused(refusal)
     columns = _written(body)
     # The project's row, so that two made at once cannot pass its ceiling.
     session.execute(select(Project.id).where(Project.id == project.id).with_for_update())
@@ -141,8 +137,6 @@ def update_question_set(
 ):
     """Write the set anew, whole: its schedule runs it next as it now says, and what arrives
     from now on runs it if it says so."""
-    if refusal := check_question_sets(account.organization):
-        raise PlanRefused(refusal)
     columns = _written(body)
     # Held while it changes, so that its job, waking meanwhile, reads it before or after.
     session.execute(select(QuestionSet.id).where(QuestionSet.id == row.id).with_for_update())
@@ -171,7 +165,7 @@ def update_question_set(
 
 @router.delete("/question-sets/{set_id}", status_code=204)
 def delete_question_set(
-    row: DeletableQuestionSetDep, session: SessionDep, account: AccountDep, request: Request
+    row: EditableQuestionSetDep, session: SessionDep, account: AccountDep, request: Request
 ):
     """Delete the set for good: nothing runs it any more, its job waking to find it gone, and the
     reports it made stay, naming it as it was."""
@@ -199,10 +193,8 @@ def run_question_set(
 ):
     """Ask the set's questions now, for a report told to the member who ran it once it is kept.
     Refused while a report of the set is waiting or being answered (409), and as a question is,
-    past the agent's runs in flight, the month's questions and the day's spending; each question
-    counts as one of the month's as it is asked."""
-    if refusal := check_question_sets(account.organization):
-        raise PlanRefused(refusal)
+    past the agent's runs in flight and the day's spending; each question counts as one asked as
+    it is asked."""
     session.execute(select(QuestionSet.id).where(QuestionSet.id == row.id).with_for_update())
     if session.scalar(select(exists().where(_running(row.id)))):
         raise HTTPException(409, STILL_RUNNING)
@@ -246,7 +238,7 @@ def get_report(report: ReportDep, session: SessionDep):
 
 @router.delete("/reports/{report_id}", status_code=204)
 def delete_report(
-    report: DeletableReportDep, session: SessionDep, account: AccountDep, request: Request
+    report: EditableReportDep, session: SessionDep, account: AccountDep, request: Request
 ):
     """Delete the report for good, once its questions are answered."""
     if report.status in ("queued", "running"):
@@ -320,7 +312,6 @@ def _outs(session: Session, project: Project, rows: list[QuestionSet]) -> list[Q
             )
         )
     )
-    organization = project.organization
     return [
         QuestionSetOut(
             id=row.id,
@@ -336,7 +327,7 @@ def _outs(session: Session, project: Project, rows: list[QuestionSet]) -> list[Q
             next_run_at=row.next_run_at,
             created_by=row.created_by,
             made_by=names.get(row.created_by),
-            problem=problem_of(session, row, organization),
+            problem=problem_of(session, row),
             last_report_at=last.get(row.id),
             running=row.id in running,
             updated_at=row.updated_at,

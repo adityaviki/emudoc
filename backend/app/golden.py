@@ -290,9 +290,7 @@ def run_golden(
     with TemporaryDirectory(prefix="emudoc-golden-") as directory:
         services = Services(llm, embedder, LocalStorage(Path(directory)))
         with SessionLocal() as session:
-            organization = Organization(
-                name="Golden questions", slug=f"golden-{uuid4().hex[:12]}", plan="enterprise"
-            )
+            organization = Organization(name="Golden questions", slug=f"golden-{uuid4().hex[:12]}")
             session.add(organization)
             session.flush()
             org_id = organization.id

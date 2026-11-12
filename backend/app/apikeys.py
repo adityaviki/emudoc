@@ -15,10 +15,8 @@ refused what they would be.
 A key reaches the organisation's projects and what they hold, the routes a program has a use for
 (KEYED in app/main.py: the projects, folders, documents, search and facts, chats and the trash),
 and nothing of the accounts or of the organisation itself: no key signs in, makes another key,
-invites anyone, changes a role, reads the audit log or touches billing, so a key that leaks reads
-or changes documents, never who may. The API is a plan's (`api_access`, `check_api` in
-app/entitlements.py): on a plan without it no key is made or rolled, and the keys made before are
-refused until the organisation is on one with it again, kept for that.
+invites anyone, changes a role or reads the audit log, so a key that leaks reads or changes
+documents, never who may.
 
 A request names its key in `Authorization: Bearer <key>`. A key is `emk_` and 43 characters of
 `secrets.token_urlsafe`; only its SHA-256 is stored, as a session's is (app/auth.py), so a copy

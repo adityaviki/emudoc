@@ -1,7 +1,6 @@
 """How people join the workspace: the invitations its owners and admins send, resend and revoke,
 and the page an invitation's link opens, signed in, signing up or through a provider."""
 
-from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
 
@@ -19,7 +18,6 @@ from app.api.invitations import ADMINS_ONLY, INVITED_ALREADY, OWNERS_INVITE_OWNE
 from app.auth import CREDENTIAL_HISTORY, prune_credentials
 from app.config import get_settings
 from app.db import engine
-from app.entitlements import PLANS
 from app.legal import TERMS_VERSION
 from app.models import Invitation, Membership, User
 from app.signups import SIGNUP_CLOSED
@@ -36,17 +34,6 @@ from tests.test_auth import (
 from tests.test_auth import start as begin_oauth
 from tests.test_organizations import join
 from tests.test_ratelimit import counted_afresh
-
-
-@pytest.fixture(autouse=True)
-def room(monkeypatch):
-    """Room for ten members on the free plan, which allows one; `room(n)` for another cap."""
-
-    def members(cap: int | None) -> None:
-        monkeypatch.setitem(PLANS, "free", replace(PLANS["free"], members=cap))
-
-    members(10)
-    return members
 
 
 @pytest.fixture
@@ -238,24 +225,6 @@ def test_owners_and_admins_invite_to_their_own_role_or_below(client, session, ma
     assert bob.delete(f"/api/organization/invitations/{owner['id']}").status_code == 204
 
 
-def test_an_open_invitation_holds_a_place_among_the_plans_members(client, mailer, ada, room):
-    room(1)
-    refused = client.post("/api/organization/invitations", json={"email": "bob@example.com"})
-    assert refused.status_code == 402
-    assert refused.json()["detail"] == (
-        "The Free plan allows 1 member, and this organisation has 1, open invitations counted. "
-        "Upgrade your plan to invite more."
-    )
-    room(2)
-    first = invite(client, "bob@example.com")
-    assert (
-        client.post("/api/organization/invitations", json={"email": "cat@example.com"}).status_code
-        == 402
-    )
-    assert client.delete(f"/api/organization/invitations/{first['id']}").status_code == 204
-    invite(client, "cat@example.com")
-
-
 def test_an_address_is_invited_once_and_a_member_not_at_all(client, session, mailer, ada):
     org_id = ada["organization"]["id"]
     bob = another_browser(client)
@@ -280,9 +249,7 @@ def test_an_address_is_invited_once_and_a_member_not_at_all(client, session, mai
     assert shown(client, mailer.token()).json()["role"] == "viewer"
 
 
-def test_sending_again_mails_a_new_link_and_stops_the_one_before(
-    client, session, mailer, ada, room
-):
+def test_sending_again_mails_a_new_link_and_stops_the_one_before(client, session, mailer, ada):
     org_id = ada["organization"]["id"]
     sent = invite(client, "bob@example.com")
     first = mailer.token()
@@ -294,13 +261,9 @@ def test_sending_again_mails_a_new_link_and_stops_the_one_before(
     assert shown(client, second).json()["email"] == "bob@example.com"
     assert actions(session, org_id)[-1] == ("invitation_sent", {"role": "member", "again": True})
 
-    # An expired one comes back for a week, if the plan has room for it again.
+    # An expired one comes back for a week.
     expire(session, "bob@example.com")
     assert invitations(client)[0]["expired"] is True
-    room(1)
-    full = client.post(f"/api/organization/invitations/{sent['id']}/resend")
-    assert full.status_code == 402
-    room(2)
     back = client.post(f"/api/organization/invitations/{sent['id']}/resend").json()
     assert back["expired"] is False
     assert datetime.fromisoformat(back["expires_at"]) > datetime.now(UTC) + timedelta(days=6)
@@ -402,7 +365,7 @@ def test_a_new_account_through_a_provider_joins_the_organisation_that_invited_it
     assert shown(other, token).status_code == 200
 
 
-def test_the_sender_is_given_the_link_to_hand_on(client, mailer, ada, room, monkeypatch):
+def test_the_sender_is_given_the_link_to_hand_on(client, mailer, ada, monkeypatch):
     sent = invite(client, "bob@example.com")
     # Where the install has no mail relay, the link is the one way the invitation arrives,
     # which the answer says.
@@ -425,30 +388,6 @@ def test_the_sender_is_given_the_link_to_hand_on(client, mailer, ada, room, monk
     # With a relay, the answer says the mail went too.
     monkeypatch.setattr(get_settings(), "smtp_url", "smtp://relay.example:587")
     assert invite(client, "carol@example.com")["mailed"] is True
-
-
-def test_an_organisation_past_its_plan_invites_and_takes_nobody(client, session, ada, room):
-    sent = invite(client, "bob@example.com")
-    # Its members lowered under the member and the invitation it has.
-    room(1)
-    refused = client.post("/api/organization/invitations", json={"email": "cat@example.com"})
-    assert refused.status_code == 402
-    assert refused.json() == {
-        "detail": (
-            "This organisation holds more than the Free plan allows (2 members of 1), so until "
-            "it is within the plan nothing can be added or changed: what it holds can still be "
-            "read, asked about and deleted. Remove members or revoke invitations, or upgrade "
-            "your plan."
-        ),
-        "limit": "members",
-    }
-    # The invitation still open is sent again, since it holds its place already.
-    assert client.post(f"/api/organization/invitations/{sent['id']}/resend").status_code == 200
-
-    # Revoking it is the way back, and the next invitation goes out.
-    assert client.delete(f"/api/organization/invitations/{sent['id']}").status_code == 204
-    room(2)
-    invite(client, "cat@example.com")
 
 
 def test_an_invitation_still_brings_a_colleague_in_while_sign_up_is_closed(

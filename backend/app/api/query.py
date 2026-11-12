@@ -1,5 +1,5 @@
-"""Read-side endpoints over a project's indexes: search and facts. Each is cheap, and none is
-bounded by the plan, so the router holds every caller to RATE_SEARCHES a minute."""
+"""Read-side endpoints over a project's indexes: search and facts. Each is cheap, and nothing else
+bounds them, so the router holds every caller to RATE_SEARCHES a minute."""
 
 from typing import Annotated
 

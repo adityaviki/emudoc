@@ -6,7 +6,6 @@ import {
   api,
   auth,
   handleForbidden,
-  handlePlanLimit,
   handleSwitched,
   isWithin,
   mayChange,
@@ -34,7 +33,6 @@ afterEach(() => {
   vi.unstubAllGlobals()
   handleSwitched(null)
   handleForbidden(null)
-  handlePlanLimit(null)
 })
 
 describe('the organisation the session works in', () => {
@@ -77,20 +75,6 @@ describe('a request refused as not the account\'s to make', () => {
     serve(() => refused(403))
     await expect(auth.deleteAccount({ password: 'not it' })).rejects.toBeInstanceOf(ApiError)
     expect(forbidden).not.toHaveBeenCalled()
-  })
-})
-
-describe('a request the plan refused', () => {
-  it('names the figure it is held to, and has the page ask again what the plan allows', async () => {
-    const planned = vi.fn()
-    handlePlanLimit(planned)
-    serve(() => new Response(JSON.stringify({ detail: 'Full.', limit: 'projects' }), { status: 402 }))
-    await expect(api.createProject({ name: 'More', description: '', visibility: 'organization' })).rejects.toMatchObject({ status: 402, message: 'Full.', limit: 'projects' })
-    expect(planned).toHaveBeenCalledOnce()
-    // Any other refusal names none.
-    serve(() => refused(409))
-    await expect(api.projects()).rejects.toMatchObject({ status: 409, limit: null })
-    expect(planned).toHaveBeenCalledOnce()
   })
 })
 
@@ -210,14 +194,11 @@ describe('an upload, which says how far it has gone', () => {
 
   it('is refused as any request is', async () => {
     sending()
-    const asked = vi.fn()
-    handlePlanLimit(asked)
     const answer = api.upload(3, [{ file: file('a.md'), folder: '' }], null, { onProgress: vi.fn() })
-    FakeRequest.made[0].answer(402, { detail: 'The plan is full.', limit: 'documents' }, { 'X-Request-ID': 'abc' })
+    FakeRequest.made[0].answer(413, { detail: 'These files are too large.' }, { 'X-Request-ID': 'abc' })
     const refusal = await answer.catch((error: unknown) => error)
     expect(refusal).toBeInstanceOf(ApiError)
-    expect(refusal).toMatchObject({ status: 402, message: 'The plan is full.', limit: 'documents' })
-    expect(asked).toHaveBeenCalledOnce()
+    expect(refusal).toMatchObject({ status: 413, message: 'These files are too large.' })
   })
 
   it('is cut off by a network that drops it, and stopped by the page', async () => {

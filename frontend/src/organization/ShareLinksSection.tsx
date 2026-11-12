@@ -6,7 +6,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { organizations } from '../api.ts'
 import type { Me } from '../api.ts'
 import { setSignedIn } from '../auth.ts'
-import { PlanOffer } from '../components/PlanLimit.tsx'
 import { Checkbox, Notice, Section } from '../components/ui.tsx'
 import { ORGANIZATION_LINKS_KEY, linkAbout, linkKey } from '../shareLinks.ts'
 import { LinkRow } from '../workspace/ShareLinks.tsx'
@@ -26,29 +25,22 @@ export function ShareLinksSection({ me }: { me: Me }) {
       title="Share links"
       description="Links that show one document, or one answer, to someone outside the workspace, with no account, for a few days."
     >
-      {!organization.allowance.share_links ? (
-        <Notice tone="info">
-          <p className="text-ink">The plan does not include share links.</p>
-          <PlanOffer limit="share_links" />
-        </Notice>
-      ) : (
-        <div className="max-w-md space-y-2">
-          <Checkbox
-            label={
-              <>
-                <span className="font-medium">Let members share documents and answers by link</span>
-                <span className="block text-muted">
-                  Off, every link stops at once; on again, those that have not run out work again.
-                </span>
-              </>
-            }
-            checked={checked}
-            disabled={save.isPending}
-            onChange={(event) => save.mutate(event.target.checked)}
-          />
-          {save.isError && <Notice tone="bad">{save.error.message}</Notice>}
-        </div>
-      )}
+      <div className="max-w-md space-y-2">
+        <Checkbox
+          label={
+            <>
+              <span className="font-medium">Let members share documents and answers by link</span>
+              <span className="block text-muted">
+                Off, every link stops at once; on again, those that have not run out work again.
+              </span>
+            </>
+          }
+          checked={checked}
+          disabled={save.isPending}
+          onChange={(event) => save.mutate(event.target.checked)}
+        />
+        {save.isError && <Notice tone="bad">{save.error.message}</Notice>}
+      </div>
       <h3 className="mt-5 text-[13px] font-medium">Links running</h3>
       {links.isError ? (
         <Notice tone="bad">{links.error.message}</Notice>

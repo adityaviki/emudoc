@@ -34,7 +34,6 @@ from app.residency import check_residency
 from app.sample import check_sample
 from app.scanning import check_scanner, scanner_from_settings
 from app.search import check_fts_language
-from app.spending import warn_without_prices
 from app.storage import Storage, check_versions, report_encryption, storage_from_settings
 from app.switches import switched_off
 from app.version import VERSION
@@ -93,7 +92,6 @@ def prepare(settings: Settings, services: Services | None = None) -> Services:
     report_encryption(services.storage)
     check_versions(settings, services.storage)
     warn_about_old_layout(services.storage)
-    warn_without_prices(settings)
     check_scanner(settings, services.scanner)
     check_model(settings, services.llm)
     check_embedder(settings, services.embedder)

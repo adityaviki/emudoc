@@ -13,7 +13,7 @@ a member who forgot their password is handed a link that sets it (`handed_reset_
 the members list or the `reset-password` command. Sign-up is closed by default (SIGNUP_OPEN):
 the sign-up form and a first sign-in through Google or Microsoft are refused, and the pages say
 to ask the team's admin, with the way to ask (`booking`). Open, a sign-up joins the workspace as
-a member instead of making an organisation of its own, within the members its plan allows.
+a member instead of making an organisation of its own.
 
 A database that holds several organisations, as development's does, keeps working: the
 workspace a sign-up joins is the one made first, the local account's aside.
@@ -29,7 +29,6 @@ from app.accounts import LOCAL_ORG_SLUG, Account, add_member, create_organizatio
 from app.auth import HANDED_LINK_TTL, issue_link_token, now
 from app.config import Settings
 from app.db import MIGRATION_LOCK
-from app.entitlements import PlanRefused, Refusal, check_member, read_only
 from app.models import Organization, User, UserSession
 
 # Held while the setup looks for a user and makes the first, so that two at once make one.
@@ -48,10 +47,6 @@ SET_UP_ALREADY = (
 NOT_SET_UP = (
     "This Emudoc is not set up yet. Its admin makes the first account on the setup page, which "
     "opening it in a browser shows."
-)
-WORKSPACE_FULL = (
-    "{workspace} has as many members as its plan allows, so nobody can sign up until its admin "
-    "makes room. Ask them for an invitation."
 )
 
 
@@ -119,16 +114,11 @@ def set_up(
 def join_workspace(
     session: Session, user: User, user_session: UserSession | None = None
 ) -> Account:
-    """Make a user who signed up a member of the install's workspace, while sign-up is open,
-    within the members its plan allows. Refused with `NotSetUp` before the setup and
-    `PlanRefused` when the workspace is full. The caller commits."""
+    """Make a user who signed up a member of the install's workspace, while sign-up is open.
+    Refused with `NotSetUp` before the setup. The caller commits."""
     organization = workspace(session)
     if organization is None:
         raise NotSetUp(NOT_SET_UP)
-    # Held, so that two sign-ups cannot both take the plan's last place.
-    session.refresh(organization, with_for_update=True)
-    if read_only(session, organization) or check_member(session, organization):
-        raise PlanRefused(Refusal("members", WORKSPACE_FULL.format(workspace=organization.name)))
     return add_member(session, organization, user, "member", user_session)
 
 

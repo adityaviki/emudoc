@@ -6,8 +6,8 @@ member may read, their private ones among them, or the documents the member chos
 alone (app/selection.py), without the chats; so it is the member's alone, and only a member or
 better asks for one: a viewer reads the documents one by one, which an organisation that gives
 someone a viewer's role may mean as the limit of what they take away. Asking reads
-nothing the member could not read, so an organisation past its plan or set to be deleted may
-ask, the latter so that its members can take what they need. One is made at a time for a member
+nothing the member could not read, so an account set to be deleted may ask, so that its member
+can take what they need. One is made at a time for a member
 and a project. Asking is in the audit log; the file is served as the originals are, an
 attachment the browser keeps nothing of.
 """

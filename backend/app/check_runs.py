@@ -15,9 +15,9 @@ The report is the agent's (`write_report`): the run's findings, worded by the se
 input of its task, with the passages their values were read from, which it may cite as an answer
 does, and its five read-only tools to read around them. What was compared, and what was found,
 stays the code's; the model writes it up. It is model spend: its calls are recorded as `report`
-usage of the run, held to the day's spending limits as the run starts, and its asking counts as
-one of the month's questions (app/api/check_runs.py). It is written whole, not streamed: the page
-asks for the run until the report settles.
+usage of the run, held to the day's spending cap as the run starts, and its asking counts as
+one of the workspace's questions (app/api/check_runs.py). It is written whole, not streamed: the
+page asks for the run until the report settles.
 
 An automation's run (app/automations.py) is made by the worker (`run_automation`) once the
 documents it watches have gone quiet, with no member behind it: it names the automation and what
@@ -64,7 +64,6 @@ from app.cross_checks import (
     sides_of,
 )
 from app.db import SessionLocal, unbounded
-from app.entitlements import check_question
 from app.extraction import Template, templates_for
 from app.fact_checks import fact_out
 from app.flags import EXTRACTION_TEMPLATES, flag_on
@@ -82,16 +81,14 @@ from app.models import (
 )
 from app.notices import (
     CHECKS_RUN,
-    MONTH_QUESTIONS,
     PROJECT_PAGE,
     app_address,
     audience_of,
-    note_quota,
     tell,
 )
 from app.prompts import prompt_version
 from app.reviews import put_in_review
-from app.spending import check_platform_spend, check_spend
+from app.spending import check_spend
 from app.usage import ANSWER, REPORT, WORKFLOW_RUN, ModelUsage, record
 
 log = logging.getLogger(__name__)
@@ -271,14 +268,7 @@ def run_automation(automation_id: int, lease: Lease | None = None) -> str | None
             # automation's page saying why when the cause is its own.
             _commit(session, lease)
             return None
-        refusal = None
-        if automation.report:
-            refused = check_question(session, organization)
-            refusal = (
-                refused.sentence
-                if refused is not None
-                else check_platform_spend(session) or check_spend(session, organization)
-            )
+        refusal = check_spend(session) if automation.report else None
         reported = automation.report and refusal is None
         named = (landed or partners)[:ARRIVALS_NAMED]
         names = dict(
@@ -302,7 +292,7 @@ def run_automation(automation_id: int, lease: Lease | None = None) -> str | None
             log.info("The report of run %s was not asked for: %s", run.id, refusal)
             run.report_status, run.report_error = "failed", refusal
         if reported:
-            # The plan's measure of the agent's runs, as a member's report counts.
+            # A report counts as a question asked, as a member's does.
             record(
                 session,
                 org_id=organization.id,
@@ -311,7 +301,6 @@ def run_automation(automation_id: int, lease: Lease | None = None) -> str | None
                 kind=ANSWER,
                 measures={"questions": 1},
             )
-            note_quota(session, organization, MONTH_QUESTIONS, app_address())
         audit_event(
             session,
             "cross_checks_run",
@@ -426,7 +415,7 @@ def write_report(run_id: int, services: Services, lease: Lease | None = None) ->
         # rows: reading one afterwards would take a connection back for the whole run.
         payer = {"org_id": run.org_id, "project_id": run.project_id, "user_id": run.user_id}
         project_id = run.project_id
-        over = check_platform_spend(session) or check_spend(session, project.organization)
+        over = check_spend(session)
         run.report_status = "writing"
         _commit(session, lease)
         message, sources = report_input(session, session.get(WorkflowRun, run_id))

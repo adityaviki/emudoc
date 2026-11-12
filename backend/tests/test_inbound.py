@@ -32,7 +32,6 @@ from app.maintenance import main
 from app.messages import parse, text_of_html
 from app.models import AuditEvent, Document, InboundMessage, Upload, User
 from tests.test_api import create_project
-from tests.test_entitlements import plan  # noqa: F401 (a fixture)
 from tests.test_folders import make_folder
 from tests.test_metrics import Counted
 from tests.test_templates import turn_on
@@ -424,26 +423,12 @@ def test_files_an_upload_rejects_are_listed(client, session, services, sample_pd
     assert again.rejected[0]["reason"].startswith("Already in this project as ")
 
 
-def test_a_project_in_the_trash_or_without_room_turns_mail_away(
-    client,
-    session,
-    services,
-    make_account,
-    act_as,
-    plan,  # noqa: F811
-):
+def test_a_project_in_the_trash_turns_mail_away(client, session, services, make_account, act_as):
     owner = make_account("ann@globex.example")
     confirmed(session, owner.user)
     act_as(owner)
     project = create_project(client)
     address = mailbox(client, project["id"])["address"]
-    plan(documents=0)
-    [refused] = deliver(
-        session, services, message(address, sender=owner.user.email), address, "t:1"
-    )
-    assert refused.outcome == "refused"
-    assert "documents" in refused.reason
-
     assert client.delete(f"/api/projects/{project['id']}").status_code == 204
     [trashed] = deliver(
         session, services, message(address, sender=owner.user.email), address, "t:2"

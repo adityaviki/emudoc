@@ -9,7 +9,6 @@ from sqlalchemy.sql import Subquery
 
 from app.api.deps import (
     AccountDep,
-    DeletableFolderDep,
     EditableFolderDep,
     EditableProjectDep,
     ProjectDep,
@@ -98,7 +97,7 @@ def held_by(session: Session, folder: Folder) -> int:
 
 @router.delete("/folders/{folder_id}", status_code=204)
 def delete_folder(
-    folder: DeletableFolderDep, session: SessionDep, account: AccountDep, request: Request
+    folder: EditableFolderDep, session: SessionDep, account: AccountDep, request: Request
 ):
     """Put the folder in the project's trash with its subfolders and every document in them."""
     name = folder.name

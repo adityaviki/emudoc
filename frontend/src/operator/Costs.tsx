@@ -1,10 +1,8 @@
-// The `costs` command's report: every organisation that used anything, the costliest first,
-// against its plan's daily limit; theirs together against DAILY_SPEND_CAP; and the cost by kind
-// of work and model.
+// The `costs` command's report: every organisation that used anything, the costliest first;
+// theirs together against DAILY_SPEND_CAP; and the cost by kind of work and model.
 
 import { useQuery } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router'
-import { PLAN_LABELS } from '../api.ts'
 import { Loading, Notice, Section, Segmented } from '../components/ui.tsx'
 import { formatDate } from '../format.ts'
 import { operatorApi } from './api.ts'
@@ -34,7 +32,7 @@ export function CostsPage() {
   return (
     <>
       <Heading title="Costs" command={`costs --days ${days}`}>
-        What each organisation's model use cost the platform, the costliest first, against its plan's daily limit, in UTC days.
+        What each organisation's model use cost, the costliest first, and all of them against DAILY_SPEND_CAP, in UTC days.
       </Heading>
       <div className="mb-4 flex">
         <Segmented
@@ -56,7 +54,6 @@ export function CostsPage() {
           <Table
             columns={[
               { label: 'Organisation' },
-              { label: 'Plan' },
               { label: 'Cost', figure: true },
               { label: 'Costliest day', figure: true },
               { label: 'Days at limit', figure: true },
@@ -73,13 +70,13 @@ export function CostsPage() {
                   </Link>
                   <span className="ml-2 text-muted">{cost.slug}</span>
                 </Cell>
-                <Cell>{PLAN_LABELS[cost.plan]}</Cell>
                 <CostCells cost={cost} currency={costs.data.currency} />
               </tr>
             ))}
             <tr className="bg-sunken/50 font-medium">
-              <Cell>The platform</Cell>
-              <Cell className="text-muted">DAILY_SPEND_CAP</Cell>
+              <Cell>
+                All of them <span className="text-muted">against DAILY_SPEND_CAP</span>
+              </Cell>
               <CostCells cost={costs.data.platform} currency={costs.data.currency} />
             </tr>
           </Table>
@@ -111,7 +108,7 @@ export function CostsPage() {
             </Section>
           )}
           {costs.data.organizations.length === 0 && <Notice tone="info">No organisation used anything in these days.</Notice>}
-          <p className="text-xs text-muted">A plan without a daily limit has no days at it, shown as —.</p>
+          <p className="text-xs text-muted">The cap holds every organisation together, so one by itself has no days at it, shown as —.</p>
         </div>
       )}
     </>

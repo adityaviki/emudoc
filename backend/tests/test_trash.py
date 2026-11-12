@@ -24,7 +24,6 @@ from tests.conftest import FakeTurn
 from tests.test_api import create_project, listed, upload
 from tests.test_audit import actions
 from tests.test_chats import answered, ask, new_chat
-from tests.test_entitlements import member, plan  # noqa: F401
 from tests.test_folders import make_folder, upload_into
 
 
@@ -286,28 +285,14 @@ def test_a_project_in_the_trash_is_nobody_s_until_it_is_restored(
     assert list(services.storage.list(prefix)) == []
 
 
-def test_the_trash_frees_what_the_plan_counts_and_a_restore_is_held_to_it(
-    client, services, request, sample_pdf, sample_docx
-):
-    # The owner of a fresh organisation on the free plan (`member`), held to one of each.
-    request.getfixturevalue("member")
-    request.getfixturevalue("plan")(projects=1, documents=1)
+def test_the_trash_frees_what_the_usage_page_counts(client, services, sample_pdf):
     project = create_project(client)
     (msa,) = indexed_upload(client, services, project["id"], sample_pdf)
+    assert client.get("/api/organization/usage").json()["documents"] == 1
     client.delete(f"/api/documents/{msa['id']}")
-    # The trash counts for nothing: the place is the next upload's.
-    assert upload(client, project["id"], sample_docx)["rejected"] == []
-    refused = restore(client, "documents", msa["id"])
-    assert refused.status_code == 402
-    assert refused.json()["limit"] == "documents"
-    assert refused.json()["detail"].startswith("Restoring this brings back 1 document, and the")
-
-    client.delete(f"/api/projects/{project['id']}")
-    other = create_project(client, "Other")
-    refused = restore(client, "projects", project["id"])
-    assert (refused.status_code, refused.json()["limit"]) == (402, "projects")
-    client.delete(f"/api/projects/{other['id']}")
-    assert restore(client, "projects", project["id"]).status_code == 200
+    assert client.get("/api/organization/usage").json()["documents"] == 0
+    assert restore(client, "documents", msa["id"]).status_code == 200
+    assert client.get("/api/organization/usage").json()["documents"] == 1
 
 
 def test_an_upload_of_bytes_in_the_trash_is_told_to_restore_them(

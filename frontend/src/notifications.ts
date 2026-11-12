@@ -11,10 +11,6 @@ export const NOTICE_KINDS: Record<NoticeKind, { label: string; detail: string }>
     label: 'A long upload is indexed',
     detail: 'When documents you uploaded took five minutes or more, that they are done and which could not be indexed.',
   },
-  quota: {
-    label: "The month's pages or questions run low",
-    detail: "To the workspace's owners and admins, at 80 % and all of what it may use.",
-  },
   project_export: {
     label: 'A project export is ready',
     detail: 'When the export of a project you asked for is ready to download, or could not be made.',

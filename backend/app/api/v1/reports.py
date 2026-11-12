@@ -4,8 +4,7 @@ program hears of a report kept by the `report.completed` webhook event, which na
 reads its answers here.
 
 Behind the flag `question_sets` (app/flags.py), as the page's routes are, so an organisation it
-is off for finds none of them. Reading needs no plan: a report made while the plan had sets is
-the organisation's to read after.
+is off for finds none of them.
 """
 
 from fastapi import APIRouter, Depends

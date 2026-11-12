@@ -12,8 +12,8 @@ A file keeps its versions, never changed: each of its member's uploads and each 
 writings adds one, the newest being the file. A version the member uploaded is scanned for
 malware first; each is shown as it looks by the PDF the converter makes of it (app/conversion.py),
 both done by a `view_my_file` job. Until its scan passes a version is neither served, drawn nor
-copied. Its bytes count toward the plan's storage (`check_room` in app/entitlements.py), not
-toward its documents, and its files go with its row: the storage walk sweeps a file's whose row
+copied. Its bytes count in the storage the usage page shows (`holdings` in app/usage.py), not
+in its documents, and its files go with its row: the storage walk sweeps a file's whose row
 is gone (`_live_prefixes` in app/maintenance.py), so a member's account purged or their leaving
 the organisation needs only the rows deleted.
 """
@@ -39,7 +39,6 @@ from app.conversion import (
     convert_file,
 )
 from app.db import SessionLocal
-from app.entitlements import check_room
 from app.errors import shown
 from app.jobs import LIVE, VIEW_MY_FILE, Job, Lease, LeaseLost, enqueue, renew
 from app.models import MyFile, MyFileVersion, Organization, Project
@@ -83,14 +82,13 @@ FLAGGED = (
 
 
 class Refused(Exception):
-    """A file or a version My files does not take, with the sentence its member reads, the
-    status the route answers, and for a plan's refusal the figure it is held to (`Refusal`)."""
+    """A file or a version My files does not take, with the sentence its member reads and the
+    status the route answers."""
 
-    def __init__(self, reason: str, status: int = 400, limit: str | None = None):
+    def __init__(self, reason: str, status: int = 400):
         super().__init__(reason)
         self.reason = reason
         self.status = status
-        self.limit = limit
 
 
 def kind_of(name: str) -> str | None:
@@ -177,7 +175,6 @@ def add_file(
         if held >= MAX_FILES:
             raise Refused(TOO_MANY, 409)
         with _spooled(upload, f".{kind}") as (spool, size, sha256):
-            _refuse_past_room(session, organization, size)
             file = MyFile(
                 org_id=organization.id,
                 project_id=project.id,
@@ -214,7 +211,6 @@ def add_file(
 def add_version(
     session: Session,
     storage: Storage,
-    organization: Organization,
     file: MyFile,
     user_id: int,
     upload: BinaryIO,
@@ -239,7 +235,6 @@ def add_version(
             number = newest(session, file.id).number
             if base is not None and base != number:
                 raise Refused(SAVED_MEANWHILE, 409)
-            _refuse_past_room(session, organization, size)
             version = _version(
                 session,
                 storage,
@@ -358,11 +353,6 @@ def _queue(session: Session, version: MyFileVersion, file_id: int) -> None:
         payload={"version_id": version.id},
         priority=LIVE,
     )
-
-
-def _refuse_past_room(session: Session, organization: Organization, size: int) -> None:
-    if refusal := check_room(session, organization, size):
-        raise Refused(refusal.sentence, 402, refusal.limit)
 
 
 @contextmanager

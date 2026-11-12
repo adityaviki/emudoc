@@ -20,7 +20,6 @@ import app.api.audit
 from app.api.audit import ADMINS_ONLY
 from app.audit import audit_event
 from app.auth import totp_code, totp_step
-from app.billing import change_plan
 from app.config import ROOT_DIR, get_settings
 from app.indexing.pipeline import process_document
 from app.legal import TERMS_VERSION
@@ -326,8 +325,6 @@ def test_a_sign_in_through_a_provider_is_recorded_with_it(
 def test_the_operator_and_the_app_act_as_nobody(
     client, session, services, account, sample_pdf, tmp_path, capsys
 ):
-    main(["plan", "local", "pro"])
-    main(["plan", "local", "pro"])
     project = create_project(client)
     (flagged,) = upload(client, project["id"], flagged_pdf(tmp_path, sample_pdf))["documents"]
     process_document(flagged["id"], services)
@@ -338,14 +335,11 @@ def test_the_operator_and_the_app_act_as_nobody(
 
     nobodys = [row for row in rows(session) if row.user_id is None]
     assert [(row.action, row.detail) for row in nobodys] == [
-        ("plan_changed", {"from": "enterprise", "to": "pro"}),
         ("document_quarantined", {"filename": "bad.pdf", "threat": EICAR_NAME}),
         ("document_requeued", {"filename": "bad.pdf", "stage": "scan"}),
     ]
     assert {row.ip for row in nobodys} == {None}
-    assert {(row.project_id, row.target_id) for row in nobodys[1:]} == {
-        (project["id"], flagged["id"])
-    }
+    assert {(row.project_id, row.target_id) for row in nobodys} == {(project["id"], flagged["id"])}
 
 
 def test_an_account_purge_keeps_a_shared_organisations_rows_without_its_addresses(
@@ -618,13 +612,15 @@ def rows_of_action(session, org_id: int, action: str) -> list[dict]:
     return [detail for name, detail in actions(session, org_id) if name == action]
 
 
-def test_rows_go_after_their_plans_days(session, services, make_account):
-    free = make_account("ann@globex.example")
-    enterprise = make_account("una@acme.example")
-    enterprise.organization.plan = "enterprise"
+def test_rows_go_after_the_workspaces_days(session, services, make_account):
+    kept_a_year = make_account("ann@globex.example")
+    chosen = make_account("una@acme.example")
+    # A year until its admins choose otherwise: fewer days, or none for good.
+    assert kept_a_year.organization.audit_days == 365
+    chosen.organization.audit_days = 50
     session.commit()
-    for organization in (free.organization, enterprise.organization):
-        for days_ago in (100, 10):
+    for organization in (kept_a_year.organization, chosen.organization):
+        for days_ago in (400, 100, 10):
             audit_event(
                 session,
                 "document_downloaded",
@@ -632,67 +628,38 @@ def test_rows_go_after_their_plans_days(session, services, make_account):
                 detail={"days_ago": days_ago},
             )
     session.commit()
-    session.execute(
-        update(AuditEvent)
-        .where(AuditEvent.detail["days_ago"].as_integer() == 100)
-        .values(occurred_at=datetime.now(UTC) - timedelta(days=100))
-    )
-    session.commit()
-
-    housekeeping(services.storage)
-
-    kept = {
-        (session.get(Organization, row.org_id).plan, row.detail["days_ago"])
-        for row in rows(session)
-    }
-    # The free plan keeps a row for 90 days; enterprise keeps it until a policy says otherwise.
-    assert kept == {("free", 10), ("enterprise", 100), ("enterprise", 10)}
-
-    # Days agreed with an organisation take the place of its plan's: fewer, or none for good.
-    enterprise.organization.overrides = {"audit_days": 50}
-    free.organization.overrides = {"audit_days": None}
-    audit_event(
-        session, "document_downloaded", org_id=free.organization.id, detail={"days_ago": 200}
-    )
-    session.commit()
-    session.execute(
-        update(AuditEvent)
-        .where(AuditEvent.detail["days_ago"].as_integer() == 200)
-        .values(occurred_at=datetime.now(UTC) - timedelta(days=200))
-    )
-    session.commit()
-    housekeeping(services.storage)
-    kept = {
-        (session.get(Organization, row.org_id).plan, row.detail["days_ago"])
-        for row in rows(session)
-    }
-    assert kept == {("free", 200), ("free", 10), ("enterprise", 10)}
-
-
-def test_rows_a_lower_plan_keeps_for_less_time_stay_for_a_while(session, services, make_account):
-    organization = make_account("ann@globex.example").organization
-    change_plan(session, organization, "pro")
-    for days_ago in (200, 10):
-        audit_event(
-            session, "document_downloaded", org_id=organization.id, detail={"days_ago": days_ago}
+    for days_ago in (400, 100):
+        session.execute(
+            update(AuditEvent)
+            .where(AuditEvent.detail["days_ago"].as_integer() == days_ago)
+            .values(occurred_at=datetime.now(UTC) - timedelta(days=days_ago))
         )
     session.commit()
+
+    def kept() -> set[tuple[str, int]]:
+        session.expire_all()
+        return {
+            (session.get(Organization, row.org_id).slug, row.detail["days_ago"])
+            for row in rows(session)
+            if "days_ago" in row.detail
+        }
+
+    housekeeping(services.storage)
+    assert kept() == {("globex", 100), ("globex", 10), ("acme", 10)}
+
+    kept_a_year.organization.audit_days = None
+    audit_event(
+        session,
+        "document_downloaded",
+        org_id=kept_a_year.organization.id,
+        detail={"days_ago": 4000},
+    )
+    session.commit()
     session.execute(
         update(AuditEvent)
-        .where(AuditEvent.detail["days_ago"].as_integer() == 200)
-        .values(occurred_at=datetime.now(UTC) - timedelta(days=200))
+        .where(AuditEvent.detail["days_ago"].as_integer() == 4000)
+        .values(occurred_at=datetime.now(UTC) - timedelta(days=4000))
     )
-    # Pro keeps a row for a year and Free for 90 days.
-    change_plan(session, organization, "free", because="subscription_ended")
-    session.commit()
-
-    def kept() -> set[int]:
-        session.expire_all()
-        return {row.detail["days_ago"] for row in rows(session) if "days_ago" in row.detail}
-
-    housekeeping(services.storage)
-    assert kept() == {200, 10}
-    organization.retention_held_until = datetime.now(UTC) - timedelta(minutes=1)
     session.commit()
     housekeeping(services.storage)
-    assert kept() == {10}
+    assert kept() == {("globex", 4000), ("globex", 100), ("globex", 10), ("acme", 10)}

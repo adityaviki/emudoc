@@ -19,7 +19,6 @@ from app.api.v1.chats import _Sent
 from app.api.v1.contract import TAGS, breaking_changes, contract, published
 from app.api.v1.deps import BAD_CURSOR, NO_KEY
 from app.apikeys import READ_ONLY_KEY, issue
-from app.billing import change_plan
 from app.check_runs import run_workflow
 from app.config import get_settings
 from app.db import engine
@@ -122,10 +121,9 @@ def test_the_api_is_called_with_a_key_alone(client, session, account, make_accou
     status = got(api, "/api/v1/status")
     assert status["models"] == {"available": True, "error": None}
     assert status["uploads"]["files"] == 100 and ".pdf" in status["uploads"]["extensions"]
-    # An organisation on a plan without the API is refused, as the page's routes refuse it.
-    free = program(client, key_for(session, make_account("eve@globex.com")))
-    plan = free.get("/api/v1/projects")
-    assert (plan.status_code, plan.json()["limit"]) == (402, "api_access")
+    # Any organisation's key is let in: nothing is held to a plan.
+    eve = program(client, key_for(session, make_account("eve@globex.com")))
+    assert eve.get("/api/v1/projects").status_code == 200
 
 
 def test_a_program_makes_lists_changes_and_deletes_projects(api, session):
@@ -745,7 +743,6 @@ def test_every_route_that_names_what_it_acts_on_is_tried(client, world):
 
 def test_another_organisations_key_finds_nothing(client, session, world, make_account):
     globex = make_account("eve@globex.com")
-    change_plan(session, globex.organization, "pro")
     eve = program(client, key_for(session, globex))
     assert got(eve, "/api/v1/projects")["data"] == []
     found = statuses(eve, scoped(world))

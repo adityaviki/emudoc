@@ -5,9 +5,8 @@ admin's included, are not found.
 
 Every route is behind the flag `my_files` (app/flags.py), and takes a session alone, never an API
 key, since a program has no files of its own here. Whoever sees the project keeps files there, a
-viewer too, as long as the organisation may hold more (`WriterDep`); copying one into the library
-adds a document, so it is held to what holds an upload (`EditorDep`, the plan's documents and
-storage, the sample project's refusal). Each change is a row of the organisation's audit log
+viewer too; copying one into the library adds a document, so it is held to what holds an upload
+(`EditorDep`, the sample project's refusal). Each change is a row of the organisation's audit log
 naming the file by its kind and id, never its name, which is its member's own.
 """
 
@@ -39,14 +38,12 @@ from app.api.deps import (
     ServicesDep,
     SessionDep,
     WorkerDep,
-    WriterDep,
     flagged,
     limited,
 )
 from app.api.documents import _draw_page, _drawn
 from app.api.folders import resolve_folder
 from app.audit import audit
-from app.entitlements import PlanRefused, Refusal, check_upload
 from app.flags import MY_FILES
 from app.models import Document, MyFile, MyFileVersion, Project
 from app.my_files import (
@@ -111,7 +108,7 @@ def list_files(project: ProjectDep, session: SessionDep, account: AccountDep):
 def upload_file(
     project: ProjectDep,
     file: Annotated[UploadFile, File()],
-    account: WriterDep,
+    account: AccountDep,
     services: ServicesDep,
     session: SessionDep,
     request: Request,
@@ -147,7 +144,7 @@ def get_file(file: MyFileDep, session: SessionDep):
 def rename_file(
     file: MyFileDep,
     body: MyFileRenameIn,
-    account: WriterDep,
+    account: AccountDep,
     session: SessionDep,
     request: Request,
 ):
@@ -165,7 +162,7 @@ def remove_file(
     request: Request,
 ):
     """Delete the file for good with every version; the page asks first, since nothing brings it
-    back. An organisation held to its plan may still delete, which only makes room."""
+    back."""
     _audit(session, account, request, "my_file_deleted", file)
     delete_file(session, services.storage, file)
     return Response(status_code=204)
@@ -180,7 +177,7 @@ def remove_file(
 def upload_version(
     file: MyFileDep,
     upload: Annotated[UploadFile, File(alias="file")],
-    account: WriterDep,
+    account: AccountDep,
     services: ServicesDep,
     session: SessionDep,
     request: Request,
@@ -193,7 +190,6 @@ def upload_version(
         version = add_version(
             session,
             services.storage,
-            account.organization,
             file,
             account.user.id,
             upload.file,
@@ -333,9 +329,6 @@ def _copied_as_document(
     data: io.BytesIO,
     body: MyFileCopyIn,
 ) -> Document:
-    organization = account.organization
-    if refusal := check_upload(session, organization):
-        raise PlanRefused(refusal)
     folder = resolve_folder(session, project, body.folder_id)
 
     def audited(document: Document, size: int) -> None:
@@ -353,7 +346,6 @@ def _copied_as_document(
         session,
         services.storage,
         project,
-        organization,
         folder.id if folder else None,
         [Incoming(file.name, [], data)],
         user_id=account.user.id,
@@ -361,8 +353,6 @@ def _copied_as_document(
     )
     if rejected:
         refused = rejected[0]
-        if refused.limit is not None:
-            raise PlanRefused(Refusal(refused.limit, refused.reason))
         raise HTTPException(409 if refused.duplicate_of else 400, refused.reason)
     if upload_id := record_upload(session, project.id, account.user.id, [documents[0].id]):
         session.commit()
@@ -401,7 +391,6 @@ def _copied_as_version(
             session,
             services.storage,
             project,
-            account.organization,
             document,
             file.name,
             data,
@@ -410,8 +399,6 @@ def _copied_as_version(
         )
     except VersionRefused as refused:
         session.rollback()
-        if refused.limit is not None:
-            raise PlanRefused(Refusal(refused.limit, refused.reason)) from None
         raise HTTPException(REFUSED.get(refused.label, 400), refused.reason) from None
     if upload_id := record_upload(session, project.id, account.user.id, [document.id]):
         session.commit()
@@ -526,8 +513,6 @@ def _served(version: MyFileVersion) -> MyFileVersion:
 
 
 def _refusal(refused: Refused) -> Exception:
-    if refused.limit is not None:
-        return PlanRefused(Refusal(refused.limit, refused.reason))
     return HTTPException(refused.status, refused.reason)
 
 

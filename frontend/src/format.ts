@@ -25,7 +25,7 @@ export function parsePipeTable(text: string): string[][] | null {
   return rows.length ? rows : null
 }
 
-/** A size in the unit that reads best, as the server words a plan's (`size_label` in backend/app/entitlements.py): 100 MB, 2.5 GB. */
+/** A size in the unit that reads best, as the server words one (`size_label` in backend/app/usage.py): 100 MB, 2.5 GB. */
 export function formatSize(bytes: number): string {
   for (const [unit, scale] of [['GB', 1e9], ['MB', 1e6], ['kB', 1e3]] as const) {
     if (bytes >= scale) {

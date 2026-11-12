@@ -3,20 +3,18 @@
 The organisation's trash holds its projects, a project's trash its folders and documents and
 the asker's own chats; each is reached through the account like what is live (app/api/deps.py),
 so another organisation's is not found, nor a private project's by a member not chosen for it.
-Anyone who sees a project reads its trash; a member or better restores from it, held to the plan
-as an upload is, since what comes back counts against it again, and deletes for good, which
-frees nothing the plan counts but removes the files. A chat is its starter's to restore or
+Anyone who sees a project reads its trash; a member or better restores from it and deletes for
+good, which removes the files. A chat is its starter's to restore or
 delete for good, whatever their role.
 """
 
 from fastapi import APIRouter, Request
-from sqlalchemy import ColumnElement, func, select
 
 from app.access import sees
 from app.api.chats import as_read, pinned_by
 from app.api.deps import (
     AccountDep,
-    DeletableProjectDep,
+    EditableProjectDep,
     EditorDep,
     ProjectDep,
     ServicesDep,
@@ -30,8 +28,6 @@ from app.api.deps import (
 from app.api.folders import held_by
 from app.api.projects import document_count, project_out
 from app.audit import audit
-from app.entitlements import PlanRefused, check_restore, stored_bytes
-from app.models import Document, Project
 from app.schemas import (
     ChatOut,
     DocumentOut,
@@ -90,14 +86,7 @@ def restore_trashed_project(
     worker: WorkerDep,
     request: Request,
 ):
-    """Take the project out of the trash with everything in it, if the plan has room for it."""
-    documents, size = _held(session, Document.project_id == project.id)
-    if not project.sample and (
-        refusal := check_restore(
-            session, account.organization, projects=1, documents=documents, size=size
-        )
-    ):
-        raise PlanRefused(refusal)
+    """Take the project out of the trash with everything in it."""
     restore_project(session, project)
     audit(
         session,
@@ -106,7 +95,7 @@ def restore_trashed_project(
         "project_restored",
         project_id=project.id,
         target=("project", project.id),
-        detail={"name": project.name, "documents": documents},
+        detail={"name": project.name, "documents": document_count(session, project)},
     )
     session.commit()
     if worker:
@@ -164,7 +153,7 @@ def project_trash(project: ProjectDep, session: SessionDep, account: AccountDep)
 
 @router.delete("/projects/{project_id}/trash", status_code=204)
 def empty_project_trash(
-    project: DeletableProjectDep,
+    project: EditableProjectDep,
     session: SessionDep,
     services: ServicesDep,
     account: AccountDep,
@@ -201,12 +190,6 @@ def restore_trashed_folder(
     """Take the folder out of the trash with what went with it, into its place or the nearest
     live folder above it, renamed when a live folder there took its name meanwhile."""
     ids, documents = went_with(session, folder)
-    project = session.get(Project, folder.project_id)
-    size = sum(document.size_bytes + document.versions_bytes for document in documents)
-    if not project.sample and (
-        refusal := check_restore(session, account.organization, documents=len(documents), size=size)
-    ):
-        raise PlanRefused(refusal)
     restore_folder(session, folder, ids, documents)
     audit(
         session,
@@ -253,16 +236,6 @@ def restore_trashed_document(
 ):
     """Take the document out of the trash, into its folder or the nearest live one above it,
     renamed when a live file there took its name meanwhile."""
-    project = session.get(Project, document.project_id)
-    if not project.sample and (
-        refusal := check_restore(
-            session,
-            account.organization,
-            documents=1,
-            size=document.size_bytes + document.versions_bytes,
-        )
-    ):
-        raise PlanRefused(refusal)
     restore_document(session, document)
     audit(
         session,
@@ -327,16 +300,6 @@ def purge_trashed_chat(
     _audit_purge(session, account, request, chat.project_id, "chat", chat.id)
     purge_chat(session, chat)
     session.commit()
-
-
-def _held(session: SessionDep, *conditions: ColumnElement[bool]) -> tuple[int, int]:
-    """How many live documents meet the conditions, and their bytes with their earlier
-    versions'."""
-    return session.execute(
-        select(func.count(Document.id), func.coalesce(func.sum(stored_bytes()), 0)).where(
-            *conditions, Document.deleted_at.is_(None)
-        )
-    ).one()
 
 
 def _audit_purge(

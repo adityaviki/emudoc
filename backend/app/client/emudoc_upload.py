@@ -97,8 +97,6 @@ NOT_INDEXED = "It could not be indexed."
 TRIES = 6
 MAX_WAIT = 60
 LONGEST_RETRY_AFTER = 3600
-# How long `watch` waits before it sends again once the plan has had no room.
-PLAN_PAUSE = 15 * 60
 # How many files a list in the output names before it counts the rest.
 NAMED = 20
 USER_AGENT = f"emudoc-upload Python/{platform.python_version()}"
@@ -112,10 +110,6 @@ class Unusable(Exception):
 
 class Unavailable(Exception):
     """Emudoc could not be reached, or could not answer just now: a reason that passes."""
-
-
-class PlanFull(Exception):
-    """The organisation's plan has no room for a document, in Emudoc's words."""
 
 
 class TooLarge(Exception):
@@ -271,8 +265,6 @@ class Api:
         if 200 <= response.status < 300:
             return response.json()
         said = detail(response)
-        if response.status == 402:
-            raise PlanFull(said)
         if response.status == 413:
             raise TooLarge(said)
         if response.status >= 500:
@@ -616,9 +608,6 @@ class Sent:
     refused: list[tuple[Local, str]] = field(default_factory=list)
     # Not sent, since they could not be read from the computer.
     unread: list[tuple[Local, str]] = field(default_factory=list)
-    # Not sent, or refused, for want of room in the plan, which `plan` says.
-    waiting: list[Local] = field(default_factory=list)
-    plan: str | None = None
     uploads: list[Upload] = field(default_factory=list)
     # The SHA-256 of each file read.
     digests: dict[Path, str] = field(default_factory=dict)
@@ -675,17 +664,9 @@ class Sender:
                 else:
                     sent.refused.append((loaded[0][0], str(error)))
                 continue
-            except PlanFull as error:
-                sent.plan = str(error)
-                sent.waiting.extend(local for local, _, _ in loaded)
-                sent.waiting.extend(local for rest in queue for local in rest)
-                return
             self._settle(loaded, result, sent)
             if self.state is not None:
                 self.state.save()
-            if sent.plan is not None:
-                sent.waiting.extend(local for rest in queue for local in rest)
-                return
 
     def _post(self, carried: list[list[str]], body: bytes, content_type: str) -> Any:
         """Emudoc's answer to the upload of the files `carried` names (each its folders, name
@@ -711,7 +692,7 @@ class Sender:
             if not before:
                 raise
             return self._post(carried, body, content_type)
-        except (Unusable, TooLarge, PlanFull):
+        except (Unusable, TooLarge):
             self._answered(key)
             raise
         # Without an answer (Emudoc out of reach, Ctrl+C) the key stays for the files sent again;
@@ -781,9 +762,6 @@ class Sender:
                 sent.present.append((local, refusal["reason"]))
                 if self.state is not None:
                     self.state.keep(digest, local.name, refusal["duplicate_of"])
-            elif refusal.get("limit") is not None:
-                sent.plan = refusal["reason"]
-                sent.waiting.append(local)
             else:
                 sent.refused.append((local, refusal["reason"]))
         if made:
@@ -905,8 +883,6 @@ def report(sent: Sent, left: Sequence[tuple[Local, str]]) -> list[str]:
     if sent.unread:
         lines.append(f"Could not read {_plural(len(sent.unread), 'file')}:")
         lines.extend(listed([(local.name, reason) for local, reason in sent.unread]))
-    if sent.waiting:
-        lines.append(f"{_plural(len(sent.waiting), 'file')} not sent: {sent.plan}")
     return lines
 
 
@@ -996,7 +972,7 @@ def send(
         for line in outcome(now, sent_words):
             say(line)
         failed = now.failed > 0
-    trouble = left or sent.refused or sent.unread or sent.waiting or unreadable or failed
+    trouble = left or sent.refused or sent.unread or unreadable or failed
     return 1 if trouble else 0
 
 
@@ -1020,7 +996,7 @@ def follow(
 class Watcher:
     """A folder looked at again and again: a file is sent once its size and time stayed the same
     from one look to the next, and each upload is followed until its documents are read. What
-    it cannot do now (Emudoc out of reach, the plan full) it tries again at a later look."""
+    it cannot do now (Emudoc out of reach) it tries again at a later look."""
 
     def __init__(
         self,
@@ -1044,9 +1020,8 @@ class Watcher:
         self.said: dict[Path, tuple[int, int]] = {}
         self.unreadable: set[str] = set()
         self.uploads: list[Upload] = []
-        self.paused_until = 0.0
 
-    def look(self, now: float) -> None:
+    def look(self) -> None:
         seen: dict[Path, tuple[int, int]] = {}
         ready: list[Local] = []
         for local in walk(self.folder.resolve(), (), self.skip, self._unreadable):
@@ -1062,7 +1037,7 @@ class Watcher:
         ready, left = screen(ready, self.sender.limits)
         for local, reason in left:
             self._once(local, f"Left out {local.name}: {reason}")
-        if ready and now >= self.paused_until:
+        if ready:
             sent = Sent()
             try:
                 self.sender.send(ready, sent)
@@ -1070,10 +1045,10 @@ class Watcher:
                 self.say(f"{error} Trying again at the next look.")
                 return
             finally:
-                self._heard(sent, now)
+                self._heard(sent)
         self._follow()
 
-    def _heard(self, sent: Sent, now: float) -> None:
+    def _heard(self, sent: Sent) -> None:
         """What a look's sending came to, said, and noted so that no later look sends a file
         again that Emudoc kept, held already or refused."""
         for local in [*sent.kept, *sent.before, *(local for local, _ in sent.present)]:
@@ -1091,12 +1066,6 @@ class Watcher:
             self.say(f"Refused {local.name}: {reason}")
         for local, reason in sent.unread:
             self._once(local, f"Could not read {local.name}: {reason}")
-        if sent.waiting:
-            self.paused_until = now + PLAN_PAUSE
-            again = clock_time(datetime.now() + timedelta(seconds=PLAN_PAUSE))
-            self.say(
-                f"{sent.plan} {_plural(len(sent.waiting), 'file')} waiting, tried again at {again}."
-            )
 
     def _once(self, local: Local, line: str) -> None:
         if self.said.get(local.path) != local.version:
@@ -1133,7 +1102,6 @@ def watch(
     arguments: argparse.Namespace,
     into: tuple[str, ...],
     printer: Printer,
-    clock: Callable[[], float],
 ) -> int:
     folder: Path = arguments.folder
     if not folder.is_dir():
@@ -1148,7 +1116,7 @@ def watch(
     )
     try:
         while True:
-            watcher.look(clock())
+            watcher.look()
             api.sleep(arguments.every)
     except KeyboardInterrupt:
         printer.say("Stopped watching.")
@@ -1225,7 +1193,6 @@ def main(
     transport: Transport | None = None,
     environ: Mapping[str, str] = os.environ,
     sleep: Callable[[float], None] = time.sleep,
-    clock: Callable[[], float] = time.monotonic,
     out: IO[str] | None = None,
     err: IO[str] | None = None,
 ) -> int:
@@ -1247,7 +1214,7 @@ def main(
         into = folders_of(arguments.into)
         if arguments.command == "send":
             return send(api, arguments, into, printer)
-        return watch(api, arguments, into, printer, clock)
+        return watch(api, arguments, into, printer)
     except (Unusable, Unavailable) as error:
         printer.fail(str(error))
         return 2

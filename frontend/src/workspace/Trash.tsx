@@ -1,11 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, FileText, Folder as FolderIcon, MessagesSquare, RotateCcw, Trash2, X } from 'lucide-react'
 import { useRef, useState } from 'react'
-import { api, isPlanLimit, mayChange } from '../api.ts'
-import type { PlanRefusal, Trashed } from '../api.ts'
-import { ME_KEY, useMe } from '../auth.ts'
+import { api, mayChange } from '../api.ts'
+import type { Trashed } from '../api.ts'
+import { useMe } from '../auth.ts'
 import { Confirm } from '../components/Confirm.tsx'
-import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, EmptyState, IconButton, Loading, Notice } from '../components/ui.tsx'
 import { formatDate } from '../format.ts'
 import { describeTrashed, emptyingQuestion, purgeQuestion, trashedName, trashKey } from '../trash.ts'
@@ -25,15 +24,14 @@ export function TrashView() {
   const changes = mayChange(useMe().role)
   const queryClient = useQueryClient()
   const trash = useQuery({ queryKey: trashKey(project.id), queryFn: () => api.projectTrash(project.id) })
-  // What the server refused: the plan's limit as the way past it, anything else as it said.
-  const [refused, setRefused] = useState<PlanRefusal | string | null>(null)
+  // What the server refused, as it said it.
+  const [refused, setRefused] = useState<string | null>(null)
   // What a deletion for good asks about while its dialog shows: one thing, or the whole trash.
   const [asking, setAsking] = useState<Trashed | 'all' | null>(null)
-  const fail = (error: Error) =>
-    setRefused(isPlanLimit(error) ? { message: error.message, limit: error.limit } : error.message)
-  // A restore puts things back into the library, the counts, the chats and the plan's figures.
+  const fail = (error: Error) => setRefused(error.message)
+  // A restore puts things back into the library, the counts and the chats.
   const settle = () => {
-    for (const queryKey of [trashKey(project.id), listingsKey(project.id), ['folders', project.id], ['project', project.id], ['chats', project.id], ME_KEY]) {
+    for (const queryKey of [trashKey(project.id), listingsKey(project.id), ['folders', project.id], ['project', project.id], ['chats', project.id]]) {
       void queryClient.invalidateQueries({ queryKey: [...queryKey] })
     }
   }
@@ -78,7 +76,7 @@ export function TrashView() {
         {trash.data && items.length > 0 && (
           <p className="text-xs text-muted">What is deleted waits here {trash.data.days} days, then is deleted for good.</p>
         )}
-        {typeof refused === 'string' && (
+        {refused && (
           <Notice tone="bad">
             <div className="flex items-start justify-between gap-3">
               <span>{refused}</span>
@@ -88,7 +86,6 @@ export function TrashView() {
             </div>
           </Notice>
         )}
-        {refused && typeof refused !== 'string' && <PlanLimitNotice refusal={refused} onDismiss={() => setRefused(null)} />}
         {trash.isPending && <Loading />}
         {trash.isError && <Notice tone="bad">Could not load the trash: {trash.error.message}</Notice>}
         {trash.data && items.length === 0 && (

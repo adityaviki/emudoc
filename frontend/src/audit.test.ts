@@ -324,8 +324,9 @@ describe('a row', () => {
     expect(setting({ setting: 'session_days', from: 7, to: null })).toBe('Sign in again: as Emudoc asks')
     expect(setting({ setting: 'mfa_required', from: false, to: true })).toBe('Two-factor sign-in required')
     expect(setting({ setting: 'mfa_required', from: true, to: false })).toBe('Two-factor sign-in no longer required')
-    expect(setting({ setting: 'notices', kind: 'quota', way: 'email', from: true, to: false })).toBe(
-      "The month's pages or questions run low, by email: off",
+    expect(setting({ setting: 'audit_days', from: 365, to: null })).toBe('Audit log kept: 365 days → until deleted')
+    expect(setting({ setting: 'notices', kind: 'checks_run', way: 'email', from: true, to: false })).toBe(
+      'An automation ran the cross-checks, by email: off',
     )
   })
 })

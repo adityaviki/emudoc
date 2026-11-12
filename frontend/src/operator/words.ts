@@ -60,16 +60,6 @@ export function workerStands(worker: Worker, takenAt: string): string {
   return `not seen for ${span(seconds(worker.last_seen_at, takenAt))}`
 }
 
-/** The figures a plan's form agrees with the organisation, as the server takes them: those written, but members on a plan sold by the seat, whose members are its seats. */
-export function agreedOf(written: Record<string, string>, byTheSeat: boolean): Record<string, string> {
-  const agreed: Record<string, string> = {}
-  for (const [name, words] of Object.entries(written)) if (words.trim() && !(byTheSeat && name === 'members')) agreed[name] = words.trim()
-  return agreed
-}
-
-/** The seats a plan's form buys: on a plan sold by the seat, the number written, or null for the plan's own members. */
-export const seatsOf = (written: string, byTheSeat: boolean) => (byTheSeat && written.trim() ? Number(written) : null)
-
 /** How far a feature flag is rolled out, as the `flags` command words it: to none, to every organisation, or to a share of them. */
 export function rolledOut(share: number): string {
   if (share === 0) return 'none'

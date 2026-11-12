@@ -484,9 +484,9 @@ describe('ask', () => {
     expect(answer.lost).toBeUndefined()
   })
 
-  it('shows a refusal of the question where the answer would be, a plan limit as such', async () => {
-    const limit = 'The Free plan allows 50 questions a month. Upgrade your plan to ask more.'
-    serve(json({ detail: limit, limit: 'questions_per_month' }, 402))
+  it('shows a refusal of the question where the answer would be', async () => {
+    const limit = 'Emudoc has reached its spending limit of USD 2.00 a day on models. The limit resets at midnight UTC; try again then.'
+    serve(json({ detail: limit }, 503))
     await through(ask(client, 1, 'Notice period?'))
 
     const [question, answer] = messages()
@@ -494,7 +494,6 @@ describe('ask', () => {
     expect(question.id).toBeUndefined()
     expect(answer).toMatchObject({
       error: limit,
-      refusedByPlan: { message: limit, limit: 'questions_per_month' },
       status: 'failed',
       thinking: false,
     })
@@ -557,13 +556,11 @@ describe('resume', () => {
 })
 
 describe('mayRetry', () => {
-  it('offers to try again an answer that was stopped or failed, not one lost, refused by the plan or finished', () => {
+  it('offers to try again an answer that was stopped or failed, not one lost or finished', () => {
     const answer = (change: Partial<Message>): Message => ({ ...answering, thinking: false, ...change })
     expect(mayRetry(answer({ status: 'stopped', notice: 'Stopped.' }))).toBe(true)
     expect(mayRetry(answer({ status: 'failed', error: 'The model is not answering.' }))).toBe(true)
     expect(mayRetry(answer({ status: 'failed', lost: true }))).toBe(false)
-    const refusal = { message: 'The Free plan allows 50 questions a month.', limit: 'questions_per_month' as const }
-    expect(mayRetry(answer({ status: 'failed', refusedByPlan: refusal }))).toBe(false)
     expect(mayRetry(answer({ status: 'done' }))).toBe(false)
     expect(mayRetry(answer({ status: 'streaming' }))).toBe(false)
     expect(mayRetry({ ...answer({ status: 'failed' }), role: 'user' })).toBe(false)
@@ -645,12 +642,6 @@ describe('retry', () => {
 
     expect(messages()[1]).toMatchObject({ content: 'Ninety', notice: 'Stopped.', error: busy, status: 'stopped', thinking: false })
     expect(mayRetry(messages()[1])).toBe(true)
-
-    const limit = 'The Free plan allows USD 1.00 of model use a day.'
-    serve(json({ detail: limit, limit: 'daily_spend_micros' }, 402))
-    await through(retry(client, 1))
-    expect(messages()[1]).toMatchObject({ content: 'Ninety', refusedByPlan: { message: limit, limit: 'daily_spend_micros' } })
-    expect(mayRetry(messages()[1])).toBe(false)
   })
 
   it('asks a question the server refused before saving it again', async () => {
@@ -683,7 +674,6 @@ describe('mayRegenerate and editableQuestion', () => {
     expect(editableQuestion(writing)).toBeNull()
     expect(mayRegenerate({ ...done[1], lost: true })).toBe(false)
     expect(editableQuestion([done[0], { ...done[1], lost: true }])).toBeNull()
-    expect(mayRegenerate({ ...done[1], refusedByPlan: { message: 'Used.', limit: 'questions_per_month' } })).toBe(false)
     expect(editableQuestion([])).toBeNull()
   })
 })
@@ -723,11 +713,11 @@ describe('regenerate', () => {
   })
 
   it('puts the question and the answer back as they were, with the refusal', async () => {
-    const limit = 'The Free plan answers 1 question a month.'
-    serve(json({ detail: limit, limit: 'questions_per_month' }, 402))
+    const limit = 'Emudoc has reached its spending limit of USD 2.00 a day on models.'
+    serve(json({ detail: limit }, 503))
     await through(regenerate(client, 1, 'What is the notice period?'))
     expect(messages()[0].content).toBe('Notice periud?')
-    expect(messages()[1]).toMatchObject({ content: 'Ninety', status: 'done', refusedByPlan: { message: limit, limit: 'questions_per_month' } })
+    expect(messages()[1]).toMatchObject({ content: 'Ninety', status: 'done', error: limit })
   })
 
   it('asks a question the server refused before saving it again, as edited', async () => {

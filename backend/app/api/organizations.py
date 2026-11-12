@@ -5,15 +5,15 @@ An install holds one workspace (S.1, 2026-11-12), the organisation every request
 (app/accounts.py), so these routes name no organisation: nobody starts another, switches,
 leaves, joins one by their address's domain, or deletes it, which would be the install itself.
 
-Renaming and the organisation's settings are for owners and admins. Renaming keeps the slug,
-which the operator's commands name the organisation by (`usage <slug>`, `plan <slug>`). The
-settings are the language its documents are searched in (app/languages.py), which moves the
-passages indexed before to it by a job; how long it keeps a chat, never longer than its plan
-does (app/retention.py); how its members are told each kind of notice until they choose
-for themselves (app/notices.py); and its security settings (app/security.py), whether everyone
-who works in it signs in with two-factor, which only someone who does may turn on, and how
-many days after signing in a session may work in it. Each change is a row of the audit log of
-its own. The owners and admins also see which members sign in with two-factor.
+Renaming and the organisation's settings are for owners and admins. Renaming keeps the slug, which
+the operator's commands name the organisation by (`usage <slug>`). The settings are the language its
+documents are searched in (app/languages.py), which moves the passages indexed before to it by a
+job; how long it keeps a chat (app/retention.py) and an entry of its audit log (app/audit.py), until
+deleted unless they choose a number of days; how its members are told each kind of notice until they
+choose for themselves (app/notices.py); and its security settings (app/security.py), whether
+everyone who works in it signs in with two-factor, which only someone who does may turn on, and how
+many days after signing in a session may work in it. Each change is a row of the audit log of its
+own. The owners and admins also see which members sign in with two-factor.
 
 Handing it over makes another member an owner and its owner an admin, confirmed as deleting the
 account is, by the password or the address typed out, since a browser left signed in should not
@@ -43,7 +43,6 @@ from app.api.auth import app_url, confirm_account, me_out
 from app.api.deps import AccountDep, SessionDep, limited
 from app.audit import audit
 from app.config import get_settings
-from app.entitlements import entitlements_of
 from app.languages import UNKNOWN_LANGUAGE, known_languages, language_of, queue_language
 from app.models import (
     ROLES,
@@ -105,15 +104,6 @@ OWNERS_RESET_OWNERS = "Only an owner can make a link that resets an owner's pass
 YOUR_OWN_PASSWORD = "Change your own password on your account page instead."
 
 
-def longer_than_plan(plan: str, days: int) -> str:
-    """What keeping chats longer than the organisation's plan does is refused with."""
-    return (
-        f"The {plan.title()} plan keeps a chat {days:,} days after its last question, so the "
-        f"organisation cannot keep one longer. Choose {days:,} days or fewer, or keep them as "
-        "long as the plan does."
-    )
-
-
 @router.patch("/organization", response_model=MeOut)
 def change_organization(
     body: OrganizationChangeIn, account: AccountDep, request: Request, session: SessionDep
@@ -136,12 +126,10 @@ def change_organization(
         organization.language = body.language
         if language_of(organization) != was:
             queue_language(session, organization.id)
-    if "chat_days" in given and body.chat_days != organization.chat_days:
-        kept = entitlements_of(organization).retention_days
-        if body.chat_days is not None and kept is not None and body.chat_days > kept:
-            raise HTTPException(400, longer_than_plan(organization.plan, kept))
-        changes.append(("settings_changed", _setting("chat_days", organization.chat_days, body)))
-        organization.chat_days = body.chat_days
+    for name in ("chat_days", "audit_days"):
+        if name in given and getattr(body, name) != getattr(organization, name):
+            changes.append(("settings_changed", _setting(name, getattr(organization, name), body)))
+            setattr(organization, name, getattr(body, name))
     for choice in body.notices or ():
         for way, on in ((IN_APP, choice.app), (BY_EMAIL, choice.email)):
             if on is not None and on != organization.tells(choice.kind, way):
@@ -304,8 +292,7 @@ def hand_over(body: OwnershipIn, account: AccountDep, request: Request, session:
 
 def locked(session: Session, org_id: int) -> Organization | None:
     """The organisation, held until the commit, so that requests that change who is in it, or
-    with what role, take their turns: two cannot both take the plan's last place, nor two
-    owners each other's role."""
+    with what role, take their turns: two owners cannot take each other's role."""
     return session.scalar(select(Organization).where(Organization.id == org_id).with_for_update())
 
 
@@ -400,7 +387,7 @@ def _member_out(membership: Membership, user: User, managing: bool = True) -> Me
 
 def _setting(name: str, was: object, body: OrganizationChangeIn) -> dict:
     """A setting's audit detail: what it was and what it is now, null for the deployment's or
-    the plan's."""
+    until deleted."""
     return {"setting": name, "from": was, "to": getattr(body, name)}
 
 

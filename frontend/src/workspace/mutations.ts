@@ -1,8 +1,5 @@
 // Every change the library makes. Renames and moves show at once and are undone if the server
-// refuses them; the lists are fetched again afterwards either way. A refusal by the plan (a full
-// plan, or an organisation past it and so read-only) is shown as the way past it, and a deletion
-// asks again what the organisation holds past its plan, since deleting is how it gets within it.
-// A deletion puts things in the project's trash (backend/app/trash.py). The library offers to
+// refuses them; the lists are fetched again afterwards either way. A deletion puts things in the project's trash (backend/app/trash.py). The library offers to
 // take back the last deletion, move or rename at once (changes.ts) through the mutation that made
 // it, so that an undo shows at once too and is put back if the server refuses it. An upload
 // goes in as many requests as the server's limits ask (uploads.ts), its progress kept apart for
@@ -12,9 +9,8 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
-import { Unreachable, api, isPlanLimit } from '../api.ts'
-import type { Document, DocumentDetailsInput, Folder, PlanRefusal, ReviewInput, UploadItem, UploadResult } from '../api.ts'
-import { ME_KEY } from '../auth.ts'
+import { Unreachable, api } from '../api.ts'
+import type { Document, DocumentDetailsInput, Folder, ReviewInput, UploadItem, UploadResult } from '../api.ts'
 import { factTablesKey } from '../factTable.ts'
 import { useStatus } from '../hooks.ts'
 import { unfinishedStages } from '../indexing.ts'
@@ -62,8 +58,6 @@ export function useLibraryMutations() {
   const workspace = useWorkspace()
   const projectId = workspace.project.id
   const [notice, setNotice] = useState<string | null>(null)
-  // A change the organisation's plan refused: shown as the way past its limit.
-  const [planLimit, setPlanLimit] = useState<PlanRefusal | null>(null)
   const [rejected, setRejected] = useState<UploadResult['rejected']>([])
   // The last deletion, move or rename, which the library offers to undo until the next one or a
   // dismissal.
@@ -77,8 +71,7 @@ export function useLibraryMutations() {
   const projectKey = ['project', projectId]
   // The upload the panel follows, whose documents may be indexed again or deleted.
   const uploadsKey = [...followedKey(projectId)]
-  const fail = (error: Error) =>
-    isPlanLimit(error) ? setPlanLimit({ message: error.message, limit: error.limit }) : setNotice(error.message)
+  const fail = (error: Error) => setNotice(error.message)
   const invalidate = (...keys: unknown[][]) => {
     for (const queryKey of keys) queryClient.invalidateQueries({ queryKey })
   }
@@ -185,10 +178,9 @@ export function useLibraryMutations() {
     onSettled: () => invalidate(foldersKey, documentsKey, openKey),
   })
 
-  // What a deletion and its undoing touch: the library, the counts, the open documents, the
-  // trash and what the organisation holds against its plan.
-  const afterTrash = () =>
-    invalidate(foldersKey, documentsKey, projectKey, openKey, uploadsKey, [...trashKey(projectId)], [...ME_KEY])
+  // What a deletion and its undoing touch: the library, the counts, the open documents and the
+  // trash.
+  const afterTrash = () => invalidate(foldersKey, documentsKey, projectKey, openKey, uploadsKey, [...trashKey(projectId)])
 
   const trashItems = useMutation({
     // A folder's documents that the library does not hold close their tabs once they are asked
@@ -347,8 +339,6 @@ export function useLibraryMutations() {
   return {
     notice,
     setNotice,
-    planLimit,
-    clearPlanLimit: () => setPlanLimit(null),
     rejected,
     clearRejected: () => setRejected([]),
     last,

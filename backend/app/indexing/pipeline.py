@@ -25,7 +25,6 @@ from app.conversion import Converter, queue_view
 from app.db import SessionLocal, connection_lost
 from app.details import hold_details, retitle, root_of, settle_details
 from app.embeddings import Embedder
-from app.entitlements import check_pages, text_pages
 from app.errors import AppError, shown, summary
 from app.extraction import Template, templates_for
 from app.fact_changes import facts_read, read_now
@@ -51,7 +50,6 @@ from app.locales import Writing, read_date, read_number, reading_line, writing_o
 from app.mail import Mailer
 from app.metrics import DOCUMENT_READY, INDEX_RUNS, PARSES, STAGE_RUNS, STAGE_SECONDS
 from app.models import STAGES, Block, Document, Fact, FactChange, Passage, Project, Section
-from app.notices import MONTH_PAGES, app_address, note_quota
 from app.parsing import (
     IMAGE_TYPES,
     PAGE_TYPES,
@@ -65,10 +63,20 @@ from app.parsing.limits import ParseLimits, PartsRead, parse_within_limits
 from app.parsing.types import ParsedDocument, clean_text
 from app.rendering import FOR_OCR, RenderError, renderer
 from app.scanning import NOT_SCANNED, UNSCANNED, Scanner, quarantine_message
-from app.spending import check_platform_spend, check_spend, day_of
+from app.spending import check_spend, day_of
 from app.storage import Storage
 from app.tracing import PARSE, STAGE, note
-from app.usage import DOCUMENT, EMBED, ENRICH, INFER_SECTIONS, OCR, UPLOAD, Meter, ModelUsage
+from app.usage import (
+    DOCUMENT,
+    EMBED,
+    ENRICH,
+    INFER_SECTIONS,
+    OCR,
+    UPLOAD,
+    Meter,
+    ModelUsage,
+    text_pages,
+)
 
 log = logging.getLogger(__name__)
 
@@ -191,12 +199,6 @@ class StageDeferred(PipelineError):
     def __init__(self, message: str, until: datetime):
         super().__init__(message, transient=True)
         self.until = until
-
-
-class PagesShort(PipelineError):
-    """What is left of the month's pages could not take the document (`check_pages`,
-    app/entitlements.py). The document fails as for any other refusal, and the organisation's
-    owners and admins are told with the stage's mark (app/notices.py)."""
 
 
 class StageSkipped(AppError):
@@ -474,9 +476,6 @@ def _run_stage(
             # The members read their own sentence, so the operator's is told here; the worker
             # tells one it runs again (app/worker.py).
             log.warning("Stage %s of document %s failed: %s", name, document_id, error)
-        if isinstance(error, PagesShort):
-            organization = document.project.organization
-            note_quota(session, organization, MONTH_PAGES, app_address(), refused=True)
         _set_stage(session, document, name, "failed", failure.detail, lease)
         return failure
     except Exception as error:
@@ -613,20 +612,13 @@ def _parse(session: Session, document: Document, services: Services, meter: Mete
             _parse_limits(),
             document.id,
             slot=PARSING.held,
-            progress=_refused_early(session, document),
+            progress=_refused_early,
         )
         # The pages are a measure of the upload, counted when the first parse learns how many
-        # there are; a parse run again for "Index again" brings nothing new in. The plan's
-        # month is checked before a scan is read, since reading it costs model calls.
+        # there are; a parse run again for "Index again" brings nothing new in.
         new_pages = 0 if _pages_counted(document) else _pages_of(parsed)
-        # The platform's ceiling on scanned pages comes before the plan's month: a document
-        # over it is refused whatever the plan, so an upgrade is not the answer.
         if reason := _too_many_scans(len(parsed.ocr_pages)):
             raise PipelineError(reason)
-        organization = document.project.organization
-        of_text = parsed.page_count is None
-        if refusal := check_pages(session, organization, new_pages, of_text=of_text):
-            raise PagesShort(refusal.sentence)
         blocks = parsed.blocks
         note = ""
 
@@ -667,9 +659,6 @@ def _parse(session: Session, document: Document, services: Services, meter: Mete
         for ordinal, block in enumerate(blocks)
     )
     meter.add(UPLOAD, "pages", new_pages)
-    if new_pages:
-        # Committed with the stage's mark, which the charge's record of the pages follows.
-        note_quota(session, organization, MONTH_PAGES, app_address(), adding=new_pages)
     document.page_count = parsed.page_count
     document.page_sizes = [[round(w, 2), round(h, 2)] for w, h in parsed.page_sizes]
     hold_details(session, document)
@@ -699,8 +688,9 @@ def _pages_counted(document: Document) -> bool:
 
 
 def _pages_of(parsed: ParsedDocument) -> int:
-    """The pages a document counts for against the month: a PDF's or an image's own, and for a
-    document without pages those of its text (`text_pages`), the blocks the parse found."""
+    """The pages a document counts as in its usage: a PDF's or an image's own, and for a
+    document without pages those of its text (`text_pages` in app/usage.py), the blocks the
+    parse found."""
     if parsed.page_count is not None:
         return parsed.page_count
     return text_pages(sum(len(block.text) for block in parsed.blocks))
@@ -729,9 +719,9 @@ def _queue_drawing_ahead(session: Session, document: Document) -> None:
 
 
 def _spending_limit(session: Session, document: Document) -> str | None:
-    """Why the day's spending limit, the platform's or the plan's, leaves no room for a model
-    call for this document, or None while it does (app/spending.py)."""
-    return check_platform_spend(session) or check_spend(session, document.project.organization)
+    """Why the day's spending cap leaves no room for a model call for this document, or None
+    while it does (app/spending.py)."""
+    return check_spend(session)
 
 
 def _wait_for_the_day(session: Session, document: Document) -> None:
@@ -753,28 +743,13 @@ def _too_many_scans(pages: int, *, so_far: bool = False) -> str | None:
     )
 
 
-def _refused_early(session: Session, document: Document) -> Callable[[PartsRead], None]:
-    """What a PDF read in parts checks after each part (app/parsing/limits.py): the refusals of
-    the stage that need no more than what the parts read so far show, its scanned pages over
-    OCR_MAX_PAGES and its pages more than the month has left, so that a file of thousands of
-    pages is not read for minutes to its end to be refused. The stage makes both again once the
+def _refused_early(read: PartsRead) -> None:
+    """What a PDF read in parts checks after each part (app/parsing/limits.py): its scanned
+    pages over OCR_MAX_PAGES, which the parts read so far show, so that a file of thousands of
+    pages is not read for minutes to its end to be refused. The stage checks again once the
     whole file is read."""
-    month_checked = False
-
-    def check(read: PartsRead) -> None:
-        nonlocal month_checked
-        if reason := _too_many_scans(read.scanned, so_far=read.read < read.page_count):
-            raise PipelineError(reason)
-        if not month_checked:
-            month_checked = True
-            new_pages = 0 if _pages_counted(document) else read.page_count
-            refusal = check_pages(session, document.project.organization, new_pages)
-            # The parts still to read take minutes, across which no transaction is held.
-            _done_reading(session)
-            if refusal:
-                raise PagesShort(refusal.sentence)
-
-    return check
+    if reason := _too_many_scans(read.scanned, so_far=read.read < read.page_count):
+        raise PipelineError(reason)
 
 
 def _parse_limits() -> ParseLimits:

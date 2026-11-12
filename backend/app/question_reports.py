@@ -5,9 +5,9 @@ together with the passages they cite and what made the set run.
 A report is made by the set's job (`run_question_set`) when its schedule or its arrivals are
 due, or by a member's press (app/api/question_sets.py), with its questions as they were and
 nothing answered, and a `write_question_report` job answers them one after another
-(`write_report`). Each question is counted as one of the month's questions as it is asked, held
-to the plan's questions and the day's spending first, as a member's is; a refusal answers it and
-every question after it with the sentence, and the report is kept with what was answered before.
+(`write_report`). Each question is counted as a question asked as it is asked, held to the
+day's spending first, as a member's is; a refusal answers it and every question after it with
+the sentence, and the report is kept with what was answered before.
 Each answer is kept under the job's lease as it is written, so a run lost to a dying worker
 starts again at the question it was in, which it asks again without counting it twice. The
 answers' model calls are recorded as `answer` usage of the report, whoever ran it.
@@ -39,19 +39,16 @@ from app.agent.loop import AGENT_PROMPTS, run_agent
 from app.answers import Reply
 from app.audit import audit_event
 from app.db import SessionLocal
-from app.entitlements import check_question, check_question_sets
 from app.flags import QUESTION_SETS, flag_on
 from app.indexing.pipeline import Services
 from app.jobs import LIVE, WRITE_QUESTION_REPORT, Lease, LeaseLost, enqueue, renew
 from app.mail import report_ready_email
 from app.models import Document, Project, QuestionReport, QuestionSet
 from app.notices import (
-    MONTH_QUESTIONS,
     PROJECT_PAGE,
     REPORT_READY,
     app_address,
     audience_of,
-    note_quota,
     tell,
 )
 from app.prompts import prompt_version
@@ -62,7 +59,7 @@ from app.question_sets import (
     schedule_words,
     take_arrivals,
 )
-from app.spending import check_platform_spend, check_spend
+from app.spending import check_spend
 from app.usage import ANSWER, QUESTION_REPORT, ModelUsage, record
 
 log = logging.getLogger(__name__)
@@ -191,7 +188,7 @@ def run_question_set(set_id: int, lease: Lease | None = None) -> str | None:
 
 def _make(session: Session, row: QuestionSet, trigger: str, landed: list[int]) -> None:
     """The report the set's job is due for, unless the set may not run now: off, its project in
-    the trash, the flag or the plan without it. What arrived goes with the job either way."""
+    the trash or the flag off. What arrived goes with the job either way."""
     project = session.get(Project, row.project_id)
     organization = project.organization
     live = set(
@@ -210,7 +207,6 @@ def _make(session: Session, row: QuestionSet, trigger: str, landed: list[int]) -
         not row.enabled
         or project.deleted_at is not None
         or not flag_on(organization, QUESTION_SETS)
-        or check_question_sets(organization) is not None
     ):
         log.info("Question set %s was due and not run: it may not run now", row.id)
         return
@@ -255,11 +251,10 @@ def write_report(report_id: int, services: Services, lease: Lease | None = None)
 
 
 def _next(report_id: int, lease: Lease | None) -> Asked | None:
-    """The report's next question to ask, counted as one of the month's questions as it is
-    marked asked, committed under the lease; None once none is left. One marked asked already,
-    by a run lost while it was asked, is asked again and not counted again. A question the plan,
-    the day's spending or the trash refuses ends failed with the sentence, and so does every one
-    after it."""
+    """The report's next question to ask, counted as a question asked as it is marked asked,
+    committed under the lease; None once none is left. One marked asked already, by a run lost
+    while it was asked, is asked again and not counted again. A question the day's spending or
+    the trash refuses ends failed with the sentence, and so does every one after it."""
     with SessionLocal() as session:
         report = session.scalar(
             select(QuestionReport).where(QuestionReport.id == report_id).with_for_update()
@@ -281,10 +276,7 @@ def _next(report_id: int, lease: Lease | None) -> Asked | None:
         organization = project.organization
         report.status = "running"
         if answers[index]["status"] == "queued":
-            refusal = PROJECT_GONE if project.deleted_at is not None else None
-            if refusal is None and (refused := check_question(session, organization)):
-                refusal = refused.sentence
-            refusal = refusal or check_platform_spend(session) or check_spend(session, organization)
+            refusal = PROJECT_GONE if project.deleted_at is not None else check_spend(session)
             if refusal is not None:
                 log.info("Report %s stopped asking: %s", report_id, refusal)
                 for entry in answers[index:]:
@@ -293,7 +285,7 @@ def _next(report_id: int, lease: Lease | None) -> Asked | None:
                 report.answers = answers
                 _commit(session, lease)
                 return None
-            # The plan's measure of the agent's runs, as a member's question counts.
+            # Counted as a member's question is.
             record(
                 session,
                 org_id=organization.id,
@@ -302,7 +294,6 @@ def _next(report_id: int, lease: Lease | None) -> Asked | None:
                 kind=ANSWER,
                 measures={"questions": 1},
             )
-            note_quota(session, organization, MONTH_QUESTIONS, app_address())
             answers[index]["status"] = "running"
             report.answers = answers
         asked = Asked(

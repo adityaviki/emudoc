@@ -47,10 +47,10 @@ describe('what an upload leaves out before sending', () => {
     expect(names(items)).toEqual(['a.pdf', 'Invoices/2026/c.MD'])
     const unsupported = 'Unsupported type. Use .csv, .docx, .eml, .heic, .heif, .htm, .html, .jpeg, .jpg, .md, .pdf, .png, .pptx, .rtf, .tif, .tiff, .txt, .webp, .xlsx, .zip.'
     expect(left).toEqual([
-      { filename: 'Invoices/locked.pdf', reason: 'Your browser could not read it from your computer.', limit: null },
-      { filename: 'Invoices/b.odt', reason: unsupported, limit: null },
-      { filename: 'Invoices/big.pdf', reason: 'Larger than 0 MB.', limit: null },
-      { filename: '.env', reason: unsupported, limit: null },
+      { filename: 'Invoices/locked.pdf', reason: 'Your browser could not read it from your computer.' },
+      { filename: 'Invoices/b.odt', reason: unsupported },
+      { filename: 'Invoices/big.pdf', reason: 'Larger than 0 MB.' },
+      { filename: '.env', reason: unsupported },
     ])
   })
 
@@ -88,7 +88,7 @@ describe('the requests of an upload', () => {
       // The second request keeps no file, and so is no upload on the server.
       return {
         documents: [],
-        rejected: [{ filename: batch[0].file.name, reason: 'No.', limit: null }],
+        rejected: [{ filename: batch[0].file.name, reason: 'No.' }],
         upload_id: sent.length === 1 ? 7 : null,
       }
     }, (state) => reports.push(state))
@@ -105,7 +105,7 @@ describe('the requests of an upload', () => {
 
   it('stop at the first that fails, which keeps what went in and the files not sent', async () => {
     const items = ['a', 'b', 'c', 'd', 'e'].map((name) => item(`${name}.md`))
-    const done: UploadResult = { documents: [], rejected: [{ filename: 'a.md', reason: 'No.', limit: null }], upload_id: 3 }
+    const done: UploadResult = { documents: [], rejected: [{ filename: 'a.md', reason: 'No.' }], upload_id: 3 }
     const refusal = new ApiError(429, 'Too many uploads.')
     const send = vi.fn().mockResolvedValueOnce(done).mockRejectedValueOnce(refusal)
     const stopped = await sendInBatches(items, limits, send, () => {}).catch((error: unknown) => error)

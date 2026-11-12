@@ -74,19 +74,6 @@ INBOUND_DOMAIN_FORM = (
     "INBOUND_DOMAIN is the domain of the projects' addresses, such as in.example.com, or empty "
     "for none"
 )
-STRIPE_PRICES_FORM = (
-    "STRIPE_PRICES lists the Stripe prices sold, as plan=price separated by commas, such as "
-    "pro=price_1Pro,team=price_1Team, each plan pro or team"
-)
-# The plans an organisation may buy for itself (app/billing.py holds them to app/entitlements.py):
-# Free is what every organisation has, and Enterprise's terms are agreed, not bought.
-SOLD_PLANS = ("pro", "team")
-# What a pack adds to an organisation's month (STRIPE_PACKS): pages indexed, or questions asked.
-PACK_UNITS = ("pages", "questions")
-STRIPE_PACKS_FORM = (
-    "STRIPE_PACKS lists the packs sold, as unit:amount=price separated by commas, such as "
-    "pages:1000=price_1Pages,questions:500=price_1Questions, each unit pages or questions"
-)
 CLAMD_PORT = 3310
 OPERATOR_NETWORKS_FORM = (
     "OPERATOR_NETWORKS lists the addresses the operator's area answers, as networks or single "
@@ -224,62 +211,14 @@ def parse_model_prices(text: str) -> dict[str, ModelPrice]:
     return prices
 
 
-@lru_cache
-def parse_stripe_prices(text: str) -> dict[str, list[str]]:
-    """The prices STRIPE_PRICES lists, by plan, in the order listed: the first of each is what
-    Checkout sells."""
-    prices: dict[str, list[str]] = {}
-    seen: set[str] = set()
-    for entry in filter(None, (part.strip() for part in text.split(","))):
-        plan, equals, price = (part.strip() for part in entry.partition("="))
-        if not equals or plan not in SOLD_PLANS or not re.fullmatch(r"[A-Za-z0-9_]+", price):
-            raise ValueError(f"{STRIPE_PRICES_FORM}; {entry!r} is not of that form.")
-        if price in seen:
-            raise ValueError(f"{STRIPE_PRICES_FORM}; {price} is listed twice.")
-        seen.add(price)
-        prices.setdefault(plan, []).append(price)
-    return prices
-
-
-class Pack(NamedTuple):
-    """A pack of STRIPE_PACKS: how many pages or questions it adds to the month it is paid in,
-    and the Stripe price it is sold at, a one-time one."""
-
-    unit: str
-    quantity: int
-    price: str
-
-
-@lru_cache
-def parse_stripe_packs(text: str) -> tuple[Pack, ...]:
-    """The packs STRIPE_PACKS lists, in the order listed."""
-    packs: list[Pack] = []
-    for entry in filter(None, (part.strip() for part in text.split(","))):
-        size, equals, price = (part.strip() for part in entry.partition("="))
-        unit, colon, amount = (part.strip() for part in size.partition(":"))
-        if (
-            not (equals and colon)
-            or unit not in PACK_UNITS
-            or not (amount.isascii() and amount.isdecimal() and int(amount) > 0)
-            or not re.fullmatch(r"[A-Za-z0-9_]+", price)
-        ):
-            raise ValueError(f"{STRIPE_PACKS_FORM}; {entry!r} is not of that form.")
-        if any(pack.price == price for pack in packs):
-            raise ValueError(f"{STRIPE_PACKS_FORM}; {price} is listed twice.")
-        if any(pack[:2] == (unit, int(amount)) for pack in packs):
-            raise ValueError(f"{STRIPE_PACKS_FORM}; {unit}:{amount} is listed twice.")
-        packs.append(Pack(unit, int(amount), price))
-    return tuple(packs)
-
-
 class Settings(BaseSettings):
     """How this process runs, read once from the environment and `.env` and shared.
 
     These are read as the app is imported (`app/db.py` builds the engine from them, `app/models.py`
     sizes the vector column) and cached for the life of the process, so they can only hold what
     is the same for every organisation the process serves. Anything that varies per organisation,
-    such as a plan, a quota or a bring-your-own model key, belongs in a table read through the
-    account of the request, never here.
+    such as a setting its owners and admins choose, belongs in a table read through the account
+    of the request, never here.
     """
 
     model_config = SettingsConfigDict(env_file=ENV_FILE, extra="ignore")
@@ -364,8 +303,7 @@ class Settings(BaseSettings):
     # characters of text one document may hold. The text is what every later stage pays for, the
     # worker holding it, its passages written, indexed and embedded (a passage is some 1,200 to
     # 2,000 characters), so a file over it is refused before the child replies. Zero removes a
-    # limit. These are the ceiling for every organisation; a cap that differs by plan is an
-    # entitlement, read per account. A PDF's pages take the time one after another, about a
+    # limit. A PDF's pages take the time one after another, about a
     # tenth of a second each, so a PDF of more pages than PARSE_PART_PAGES is read that many
     # pages a child, each within the limits, and the document made of the parts by one more;
     # zero reads every PDF in one child.
@@ -403,8 +341,8 @@ class Settings(BaseSettings):
     # enrich.py, a request for each 40,000 characters and one to roll them up): a longer
     # document is summarised from its start as far as they reach, and its enrich stage says
     # how far, rather than refused, since everything is searched without them. The day's
-    # spending limits are checked before the stage, so this is the most a document can spend
-    # past them. Zero removes the limit.
+    # spending cap is checked before the stage, so this is the most a document can spend
+    # past it. Zero removes the limit.
     enrich_max_requests: int = Field(default=50, ge=0)
 
     # The model behind structure inference, summaries, facts, OCR and the agent, as
@@ -432,17 +370,14 @@ class Settings(BaseSettings):
     # INDEX_MODEL and EMBEDDING_MODEL name them, in PRICE_CURRENCY (an ISO 4217 code). Empty,
     # no cost is recorded. An embedding model is priced for the tokens it is sent as the
     # endpoint reports them, so its price out is 0; an endpoint that reports none costs
-    # nothing. The prices are what the platform pays its providers, the same for every
-    # organisation; what an organisation is charged is its plan's business.
+    # nothing. The prices are what the install pays its providers.
     model_prices: str = ""
     price_currency: str = Field(default="USD", pattern=r"^[A-Z]{3}$")
     # What every organisation together may spend on models in one UTC day, in PRICE_CURRENCY,
     # by the costs the usage rows carry (app/spending.py): past it, every question is refused
     # with 503 until midnight UTC and every indexing stage that needs a model waits for it.
-    # Zero is no limit. The limit that differs by plan is an entitlement
-    # (app/entitlements.py); this is the platform's own ceiling, the most the operator will
-    # see on the providers' bills for one day. It counts nothing without MODEL_PRICES, so
-    # production refuses the one without the other.
+    # Zero is no limit. It is the most the providers' bills show for one day. It counts nothing
+    # without MODEL_PRICES, so production refuses the one without the other.
     daily_spend_cap: Decimal = Field(default=Decimal(0), ge=0)
     # The kill switch: the model providers switched off, by the prefix of a provider:model
     # name, separated by commas (DISABLED_PROVIDERS=google,anthropic). A model of one cannot
@@ -554,8 +489,7 @@ class Settings(BaseSettings):
     # worker answers ANSWER_CONCURRENCY of them at a time, shared between the organisations
     # (app/jobs.py), so the cap bounds how long a question waits without letting one
     # organisation keep the others waiting; the question past it is refused with 429 and asked
-    # again in a moment (app/api/chats.py). It is the same for every organisation; a cap that
-    # differs by plan is an entitlement, read per account.
+    # again in a moment (app/api/chats.py).
     max_answers: int = Field(default=20, ge=1)
     # The longest question, in characters. A question goes to the model whole with every turn
     # of its answer, so one that is pasted rather than asked is refused with 413 and asked to
@@ -566,8 +500,7 @@ class Settings(BaseSettings):
     # (sign-in, sign-up, the reset and verification mails, the authenticator code), which has
     # no user yet, per email address named and, with more room since an office shares one,
     # per client address. The request past a rate is refused with 429 and the seconds until
-    # the minute ends. Zero removes a limit. They are the same for every organisation; a
-    # rate that differs by plan is an entitlement.
+    # the minute ends. Zero removes a limit.
     rate_uploads: int = Field(default=20, ge=0)
     rate_questions: int = Field(default=20, ge=0)
     rate_searches: int = Field(default=120, ge=0)
@@ -586,9 +519,6 @@ class Settings(BaseSettings):
     # Messages an hour per member to support (app/api/help.py): each is a mail to
     # SUPPORT_EMAIL, which nothing else holds a script back from filling.
     rate_feedback: int = Field(default=10, ge=0)
-    # Requests a minute per member to billing (app/api/billing.py): each starts a Checkout or a
-    # customer portal session at Stripe, or reads one back.
-    rate_billing: int = Field(default=10, ge=0)
     # Files a minute per member of a project's facts table (app/fact_export.py), each reading
     # every row the table's conditions keep, as many as fifty of its pages, and of its drafts
     # (app/draft_export.py), answers and chats (app/chat_export.py), each laid out whole.
@@ -617,7 +547,7 @@ class Settings(BaseSettings):
     # Whether the organisation an account signs up with starts with the sample project
     # (app/sample): Emudoc's own documents of one supplier, indexed already, with three
     # questions to ask about them, so that a new member's first answer waits for no upload or
-    # model. It counts against nothing the plan holds; its questions count as any do.
+    # model. Its questions are counted as any are.
     sample_project: bool = True
     # Where the app is reached, for the links in emails and the OAuth redirect URI. Empty takes
     # the origin of the request that needs it, which is right in development.
@@ -660,34 +590,6 @@ class Settings(BaseSettings):
     # (deploying.md, "The encryption keys"). Empty is development's own key, which is in the
     # code and which production refuses.
     encryption_keys: str = ""
-
-    # Billing through Stripe (app/billing.py; deploying.md, "Billing"): the account's secret key,
-    # sk_live_… (sk_test_… on staging), or a restricted rk_… one, and the signing secret, whsec_…,
-    # of the webhook endpoint that sends Stripe's events to {APP_URL}/api/billing/events. Both
-    # are secrets. Empty, nothing is sold: the organisation page offers no plan, and the
-    # operator's `plan` command is how an organisation moves.
-    stripe_secret_key: str = ""
-    stripe_webhook_secret: str = ""
-    # The Stripe prices sold, as plan=price separated by commas, a plan pro or team: the first of
-    # each plan is what Checkout sells, and every one listed is read back as its plan, so a
-    # yearly price or one in another currency that the customer portal may switch to goes here
-    # too. Team's is a price per seat, the subscription's quantity its seats.
-    stripe_prices: str = ""
-    # The packs sold, as unit:amount=price separated by commas, the unit pages or questions and
-    # the price a one-time one: each adds its amount to the organisation's allowance for the
-    # calendar month in UTC it is paid in, on top of its plan's, for an organisation that wants
-    # more this month without a larger plan.
-    stripe_packs: str = ""
-    # The days of trial an organisation's first subscription starts with, charged only at its
-    # end; zero starts none.
-    stripe_trial_days: int = Field(default=14, ge=0)
-    # Whether Checkout works out the tax due where the buyer is (Stripe Tax), which needs the
-    # deployment's tax registrations in Stripe's dashboard first.
-    stripe_tax: bool = False
-    # The days a subscription whose payment failed keeps its plan while Stripe tries again and
-    # the owners are told; past them the organisation moves to the Free plan, keeping all it
-    # holds, until the payment is made. Zero moves it at the first failure.
-    billing_grace_days: int = Field(default=14, ge=0)
 
     # The mail the app sends (deploying.md, "Mail"): through Resend's API with RESEND_API_KEY
     # (re_…), else through the SMTP relay SMTP_URL names, smtp://user:pass@host:587 (STARTTLS)
@@ -817,35 +719,7 @@ class Settings(BaseSettings):
         parse_model_prices(value)
         return value
 
-    @field_validator("stripe_prices")
-    @classmethod
-    def _lists_stripe_prices(cls, value: str) -> str:
-        parse_stripe_prices(value)
-        return value
-
-    @field_validator("stripe_packs")
-    @classmethod
-    def _lists_stripe_packs(cls, value: str) -> str:
-        parse_stripe_packs(value)
-        return value
-
-    @model_validator(mode="after")
-    def _a_price_sells_one_thing(self) -> "Settings":
-        # A plan's price is a recurring one and a pack's a one-time one: one listed as both
-        # would be read back as the plan whatever was bought.
-        plans = {
-            price for prices in parse_stripe_prices(self.stripe_prices).values() for price in prices
-        }
-        if shared := sorted(plans & {pack.price for pack in parse_stripe_packs(self.stripe_packs)}):
-            raise ValueError(
-                f"STRIPE_PRICES and STRIPE_PACKS both list {', '.join(shared)}; a plan's price "
-                "recurs and a pack's is paid once, so each is another price."
-            )
-        return self
-
     @field_validator(
-        "stripe_secret_key",
-        "stripe_webhook_secret",
         "resend_api_key",
         "resend_webhook_secret",
         "google_drive_client_secret",
@@ -876,16 +750,6 @@ class Settings(BaseSettings):
         """Where members write to for help: SUPPORT_EMAIL, else OPERATOR_EMAIL; empty for
         none, which only development runs with."""
         return self.support_email or self.operator_email
-
-    @property
-    def stripe_plans(self) -> dict[str, list[str]]:
-        """The Stripe prices sold, by plan (STRIPE_PRICES); empty while billing is off."""
-        return parse_stripe_prices(self.stripe_prices) if self.stripe_secret_key else {}
-
-    @property
-    def packs(self) -> tuple[Pack, ...]:
-        """The packs sold (STRIPE_PACKS); none while billing is off."""
-        return parse_stripe_packs(self.stripe_packs) if self.stripe_secret_key else ()
 
     @property
     def prices(self) -> dict[str, ModelPrice]:
@@ -1260,7 +1124,6 @@ class Settings(BaseSettings):
                 f"DAILY_SPEND_CAP is set, but MODEL_PRICES has no price for {listing(unpriced)}, "
                 "so what it answers would count nothing against the cap; add its price."
             )
-        problems += self._billing_problems()
         problems += self._mail_problems()
         if self.connector_base_url:
             problems.append(
@@ -1304,47 +1167,10 @@ class Settings(BaseSettings):
             )
         return problems
 
-    def _billing_problems(self) -> list[str]:
-        """What stops billing from working, once any of its settings is given: Checkout needs
-        the key and something to sell, and nothing bought reaches the app without the webhook's
-        secret. Neither key is quoted, nor its start beyond its kind."""
-        given = (self.stripe_webhook_secret, self.stripe_prices, self.stripe_packs)
-        if not (self.stripe_secret_key or any(given)):
-            return []
-        problems = []
-        if not self.stripe_secret_key:
-            problems.append(
-                "STRIPE_WEBHOOK_SECRET, STRIPE_PRICES or STRIPE_PACKS is set, but "
-                "STRIPE_SECRET_KEY is not, so nothing can be sold; set the Stripe account's "
-                "secret key, or remove the others."
-            )
-        elif not self.stripe_secret_key.startswith(("sk_", "rk_")):
-            problems.append(
-                "STRIPE_SECRET_KEY is not a secret key, which starts sk_ (or rk_ for a "
-                "restricted one); the publishable key, pk_, cannot sell anything."
-            )
-        if not self.stripe_webhook_secret:
-            problems.append(
-                "STRIPE_WEBHOOK_SECRET is not set, so what is bought would never reach the app: "
-                "make the webhook endpoint {APP_URL}/api/billing/events in Stripe's dashboard and "
-                'set its signing secret (deploying.md, "Billing").'
-            )
-        elif not self.stripe_webhook_secret.startswith("whsec_"):
-            problems.append(
-                "STRIPE_WEBHOOK_SECRET is not a webhook endpoint's signing secret, which starts "
-                "whsec_."
-            )
-        if not self.stripe_prices:
-            problems.append(
-                "STRIPE_PRICES is not set, so there is nothing to sell; list the prices of the "
-                "Pro and Team plans, as pro=price_…,team=price_…."
-            )
-        return problems
-
     @property
     def unpriced_models(self) -> list[str]:
         """The models MODEL_PRICES has no price for, each as "VARIABLE provider:model": what
-        they answer costs nothing the spending limits count (app/spending.py)."""
+        they answer costs nothing the daily spending cap counts (app/spending.py)."""
         return [
             f"{model.variable} {model.name}"
             for model in self.models

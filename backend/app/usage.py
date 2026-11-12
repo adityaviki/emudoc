@@ -1,5 +1,4 @@
-"""Usage metering: what each organisation used, recorded as it happens, for its quotas and
-its bill.
+"""Usage metering: what the workspace used, recorded as it happens, and what it cost.
 
 Every row of `usage_events` is one measure of one thing an organisation did. A row names the
 activity (`kind`), what was measured (`unit`) and how much (`quantity`), who did it (the
@@ -8,8 +7,8 @@ prompts it was asked with (`prompt_version`, app/prompts.py), and what it was fo
 `ref_id`: a chat message, a document), so that a figure on a bill can be traced to its cause.
 The kinds (USAGE_KINDS in app/models.py) are an answer's model calls (`answer`, recorded by
 `answer` in app/answers.py) and the question it answers (`answer` in `questions`,
-one a question, by the ask route in app/api/chats.py, with no reference: it is what the plan
-counts, and it stays when its chat is deleted), what an upload brought in (`upload`: its
+one a question, by the ask route in app/api/chats.py, with no reference: it stays when its chat
+is deleted), what an upload brought in (`upload`: its
 bytes, by the request in app/api/documents.py, and its pages, by the first parse), the model
 calls of the indexing stages (`ocr` with the pages it read, `infer_sections`, `enrich`), the
 texts embedded (`embed`, with the tokens the endpoint says they took), the pages rendered
@@ -17,7 +16,7 @@ for the viewer (`render`: the member's by app/api/documents.py, the organisation
 first pages drawn ahead by app/rendering.py), and the model calls of a discrepancy report the
 agent writes from a run of cross-checks (`report`, by app/check_runs.py) and of a draft it
 writes (`draft`, by app/drafts.py), whose asking counts as a question (`answer` in `questions`,
-by app/api/check_runs.py and app/api/drafts.py), what the plan holds the agent's runs to. The
+by app/api/check_runs.py and app/api/drafts.py). The
 kind `suggestions` is the model calls that wrote a project's suggested questions until
 2026-11-11, when an empty chat stopped offering any: nothing records it now, and its rows stay,
 being what those calls cost.
@@ -26,7 +25,7 @@ The code that spent something records it, from what it counted, when its work en
 ends: a stop, a lost lease or a crash ends an answer's run too, and the calls it made were
 made; a stage that failed halfway through its pages made the calls before. So every run is
 counted once, and work that a lost worker's successor started over is counted for both runs,
-which is what the platform paid for. A `Meter` gathers a run's counts by kind for that
+which is what the install paid for. A `Meter` gathers a run's counts by kind for that
 (app/indexing/pipeline.py fills one per document run and records it at the end of every
 stage).
 
@@ -42,11 +41,12 @@ named, and the cost summed when any row has one. `record` adds to it as it adds 
 the same transaction, so the two never drift apart.
 
 `daily` is the rollup: an organisation's quantities and costs per day in UTC, by kind and
-unit, which is what a quota or an invoice reads. It is a query over the events, which is
-enough until their number says otherwise; a stored table would then go behind the same
-function. The `usage` command (app/maintenance.py) prints it. `metered` is the part of it a
-plan counts against the month, the pages the uploads brought in and the questions asked, per
-day or per month, for the usage page (app/api/usage.py).
+unit. It is a query over the events, which is enough until their number says otherwise; a
+stored table would then go behind the same function. The `usage` command (app/maintenance.py)
+prints it. `metered` is what the usage page (app/api/usage.py) reads of it, per day or per
+month: the pages the uploads brought in, the questions asked, and what all the work cost.
+`holdings` is what the workspace holds now beside it: its projects, its documents and their
+bytes, and its members.
 
 `organization_costs` and `model_costs` are the platform's side of the same rows: what each
 organisation's work cost over a span of days, costliest first, with the days that make it up,
@@ -64,11 +64,23 @@ from decimal import Decimal
 from typing import Any, Literal
 
 from pydantic_ai.usage import RequestUsage, RunUsage
-from sqlalchemy import text
+from sqlalchemy import ColumnElement, func, select, text
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.models import ChatMessage, Document, Draft, QuestionReport, UsageEvent, WorkflowRun
+from app.models import (
+    ChatMessage,
+    Document,
+    Draft,
+    Invitation,
+    Membership,
+    MyFile,
+    MyFileVersion,
+    Project,
+    QuestionReport,
+    UsageEvent,
+    WorkflowRun,
+)
 
 USAGE_COMMAND = "uv run python -m app.maintenance usage"
 # The kinds the app records, and what it records them for.
@@ -85,6 +97,28 @@ CHAT_MESSAGE = "chat_message"
 DOCUMENT = "document"
 WORKFLOW_RUN = "workflow_run"
 QUESTION_REPORT = "question_report"
+MB = 1_000_000
+GB = 1_000 * MB
+MONTHS = (
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+)
+# A document without pages (a Word file, a sheet, a text file) counts as a page for every
+# CHARS_PER_PAGE characters of its text begun, about what a page of a report holds, so that the
+# usage page's pages say how much was indexed of every kind of file alike.
+CHARS_PER_PAGE = 3_000
+# What the workspace holds at any moment, as against what it uses in a month.
+HELD = ("projects", "documents", "storage_bytes", "members")
 # The row a reference names, which carries the usage recorded for it. A draft's usage is
 # referenced by the kind's own name.
 _REFERENCED = {
@@ -105,15 +139,18 @@ _DAILY = text(
     ORDER BY day, kind, unit
     """
 )
-# The two measures a plan counts against its month (app/entitlements.py), per UTC day or month.
+# What the usage page reads per UTC day or month: the pages the uploads brought in, the
+# questions asked, and what all the work cost, null while no row of the period has a cost.
 _METERED = text(
     """
     SELECT date_trunc(:period, occurred_at AT TIME ZONE 'UTC')::date AS start,
-           coalesce(sum(quantity) FILTER (WHERE kind = 'upload'), 0)::bigint AS pages,
-           coalesce(sum(quantity) FILTER (WHERE kind = 'answer'), 0)::bigint AS questions
+           coalesce(sum(quantity) FILTER (WHERE kind = 'upload' AND unit = 'pages'), 0)::bigint
+               AS pages,
+           coalesce(sum(quantity) FILTER (WHERE kind = 'answer' AND unit = 'questions'), 0)
+               ::bigint AS questions,
+           sum(cost_micros)::bigint AS cost_micros
     FROM usage_events
     WHERE org_id = :org_id AND occurred_at >= :since AND occurred_at < :until
-      AND (kind, unit) IN (('upload', 'pages'), ('answer', 'questions'))
     GROUP BY start
     """
 )
@@ -467,26 +504,28 @@ def daily(session: Session, org_id: int, since: date, until: date) -> list[Daily
 
 @dataclass(frozen=True)
 class Metered:
-    """What a plan counts against the month, over one UTC day or month: the pages the
-    organisation's uploads brought in (the first parse of each, as `upload` in `pages`) and
-    the questions it asked (`answer` in `questions`)."""
+    """What the organisation used over one UTC day or month: the pages its uploads brought in
+    (the first parse of each, as `upload` in `pages`), the questions it asked (`answer` in
+    `questions`), and what all its work cost."""
 
     # The day, or the first of the month.
     start: date
     pages: int
     questions: int
+    # None while no row of the period has a cost.
+    cost_micros: int | None = None
 
 
 def metered(
     session: Session, org_id: int, since: date, until: date, period: Literal["day", "month"]
 ) -> list[Metered]:
-    """The organisation's pages and questions per `period` from the one `since` falls in to
-    the one `until` falls in, in UTC, every one of them, the oldest first: a day or a month of
-    neither is there with nothing."""
+    """The organisation's pages, questions and costs per `period` from the one `since` falls in
+    to the one `until` falls in, in UTC, every one of them, the oldest first: a day or a month
+    of nothing is there with nothing."""
     first = _period_of(since, period)
     found = {
-        start: Metered(start, pages, questions)
-        for start, pages, questions in session.execute(
+        start: Metered(start, pages, questions, cost)
+        for start, pages, questions, cost in session.execute(
             _METERED,
             {"org_id": org_id, "period": period, **_span(first, _last_day(until, period))},
         )
@@ -496,6 +535,99 @@ def metered(
         starts.append(first)
         first = _next_period(first, period)
     return [found.get(start, Metered(start, 0, 0)) for start in starts]
+
+
+def month_of(now: datetime | None = None) -> tuple[datetime, datetime]:
+    """The start of the current calendar month in UTC, and the start of the next."""
+    now = now or datetime.now(UTC)
+    start = datetime(now.year, now.month, 1, tzinfo=UTC)
+    following = datetime(start.year + (start.month == 12), start.month % 12 + 1, 1, tzinfo=UTC)
+    return start, following
+
+
+def text_pages(characters: int) -> int:
+    """The pages a document without pages counts as, by the characters of its text: one for
+    every CHARS_PER_PAGE begun."""
+    return -(-characters // CHARS_PER_PAGE)
+
+
+def holdings(session: Session, org_id: int) -> dict[str, int]:
+    """What the organisation holds now, by the names of HELD: its projects, its documents and
+    their bytes, and its members with the open invitations. The sample project (app/sample)
+    and what is in the trash (app/trash.py) are left out, as the usage page says."""
+    count, held = session.execute(
+        select(func.count(Document.id), func.coalesce(func.sum(stored_bytes()), 0))
+        .join(Project, Project.id == Document.project_id)
+        .where(*_live_documents(org_id), Project.sample.is_(False))
+    ).one()
+    projects = session.scalar(
+        select(func.count())
+        .select_from(Project)
+        .where(Project.org_id == org_id, Project.sample.is_(False), Project.deleted_at.is_(None))
+    )
+    members = session.scalar(
+        select(func.count()).select_from(Membership).where(Membership.org_id == org_id)
+    )
+    invited = session.scalar(
+        select(func.count())
+        .select_from(Invitation)
+        .where(Invitation.org_id == org_id, Invitation.expires_at > func.now())
+    )
+    return {
+        "projects": projects,
+        "documents": count,
+        "storage_bytes": held + my_files_bytes(session, org_id),
+        "members": members + invited,
+    }
+
+
+def my_files_bytes(session: Session, org_id: int) -> int:
+    """The bytes of every version in the organisation's members' My files (app/my_files.py),
+    which its storage holds beside its documents', those of a project in the trash left out as
+    its documents are."""
+    return session.scalar(
+        select(func.coalesce(func.sum(MyFileVersion.size_bytes), 0))
+        .join(MyFile, MyFile.id == MyFileVersion.file_id)
+        .join(Project, Project.id == MyFile.project_id)
+        .where(MyFile.org_id == org_id, Project.deleted_at.is_(None))
+    )
+
+
+def stored_bytes() -> ColumnElement[int]:
+    """What a document holds in the storage: its file and its earlier versions'
+    (app/versions.py)."""
+    return Document.size_bytes + Document.versions_bytes
+
+
+def sample_documents(session: Session, org_id: int) -> int:
+    """How many documents the organisation's sample project holds, which the usage page leaves
+    out (app/sample); 0 once it is deleted."""
+    return session.scalar(
+        select(func.count(Document.id))
+        .join(Project, Project.id == Document.project_id)
+        .where(*_live_documents(org_id), Project.sample.is_(True))
+    )
+
+
+def _live_documents(org_id: int) -> tuple:
+    return (
+        Project.org_id == org_id,
+        Project.deleted_at.is_(None),
+        Document.deleted_at.is_(None),
+    )
+
+
+def size_label(size: int) -> str:
+    """A size in the unit that reads best: 100 MB, 2.5 GB, 12 kB."""
+    for unit, scale in (("GB", GB), ("MB", MB), ("kB", 1_000)):
+        if size >= scale:
+            value = size / scale
+            return (
+                f"{value:,.0f} {unit}"
+                if value >= 10 or value == int(value)
+                else f"{value:.1f} {unit}"
+            )
+    return f"{size} bytes"
 
 
 def _period_of(day: date, period: Literal["day", "month"]) -> date:

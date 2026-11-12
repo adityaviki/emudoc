@@ -45,7 +45,7 @@ def test_a_member_writes_to_support_with_where_they_were(client, session, mailer
         WORDS,
         f"Account: user {ada['id']}, address confirmed",
         f"Organisation: {organization['name']} ({organization['slug']}), id "
-        f"{organization['id']}, on the Free plan, where they are owner",
+        f"{organization['id']}, where they are owner",
         "Page: http://testserver/projects/12/documents/34?chat=7",
         f"Last failed request: {FAILED}, answered 409",
         "Version: development",

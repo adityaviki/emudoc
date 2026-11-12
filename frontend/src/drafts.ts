@@ -31,7 +31,7 @@ export const KIND_LABELS = Object.fromEntries(DRAFT_KINDS.map((kind) => [kind.va
 
 /** What the form says a draft is and costs, beside the button that asks for it. */
 export const DRAFT_NOTE =
-  'The model writes it from the documents’ facts and passages, citing where each is written, and from what the newest run of the cross-checks found about them. It counts as one of the month’s questions.'
+  'The model writes it from the documents’ facts and passages, citing where each is written, and from what the newest run of the cross-checks found about them. It counts as a question asked.'
 
 /** Whether the model has yet to settle the draft's writing, and the page should ask again. */
 export const writing = (draft: Pick<DraftSummary, 'status'>) => draft.status === 'queued' || draft.status === 'writing'

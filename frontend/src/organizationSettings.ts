@@ -1,6 +1,6 @@
 // The organisation's settings as its page offers them (backend/app/api/organizations.py): the
-// languages its documents may be searched in, the times it may keep a chat within its plan, and
-// what choosing a shorter one deletes; its security settings (backend/app/security.py), how
+// languages its documents may be searched in, the times it may keep a chat and an audit log
+// entry, and what choosing a shorter one deletes; its security settings (backend/app/security.py), how
 // often its members sign in again and whom requiring two-factor would hold; and what the pages
 // say of it once an owner set it to be deleted (backend/app/retention.py).
 
@@ -15,6 +15,9 @@ export const LANGUAGES_KEY = ['organization', 'languages'] as const
 /** The times the page offers to keep a chat after its last question, in days. */
 export const CHAT_DAYS = [7, 30, 90, 180, 365, 730]
 
+/** The times the page offers to keep an entry of the audit log, in days; a year until the admins choose (AUDIT_DAYS in backend/app/models.py). */
+export const AUDIT_DAYS = [30, 90, 180, 365, 730, 1825]
+
 /** The times the page offers a session to work in the organisation after signing in, in days. */
 export const SESSION_DAYS = [1, 7, 14, 30, 60, 90]
 
@@ -25,7 +28,7 @@ export function languageName(name: string): string {
   return spaced[0].toUpperCase() + spaced.slice(1)
 }
 
-/** One choice of a select: its value, '' for the deployment's or the plan's, and its words. */
+/** One choice of a select: its value, '' for the deployment's or for good, and its words. */
 export interface Choice {
   value: string
   label: string
@@ -45,29 +48,34 @@ export function chosenLanguage(organization: Organization, { languages, default:
   return chosen === null || chosen === deployment || !languages.includes(chosen) ? '' : chosen
 }
 
-/** How long a chat is kept, as a row says it. */
-export function keptWords(days: number | null): string {
-  return days === null ? 'Until deleted' : `${days.toLocaleString()} day${days === 1 ? '' : 's'} after the last question`
+/** What a setting of how long something is kept is about: the chats, or the audit log's entries. */
+export type Kept = 'chats' | 'entries'
+
+/** How long a chat, or an audit log entry, is kept, as a row says it. */
+export function keptWords(days: number | null, what: Kept = 'chats'): string {
+  if (days === null) return 'Until deleted'
+  const span = `${days.toLocaleString()} day${days === 1 ? '' : 's'}`
+  return what === 'chats' ? `${span} after the last question` : span
 }
 
-/** The times the organisation may keep a chat: as long as its plan does, then those shorter, with its own choice among them. */
-export function chatDayChoices(organization: Organization): Choice[] {
-  const plan = organization.allowance.retention_days
-  const days = new Set(CHAT_DAYS.filter((n) => plan === null || n < plan))
-  if (organization.chat_days !== null) days.add(organization.chat_days)
+/** The times the organisation may keep a chat, or an audit log entry: until deleted, then the days offered, with its own choice among them. */
+export function keptChoices(chosen: number | null, what: Kept): Choice[] {
+  const days = new Set(what === 'chats' ? CHAT_DAYS : AUDIT_DAYS)
+  if (chosen !== null) days.add(chosen)
   return [
-    { value: '', label: `As long as the plan keeps them: ${keptWords(plan).toLowerCase()}` },
-    ...[...days].sort((a, b) => a - b).map((n) => ({ value: String(n), label: keptWords(n) })),
+    { value: '', label: keptWords(null) },
+    ...[...days].sort((a, b) => a - b).map((n) => ({ value: String(n), label: keptWords(n, what) })),
   ]
 }
 
-/** What choosing to keep a chat `days` days deletes, said before it is saved; null when it keeps everything kept now, a hold after a lower plan's included. */
-export function deletes(organization: Organization, days: number | null): string | null {
-  const plan = organization.chat_retention_days
-  const held = organization.retention_held?.chat_days
-  const now = held !== undefined && (held === null || (plan !== null && held > plan)) ? held : plan
+/** What choosing to keep chats, or audit log entries, `days` days deletes, said before it is saved; null when it keeps everything kept now. */
+export function deletes(now: number | null, days: number | null, what: Kept): string | null {
   if (days === null || (now !== null && days >= now)) return null
-  return `The chats whose last question is more than ${days.toLocaleString()} days old are deleted within six hours, for every member, and cannot be taken back.`
+  const older =
+    what === 'chats'
+      ? `The chats whose last question is more than ${days.toLocaleString()} days old are deleted within six hours, for every member,`
+      : `The audit log entries more than ${days.toLocaleString()} days old are deleted within six hours,`
+  return `${older} and cannot be taken back.`
 }
 
 /** How often a member signs in again, as a row says it. */

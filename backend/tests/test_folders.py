@@ -215,7 +215,6 @@ def test_an_uploaded_folder_is_filed_as_it_was_into_the_folders_of_its_names(cli
         {
             "filename": "Signed/acme.txt",
             "reason": "Already in this project as 'acme.txt' in Contracts/signed.",
-            "limit": None,
             "index": 0,
             "duplicate_of": acme["id"],
         }
@@ -253,7 +252,6 @@ def test_a_path_that_cannot_be_made_rejects_its_file_alone(client):
         {
             "filename": name,
             "reason": UNMAKEABLE_FOLDER,
-            "limit": None,
             "index": index,
             "duplicate_of": None,
         }

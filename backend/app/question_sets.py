@@ -34,12 +34,10 @@ from sqlalchemy.orm import Session
 from app.accounts import zone_of
 from app.automations import MAKER_GONE, MOST_HELD
 from app.config import get_settings
-from app.entitlements import check_question_sets
 from app.jobs import LIVE, RUN_QUESTION_SET, enqueue
 from app.models import (
     Document,
     Membership,
-    Organization,
     QuestionSet,
     QuestionSetArrival,
     User,
@@ -160,11 +158,9 @@ def queue_due_sets(session: Session) -> int:
     return queued
 
 
-def problem_of(session: Session, row: QuestionSet, organization: Organization) -> str | None:
-    """Why the set would run nothing, or tell nobody, as its organisation stands now; None when
-    it would run as it says."""
-    if refusal := check_question_sets(organization):
-        return refusal.sentence
+def problem_of(session: Session, row: QuestionSet) -> str | None:
+    """Why the set would tell nobody, as its organisation stands now; None when it would run as
+    it says."""
     if row.audience == "maker" and (
         row.created_by is None
         or session.scalar(

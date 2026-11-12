@@ -49,7 +49,8 @@ ERRORS: dict[int | str, dict] = {
     401: {"model": Error, "description": "No API key, or one revoked, rolled or run out."},
     402: {
         "model": PlanError,
-        "description": "Past what the organisation's plan allows; `limit` names the figure.",
+        "description": "Never answered since the app has no plans; kept for the programs "
+        "written for it.",
     },
     403: {"model": Error, "description": "The key's scope or its member's role does not allow it."},
     404: {"model": Error, "description": "Nothing of this id that the key's member sees."},

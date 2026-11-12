@@ -45,8 +45,8 @@ export function UnsubscribePage() {
     return (
       <AuthCard title="These emails are off">
         <p className="text-[13px] leading-relaxed text-muted">
-          Emudoc emails you no more notices like the one the link came in. Email about your account, invitations and
-          billing still comes. To choose again which notices you get, and how, go to {account}.
+          Emudoc emails you no more notices like the one the link came in. Email about your account and invitations still
+          comes. To choose again which notices you get, and how, go to {account}.
         </p>
       </AuthCard>
     )

@@ -145,7 +145,7 @@ describe('a report', () => {
     const answer: ReportAnswer = { question: 'What is due?', status: 'done', content: 'Nothing.', sources: [], notice: null, error: null }
     expect(answerStatusWords(answer)).toBeNull()
     expect(answerStatusWords({ ...answer, status: 'queued' })).toBe('Waiting to be asked.')
-    expect(answerStatusWords({ ...answer, status: 'failed', error: 'The month’s questions are used.' })).toBe('The month’s questions are used.')
+    expect(answerStatusWords({ ...answer, status: 'failed', error: 'The day’s spending is reached.' })).toBe('The day’s spending is reached.')
   })
 
   it('asks before it is deleted', () => {

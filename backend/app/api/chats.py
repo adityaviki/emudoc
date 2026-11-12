@@ -5,13 +5,14 @@ and an empty answer, queues the job and returns both at once; the client then fo
 events through `events`, a server-sent event stream read from the table, and can pick it up again
 from the last event it saw after a reload or a dropped connection. `stop` ends an answer early with
 what arrived so far, `retry` writes a stopped or failed answer again in its place, and `regenerate`
-writes the chat's last answer again, from its question or the question its member edited, which the
-plan counts as a question asked. A chat is about the whole project, one of its folders or documents
-chosen from it (app/scopes.py), which its starter chooses as it starts and changes whenever they
-like. A chat deleted goes into the trash, its starter's alone (app/trash.py); an answer still being
-written there finishes. Whoever reads a chat downloads an answer of it, or the whole chat, as a Word
-document, a PDF or its Markdown (app/chat_export.py), which the audit log keeps by the chat's id and
-the answer's, never their words. Each reader pins the chats they read to the top of their own list.
+writes the chat's last answer again, from its question or the question its member edited, which
+counts as a question asked (app/usage.py). A chat is about the whole project, one of its folders or
+documents chosen from it (app/scopes.py), which its starter chooses as it starts and changes
+whenever they like. A chat deleted goes into the trash, its starter's alone (app/trash.py); an
+answer still being written there finishes. Whoever reads a chat downloads an answer of it, or the
+whole chat, as a Word document, a PDF or its Markdown (app/chat_export.py), which the audit log
+keeps by the chat's id and the answer's, never their words. Each reader pins the chats they read to
+the top of their own list.
 """
 
 import logging
@@ -39,7 +40,6 @@ from app.answers import (
     sse,
     start_answer,
 )
-from app.api.auth import app_url
 from app.api.deps import (
     RETRY_AFTER,
     AccountDep,
@@ -63,10 +63,8 @@ from app.config import get_settings
 from app.costs import costs_shown
 from app.db import SessionLocal
 from app.draft_export import MEDIA_TYPES, ExportFormat, ExportRefused
-from app.entitlements import PlanRefused, Refusal, check_question
 from app.logs import about
 from app.models import Chat, ChatMessage, ChatPin, Document, Folder, Project
-from app.notices import MONTH_QUESTIONS, note_quota
 from app.ratelimit import EXPORTS, QUESTIONS
 from app.schemas import (
     AskOut,
@@ -83,7 +81,7 @@ from app.schemas import (
 )
 from app.share_links import question_of
 from app.shutdown import Stop
-from app.spending import check_platform_spend, check_spend, retry_after
+from app.spending import check_spend, retry_after
 from app.storage import content_disposition
 from app.trash import trash_chat
 from app.usage import ANSWER, record
@@ -237,13 +235,7 @@ def delete_chat(chat: OwnChatDep, session: SessionDep, account: AccountDep, requ
     status_code=201,
     dependencies=[Depends(limited(QUESTIONS))],
 )
-def ask(
-    chat: OwnChatDep,
-    body: QuestionIn,
-    session: SessionDep,
-    account: AccountDep,
-    request: Request,
-):
+def ask(chat: OwnChatDep, body: QuestionIn, session: SessionDep, account: AccountDep):
     """Add a question to the chat and queue its answer, which `events` streams."""
     question = body.content.strip()
     if not question:
@@ -255,14 +247,12 @@ def ask(
     # The count is taken before the question is saved, or a refused question would sit in the
     # chat with no answer.
     refuse_past_answers_in_flight(session, account, f"A question in chat {chat.id}")
-    if refusal := check_question(session, account.organization):
-        raise PlanRefused(refusal)
-    refuse_past_spending(session, account, f"A question in chat {chat.id}")
+    refuse_past_spending(session, f"A question in chat {chat.id}")
     if not chat.title:
         chat.title = _title(question)
     chat.updated_at = func.now()
     asked, answer = start_answer(session, chat, question)
-    # What the plan counts, with the question, so that deleting the chat gives none back.
+    # The question counted with it, so that deleting the chat takes none back.
     record(
         session,
         org_id=account.organization.id,
@@ -271,7 +261,6 @@ def ask(
         kind=ANSWER,
         measures={"questions": 1},
     )
-    note_quota(session, account.organization, MONTH_QUESTIONS, app_url(request))
     # The request's lines name the answer its job writes, as the job's lines do.
     about(message_id=answer.id)
     session.commit()
@@ -329,9 +318,9 @@ def retry(chat: OwnChatDep, message_id: int, session: SessionDep, account: Accou
     is emptied and streaming, and the worker writes it from the question as for a new one,
     which `events` streams.
 
-    The plan counted the question when it was asked, and the member asked once, so a retry
-    counts none; it is held to everything else that holds a question, the model's runs in
-    flight and the day's spending, since each try is paid for.
+    The question was counted when it was asked, and the member asked once, so a retry counts
+    none; it is held to everything else that holds a question, the model's runs in flight and
+    the day's spending, since each try is paid for.
     """
     message = answer_in(chat, message_id, session)
     # The lock orders this with a stop or a run settling the answer, and with the earlier try's
@@ -345,7 +334,7 @@ def retry(chat: OwnChatDep, message_id: int, session: SessionDep, account: Accou
     if chat.messages[-1].id != message.id:
         raise HTTPException(409, NOT_THE_LAST)
     refuse_past_answers_in_flight(session, account, f"A question in chat {chat.id}")
-    refuse_past_spending(session, account, f"A question in chat {chat.id}")
+    refuse_past_spending(session, f"A question in chat {chat.id}")
     # A try is the chat's latest activity, as a question is: it moves up the list, and its
     # retention counts from now (app/retention.py).
     chat.updated_at = func.now()
@@ -360,19 +349,14 @@ def retry(chat: OwnChatDep, message_id: int, session: SessionDep, account: Accou
     dependencies=[Depends(limited(QUESTIONS))],
 )
 def regenerate(
-    chat: OwnChatDep,
-    message_id: int,
-    body: RegenerateIn,
-    session: SessionDep,
-    account: AccountDep,
-    request: Request,
+    chat: OwnChatDep, message_id: int, body: RegenerateIn, session: SessionDep, account: AccountDep
 ):
     """Write the chat's last answer again in its place, finished or not, from its question as it
     is or as `question` edits it: the row is emptied and streaming, and the worker writes it as
     for a new question, which `events` streams.
 
-    The member asks for another answer, so the plan counts a question, as `ask` does, and holds it
-    to everything that holds one. The answer's share links show it as it is written again.
+    The member asks for another answer, so it counts as a question, as `ask` does, and is held to
+    everything that holds one. The answer's share links show it as it is written again.
     """
     message = answer_in(chat, message_id, session)
     # The lock orders this with a run settling the answer, as `retry` takes it.
@@ -392,9 +376,7 @@ def regenerate(
         if len(edited) > (cap := get_settings().max_question_chars):
             raise HTTPException(413, too_long(len(edited), cap))
     refuse_past_answers_in_flight(session, account, f"A question in chat {chat.id}")
-    if refusal := check_question(session, account.organization):
-        raise PlanRefused(refusal)
-    refuse_past_spending(session, account, f"A question in chat {chat.id}")
+    refuse_past_spending(session, f"A question in chat {chat.id}")
     if edited is not None and edited != asked.content:
         # A title the first question gave follows it; one the member chose stays.
         if chat.title == _title(asked.content) and chat.messages[0].id == asked.id:
@@ -410,7 +392,6 @@ def regenerate(
         kind=ANSWER,
         measures={"questions": 1},
     )
-    note_quota(session, account.organization, MONTH_QUESTIONS, app_url(request))
     session.commit()
     return RegenerateOut(question=asked, answer=message, last_event_id=last_event_id)
 
@@ -564,15 +545,12 @@ def refuse_past_answers_in_flight(session: Session, account: Account, what: str)
         raise HTTPException(429, TOO_MANY_ANSWERS, headers={"Retry-After": str(RETRY_AFTER)})
 
 
-def refuse_past_spending(session: Session, account: Account, what: str) -> None:
-    """Refuse another run of the agent past the day's spending (app/spending.py): the
-    platform's limit first, since no plan lifts it, as a 503 with the seconds until midnight
-    UTC, when it resets; then the plan's, as a 402."""
-    if reason := check_platform_spend(session):
+def refuse_past_spending(session: Session, what: str) -> None:
+    """Refuse another run of the agent past the day's spending cap (app/spending.py), as a 503
+    with the seconds until midnight UTC, when it resets."""
+    if reason := check_spend(session):
         log.warning("%s was refused: %s", what, reason)
         raise HTTPException(503, reason, headers={"Retry-After": str(retry_after())})
-    if reason := check_spend(session, account.organization):
-        raise PlanRefused(Refusal("daily_spend_micros", reason))
 
 
 def answer_in(chat: Chat, message_id: int, session: Session) -> ChatMessage:

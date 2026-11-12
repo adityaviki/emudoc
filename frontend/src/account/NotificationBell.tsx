@@ -118,7 +118,7 @@ function Centre({ page, onClose }: { page: NotificationPage; onClose: () => void
       </div>
       {items.length === 0 ? (
         <p className="px-4 py-6 text-center text-[13px] leading-relaxed text-muted">
-          No notices yet. Emudoc tells you here when a long upload is indexed, and owners and admins when the month's pages or questions run low.
+          No notices yet. Emudoc tells you here when a long upload is indexed, a question set’s report is ready, or someone mentions you.
         </p>
       ) : (
         <ul className="max-h-[min(28rem,70vh)] divide-y divide-line overflow-y-auto">

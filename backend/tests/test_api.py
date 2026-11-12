@@ -239,7 +239,6 @@ def test_a_simultaneous_upload_of_the_same_bytes_is_rejected_not_a_crash(
         {
             "filename": "msa.pdf",
             "reason": "Already in this project as 'scan.pdf'.",
-            "limit": None,
             "index": 0,
             "duplicate_of": scan,
         }

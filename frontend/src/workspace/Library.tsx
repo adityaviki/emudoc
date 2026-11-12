@@ -53,7 +53,6 @@ import { startChat } from '../chat.ts'
 import { ErrorBoundary } from '../components/ErrorBoundary.tsx'
 import { StatusIcon } from '../components/IndexingStatus.tsx'
 import type { MenuItem } from '../components/Menu.tsx'
-import { PlanLimitNotice, PlanOffer } from '../components/PlanLimit.tsx'
 import { SearchBox } from '../components/SearchBox.tsx'
 import { Confirm } from '../components/Confirm.tsx'
 import { Button, EmptyState, IconButton, Notice, SelectField, Spinner } from '../components/ui.tsx'
@@ -187,7 +186,6 @@ export function Library() {
   const { folderId, search } = workspace.url.library
   const folders = useFolders(project.id)
   const mutations = useLibraryMutations()
-  const byPlan = mutations.rejected.find((file) => file.limit !== null)
   const { upload } = mutations
   // Offline, TanStack Query holds the upload until the browser is back; one cut off on its way
   // keeps the files it did not send, to send again, and one stopped says what did not go in.
@@ -205,7 +203,7 @@ export function Library() {
   const connectors = me.organization.flags_on.includes('connectors')
   const questionSets = me.organization.flags_on.includes('question_sets')
   const commenting = me.organization.flags_on.includes('comments')
-  // The sample project takes no uploads: it counts against nothing on the plan (backend/app/sample).
+  // The sample project takes no uploads: it is the app's own (backend/app/sample).
   const uploads = changes && !project.sample
   const health = useStatus()
   const fileInput = useRef<HTMLInputElement>(null)
@@ -481,7 +479,6 @@ export function Library() {
             </div>
           </Notice>
         )}
-        {mutations.planLimit && <PlanLimitNotice refusal={mutations.planLimit} onDismiss={mutations.clearPlanLimit} />}
         {waiting && <Notice tone="info">{waiting}</Notice>}
         <UploadPanel
           progress={mutations.uploadProgress}
@@ -542,17 +539,13 @@ export function Library() {
         {mutations.rejected.length > 0 && (
           <Notice>
             <div className="flex items-start justify-between gap-3">
-              <div>
-                <ul>
-                  {mutations.rejected.map((file) => (
-                    <li key={file.filename}>
-                      <span className="font-medium">{file.filename}</span>: {file.reason}
-                    </li>
-                  ))}
-                </ul>
-                {/* A file the plan had no room for: the way past it, once for them all. */}
-                {byPlan && <PlanOffer limit={byPlan.limit} />}
-              </div>
+              <ul>
+                {mutations.rejected.map((file) => (
+                  <li key={file.filename}>
+                    <span className="font-medium">{file.filename}</span>: {file.reason}
+                  </li>
+                ))}
+              </ul>
               <IconButton label="Dismiss" onClick={mutations.clearRejected} className="p-0.5!">
                 <X className="size-3.5" />
               </IconButton>

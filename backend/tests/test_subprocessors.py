@@ -36,8 +36,6 @@ DEVELOPMENT = {
     "onedrive_client_id": "",
     "sentry_dsn": "",
     "pwned_passwords_url": "",
-    "stripe_secret_key": "",
-    "stripe_tax": False,
 }
 # Files in a directory, which is the deployment's own disk; the list only asks where it is.
 DIRECTORY = LocalStorage(Path("unused"))
@@ -356,19 +354,3 @@ def test_the_error_tracker_is_named_with_where_it_keeps_the_reports():
     # A tracker of the deployment's own is no subprocessor.
     assert tracker("http://key@glitchtip:8000/1") == []
     assert tracker("https://key@sentry.internal/1") == []
-
-
-def test_stripe_is_listed_where_the_plans_are_sold():
-    assert "Stripe" not in listed(configured())
-    (stripe,) = [
-        entry
-        for entry in subprocessors(configured(stripe_secret_key="sk_test_x"), DIRECTORY, {})
-        if entry.name == "Stripe"
-    ]
-    assert stripe.purpose == (
-        "Takes the payments for the paid plans, keeps the payment details and issues the invoices."
-    )
-    assert "the email address of the owner who buys" in stripe.data
-    assert "It receives no documents." in stripe.data
-    taxed = subprocessors(configured(stripe_secret_key="sk_test_x", stripe_tax=True), DIRECTORY, {})
-    assert taxed[-1].purpose.endswith("issues the invoices and works out the tax due.")

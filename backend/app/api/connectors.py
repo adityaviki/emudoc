@@ -2,16 +2,16 @@
 OneDrive whose files the project keeps in step with, which the library's "Connected folders"
 shows.
 
-Every route is behind the flag `connectors` (app/flags.py), and connecting one needs a plan that
-includes them. A member who may change the project connects a service: the page posts which,
-gets the service's consent page to send the browser to, with the handshake in a short-lived
-cookie, and the service sends the browser back to the callback with a code, which is redeemed for
-the member's grant, kept encrypted. The member then browses their own folders there and chooses
-one, and where its files go in the project; the folder is chosen once, and another is another
-connector. Whoever may change the project changes where the files go, asks for a sync now and
-disconnects it; only its member browses their folders and connects it again once the service
-took its access back. Everyone who sees the project reads how each stands. Each connector made,
-changed and removed is a row of the audit log, which names the service and the folders.
+Every route is behind the flag `connectors` (app/flags.py). A member who may change the project
+connects a service: the page posts which, gets the service's consent page to send the browser to,
+with the handshake in a short-lived cookie, and the service sends the browser back to the callback
+with a code, which is redeemed for the member's grant, kept encrypted. The member then browses their
+own folders there and chooses one, and where its files go in the project; the folder is chosen once,
+and another is another connector. Whoever may change the project changes where the files go, asks
+for a sync now and disconnects it; only its member browses their folders and connects it again once
+the service took its access back. Everyone who sees the project reads how each stands. Each
+connector made, changed and removed is a row of the audit log, which names the service and the
+folders.
 
 A request that asks the service something holds no transaction while it waits.
 """
@@ -33,7 +33,6 @@ from app.accounts import Account
 from app.api.auth import app_url
 from app.api.deps import (
     AccountDep,
-    DeletableProjectDep,
     EditableProjectDep,
     HttpDep,
     ProjectDep,
@@ -54,7 +53,6 @@ from app.connectors.base import (
 )
 from app.connectors.sync import SYNC_INTERVAL, label_of, queue_sync, sync_pending
 from app.encrypted import CONNECTOR_TOKENS, decrypt, encrypt
-from app.entitlements import PlanRefused, check_connectors
 from app.errors import shown
 from app.flags import CONNECTORS
 from app.folders import folder_paths
@@ -160,8 +158,6 @@ def connect(
     provider = _provider(body.provider)
     if project.sample:
         raise HTTPException(409, SAMPLE)
-    if refusal := check_connectors(account.organization):
-        raise PlanRefused(refusal)
     if body.connector_id is not None:
         connector = _connector(session, project, body.connector_id)
         if connector.user_id != account.user.id:
@@ -328,8 +324,6 @@ def change_connector(
             raise HTTPException(409, CHOSEN)
         if connector.user_id != account.user.id:
             raise HTTPException(403, NOT_YOURS)
-        if refusal := check_connectors(account.organization):
-            raise PlanRefused(refusal)
         taken = session.scalar(
             select(Connector.id).where(
                 Connector.project_id == project.id,
@@ -395,8 +389,6 @@ def sync_now(
         raise HTTPException(409, NOT_CHOSEN)
     if connector.status == "paused":
         raise HTTPException(409, PAUSED)
-    if refusal := check_connectors(account.organization):
-        raise PlanRefused(refusal)
     if not sync_pending(session, connector.id):
         queue_sync(session, connector, now=True)
     session.commit()
@@ -405,7 +397,7 @@ def sync_now(
 
 @router.delete("/projects/{project_id}/connectors/{connector_id}", status_code=204)
 def disconnect(
-    project: DeletableProjectDep,
+    project: EditableProjectDep,
     connector_id: int,
     session: SessionDep,
     account: AccountDep,
@@ -468,15 +460,12 @@ def _back(project_id: int | None, failure: str = "") -> RedirectResponse:
 
 
 def _still_editable(project_id: int, session: Session, account: Account) -> Project | None:
-    """The project, if the member still may change it and its plan still includes connected
-    folders."""
+    """The project, if the member still may change it."""
     try:
-        project = get_editable_project(get_project(project_id, session, account), account, session)
-    except (HTTPException, PlanRefused):
+        project = get_editable_project(get_project(project_id, session, account), account)
+    except HTTPException:
         return None
-    if project.sample or check_connectors(account.organization):
-        return None
-    return project
+    return None if project.sample else project
 
 
 def _connector(

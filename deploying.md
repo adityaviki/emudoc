@@ -660,8 +660,8 @@ dimensions does not fit the vector index (pgvector's HNSW), and the app sends no
 to shorten one: text-embedding-3-large's 3,072 do not fit. The tokens the endpoint reports
 are counted for each document's embed stage and priced like a model's, by `MODEL_PRICES` under
 the name `EMBEDDING_MODEL` gives (`text-embedding-3-small=0.02/0`), so their cost shows on the
-document and counts toward the day's spending; the spending limits hold back the stages that
-call a model, not this one, whose cost is small beside theirs. The searches' vectors are not
+document and counts toward the day's spending; the daily spending cap holds back the stages
+that call a model, not this one, whose cost is small beside theirs. The searches' vectors are not
 counted.
 
 **Changing the model**: a new `EMBEDDING_MODEL` queues every document to be embedded again at
@@ -774,8 +774,8 @@ runs one on 127.0.0.1:8090, for `CONVERTER_URL=http://127.0.0.1:8090`.
 
 ## Large documents
 
-What indexing one document may cost is bounded by settings that are the same for every
-organisation, whatever its plan, each a refusal or a shortcut with a sentence the member reads:
+What indexing one document may cost is bounded by settings, each a refusal or a shortcut with a
+sentence the member reads:
 
 - **Its text.** Every stage after the parse pays for it: the worker holds it, the structure stage
   cuts it into passages (one for every 1,200 to 2,000 characters), and each passage is written
@@ -796,10 +796,10 @@ organisation, whatever its plan, each a refusal or a shortcut with a sentence th
   child would. Each child holds one of the worker's `PARSE_CONCURRENCY` slots and lets it go
   when it ends, so a long PDF takes turns with the uploads behind it; 250 dense pages took 31 s
   here, and 5,000 took 11 minutes in 20 parts, the child that made the document of them holding
-  252 MB and taking 4 s. Once the first part has told the pages, the plan's month is checked, so a
-  file it cannot take is refused before the rest is read, and after each part the scans read so
-  far against `OCR_MAX_PAGES` ("This file has at least 300 scanned pages to read, …"); the text
-  the parts hold is added up against `PARSE_MAX_CHARS` as they are read, their margins included.
+  252 MB and taking 4 s. After each part the scans read so far are checked against
+  `OCR_MAX_PAGES`, so a file it cannot take is refused before the rest is read ("This file has
+  at least 300 scanned pages to read, …"); the text the parts hold is added up against
+  `PARSE_MAX_CHARS` as they are read, their margins included.
   A part that runs out of time names its pages ("Parsing pages 2,251 to 2,500 of the file did
   not finish within 5 minutes and was stopped. …"): lower `PARSE_PART_PAGES` if that is seen of
   files whose pages are heavy, rather than raise the time a parse may take. The stages after the
@@ -828,8 +828,8 @@ organisation, whatever its plan, each a refusal or a shortcut with a sentence th
   sections after them have no summary, and its enrich stage says how far it went, as "312
   section summaries, 1,840 facts, from pages 1 to 640 of 980: the model reads no more of one
   document, and the rest is searched without summaries or facts" (or "the first 61 % of the
-  document" without pages). The day's spending limits are checked before the stage ("An
-  organisation is spending fast"), so this is the most one document spends past them.
+  document" without pages). The day's spending cap is checked before the stage ("The models
+  are spending fast"), so this is the most one document spends past it.
 - **Its vectors.** The embed stage keeps each vector as the column stores it, 4-byte floats (3 KB
   at 768 dimensions, where the endpoint's reply as Python floats is 25 KB), and writes them 500
   a statement. Its time is the endpoint's and the database's: each vector written goes into the
@@ -892,8 +892,7 @@ does cannot"), `DATA_REGION` and the privacy policy's training promise cover it,
 `GOOGLE_PAID_TIER` is needed for a `google:` one, its address may not be plain HTTP off the
 own network, and its key must be in the environment: a start refuses a fallback that cannot be
 set up, as it would its primary. It needs its price in `MODEL_PRICES`, or what it answers
-counts nothing against the spending limits: production refuses `DAILY_SPEND_CAP` without one
-and warns for the plans' limits. A production start without a fallback for a kind of work
+counts nothing against the spending cap: production refuses `DAILY_SPEND_CAP` without one. A production start without a fallback for a kind of work
 warns, saying what stops while the model cannot answer; a deployment that keeps to one
 provider on purpose lives with the line. The process says at start which models do the work:
 "Documents are indexed by google:gemini-3.5-flash-lite, and by anthropic:claude-haiku-5-5 when
@@ -920,10 +919,10 @@ a model failed or answered in a way the app cannot use:
 INDEX_MODEL: ollama:qwen3-vl:4b
   ok      an indexing request: read note 12 and 40 pallets (13.1 s)
   ok      a scanned page: read 'Invoice 4711' (41.1 s)
-          2 calls, 1,278 tokens in, 2,177 out; MODEL_PRICES has no price for it, so the spending limits count none
+          2 calls, 1,278 tokens in, 2,177 out; MODEL_PRICES has no price for it, so the daily spending cap counts none
 AGENT_MODEL: ollama:qwen3.5:4b
   ok      a turn with the agent's tools: called list_documents (11.5 s)
-          1 call, 1,645 tokens in, 150 out; MODEL_PRICES has no price for it, so the spending limits count none
+          1 call, 1,645 tokens in, 150 out; MODEL_PRICES has no price for it, so the daily spending cap counts none
 AGENT_FALLBACK_MODEL: ollama:gemma3:4b
   FAILED  a turn with the agent's tools: The request to gemma3:4b failed (400). The provider's error code: invalid_request_error. (0.0 s)
 ollama:gemma3:4b did not answer as the app asks; until it does, the work above fails or falls back. Fix the setting or the key, or name another model.
@@ -1109,9 +1108,9 @@ documents' keys, the rows with new ids. So the copy calls no model and costs the
 nothing of its month; only the vectors are the deployment's, made by each document's index job,
 which runs the embed stage alone at once (a few seconds against the compose file's server, the
 passages found by their words meanwhile) and records its `embed` usage as any document's does.
-The scan stage says the file is the app's own. The project and its documents count against
-nothing the plan holds, and it takes no uploads (409), so it never becomes a project the plan
-did not count; its questions count as any do, and a member deletes it like any project. The
+The scan stage says the file is the app's own. The usage page leaves the project and its
+documents out of what the workspace holds, and it takes no uploads (409); its questions count as
+any do, and a member deletes it like any project. The
 audit log records the copy as the app's own `sample_added`.
 
 A storage that refuses the files leaves the organisation without the sample, logged as
@@ -1140,8 +1139,8 @@ offers nothing a new organisation would not find.
 
 The page offers no sign-up of its own. Its way in is "Book a demo", which opens `BOOKING_URL`, a
 booking page of Cal.com, Calendly or the like; unset, "Request access" mails the support address
-(`SUPPORT_EMAIL`, else `OPERATOR_EMAIL`). The plans' page, the help pages and the API reference
-are put away for now (2026-11-11): `/pricing`, `/help`, `/help/…` and `/api-reference` send a
+(`SUPPORT_EMAIL`, else `OPERATOR_EMAIL`). The pricing page went with the plans (2026-11-13),
+and the help pages and the API reference are put away for now (2026-11-11): `/pricing`, `/help`, `/help/…` and `/api-reference` send a
 visitor to `/`, and no search engine is told of them. The versioned API itself, and its contract
 at `/api/v1/openapi.json`, stay.
 
@@ -1181,8 +1180,8 @@ their address brings them back.
 that says to ask the team's admin, and a first sign-in through Google or Microsoft makes no
 account. The site's home page says "Private beta" beside its way in ("The public site"), until
 the site is taken out. Set to `true`, anyone who reaches the install signs up by the link mailed
-to their address, or through a provider, and joins the workspace as a member, within the members
-its plan allows; a sign-up link stops working once the sign-up is closed again. Either change
+to their address, or through a provider, and joins the workspace as a member; a sign-up link
+stops working once the sign-up is closed again. Either change
 takes effect at once, with no release.
 
 `SEARCH_ENGINES=true` asks search engines to list the public pages: robots.txt keeps them from
@@ -1664,7 +1663,7 @@ link opens. They are
 Markdown templates in `backend/app/legal/`, filled in from the settings as they are served:
 who runs the deployment (`OPERATOR_NAME`, the company with its postal address, and
 `OPERATOR_EMAIL`, where people write about their data), where the documents are kept
-(`DATA_REGION`), how long each thing is kept on each plan, the two cookies, whether uploads are
+(`DATA_REGION`), how long each thing is kept, the two cookies, whether uploads are
 scanned (`SCANNER_URL`), whether a model provider, the embeddings endpoint's included, may
 learn from what it is sent (a `google:` model without `GOOGLE_PAID_TIER` is said to be on
 Google's free tier, and a hosted embeddings endpoint is promised nothing unless it is OpenAI's,
@@ -1703,8 +1702,7 @@ What the app mails, and to whom:
   account and, to an address that has one already, the way back into it; the link that
   confirms an address or a new one, and to the address left the news that it was; the reset
   link; that sign-ins from new browsers were paused; that the account is set to be deleted;
-  an invitation; and to an organisation's owners what its subscription needs of them
-  ("Billing").
+  and an invitation.
 - **Notices**, the mail a member may do without, about their work in the app rather than their
   account (`backend/app/notices.py`): to the member who uploaded files, once the last of them is
   ready, failed or set apart by the scan with no retry waiting, if that took five minutes or
@@ -1727,11 +1725,7 @@ What the app mails, and to whom:
   wakes at the top of every hour, queued again by the housekeeper when lost); to a member
   another mentioned in a comment, and to the earlier writers of a thread another replied in, who
   wrote and on which document, never the comment's words, in the comment's transaction and only
-  while they see the project (`tell_comment` in `backend/app/comments.py`); and to an
-  organisation's owners and admins, once a month
-  for each, when its pages or questions for the month reach 80 % of what it may use (its plan's
-  and the packs bought for the month), when they reach all of it, and for pages when what is
-  left could not take a document. A pack bought afterwards starts the count again. Each notice
+  while they see the project (`tell_comment` in `backend/app/comments.py`). Each notice
   is told twice, in the same transaction: in the member's notification centre, under the bell
   in the app's header (`notifications`, kept `NOTIFICATION_DAYS`, 90, read or not, and gone
   with the membership of the organisation it is about), and by email. A member chooses each
@@ -1875,8 +1869,8 @@ A project may have an address of its own, `<token>@INBOUND_DOMAIN`, whose mail b
 documents (`backend/app/inbound.py`; behind the flag `email_in`, "The operator's area"): the
 message's text as a `.txt` document named by its subject, with its From, To, Date and Subject
 above it as an email reads, and each attachment as an uploaded file, through the checks an
-upload's files go through (its type, its size, bytes the project holds already, the plan), into
-the folder the address names or the project's root. Images an HTML message shows by their
+upload's files go through (its type, its size, bytes the project holds already), into the
+folder the address names or the project's root. Images an HTML message shows by their
 Content-ID (a signature's logo) are the message's own and are left out. A message brings at most
 `MAX_UPLOAD_FILES` files, and the largest a provider hands over is 40 MB, attachments and all.
 The members who may change the project give it its address in the library's "Email in", choose
@@ -1891,8 +1885,7 @@ documents are nobody's upload, so that no notice follows them. The From header i
 sender wrote, so a message counts as its sender's only when the provider proved it: DMARC
 passed for the From domain, or a DKIM signature of that domain did. One that is not proven, or
 from anyone else, is turned away, and nothing is sent back, since a reply to a forged address
-reaches someone who sent nothing; so is one for a project in the trash or an organisation past
-its plan. The address's page tells its members why a sender's mail was
+reaches someone who sent nothing; so is one for a project in the trash. The address's page tells its members why a sender's mail was
 turned away: for want of DKIM, the sender's mail administrator can sign it, or a member can
 forward it.
 
@@ -1961,8 +1954,7 @@ it ("On AWS").
 
 A project may keep in step with a folder of a member's Google Drive, Dropbox, OneDrive or
 SharePoint (`backend/app/connectors/`;
-behind the flag `connectors`, "The operator's area", on the plans that include connected
-folders, Team and Enterprise, and none on the sample project). In the library's "Connected
+behind the flag `connectors`, "The operator's area", and none on the sample project). In the library's "Connected
 folders", a member who may change the project connects a service: the browser goes to it for
 their consent to read their files and comes back with a code, which the app redeems for a
 refresh token, kept encrypted with `ENCRYPTION_KEYS` ("The encryption keys"); the member then
@@ -1977,8 +1969,7 @@ changed since the last listing (Google's change log, Dropbox's cursor, the OneDr
 delta: one request when nothing did), and otherwise reads the folder whole and compares it with what the last sync found: a
 file not seen before, or whose version changed (its checksum; a Google document's last change),
 is downloaded and taken in through the checks an upload's files go through (its type, its size,
-bytes the project holds already, the plan), into the folders of its path below the target; a
-changed file is its document's new version, through the same checks, the earlier file kept with
+bytes the project holds already), into the folders of its path below the target; a changed file is its document's new version, through the same checks, the earlier file kept with
 the document (one whose document is being indexed waits for the next sync), and the document of
 a file no longer below the folder goes to the project's trash. What has no bytes of its own is
 exported where the service can (below), and listed as left out where it cannot. A file is read
@@ -1995,8 +1986,7 @@ A connector pauses, and its member connects it again, when the service no longer
 (the member took the access back, or it lapsed), or when the member no longer may change the project;
 it goes, its grant with it, when they are removed from the workspace or their account is deleted, and
 when a member disconnects it, which gives the grant back to the service. Its documents stay in the
-library either way. A plan without connected folders, a project in the trash, or an organisation
-read-only holds its syncs back, which the page says. A connector whose
+library either way. A project in the trash holds its syncs back, which the page says. A connector whose
 folder was never chosen is forgotten after a day. The log names a connector by its id, never a
 file or a folder; `emudoc_connector_syncs_total` and `emudoc_connector_files_total` count the
 syncs and the files they read ("Metrics"), and a sync that raised is among the failed jobs,
@@ -2057,8 +2047,7 @@ production refuses.
 ## Webhooks
 
 An organisation's owners and admins give its programs addresses to hear of its work at
-(`backend/app/webhooks.py`; on the plans that include the API, every plan but Free; the
-organisation page's Webhooks section says how a program checks a signature): `document.ready` and
+(`backend/app/webhooks.py`; the organisation page's Webhooks section says how a program checks a signature): `document.ready` and
 `document.failed` once a document's indexing ended and none is to run after it,
 `check_run.completed` once a run of cross-checks is worked out and its report, when asked for,
 written, and `report.completed` once a question set's report is answered or failed, its body
@@ -2086,140 +2075,15 @@ the tries by how they ended ("Metrics"). What the addresses receive (a document'
 summary and how far it is indexed; a run's counts and report) goes to a company the
 organisation chose, which is not a subprocessor; the privacy policy says so.
 
-## Billing
-
-With `STRIPE_SECRET_KEY` set the app sells its Pro and Team plans through Stripe
-(`backend/app/billing.py`); without it nothing is sold, and `python -m app.maintenance plan`
-moves organisations, as before. An owner buys a plan on the organisation page, which sends them
-to Stripe's Checkout page and back, and behind "Manage billing" changes the plan or the seats,
-the payment method, the billing address and VAT id, cancels and finds the invoices, on
-Stripe's customer portal. A subscription in its trial or paid is also changed or cancelled from
-the organisation page itself: the owner chooses another plan, other seats or Free, and the page
-says first what that would do (`GET /api/organization/billing/change`, `plan_change` in
-`backend/app/billing.py`: what the plan would allow, what the organisation would then hold past
-it and so be read-only, which chats and audit log entries it keeps for less time and until when
-they would be kept as before, and for a cancellation the day it ends), then opens the portal on
-that one step (`flow_data`: `subscription_cancel`, or `subscription_update_confirm` with the
-subscription's item, the plan's first price in `STRIPE_PRICES` and the seats), whose page shows
-the price and the proration and sends the owner back to `/organization?billing=back`, where the
-page asks Stripe for the subscription as it stands (`POST …/billing/portal/done`) rather than
-wait for the event. With `STRIPE_PACKS`, an owner also buys packs of pages or questions on
-Checkout, paid once with an invoice, which add to the organisation's allowance for the calendar
-month (UTC) they are paid in and end with it (`allowance_packs`, counted once whichever of the
-page and the webhook says it was paid; a bank debit counts when its payment arrives, Stripe's
-`checkout.session.async_payment_succeeded`). Packs are offered for the limits the plan has,
-never to an organisation whose terms are agreed. Nothing of Stripe's loads on the app's pages,
-so the content security policy is as it was. While it is set, Stripe is on the subprocessor list, the terms of service
-gain the paid plans' paragraph (the trial, renewal, cancellation, refunds and a failed payment,
-with the days the settings give) and the privacy policy the billing records.
-
-What sets an organisation's plan is its subscription as Stripe holds it: the plan its price is
-listed under in `STRIPE_PRICES`, with its quantity as Team's seats, while it is in its trial or
-paid, and while a payment has failed for fewer than `BILLING_GRACE_DAYS`; Free once it ends, is
-left unpaid, its trial ends without a payment method, or the grace period is over (the
-housekeeper's round moves those, every six hours, and so does the next failed payment). The
-organisation keeps all it holds past Free's limits, and is read-only until it is within them
-(`read_only` in `backend/app/entitlements.py`, which lowered seats or agreed figures trigger as
-much): its members read, search, ask and delete, its owners and admins remove members and revoke
-invitations, and every other change of a project, every invitation and every join is refused
-with 402, while a banner on every page says so; paid again, it has its plan again. A refusal by
-the plan is a 402 whose body names the figure beside the sentence, `{"detail": …, "limit":
-"pages_per_month"}`, from which the page offers the owner a pack for the month, the plans or
-Manage billing, and tells anyone else to ask an owner. Stripe's events only say when to ask: the webhook acts on each
-once (`billing_events`, kept a month) and reads the subscription it names from Stripe, so an
-event that comes late or twice changes nothing. An organisation on Enterprise, or with figures
-agreed with it (`plan --set`), is the operator's: its subscription is recorded and its plan
-left alone. The `plan` command says when an organisation pays for a subscription, since
-Stripe's next event about it would undo a move made there. An organisation's first subscription
-starts with a trial of `STRIPE_TRIAL_DAYS` (14), its card taken at Checkout and charged when the
-trial ends. An account whose only organisation, which would go with it, has a subscription that
-still renews cannot be deleted until it is cancelled.
-
-A lower plan, whether cancelled, switched to or lapsed into, keeps everything it holds and
-takes no chat or audit log entry at once: what the plan before kept longer is kept as it was
-for 30 days after the move (`RETENTION_HELD`, "Retention and deletion"), and the organisation
-page says until when.
-
-The owners are mailed at each failed payment, with the day the plan stops waiting and the
-invoice's own page to pay it on; three days before a trial ends; when the subscription is
-cancelled, with the day it ends; when the organisation moved to a lower plan, for want of a
-payment, as a cancellation ended or by a change on the portal; each of the last three with what
-the lower plan leaves read-only and until when the chats and audit log entries it keeps for less
-time are kept as before. Whichever of the page's return and Stripe's event finds a change first
-sends its mail, once. Each step is in the audit log: `checkout_started` by the owner
-(the plan and seats, or the pack), and by the app `pack_bought`, `subscription_changed` (the
-status before and after), `subscription_cancelled` (with `ends_at`) and
-`cancellation_withdrawn` (Stripe keeps the status `active` until a cancelled subscription
-ends), `payment_failed` and
-`plan_changed` and `seats_changed` with `because` (`subscription`, `subscription_ended`,
-`grace_ended`).
-
-### Setting it up
-
-In Stripe's dashboard, in a sandbox or test mode first (staging), then live:
-
-1. Products and prices: Pro with a recurring price (monthly, and a yearly one too if it is
-   offered), and Team with a recurring price per unit, the unit a seat. `STRIPE_PRICES` lists
-   them as `pro=price_…,team=price_…`: the first of each plan is what Checkout sells, and the
-   others are prices the portal may switch a subscription to, read back as their plan. A
-   subscription at a price not listed keeps the organisation's plan as it is, and the log says
-   so. A pack is a product of its own with a one-time price, listed in `STRIPE_PACKS` with what
-   it adds, `pages:1000=price_…`; a price is never in both settings.
-2. A webhook endpoint at `{APP_URL}/api/billing/events`, made with the API version the app
-   names in every request (`API_VERSION` in `backend/app/payments.py`, `2026-09-30.endive`),
-   sending `checkout.session.completed` and `.async_payment_succeeded`,
-   `customer.subscription.created`, `.updated`, `.deleted`, `.paused`, `.resumed` and
-   `.trial_will_end`, and `invoice.payment_failed`. Its
-   signing secret is `STRIPE_WEBHOOK_SECRET`. The route takes no cross-site header and counts no
-   rate: Stripe's signature over the body proves it, and a request without it is 400.
-3. The customer portal: let customers update the payment method, the billing address and tax
-   ID, see their invoices, cancel at the end of the period, and switch between the plans'
-   prices and change Team's quantity. Save it once in each mode, or it does not open. The
-   organisation page opens it on one step: the cancellation needs cancelling on (at the end of
-   the period, which the page promises), and the change of plan needs every price
-   `STRIPE_PRICES` sells first among the products the subscription may be updated to, or
-   Stripe refuses that step (logged as "Stripe refused to create a portal session"). Whether a
-   downgrade waits for the period's end is the portal's setting; the page says only that the
-   change comes once it is confirmed, and the plan moves when Stripe changes the subscription.
-4. The public details: the terms of service's address, `{APP_URL}/terms`. Checkout asks whoever
-   pays to accept them, which covers the paid plans' paragraph however recently billing was
-   turned on, and refuses to open without the address.
-5. Failed payments: the retries, and after the last, cancel the subscription or mark it unpaid;
-   either moves the organisation to Free, as `BILLING_GRACE_DAYS` past the first failure does,
-   whichever is sooner. Stripe's own emails about failed payments may stay off: the app mails
-   the owners.
-6. Receipts: under Settings, Customer emails, turn on "Successful payments" and "Finalized
-   invoices" (and "Refunds"). Stripe then mails each payment's receipt and each invoice to
-   the address given at Checkout, with the tax and the VAT id it holds and the app does not;
-   the app sends none of its own, and the invoices stay in the portal under Manage billing.
-7. Tax, for `STRIPE_TAX=true`: the registrations where the operator collects tax. Checkout asks
-   every buyer for the billing address and lets a business give its VAT ID, which the invoices
-   carry once the invoice settings show the customer's tax IDs.
-8. A restricted key is enough: write on Customers, Checkout Sessions and the Customer portal,
-   read on Subscriptions. On AWS it and the signing secret go under `secrets/` ("The
-   settings").
-
-For development, `stripe listen --forward-to localhost:8000/api/billing/events` relays a test
-mode's events to this machine and prints the signing secret to set, and `stripe trigger` sends
-one. A Stripe that cannot be reached is a 503 for the member ("Billing cannot be reached just
-now") and a line in the log with Stripe's codes; the webhook answers it 503 too, and Stripe
-delivers the event again for three days, which its dashboard can also resend. Two subscriptions
-billed for one organisation, as two owners buying at once could make, are logged as an error:
-the first sets the plan, and the other is the operator's to cancel and refund.
-
 ## Retention and deletion
 
 What the app removes on its own, in the worker's housekeeping round (a minute after start, then
 every six hours), and so what the privacy notice can promise:
 
-- **Chats** go once their last question is older than the organisation's plan keeps them
-  (`retention_days` in `backend/app/entitlements.py`: 30 days on Free, 365 on Pro, never on
-  Team and Enterprise); a chat whose answer is still being written stays until it is settled.
-  A move to a plan, seats or agreed figures that keep chats for less time takes none at once:
-  for `RETENTION_HELD` (30 days, `backend/app/retention.py`) after it, the days of the plan
-  before hold as well (`organizations.retention_held_until`, `held_chat_days`; a move back up
-  ends the hold, another move down holds the longer of the two for 30 days from then). The
-  `plan` command prints a hold that stands. A chat in the trash goes at whichever comes
+- **Chats** are kept until a member deletes them, unless the workspace's owners and admins
+  choose a number of days on its page (`organizations.chat_days`); then they go once their last
+  question is older (`prune_chats` in `backend/app/retention.py`), and a chat whose answer is
+  still being written stays until it is settled. A chat in the trash goes at whichever comes
   first, this or the trash's 30 days.
 - **Runs of cross-checks** (`workflow_runs`, with their findings and reports,
   `backend/app/check_runs.py`) go as a chat would, counted from when the run was made
@@ -2236,7 +2100,7 @@ every six hours), and so what the privacy notice can promise:
   files, 30 days after it was deleted (`TRASH_DAYS` in `backend/app/trash.py`, `purge_trash` in
   the housekeeping round), unless a member restores it or deletes it for good there first. Its
   originals count in `emudoc_stored_bytes` meanwhile, its documents as `trashed` in
-  `emudoc_documents`, and against nothing on the organisation's plan.
+  `emudoc_documents`, and the usage page leaves them out.
 - **Sessions and one-time links** go 30 days after they expired or were revoked
   (`CREDENTIAL_HISTORY` in `backend/app/auth.py`), with the address and browser a session
   recorded and the address a link went to.
@@ -2249,10 +2113,9 @@ every six hours), and so what the privacy notice can promise:
   until the try is done with it.
 - **Invitations** go when they are accepted or revoked, and an expired one 30 days after it
   expired, with the address it was sent to (`backend/app/invitations.py`).
-- **Audit log rows** go once they are older than the organisation's plan keeps them
-  (`audit_days` in `backend/app/entitlements.py`: 90 days on Free, 365 on Pro and Team, never
-  on Enterprise), held after a move to a plan that keeps them for less time as chats are
-  (`held_audit_days`). A row holds the client's address it was recorded from, which the privacy
+- **Audit log rows** go once they are older than the workspace keeps them
+  (`organizations.audit_days`, `prune_audit` in `backend/app/audit.py`): a year until its owners
+  and admins choose fewer or more days, or none to keep them until the workspace goes. A row holds the client's address it was recorded from, which the privacy
   notice names with that period; an account's purge clears it from the rows of that account.
 - **A deleted account** goes 14 days after its user asked (`DELETION_GRACE` in
   `backend/app/retention.py`), within six hours of the day, with every organisation it was the
@@ -2263,8 +2126,7 @@ every six hours), and so what the privacy notice can promise:
   cannot ask until another member is an owner, and one who became the last owner meanwhile is
   succeeded at the purge by the next member in role and seniority (logged as a warning). The
   log names accounts by id only.
-- **What the notices were about** ("Mail"): the record that a month's pages or questions were
-  told of goes once the month is over (`quota_notices`); an upload's row, which names who sent
+- **What the notices were about** ("Mail"): an upload's row, which names who sent
   its files, stays as long as its project, and forgets them when their account goes; a document
   waiting for an automation's run (`automation_arrivals`) goes as the run is made, within a
   quarter of an hour of its arrival while a worker runs, or with the document, and so does one
@@ -2930,7 +2792,7 @@ leaves it alone too. No label names an organisation, a user, a document or anyth
 typed: a series per organisation would grow with every sign-up, and one organisation's figures
 are its usage, `python -m app.maintenance usage <slug>`, every organisation's side by side
 `costs` ("What each organisation costs", below). A label holds the app's own words: a
-model's configured name, a kind of work, a stage, a job's kind, a plan, a status, a route's
+model's configured name, a kind of work, a stage, a job's kind, a status, a route's
 pattern (`/api/projects/{project_id}/documents`, never the path with its ids).
 
 What each process counts as it works, the API's and the workers' each their own (add them up
@@ -2952,13 +2814,13 @@ across the instances, `sum without (instance)`):
 | `emudoc_worker_threads{lane}`, `emudoc_worker_busy{lane}` | A worker's job threads alive and running a job, by `lane` (`indexer`, `answerer`, `mailer`) |
 | `emudoc_parses{state}` | A worker's parses `running`, each a child process (`PARSE_CONCURRENCY` at most), and indexers `waiting` for one to end ("Large documents") |
 | `emudoc_worker_listening` | 1 while a worker hears of queued jobs as they are queued, 0 while it polls for them: behind a pooler in transaction mode without `DATABASE_LISTEN_URL`, or while its listener's lost connection waits to be made again |
-| `emudoc_upload_bytes`, `emudoc_upload_rejections_total` | The sizes of the files the API stored, and the files it refused by `reason`: `too_many` (a whole request), `plan`, `unsupported`, `empty`, `too_large`, `wrong_type`, `duplicate`, `folder` (a folder its path names that cannot be made), `unopened` (a message or a ZIP archive the page uploaded that cannot be opened, one inside another, or a file of an archive that does not unpack), `indexing` (a document's new version while it is being indexed) |
+| `emudoc_upload_bytes`, `emudoc_upload_rejections_total` | The sizes of the files the API stored, and the files it refused by `reason`: `too_many` (a whole request), `unsupported`, `empty`, `too_large`, `wrong_type`, `duplicate`, `folder` (a folder its path names that cannot be made), `unopened` (a message or a ZIP archive the page uploaded that cannot be opened, one inside another, or a file of an archive that does not unpack), `indexing` (a document's new version while it is being indexed) |
 | `emudoc_rate_limited_total` | Requests refused for a rate, by the limit's `scope` ("Rates") |
 | `emudoc_mail_sent_total` | Tries of the mail the app posted, by `outcome`: `sent`, `retried` (refused for now and queued again), `failed` (refused for good, or for the last time); the operator's own reports are not counted ("Mail") |
 | `emudoc_mail_events_total` | Addresses the mail provider said not to write to, by `kind`: `bounce`, `complaint`; counted by the API for Resend's, by the worker for SES's ("Mail") |
-| `emudoc_inbound_messages_total` | Messages sent to projects' addresses, by `outcome`: `kept`, `empty` (nothing in it to keep), `refused_sender`, `unauthenticated`, `unreadable`, `too_large`, `refused_project`, `refused_plan`, `unknown_address` (no project's), `off` (the flag off) ("Mail in") |
-| `emudoc_connector_syncs_total` | Syncs of connected folders, by `outcome`: `synced`, `unchanged` (nothing changed since the last), `failed` (stopped partway, or the folder gone), `paused` (the grant or the member), `held` (the project, the plan), `off` (the flag off) ("Connected folders") |
-| `emudoc_webhook_deliveries_total` | Tries of the events posted to the organisations' webhooks, by `outcome`: `delivered` (a 2xx), `retried` (answered otherwise or not at all, and queued again), `failed` (the last try), `refused` (not sent: an address on the deployment's own network or over plain HTTP, a plan without the API, a secret no key decrypts) ("Webhooks") |
+| `emudoc_inbound_messages_total` | Messages sent to projects' addresses, by `outcome`: `kept`, `empty` (nothing in it to keep), `refused_sender`, `unauthenticated`, `unreadable`, `too_large`, `refused_project`, `unknown_address` (no project's), `off` (the flag off) ("Mail in") |
+| `emudoc_connector_syncs_total` | Syncs of connected folders, by `outcome`: `synced`, `unchanged` (nothing changed since the last), `failed` (stopped partway, or the folder gone), `paused` (the grant or the member), `held` (the project), `off` (the flag off) ("Connected folders") |
+| `emudoc_webhook_deliveries_total` | Tries of the events posted to the organisations' webhooks, by `outcome`: `delivered` (a 2xx), `retried` (answered otherwise or not at all, and queued again), `failed` (the last try), `refused` (not sent: an address on the deployment's own network or over plain HTTP, a secret no key decrypts) ("Webhooks") |
 | `emudoc_connector_files_total` | Files of connected folders the syncs read, by `outcome`: `kept`, `rejected`, `trashed` (its file gone), `replaced` (its document given the file's new version) ("Connected folders") |
 | `emudoc_renders_total`, `emudoc_render_seconds` | PDF pages drawn as images, by `purpose` (`pane`, `thumbnail`, `ocr`, `ahead`) and `outcome`: `drawn`, `refused` (a page that cannot be drawn), `timeout` (`RENDER_TIMEOUT`), `out_of_memory` (`RENDER_MEMORY_MB`), `crashed` or `unstarted` (no process could draw it); the seconds include the wait for a free process ("Drawing pages") |
 | `process_*`, `python_*` | The process's CPU, memory and open files, and Python's collector |
@@ -2975,7 +2837,7 @@ value.
 | `emudoc_jobs{kind,state}` | Jobs `due` (to be claimed now), `waiting` (a retry's backoff, or the next UTC day), `running`, and `failed` (kept 30 days for `failed-jobs`) |
 | `emudoc_job_oldest_due_seconds{kind}` | How long the oldest due job has waited for a worker: the backlog's age |
 | `emudoc_answers_in_flight` | Answers queued or being written (`MAX_ANSWERS` holds each organisation to 20) |
-| `emudoc_organizations{plan}`, `emudoc_stored_bytes{plan}` | Organisations, and the bytes of the originals they keep, by plan |
+| `emudoc_stored_bytes` | The bytes of the uploaded originals the workspace keeps |
 | `emudoc_spent_today{currency}`, `emudoc_daily_spend_cap{currency}` | The known cost of the models' work since midnight UTC (`MODEL_PRICES`), and `DAILY_SPEND_CAP` (0 for none) |
 | `emudoc_db_table_rows{table,state}` | Each of the app's tables' rows, `live` and `dead` (waiting for vacuum), as the server's statistics estimate them ("Vacuum") |
 | `emudoc_db_oldest_transaction_seconds` | How long the app's role's oldest open transaction has been holding vacuum back; 0 for none |
@@ -3036,19 +2898,17 @@ read whichever answered.
 Per organisation, the figures are the usage rows the app records as it works, not the metrics:
 `python -m app.maintenance costs`, run as the operator's other commands are ("The image"),
 prints what each organisation's model use cost over the last 30 days, or `--days`, up to today
-in UTC, costliest first, against its plan's daily spending limit:
+in UTC, costliest first, all of them together against `DAILY_SPEND_CAP`. An install holds
+one workspace, so its row and the total agree; a database that holds several, as development's
+may, lists each:
 
 ```text
 Model costs per organisation from 2026-10-13 to 2026-10-19 (UTC), in USD, costliest first:
-  organisation  plan    cost    limit       top day  at limit  answers  calls  pages
-  northwind     team  1.7698  50.0000  0.2865 (0 %)         0      380  3,695  2,400  Northwind Traders
-  acme          pro   0.3043  10.0000  0.0844 (0 %)         0      141    510    200  Acme Logistics
-  globex        free  0.1143   1.0000  0.0843 (8 %)         0       30    243    150  Globex
-  initech       free  0.0053   1.0000  0.0025 (0 %)         0        4     11      0  Initech
-  platform            2.1937  25.0000  0.3522 (1 %)         0      555  4,459  2,750  4 organisations
-2 other organisations used nothing.
-The top day is the costliest, with its share of the daily limit: the plan's, or the
-platform's DAILY_SPEND_CAP. At limit counts the days that reached it.
+  organisation    cost    limit       top day  at limit  answers  calls  pages
+  northwind     1.7698                 0.2865                380  3,695  2,400  Northwind Traders
+  all           1.7698  25.0000  0.2865 (1 %)         0      380  3,695  2,400  1 organisation
+The top day is the costliest; all of them together are held to DAILY_SPEND_CAP, the
+top day's share of it beside it. At limit counts the days that reached it.
 
 By kind of work and model:
   kind    model                             cost  calls  tokens in  tokens out
@@ -3083,16 +2943,16 @@ answers are `answer` work with a task of their own after the prompt, so they sho
 beside the chats' at once. The embeddings, uploads and pages drawn ask no prompt and are in no
 line.
 
-A day that reached its limit is one on which the organisation's questions were refused and
-its indexing waited for midnight UTC; the answers are those that called a model, counted once
+A day that reached the cap is one on which every question was refused and indexing waited
+for midnight UTC; the answers are those that called a model, counted once
 however many runs they took, and the pages those its uploads brought in. A cost is what the
 rows were priced at when they were recorded (`MODEL_PRICES`), so a price added later counts
 from then on, and "unpriced" means tokens without one: expected of an embeddings server of the
-deployment's own, as above, which no provider bills, and a gap in the spending limits for a
+deployment's own, as above, which no provider bills, and a gap in the daily cap for a
 model a provider bills. `usage <slug>` breaks one organisation down by day, kind and unit,
 the questions asked among them (`answer` in `questions`, one a question, written as it is
-asked, which the plan's month counts); the organisation's own members read its pages and
-questions by day and by month against its plan on its usage page (`/organization/usage`).
+asked); the workspace's members read its pages and questions by day and by month on its usage
+page (`/organization/usage`), and its owners and admins what the models cost there too.
 The command reads the database and changes nothing; an organisation is named by its slug and
 name, never a member's address. `costs --days 1` is today's, which the spending warning
 ("What the worker mails") names.
@@ -3109,7 +2969,7 @@ hears when the rules fall silent ("On AWS", below).
 
 With `ALERT_EMAIL` set and a mail relay, the worker's alerter thread reports to the address
 every quarter of an hour: the jobs it gave up on ("Emudoc gave up on…"), the day's
-spending at 80 % of a limit, the uploads the scan quarantined, and what its watch sees go wrong
+spending at 80 % of `DAILY_SPEND_CAP`, the uploads the scan quarantined, and what its watch sees go wrong
 (`backend/app/watch.py`). The watch writes once when a concern begins ("Emudoc alert: …", what
 is wrong and what to do) and once when it is over ("Emudoc alert over: …", after how long),
 listing what goes on meanwhile, whichever worker looked; what is raised and not over is a row of
@@ -3119,7 +2979,7 @@ listing what goes on meanwhile, whichever worker looked; what is raised and not 
 | --- | --- | --- |
 | Questions, documents or emails wait for a worker | The oldest due question or email has waited 5 minutes, the oldest due document an hour | The workers' logs; more workers, or `ANSWER_CONCURRENCY`, `WORKER_CONCURRENCY`; for mail, a relay that hangs ("Mail") |
 | Indexing fails | Of the documents whose indexing ended in the last hour, 5 and half or more have a stage that failed, by stage; one waiting for a retry is not counted until it settles, and a summary or a vector that failed counts though the document is ready | Each document's stages; the worker's log; `python -m app.maintenance models` |
-| Answers fail | Of the answers written in the last hour, 5 and a quarter or more failed | The worker's log, `app.llm` and `app.answers`; `models`; a spending limit, which mails its own warning |
+| Answers fail | Of the answers written in the last hour, 5 and a quarter or more failed | The worker's log, `app.llm` and `app.answers`; `models`; the daily spending cap, which mails its own warning |
 | `AGENT_MODEL` (or `INDEX_MODEL`) fails over to its fallback | The fallback answered a request of the role's in the last hour (the usage events name the model that answered) | The worker's `app.llm` line: "was not found, or is served no longer" is a retired model, "was rejected" a key revoked or out of credit ("The models") |
 | The embeddings endpoint, the malware scanner or the storage does not answer | Asked as the start asks them, at each round | Their sentence says what failed |
 | The database fails to archive its log, or its archive falls behind | The archiver's last attempt failed, or finished segments of the write-ahead log have waited past the 5-minute recovery point (`pg_stat_archiver`; a server that archives nothing has neither) | `pgbackrest --stanza=emudoc check`, the server's log ("Backups") |
@@ -3286,7 +3146,7 @@ rules and their tests too, as the alerting rules' thresholds are.
 
 - **A server error** is a 500, the app's own fault, or a 503: a pool out of connections, a
   statement the database stopped, a database or a storage that does not answer. A 4xx is the
-  request's (a plan's limit, a rate, a file too large) and counts as answered. The probes
+  request's (a rate, a file too large) and counts as answered. The probes
   (`/api/livez`, `/api/health`) are left out, since an orchestrator asks them more often than
   the members ask anything, and an answer's event stream counts once, by the status it began
   with. A request that never reached the app, the proxy's 502 while the API restarts or every
@@ -3352,8 +3212,8 @@ on the compose server (`emudoc_load`, made afresh) and a stand-in for the models
 embeddings endpoint (`frontend/e2e/standin.py --fill`, which answers an indexing request with
 what the request holds: a scanned page's text made up from its picture, a document's title,
 kind, summary, section summaries and the facts its "Name: value" lines state), so that a run
-costs nothing and its figures are the app's own time. Then one member, on the `enterprise`
-plan and with the rates a minute lifted (one member asks for what twenty would):
+costs nothing and its figures are the app's own time. Then one member, with the rates a
+minute lifted (one member asks for what twenty would):
 
 1. **library**: uploads 3,000 documents of the sample set's kinds (invoices, delivery notes,
    contracts, price lists, emails and supplier reviews, as Markdown, PDF and Word), 50 a
@@ -3716,7 +3576,8 @@ them. The subject is the app's own words and a reference, "A member reports a pr
 reference 3f9c…", and the body their words with what support needs to find what they met:
 
 - their name and address, whether the address is confirmed, their user id and role;
-- the organisation's name, slug, id and plan, and a link to it in the operator's area;
+- the workspace's name, slug and id, the member's role in it, and a link to it in the
+  operator's area;
 - the page they wrote from, as its path with the ids its query names (an open chat's, a
   folder's), never a search's words;
 - the reference of the last request the page saw refused or failed, and its status;
@@ -3768,11 +3629,10 @@ link opens its site in a tab of its own, and the app's pages load nothing from i
 
 The people who run the deployment read at `/operator` what the maintenance commands print, in a
 browser and without a shell on the machine: the organisations, newest first and found by name,
-slug, id or a member's address, each with its plan and the figures agreed with it, its usage
-page as its members read it, its billing, its members and what its work cost over 30 days
-(`plan`, `usage`); the users, found by a part of their address or name, with their
+slug, id or a member's address, each with its usage page as its members read it, its members
+and what its work cost over 30 days (`usage`); the users, found by a part of their address or name, with their
 organisations and when they were last seen; the costs across organisations over 7, 30 or 90 days
-against each plan's daily limit and `DAILY_SPEND_CAP` (`costs`); the job queue, the running jobs
+against `DAILY_SPEND_CAP` (`costs`); the job queue, the running jobs
 with their leases, the dead letters with why each failed and the workers seen in the last day,
 with a warning when none runs (`jobs`, `failed-jobs`); and the
 models and services: the models each variable names, the providers and which are switched off,
@@ -3783,17 +3643,8 @@ on for and those it was turned on or off for (`flags`). What it shows is what th
 print, a member's name and address among it, never what a document, a question or an answer
 says.
 
-It changes five things, as the commands do:
+It changes four things, as the commands do:
 
-- **An organisation's plan.** "Change the plan" under its Plan shows the plan, the seats on a
-  plan sold by the seat, and every figure, empty for the plan's own (shown in grey) or written
-  as the table words it to agree it in the plan's place: `500`, `2 GB`, `USD 25.00 a day`,
-  `yes`, `none` for no limit. Save puts the three on the organisation as a whole, as `plan
-  <slug> [plan] --seats --set --unset` does (a figure left as it is shown keeps its value,
-  though the words round it), and each part that changed is a row of the organisation's audit
-  log, which its owners and admins read as "by Emudoc's operators" (`detail.operator` holds the
-  operator's id). A subscription Stripe bills sets the plan again at its next event unless
-  figures are agreed: the form says so, and the subscription is changed in Stripe's dashboard.
 - **A feature flag, for one organisation.** A feature being rolled out is behind a flag
   (`FLAGS` in `backend/app/flags.py`: its name, what it turns on, and its share, the percentage
   of organisations it is on for), and the organisation's page lists each under "Feature flags",
@@ -3993,7 +3844,7 @@ about it.
    - due and waiting for a free indexer thread: a backlog, which more workers or
      `WORKER_CONCURRENCY` shorten ("Load");
    - waiting until a moment: a retry's backoff after a provider or a service failed, or the
-     day's spending limit until midnight UTC, as the stage's detail says;
+     day's spending cap until midnight UTC, as the stage's detail says;
    - running under a worker's lease, which its run's line in that worker's log explains once it
      ends ("Traces");
    - a lease that ran out: the worker stopped or lost the database, and the next free thread
@@ -4128,20 +3979,18 @@ moment:
    worker writes into the new schema.
 4. For planned work that sets off rules, a silence for its length ("On AWS" under "Alerts").
 
-### An organisation is spending fast
+### The models are spending fast
 
-The spending warning ("… has spent 80 % of …"), `EmudocSpendNearCap`, or a provider's own
+The spending warning ("Emudoc has spent 80 % of …"), `EmudocSpendNearCap`, or a provider's own
 budget alert:
 
-1. `maintenance costs --days 1`: who spends today, against their plan's limit; `maintenance
-   usage <slug>` breaks one down by kind of work.
-2. The plan holds an organisation at its daily limit (questions refused, indexing held until
-   midnight UTC); `maintenance plan <slug>` says what it allows and moves it to another plan,
-   from its next request on, or agrees a day's limit of its own (`--set
-   daily_spend_micros=25.00`, an amount of `PRICE_CURRENCY`).
-3. `DAILY_SPEND_CAP` holds every organisation together, and a provider switched off in the
-   operator's area (or `DISABLED_PROVIDERS`) stops its bill at once, for everyone.
-4. A model without a price counts toward neither: the end of `costs` lists the tokens recorded
+1. `maintenance costs --days 1`: what today's work cost, by kind of work and model;
+   `maintenance usage <slug>` breaks the workspace's down by day, kind and unit.
+2. `DAILY_SPEND_CAP` holds the workspace at the day's cap (questions refused, indexing held
+   until midnight UTC); raised in the settings, it takes effect at the next start.
+3. A provider switched off in the operator's area (or `DISABLED_PROVIDERS`) stops its bill at
+   once.
+4. A model without a price counts toward none of it: the end of `costs` lists the tokens recorded
    without one, and `MODEL_PRICES` takes the price from the next request on.
 
 ## Rates
@@ -4901,7 +4750,6 @@ and the like), named on its models' pages.
 | `RATE_FAILED_SIGN_INS` | `20` | | Wrong passwords and codes an hour, past which those sign-ins pause ("Rates") |
 | `RATE_PAGE_ERRORS` | `10` | | The page's error reports a minute, per client address |
 | `RATE_FEEDBACK` | `10` | | Messages to support an hour, per member ("Support") |
-| `RATE_BILLING` | `10` | | Billing requests a minute, per member: Checkout, the portal, a payment asked about ("Billing") |
 | `RATE_EXPORTS` | `10` | | Facts tables, drafts, answers and chats downloaded a minute, per member, each every row its conditions keep or the text laid out whole |
 | `RATE_SHARED_LINKS` | `30` | | Share links opened a minute, per client address ("Rates") |
 | `RATE_SHARED_PASSWORDS` | `10` | | Wrong passwords an hour per share link, from every address and from each, past which it opens with none ("Rates") |
@@ -4929,18 +4777,6 @@ and the like), named on its models' pages.
 | `ONEDRIVE_CLIENT_ID`, `ONEDRIVE_CLIENT_SECRET` | none | the client secret is a secret | Folders of OneDrive and SharePoint connected to projects ("Connected folders") |
 | `ONEDRIVE_TENANT` | `common` | | Whose Microsoft accounts may connect their folders |
 | `CONNECTOR_BASE_URL` | none | refused | Where the connected folders' services are reached in their place: the browser test's stand-in |
-
-### Billing
-
-| Variable | Default | In production | What |
-| --- | --- | --- | --- |
-| `STRIPE_SECRET_KEY` | none: nothing is sold | a secret, `sk_…` or `rk_…` | The Stripe account's key ("Billing") |
-| `STRIPE_WEBHOOK_SECRET` | none | needed for billing, a secret, `whsec_…` | The webhook endpoint's signing secret |
-| `STRIPE_PRICES` | none | needed for billing | The prices sold, `plan=price` for pro and team |
-| `STRIPE_PACKS` | none | | The packs sold, `pages:1000=price`, for the month they are paid in |
-| `STRIPE_TRIAL_DAYS` | `14` | | The trial of an organisation's first subscription; 0 is none |
-| `STRIPE_TAX` | `false` | | Whether Checkout works out the tax (Stripe Tax) |
-| `BILLING_GRACE_DAYS` | `14` | | How long a failed payment keeps the plan before the organisation is on Free |
 
 ### The operator's word
 

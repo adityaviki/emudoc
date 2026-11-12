@@ -11,8 +11,8 @@ draft, saves a version and deletes one, and writes its templates, each a row of 
 organisation's audit log naming the draft by its kind and id alone, never what it says, and a
 template by its kind and its parts' names; anyone who sees the project reads them, and downloads
 a draft, which the audit log keeps too. A writing is a run of the agent, so asking for one is held
-to what holds a question: the agent's runs in flight, the month's questions, of which it counts
-one, and the day's spending; a draft an answer offered counts none, its question counted already.
+to what holds a question: the agent's runs in flight and the day's spending; it counts as one of
+the workspace's questions, and a draft an answer offered counts none, its question counted already.
 """
 
 from typing import Annotated, Any
@@ -31,7 +31,6 @@ from app.api.chats import (
 from app.api.check_runs import count_question, refuse_agent_run
 from app.api.deps import (
     AccountDep,
-    DeletableDraftDep,
     DraftDep,
     EditableDraftDep,
     EditableProjectDep,
@@ -127,7 +126,7 @@ def ask_draft(
         body.instructions.strip(),
         [found[document_id] for document_id in asked],
     )
-    count_question(session, account, project.id, request)
+    count_question(session, account, project.id)
     _audit(session, account, request, "draft_created", draft, documents=len(asked))
     session.commit()
     return _out(session, draft)
@@ -168,7 +167,7 @@ def write_offered_draft(
         return _out(session, session.get_one(Draft, message.draft_id))
     what = f"The draft of answer {message.id}"
     refuse_past_answers_in_flight(session, account, what)
-    refuse_past_spending(session, account, what)
+    refuse_past_spending(session, what)
     asked = [named["id"] for named in offer["documents"]]
     found = {
         document.id: document
@@ -324,7 +323,7 @@ def rewrite(
     if body.instructions is not None:
         draft.instructions = body.instructions.strip()
     queue_draft(session, draft, account.user.id)
-    count_question(session, account, draft.project_id, request)
+    count_question(session, account, draft.project_id)
     _audit(session, account, request, "draft_changed", draft, rewritten=True)
     session.commit()
     return _out(session, draft)
@@ -332,7 +331,7 @@ def rewrite(
 
 @router.delete("/drafts/{draft_id}", status_code=204)
 def delete_draft(
-    draft: DeletableDraftDep, session: SessionDep, account: AccountDep, request: Request
+    draft: EditableDraftDep, session: SessionDep, account: AccountDep, request: Request
 ):
     """Delete the draft for good, with every version of it."""
     _audit(session, account, request, "draft_deleted", draft)

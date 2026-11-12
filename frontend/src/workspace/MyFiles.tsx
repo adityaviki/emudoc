@@ -1,13 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Copy, Download, FilePlus, FileSpreadsheet, FileText, FileUp, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
-import { ApiError, api, isPlanLimit, mayChange, myFilePageUrl, myFileUrl } from '../api.ts'
+import { ApiError, api, mayChange, myFilePageUrl, myFileUrl } from '../api.ts'
 import type { Document, MyFile, MyFileDetail } from '../api.ts'
 import { useMe } from '../auth.ts'
 import { folderChoices } from '../automations.ts'
 import { Confirm } from '../components/Confirm.tsx'
 import { PagesView } from '../components/DocumentViews.tsx'
-import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, EmptyState, FIELD, IconButton, Loading, Notice, SelectField, Spinner } from '../components/ui.tsx'
 import { useStatus } from '../hooks.ts'
 import {
@@ -31,9 +30,9 @@ import { viewContent } from '../views.ts'
 import { listingsKey } from './listing.ts'
 import { useWorkspace } from './state.ts'
 
-/** A refusal as the page shows it: a plan's with the way past it, any other in its own words. */
+/** A refusal as the page shows it, in its own words. */
 function Refusal({ error }: { error: Error }) {
-  return isPlanLimit(error) ? <PlanLimitNotice refusal={{ message: error.message, limit: error.limit }} /> : <Notice tone="bad">{error.message}</Notice>
+  return <Notice tone="bad">{error.message}</Notice>
 }
 
 const KindIcon = ({ file }: { file: MyFile }) =>

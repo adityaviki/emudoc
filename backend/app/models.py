@@ -24,7 +24,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, REGCONFIG, TSVECTOR
 from sqlalchemy.orm import Mapped, column_property, mapped_column, relationship
 
-from app.config import PACK_UNITS, REGIONS, get_settings
+from app.config import REGIONS, get_settings
 from app.db import Base
 from app.storage import files_prefix
 
@@ -167,19 +167,16 @@ USAGE_KINDS = (
     "suggestions",
 )
 USAGE_UNITS = ("calls", "input_tokens", "output_tokens", "pages", "bytes", "inputs", "questions")
-# What an organisation is entitled to (app/entitlements.py), from the plan with the least to
-# the one with no limits. A new organisation starts on the first.
-PLANS = ("free", "pro", "team", "enterprise")
-# The figures of a plan its owners and admins are told about as a month uses them up
-# (app/notices.py): the fields of `Entitlements` that count the month.
-QUOTA_FIGURES = ("pages_per_month", "questions_per_month")
+# How many days a workspace keeps a row of its audit log until its owners and admins choose
+# otherwise (`organizations.audit_days`, app/audit.py): a year, long enough to answer what
+# happened last spring.
+AUDIT_DAYS = 365
 # The kinds of notice the app tells members about their work (app/notices.py), and the ways each
 # reaches them: the notification centre in the app, and email. A member chooses each way of
 # each kind (`User.notices`). Every kind is told until it is turned off, but those a member turns
 # on: the weekly digest of what arrived (app/digests.py), news nobody asked for by their work.
 NOTICE_KINDS = (
     "upload_indexed",
-    "quota",
     "project_export",
     "checks_run",
     "review_assigned",
@@ -191,7 +188,7 @@ NOTICE_KINDS = (
 NOTICE_CHANNELS = ("app", "email")
 CHOSEN_NOTICES = ("weekly_digest",)
 # What became of a message sent to a project's address (app/inbound.py): documents were kept
-# from it, it was turned away whole (its sender, the project, the plan), or nothing in it could
+# from it, it was turned away whole (its sender, the project), or nothing in it could
 # be kept.
 INBOUND_OUTCOMES = ("kept", "refused", "empty")
 # The services a project's folder can be connected from (app/connectors/), and how a connector
@@ -236,8 +233,10 @@ NATURAL_ORDER = "natural_order"
 # its original downloaded, by nobody the app knows (app/share_links.py). An answer, or a whole
 # chat, is downloaded as a file (app/chat_export.py), which is what documents say leaving the app.
 # Until an install held one workspace (2026-11-12), a member could also leave an organisation, join
-# one by their address's domain, change who may, and ask for one's deletion or keep it; those
-# actions stay so that their entries still read.
+# one by their address's domain, change who may, and ask for one's deletion or keep it; and until
+# nothing was sold (S.2, 2026-11-13), an organisation's plan, seats and agreed figures changed, it
+# bought a plan or a pack and its subscription changed. Those actions stay so that their entries
+# still read.
 AUDIT_ACTIONS = (
     "sign_up",
     "sign_in",
@@ -448,7 +447,7 @@ class User(Base):
     terms_version: Mapped[str | None] = mapped_column(String(40))
     terms_accepted_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     # How the user is told each kind of notice, the news they may do without (app/notices.py):
-    # NOTICE_KINDS by NOTICE_CHANNELS as they chose them, such as {"quota": {"email": false}}.
+    # NOTICE_KINDS by NOTICE_CHANNELS as they chose them, such as {"checks_run": {"email": false}}.
     # A kind or a way not named is on, so that a kind added later reaches everyone until they
     # choose. Chosen on the account page, and a kind's email turned off by its notices' own
     # unsubscribe link. The mail about the account, its organisations' invitations and billing
@@ -566,15 +565,14 @@ class AuthToken(Base):
 
 
 class Organization(Base):
-    """The tenant. Projects belong to an organisation, and so do its plan, usage and billing."""
+    """The tenant: an install's one workspace (S.1). Projects belong to it, and so do its members,
+    its usage and its settings."""
 
     __tablename__ = "organizations"
     __table_args__ = (
-        _one_of("plan", PLANS, "organizations"),
         _one_of("region", tuple(REGIONS), "organizations"),
-        CheckConstraint("seats > 0", name="ck_organizations_seats"),
-        CheckConstraint("jsonb_typeof(overrides) = 'object'", name="ck_organizations_overrides"),
         CheckConstraint("chat_days > 0", name="ck_organizations_chat_days"),
+        CheckConstraint("audit_days > 0", name="ck_organizations_audit_days"),
         CheckConstraint("jsonb_typeof(notices) = 'object'", name="ck_organizations_notices"),
         CheckConstraint("session_days > 0", name="ck_organizations_session_days"),
         CheckConstraint("jsonb_typeof(flags) = 'object'", name="ck_organizations_flags"),
@@ -584,16 +582,6 @@ class Organization(Base):
     name: Mapped[str] = mapped_column(String(200))
     # Appears in URLs and API responses, so it is unique across all tenants.
     slug: Mapped[str] = mapped_column(String(100), unique=True)
-    # Which plan's entitlements the organisation is held to (app/entitlements.py). Set by the
-    # operator's `plan` command until billing sets it; the local account has no limits.
-    plan: Mapped[str] = mapped_column(String(20), default="free", server_default="free")
-    # The members it bought on a plan sold by the seat (`BY_THE_SEAT`, app/entitlements.py),
-    # in place of the plan's own number; null on any other plan, or before any were bought.
-    seats: Mapped[int | None] = mapped_column(Integer)
-    # The entitlements agreed with the organisation in place of its plan's, by the name of an
-    # `Entitlements` field, a null value being no limit: an Enterprise organisation's terms.
-    # Set with the plan (app/billing.py), and cleared when the plan changes.
-    overrides: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
     # The region its data is kept in (DATA_REGION, app/residency.py), recorded as it is created
     # so that a deployment in another region refuses to serve it; null while the deployment
     # names none. One deployment is one region; several are 4.3's.
@@ -603,9 +591,13 @@ class Organization(Base):
     # passages are indexed with and its old ones are moved to (app/languages.py), and which
     # answers fall back to; null for the deployment's FTS_LANGUAGE.
     language: Mapped[str | None] = mapped_column(String(63))
-    # How many days it keeps a chat after its last question when that is less than its plan
-    # keeps one (app/retention.py); null for as long as the plan does.
+    # How many days it keeps a chat after its last question (app/retention.py), and a row of
+    # its audit log (app/audit.py); a null keeps it until it is deleted. Chats are kept until
+    # deleted unless its owners and admins choose fewer days, and the audit log a year.
     chat_days: Mapped[int | None] = mapped_column(Integer)
+    audit_days: Mapped[int | None] = mapped_column(
+        Integer, default=AUDIT_DAYS, server_default=str(AUDIT_DAYS)
+    )
     # How its members are told each kind of notice until they choose for themselves, as
     # `User.notices` holds a member's choices: a kind or a way not named is on.
     notices: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
@@ -615,31 +607,11 @@ class Organization(Base):
     mfa_required: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     session_days: Mapped[int | None] = mapped_column(Integer)
     # Whether its members may share a document by a link that needs no account
-    # (app/share_links.py), where its plan includes them; turned off, every link it has stops.
+    # (app/share_links.py); turned off, every link it has stops.
     share_links: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
     # The feature flags an operator turned on or off for it (app/flags.py), by name; a flag not
     # named here is on as the share of organisations it is rolled out to takes it.
     flags: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
-    # Its customer at Stripe (app/billing.py), made at its first checkout and kept, so that its
-    # invoices, payment details and tax ids stay together; null until then.
-    stripe_customer_id: Mapped[str | None] = mapped_column(String(255), unique=True)
-    # Its last subscription, and what Stripe last said of it: its status (trialing, active,
-    # past_due, canceled, unpaid, …), when its trial ends, when it renews and when it ends, and
-    # since when a payment has failed, which the grace period counts from. Kept once it ends,
-    # since an organisation that had one starts its next without a trial.
-    stripe_subscription_id: Mapped[str | None] = mapped_column(String(255))
-    subscription_status: Mapped[str | None] = mapped_column(String(30))
-    trial_ends_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
-    renews_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
-    ends_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
-    payment_failed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
-    # After a move to a plan or terms that keep chats or audit rows for less time, until when
-    # they are kept as before, and how many days that was for each: a null there, while
-    # `retention_held_until` is set, kept them for good (app/retention.py). Null when nothing
-    # is held.
-    retention_held_until: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
-    held_chat_days: Mapped[int | None] = mapped_column(Integer)
-    held_audit_days: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -988,8 +960,8 @@ class Project(Base):
     visibility: Mapped[str] = mapped_column(
         String(20), default="organization", server_default="organization"
     )
-    # The sample project a new account's organisation starts with (app/sample): its project and
-    # documents count against nothing the plan holds, and nothing is uploaded into it.
+    # The sample project a new account's organisation starts with (app/sample): the usage page
+    # leaves it out, and nothing is uploaded into it.
     sample: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -1344,7 +1316,7 @@ class Document(Base):
     # (app/versions.py); the document's other objects sit under the same prefix.
     storage_key: Mapped[str] = mapped_column(Text)
     # Which version of the document the file is, from 1, and the bytes of its earlier versions
-    # (`DocumentVersion`), which the plan's storage counts with the file's own.
+    # (`DocumentVersion`), which the usage page's storage counts with the file's own.
     version: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"))
     versions_bytes: Mapped[int] = mapped_column(BigInteger, default=0, server_default=text("0"))
     # The upload it came in with, and so who brought it in (`Upload`); null for a document from
@@ -2243,7 +2215,7 @@ class QuestionReport(Base):
     chat keeps one, with the passages they cite, and what made it run.
 
     The worker answers the questions one after another (`write_question_report` jobs), each
-    counted as one of the month's questions as it is asked, and the page follows `status` until
+    counted as one of the workspace's questions as it is asked, and the page follows `status` until
     it settles. A report holds what documents say, as a chat does, and is kept as long."""
 
     __tablename__ = "question_reports"
@@ -2287,7 +2259,7 @@ class QuestionReport(Base):
     # Each question as it was asked, in order, with how far its answer is (one of
     # QUESTION_REPORT_STATUSES, `running` while it is asked), and once settled the answer as the
     # agent wrote it, citing passages as [P<id>], the passages it was shown, and how its run
-    # ended when not as it should (cut off, failed, refused by the plan).
+    # ended when not as it should (cut off, failed, refused by the day's spending cap).
     answers: Mapped[list] = mapped_column(JSONB)
     # What its answers used, by kind (`answer`: the model calls, tokens and cost), as
     # app/usage.py keeps it.
@@ -2755,8 +2727,8 @@ class ShareLink(Base):
     It works as its maker's: only while they are a member of the organisation who may change the
     project and still sees the document or the chat, so it goes with their membership by the
     database's cascade, as an API key does, and stops while they are a viewer or the project is
-    private without them; and only while the organisation's plan includes links, its owners and
-    admins allow them, and what it shows is out of the trash.
+    private without them; and only while the organisation's owners and admins allow them, and what
+    it shows is out of the trash.
     """
 
     __tablename__ = "share_links"
@@ -2950,47 +2922,18 @@ class UsageEvent(Base):
 
 
 class SpendAlert(Base):
-    """A warning the operator was sent about one day's spending (app/spending.py): an
-    organisation's when `org_id` names one, the platform's as a whole when it is null. One is
-    sent a day for each, and the row is what says it was; the organisation's rows go with it.
-    """
+    """A warning ALERT_EMAIL was sent about one day's spending nearing DAILY_SPEND_CAP
+    (app/spending.py). One is sent a day, and the row is what says it was."""
 
     __tablename__ = "spend_alerts"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    org_id: Mapped[int | None] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
-    )
     # The UTC day the warning was about.
     day: Mapped[dt.date] = mapped_column(Date)
-    # What had been spent when it was sent, and the limit it was measured against, in
-    # millionths of the billing currency.
+    # What had been spent when it was sent, and the cap it was measured against, in
+    # millionths of PRICE_CURRENCY.
     spent_micros: Mapped[int] = mapped_column(BigInteger)
     cap_micros: Mapped[int] = mapped_column(BigInteger)
-    sent_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-
-class QuotaNotice(Base):
-    """A notice an organisation's owners and admins were posted about a month's pages or
-    questions (app/notices.py): that `used` reached `share` percent of the `allowance`, its
-    plan's and the packs bought for the month together. One is posted a month for each figure,
-    share and allowance, so a pack bought after the limit was reached starts the count afresh,
-    and the row is what says it was; the housekeeper removes those of months gone by."""
-
-    __tablename__ = "quota_notices"
-    __table_args__ = (
-        _one_of("figure", QUOTA_FIGURES, "quota_notices"),
-        UniqueConstraint("org_id", "month", "figure", "share", "allowance"),
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"))
-    # The start of the month, in UTC, as `AllowancePack.month`.
-    month: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
-    figure: Mapped[str] = mapped_column(String(40))
-    share: Mapped[int] = mapped_column(Integer)
-    allowance: Mapped[int] = mapped_column(Integer)
-    used: Mapped[int] = mapped_column(Integer)
     sent_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -3077,46 +3020,6 @@ class RateLimit(Base):
     count: Mapped[int] = mapped_column(Integer)
 
 
-class AllowancePack(Base):
-    """Pages or questions an organisation bought for one calendar month on top of its plan's
-    (app/billing.py; STRIPE_PACKS), by the Checkout session that paid for them, which is
-    recorded once however often Stripe or the page says it was paid. The checks of the month
-    add them (app/entitlements.py); a month's packs end with it, used or not."""
-
-    __tablename__ = "allowance_packs"
-    __table_args__ = (
-        _one_of("unit", PACK_UNITS, "allowance_packs"),
-        CheckConstraint("quantity > 0", name="ck_allowance_packs_quantity"),
-        # A check sums an organisation's packs of one month.
-        Index("ix_allowance_packs_org_id_month", "org_id", "month"),
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"))
-    unit: Mapped[str] = mapped_column(String(20))
-    quantity: Mapped[int] = mapped_column(Integer)
-    # The start of the month, in UTC, it counts in: the month it was paid in.
-    month: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
-    checkout_id: Mapped[str] = mapped_column(String(255), unique=True)
-    created_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-
-
-class BillingEvent(Base):
-    """A Stripe event the app has acted on, by Stripe's id (app/billing.py): Stripe delivers an
-    event again when an answer is late, so one acted on twice would mail an owner twice. Kept a
-    month, longer than Stripe goes on delivering one, then pruned by the housekeeper."""
-
-    __tablename__ = "billing_events"
-
-    id: Mapped[str] = mapped_column(String(255), primary_key=True)
-    type: Mapped[str] = mapped_column(String(100))
-    received_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), index=True
-    )
-
-
 class AuditEvent(Base):
     """One thing done to an organisation's documents, chats or members' accounts, kept for its
     admins (app/audit.py).
@@ -3154,7 +3057,7 @@ class AuditEvent(Base):
         ),
         # A member's rows, which the account purge also clears the addresses of.
         Index("ix_audit_events_user", "user_id", "occurred_at", "id"),
-        # What the housekeeper prunes by: every organisation's rows older than its plan keeps.
+        # What the housekeeper prunes by: every organisation's rows older than it keeps them.
         Index("ix_audit_events_occurred", "occurred_at"),
     )
 

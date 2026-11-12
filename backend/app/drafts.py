@@ -20,7 +20,7 @@ document's passages are written anew at every reading: a version reads the same 
 documents are read again or deleted, its citations opening what is there now.
 
 It is model spend: the writing's calls are recorded as `draft` usage of the draft, held to the
-day's spending limits as it starts, and each asking counts as one of the month's questions
+day's spending cap as it starts, and each asking counts as one of the workspace's questions
 (app/api/drafts.py). It is written whole, not streamed: the page asks for the draft until its
 writing settles. What a draft says is what documents say, like a chat's answers: the members'
 pages hold it, never the audit log, a log line or a notice, and a draft is kept as long as the
@@ -47,7 +47,7 @@ from app.indexing.pipeline import Services
 from app.jobs import LIVE, WRITE_DRAFT, Lease, LeaseLost, enqueue, renew
 from app.models import Document, Draft, DraftVersion, Fact, Project, User, WorkflowRun
 from app.prompts import prompt_version
-from app.spending import check_platform_spend, check_spend
+from app.spending import check_spend
 from app.usage import DRAFT, ModelUsage, record
 
 log = logging.getLogger(__name__)
@@ -227,7 +227,7 @@ def _write(draft_id: int, user_id: int | None, services: Services, lease: Lease 
         project_id = draft.project_id
         # The kind's template as it is now, as the documents are read as they are now.
         task = DRAFT_TASK + kind_task(template_for(session, project_id, draft.kind))
-        over = check_platform_spend(session) or check_spend(session, project.organization)
+        over = check_spend(session)
         draft.status = "writing"
         _commit(session, lease)
         message, sources, run_id = draft_input(session, session.get(Draft, draft_id))

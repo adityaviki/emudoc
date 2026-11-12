@@ -2,7 +2,7 @@
 revoke on its page.
 
 A key is made with a name, a scope and the days it runs, by an owner or admin, and acts as them;
-the organisation's plan must include the API, and it holds MAX_KEYS at most. The key itself is
+the organisation holds MAX_KEYS at most. The key itself is
 in the answer that makes it and the one that rolls it, and in nothing after. Only the member a
 key acts as rolls it, since the new secret acts as them; any owner or admin revokes one, which
 takes nothing from anyone but the program that held it. Each is a row of the audit log. None of
@@ -19,7 +19,6 @@ from app.api.organizations import locked
 from app.apikeys import MAX_KEYS, NAME_IT, ROLL_YOUR_OWN, TOO_MANY, expired, issue, runs_out
 from app.audit import audit
 from app.auth import now
-from app.entitlements import PlanRefused, check_api
 from app.models import ApiKey, User
 from app.schemas import ApiKeyIn, ApiKeyMadeOut, ApiKeyOut
 
@@ -52,8 +51,6 @@ def make_key(body: ApiKeyIn, account: AccountDep, request: Request, session: Ses
     name = body.name.strip()
     if not name:
         raise HTTPException(400, NAME_IT)
-    if refusal := check_api(account.organization):
-        raise PlanRefused(refusal)
     # Held, so that two keys made at once cannot both take the last place.
     organization = locked(session, account.organization.id)
     held = session.scalar(select(func.count()).where(ApiKey.org_id == organization.id))
@@ -89,8 +86,6 @@ def roll_key(key_id: int, account: AccountDep, request: Request, session: Sessio
     key = _key(session, account, key_id)
     if key.user_id != account.user.id:
         raise HTTPException(403, ROLL_YOUR_OWN)
-    if refusal := check_api(account.organization):
-        raise PlanRefused(refusal)
     secret = issue(key)
     key.rolled_at = now()
     key.last_used_at = None

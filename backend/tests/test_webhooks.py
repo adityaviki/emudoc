@@ -18,7 +18,6 @@ from app import webhooks
 from app.api.v1.library import document_of
 from app.api.v1.reports import summary_of
 from app.api.v1.runs import run_of
-from app.billing import change_plan
 from app.config import get_settings
 from app.encrypted import WEBHOOK_SECRETS, decrypt, encrypt_secrets
 from app.flags import QUESTION_SETS
@@ -35,7 +34,6 @@ from app.keyring import key_of
 from app.models import (
     Document,
     Job,
-    Organization,
     QuestionReport,
     Webhook,
     WebhookDelivery,
@@ -500,9 +498,7 @@ def _report():
     return FakeTurn(TextPart("INV-1 is 5 EUR over its order."))
 
 
-def test_a_paused_or_removed_hook_and_a_plan_without_the_api_are_sent_nothing(
-    client, session, services, receiver, account
-):
+def test_a_paused_or_removed_hook_is_sent_nothing(client, session, services, receiver, account):
     hook = add(client)
     project = create_project(client)
     uploaded(client, project["id"])
@@ -514,22 +510,8 @@ def test_a_paused_or_removed_hook_and_a_plan_without_the_api_are_sent_nothing(
     [delivery] = log_of(client, hook["id"])["deliveries"]
     assert (delivery["status"], delivery["error"]) == ("failed", PAUSED)
 
-    # On again, on a plan without the API: the event is not announced at all.
-    client.patch(f"/api/organization/webhooks/{hook['id']}", json={"enabled": True})
-    organization = session.get(Organization, account.organization.id)
-    change_plan(session, organization, "free")
-    session.commit()
-    document_id = uploaded(client, project["id"], "second.txt")
-    run_due(services, INDEX_DOCUMENT)
-    assert announce_document(document_id, 999) == 0
-    # A webhook is neither added nor rolled on it.
-    refused = client.post("/api/organization/webhooks", json={"url": HOOK, "events": READY})
-    assert (refused.status_code, refused.json()["limit"]) == (402, "api_access")
-    assert client.post(f"/api/organization/webhooks/{hook['id']}/roll").status_code == 402
-
     # Removed, its log goes with it, and a try left waiting finds nothing to send.
-    change_plan(session, organization, "enterprise")
-    session.commit()
+    client.patch(f"/api/organization/webhooks/{hook['id']}", json={"enabled": True})
     uploaded(client, project["id"], "third.txt")
     run_due(services, INDEX_DOCUMENT)
     assert client.delete(f"/api/organization/webhooks/{hook['id']}").status_code == 204

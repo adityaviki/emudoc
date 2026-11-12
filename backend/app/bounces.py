@@ -45,7 +45,7 @@ log = logging.getLogger(__name__)
 
 # How long an address is sent no notices after the provider said to spare it.
 SUPPRESSED_FOR = timedelta(days=365)
-# How far an event's time may be from this machine's clock, as Stripe's (app/payments.py).
+# How far an event's time may be from this machine's clock, as Stripe's libraries allow theirs.
 TOLERANCE = 300
 # How often the worker reads the queue of SES's events, and how many it takes a request.
 MAIL_EVENTS_SECONDS = 60.0

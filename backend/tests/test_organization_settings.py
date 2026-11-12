@@ -1,25 +1,19 @@
 """An organisation's settings: the language its documents are searched in, which its new
 passages are indexed with, its old ones are moved to by a job and its answers fall back to; how
-long it keeps a chat when that is less than its plan does, which wins over the plan and a hold
-alike; and how its members are told each kind of notice until they choose. Owners and admins
-change them, and each change is a row of the audit log."""
-
-from datetime import UTC, datetime, timedelta
+long it keeps a chat and an audit log entry; and how its members are told each kind of notice
+until they choose. Owners and admins change them, and each change is a row of the audit log."""
 
 import pytest
 from pydantic_ai.messages import TextPart
 from sqlalchemy import select, text, update
 
-from app.api.organizations import ADMINS_ONLY, longer_than_plan
-from app.billing import change_plan, plan_change
-from app.entitlements import PLANS
+from app.api.organizations import ADMINS_ONLY
 from app.indexing.pipeline import process_document
 from app.jobs import APPLY_LANGUAGE, Lease, LeaseLost, claim
 from app.languages import UNKNOWN_LANGUAGE, apply_language
 from app.maintenance import housekeeping
 from app.models import Job, Notification, Organization, Passage, Project, User
 from app.notices import tell
-from app.retention import Kept, hold_in_force, kept_for
 from app.worker import Worker
 from tests.conftest import FakeTurn
 from tests.test_agent import run
@@ -86,21 +80,22 @@ def test_owners_and_admins_change_the_settings_and_each_change_is_audited(
     ada, bob, bob_client = team
     org_id = ada["organization"]["id"]
 
+    # Chats are kept until deleted, and audit log entries a year, until they choose.
+    assert me(client).json()["organization"]["chat_days"] is None
+    assert me(client).json()["organization"]["audit_days"] == 365
     organization = change(
         client,
         language="german",
         chat_days=90,
-        notices=[{"kind": "quota", "email": False}],
+        audit_days=730,
+        notices=[{"kind": "checks_run", "email": False}],
     )
     assert (organization["language"], organization["chat_days"]) == ("german", 90)
-    # Team keeps a chat for good; the organisation keeps one 90 days.
-    assert organization["allowance"]["retention_days"] is None
-    assert organization["chat_retention_days"] == 90
+    assert organization["audit_days"] == 730
     assert organization["notice_defaults"] == [
         {"kind": "upload_indexed", "app": True, "email": True},
-        {"kind": "quota", "app": True, "email": False},
         {"kind": "project_export", "app": True, "email": True},
-        {"kind": "checks_run", "app": True, "email": True},
+        {"kind": "checks_run", "app": True, "email": False},
         {"kind": "review_assigned", "app": True, "email": True},
         {"kind": "report_ready", "app": True, "email": True},
         {"kind": "weekly_digest", "app": False, "email": False},
@@ -110,11 +105,18 @@ def test_owners_and_admins_change_the_settings_and_each_change_is_audited(
     assert settings_changed(session, org_id) == [
         {"setting": "language", "from": None, "to": "german"},
         {"setting": "chat_days", "from": None, "to": 90},
-        {"setting": "notices", "kind": "quota", "way": "email", "from": True, "to": False},
+        {"setting": "audit_days", "from": 365, "to": 730},
+        {"setting": "notices", "kind": "checks_run", "way": "email", "from": True, "to": False},
     ]
     # The same again changes nothing, and writes nothing.
-    change(client, language="german", chat_days=90, notices=[{"kind": "quota", "email": False}])
-    assert len(settings_changed(session, org_id)) == 3
+    change(
+        client,
+        language="german",
+        chat_days=90,
+        audit_days=730,
+        notices=[{"kind": "checks_run", "email": False}],
+    )
+    assert len(settings_changed(session, org_id)) == 4
 
     # A member reads them and changes none.
     assert me(bob_client).json()["organization"]["chat_days"] == 90
@@ -123,13 +125,14 @@ def test_owners_and_admins_change_the_settings_and_each_change_is_audited(
     refused = bob_client.patch("/api/organization", json={"name": "Bob's now"})
     assert refused.status_code == 403
 
-    # A null goes back to the deployment's language and the plan's days.
-    organization = change(client, language=None, chat_days=None)
+    # A null goes back to the deployment's language, and keeps chats and entries for good.
+    organization = change(client, language=None, chat_days=None, audit_days=None)
     assert (organization["language"], organization["chat_days"]) == (None, None)
-    assert organization["chat_retention_days"] is None
-    assert settings_changed(session, org_id)[-2:] == [
+    assert organization["audit_days"] is None
+    assert settings_changed(session, org_id)[-3:] == [
         {"setting": "language", "from": "german", "to": None},
         {"setting": "chat_days", "from": 90, "to": None},
+        {"setting": "audit_days", "from": 730, "to": None},
     ]
     # Renaming is audited as it was.
     change(client, name="Ada & Co")
@@ -246,69 +249,36 @@ def test_the_agent_is_told_the_language_the_organisation_chose(session, services
 # How long a chat is kept
 
 
-def test_a_choice_longer_than_the_plan_keeps_a_chat_is_refused(client, signed_in_only):
-    organization = signup(client, "ada@example.com")["organization"]
-    days = PLANS["free"].retention_days
-    assert organization["allowance"]["retention_days"] == days
-
-    refused = client.patch("/api/organization", json={"chat_days": days + 1})
-    assert (refused.status_code, refused.json()["detail"]) == (
-        400,
-        longer_than_plan("free", days),
-    )
-    assert change(client, chat_days=days)["chat_retention_days"] == days
-    assert change(client, chat_days=7)["chat_retention_days"] == 7
-    assert client.patch("/api/organization", json={"chat_days": 0}).status_code == 422
+def test_any_number_of_days_is_chosen_and_none_is_refused(client, signed_in_only):
+    signup(client, "ada@example.com")
+    assert change(client, chat_days=36500)["chat_days"] == 36500
+    assert change(client, chat_days=7, audit_days=30)["audit_days"] == 30
+    for setting in ("chat_days", "audit_days"):
+        assert client.patch("/api/organization", json={setting: 0}).status_code == 422
+        assert client.patch("/api/organization", json={setting: 36501}).status_code == 422
 
 
-def test_the_organisations_choice_takes_older_chats_whatever_its_plan_or_a_hold_keeps(
-    session, services, make_account
-):
+def test_the_organisations_choice_takes_older_chats(session, services, make_account):
     ann = make_account("ann@globex.example")
     organization = ann.organization
-    change_plan(session, organization, "team", seats=3)
-    organization.chat_days = 60
-    session.commit()
     project = Project(org_id=organization.id, name="contracts")
     session.add(project)
     session.commit()
     user = session.get(User, ann.user.id)
-    for title, days in (("a hundred days", 100), ("forty-five days", 45), ("lately", 5)):
+    for title, days in (("a thousand days", 1000), ("forty-five days", 45), ("lately", 5)):
         make_chat(session, project, user, title, days)
 
-    # Free keeps a chat 30 days, and holds what Team kept for a while: the choice still takes
-    # what is older than 60 days.
-    change_plan(session, organization, "free", because="subscription_ended")
+    # Kept until deleted, whatever their age.
+    housekeeping(services.storage)
+    assert chat_titles(session) == {"a thousand days", "forty-five days", "lately"}
+    organization.chat_days = 60
     session.commit()
     housekeeping(services.storage)
     assert chat_titles(session) == {"forty-five days", "lately"}
-
-    # The hold keeps for good what the choice keeps 60 days: the figures say 60.
-    assert kept_for(organization) == Kept(60, 365)
-    assert hold_in_force(organization).kept == Kept(60, 365)
-    # Once the hold is over, Free's 30 days take what is older.
-    organization.retention_held_until = datetime.now(UTC) - timedelta(minutes=1)
+    organization.chat_days = 30
     session.commit()
     housekeeping(services.storage)
     assert chat_titles(session) == {"lately"}
-    assert kept_for(organization) == Kept(30, 90)
-
-
-def test_what_a_lower_plan_would_keep_is_said_with_the_choice_applied(session, make_account):
-    organization = make_account("ann@globex.example").organization
-    change_plan(session, organization, "team", seats=3)
-    organization.chat_days = 7
-    session.commit()
-
-    # Free's 30 days keep more than the 7 chosen: a move there holds audit log entries alone.
-    change = plan_change(session, organization, "free")
-    assert change.kept == Kept(7, 90)
-    assert change.held.kept == Kept(7, 365)
-    # Team keeps chats for good, but the choice keeps them a week: a hold keeps none longer.
-    change_plan(session, organization, "free")
-    assert hold_in_force(organization).kept == Kept(7, 365)
-    organization.chat_days = None
-    assert hold_in_force(organization).kept == Kept(None, 365)
 
 
 # How members are told
@@ -319,25 +289,25 @@ def test_members_are_told_as_the_organisation_says_until_they_choose(
 ):
     ann = make_account("ann@globex.example")
     act_as(ann)
-    change(client, notices=[{"kind": "quota", "app": False, "email": False}])
+    change(client, notices=[{"kind": "checks_run", "app": False, "email": False}])
     session.expire_all()
     organization = session.get(Organization, ann.organization.id)
     user = session.get(User, ann.user.id)
 
-    assert not tell(session, user, organization.id, "quota", news(), "/organization/usage", APP)
+    assert not tell(session, user, organization.id, "checks_run", news(), "/projects/1", APP)
     session.commit()
     assert session.scalar(select(Notification.id)) is None and told(mailer) == []
     # The account page shows what the organisation says, where the member did not choose.
-    quota = next(choice for choice in me(client).json()["notices"] if choice["kind"] == "quota")
-    assert quota == {"kind": "quota", "app": False, "email": False}
+    choice = next(c for c in me(client).json()["notices"] if c["kind"] == "checks_run")
+    assert choice == {"kind": "checks_run", "app": False, "email": False}
 
     # The member's own choice wins over it.
-    chosen = {"notices": [{"kind": "quota", "email": True}]}
+    chosen = {"notices": [{"kind": "checks_run", "email": True}]}
     response = client.patch("/api/auth/profile", json=chosen)
     assert response.status_code == 200, response.text
     session.expire_all()
-    assert user.notices == {"quota": {"email": True}}
-    assert tell(session, user, organization.id, "quota", news(), "/organization/usage", APP)
+    assert user.notices == {"checks_run": {"email": True}}
+    assert tell(session, user, organization.id, "checks_run", news(), "/projects/1", APP)
     session.commit()
     assert session.scalar(select(Notification.id)) is None and len(told(mailer)) == 1
     # Another kind is told as before.

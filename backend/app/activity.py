@@ -2,15 +2,15 @@
 
 It is a view of the project's rows of the audit log (app/audit.py), of the actions that tell a
 project's members what changed in their work (FEED_ACTIONS): documents uploaded, given a new
-version, deleted and restored, folders deleted and restored, reviews moved and assigned,
-comments added and threads resolved, drafts written, cross-checks and question sets run, and
-chats shared with the project. The audit log's other rows, a member's sign-in, a download, a
-share link viewed or a setting changed, stay the owners' and admins'. An item is made from a row
-by names alone, a chosen few of its detail's for each action, never the detail as it is: a
-document's name as it was then, the member who acted and the one assigned by their names as
-they are now, an automation's name as it was. What an item leads to (a document, a thread, a
-run, a report, a draft, a chat) is offered while it is there to open: a document out of the
-trash, a chat still shared. It is kept as long as the audit log is, by the plan's `audit_days`.
+version, deleted and restored, folders deleted and restored, reviews moved and assigned, comments
+added and threads resolved, drafts written, cross-checks and question sets run, and chats shared
+with the project. The audit log's other rows, a member's sign-in, a download, a share link viewed or
+a setting changed, stay the owners' and admins'. An item is made from a row by names alone, a chosen
+few of its detail's for each action, never the detail as it is: a document's name as it was then,
+the member who acted and the one assigned by their names as they are now, an automation's name as it
+was. What an item leads to (a document, a thread, a run, a report, a draft, a chat) is offered while
+it is there to open: a document out of the trash, a chat still shared. It is kept as long as the
+audit log is, by the organisation's `audit_days`.
 """
 
 from collections.abc import Iterable
