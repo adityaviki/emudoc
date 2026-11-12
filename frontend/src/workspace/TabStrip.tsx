@@ -15,7 +15,10 @@ import { closedByMenu, droppedAt, moved, useWorkspace } from './state.ts'
  * put in another place by a drag, by Ctrl+Shift and an arrow, or by its menu's "Move left" and
  * "Move right". A pinned tab stays before the
  * others, shows its pin where the others' close button is, and is left open by "Close others" and
- * "Close all"; it closes by its menu's "Close", by Delete and by a middle click.
+ * "Close all"; it closes by its menu's "Close", by Delete and by a middle click. The tabs share the
+ * strip: each as wide as its name (up to a cap) while they fit, then narrower together as more
+ * open, the name and then the status dot giving way, down to the icon and the close button, past
+ * which the strip scrolls.
  */
 export function TabStrip() {
   const workspace = useWorkspace()
@@ -153,8 +156,11 @@ export function TabStrip() {
     if (from >= 0) workspace.moveTab(id, droppedAt(from, gapAt(event.clientX)))
   }
 
+  // Each tab grows from nothing to its share of the strip (flex-1), no wider than its content
+  // (max-w-fit, the name capped by NAME_WIDTH) and no narrower than its padding, icon, gaps and
+  // close button (min-w-14.75, 59px: 12 + 16 + 4 + 4 + 16 + 6 and the 1px border).
   const base =
-    'group flex h-9 shrink-0 items-center gap-2 border-r border-line px-3 text-[13px] whitespace-nowrap transition-colors focus-visible:-outline-offset-2!'
+    'group flex h-9 min-w-14.75 max-w-fit flex-1 items-center gap-1 border-r border-line px-3 text-[13px] whitespace-nowrap transition-colors focus-visible:-outline-offset-2!'
   const inactive = 'text-muted hover:bg-sunken/60 hover:text-ink'
   const active = 'bg-page font-medium text-ink shadow-[inset_0_-2px_0_var(--color-accent)]'
 
@@ -211,12 +217,16 @@ export function TabStrip() {
               if (event.button === 1) event.preventDefault()
             }}
             onContextMenu={(event) => document && tabMenu(event, document)}
-            className={`${base} relative max-w-52 cursor-pointer pr-1.5 ${selected ? active : inactive} ${mark}`}
+            className={`${base} relative cursor-pointer pr-1.5 ${selected ? active : inactive} ${mark}`}
           >
             <Icon className={`size-4 shrink-0 ${kind?.color ?? ''}`} />
-            <span className="min-w-0 truncate">{document?.filename ?? `Document ${tab.id}`}</span>
-            {tab.pinned && <span className="sr-only">, pinned</span>}
-            {document && <StatusDot document={document} />}
+            {/* The name, then the dot, clipped as the tab narrows; their spacing is their own
+                (pl-1, gap-2, mr-1), so that nothing of it is left once both are gone. */}
+            <span className={`flex min-w-0 items-center gap-2 overflow-hidden ${NAME_WIDTH}`}>
+              <span className="min-w-0 truncate pl-1">{document?.filename ?? `Document ${tab.id}`}</span>
+              {tab.pinned && <span className="sr-only">, pinned</span>}
+              {document && <StatusDot document={document} className="mr-1 size-1.5" />}
+            </span>
             {tab.pinned ? (
               <span
                 aria-hidden
@@ -249,6 +259,10 @@ export function TabStrip() {
     </div>
   )
 }
+
+// The widest the name and its dot are, 149px, which makes a tab at most 13rem with the 59px of
+// padding, icon, gaps, close button and border beside them (the narrowest a tab goes, in `base`).
+const NAME_WIDTH = 'max-w-37.25'
 
 // What a dragged tab carries, so that nothing else takes it for files or the library's rows.
 const TAB_TYPE = 'application/x-emudoc-tab'
