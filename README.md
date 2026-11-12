@@ -537,9 +537,11 @@ one cut off on its way offers the files not sent again, a file that got through 
 coming back as already in the project. The last deletion, move or rename is
 offered back at once with "Undo", until the next one or its cross. Opening a file adds a third pane in
 the middle, the **document**, with a tab for each open file; the tabs stay open across reloads, in
-the order they are dragged into (the search's tab stays first), and closing the last one leaves
+the order they are dragged into, and closing the last one leaves
 the library and the agent side by side again. A tab pinned from its menu stays before the others,
-shows a pin in place of its cross, and stays open through "Close others" and "Close all".
+shows a pin in place of its cross, and stays open through "Close others" and "Close all". As more
+files open the tabs narrow together, each name and then its status dot giving way, down to the
+file's icon and its cross; past that the row of tabs scrolls.
 
 Everything there works by the keyboard as well (WCAG 2.2 AA). The library is one stop of Tab:
 the arrows move through its rows, which a screen reader reads out by name and state (its star and,

@@ -16,6 +16,9 @@ newest entry first.
 
 Members:
 
+- The tabs of open documents narrow as more open, instead of running off the side at once: each
+  shows less of its name, then only the file's icon and its cross, and only past that does the
+  row of tabs scroll. Pointing at a tab still shows its whole name.
 - A project is searched from the library's box again, and the header no longer has one: the
   files whose names hold your words come first, as rows of the library, and the passages the
   words find are listed below them. A passage opens its document beside the library, the search
