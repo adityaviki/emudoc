@@ -9,9 +9,9 @@ describe('the tour', () => {
     expect(workspaceTour(false).map((step) => step.target)).toEqual([
       'library',
       'upload',
+      'search',
       'chat',
       'organization',
-      'search',
       'notifications',
       'account',
     ])

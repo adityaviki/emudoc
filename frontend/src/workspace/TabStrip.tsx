@@ -1,28 +1,25 @@
-import { FileText, Pin, PinOff, Search, X } from 'lucide-react'
+import { FileText, Pin, PinOff, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { DragEvent, KeyboardEvent, MouseEvent } from 'react'
 import type { Document } from '../api.ts'
 import { StatusDot } from '../components/IndexingStatus.tsx'
 import { useContextMenu } from '../components/useContextMenu.tsx'
-import { searchTabName } from '../search.ts'
 import { onMac, tabMoveKeys, tabMoveOf } from '../shortcuts.ts'
 import { fileKind, originalFileItem } from './files.ts'
 import { closedByMenu, droppedAt, moved, useWorkspace } from './state.ts'
-import { searching } from './url.ts'
 
 /**
- * One tab per open document above the middle pane, after the search's while it is open. The tabs
- * are one stop of the keyboard: the shown tab takes focus, the arrows, Home and End show another,
+ * One tab per open document above the middle pane. The tabs are one stop of the keyboard: the shown tab takes focus, the arrows, Home and End show another,
  * and Delete closes it. The close button is the pointer's alone, hidden from screen readers, since
  * a tab's content is read as its name and cannot hold a button of its own. A document's tab is
- * put in another place among the documents' by a drag, by Ctrl+Shift and an arrow, or by its
- * menu's "Move left" and "Move right"; the search's stays first. A pinned tab stays before the
+ * put in another place by a drag, by Ctrl+Shift and an arrow, or by its menu's "Move left" and
+ * "Move right". A pinned tab stays before the
  * others, shows its pin where the others' close button is, and is left open by "Close others" and
  * "Close all"; it closes by its menu's "Close", by Delete and by a middle click.
  */
 export function TabStrip() {
   const workspace = useWorkspace()
-  const { activeDocumentId, openTabs, url } = workspace
+  const { activeDocumentId, openTabs } = workspace
   const strip = useRef<HTMLDivElement>(null)
   const menu = useContextMenu()
   // Set by a key that moves or closes the open tab, whose tab then takes the focus.
@@ -31,10 +28,8 @@ export function TabStrip() {
   // documents' tabs before it), while that would move it.
   const dragged = useRef<number | null>(null)
   const [gap, setGap] = useState<number | null>(null)
-  const search = url.search
-  const searchShown = searching(url)
-  // The tabs in the order the keys move through them: the search's first, null standing for it.
-  const order: (number | null)[] = [...(search ? [null] : []), ...openTabs.map((tab) => tab.id)]
+  // The tabs in the order the keys move through them.
+  const order = openTabs.map((tab) => tab.id)
   const mac = onMac()
   const moveKeys = tabMoveKeys(mac)
   // A tab moved by a key is moved in the page too, and may lose the focus as it goes.
@@ -46,7 +41,7 @@ export function TabStrip() {
     tab?.scrollIntoView({ inline: 'nearest', block: 'nearest' })
     if (refocus.current) tab?.focus()
     refocus.current = false
-  }, [activeDocumentId, searchShown, orderKey])
+  }, [activeDocumentId, orderKey])
 
   function tabMenu(event: MouseEvent, document: Document) {
     const others = closedByMenu(openTabs, document.id)
@@ -80,31 +75,26 @@ export function TabStrip() {
     ])
   }
 
-  function show(id: number | null) {
-    if (id == null) {
-      if (search) workspace.showSearch(search)
-      return
-    }
+  function show(id: number) {
     const tab = openTabs.find((open) => open.id === id)
     workspace.openDocument(id, tab?.focus ?? null)
   }
 
-  function close(id: number | null) {
+  function close(id: number) {
     // The last tab takes the middle pane with it: the keyboard goes back to the library.
     if (order.length === 1) window.document.querySelector<HTMLElement>('[role="tree"]')?.focus()
     else refocus.current = true
-    if (id == null) workspace.closeSearch()
-    else workspace.closeTabs([id])
+    workspace.closeTabs([id])
   }
 
-  function onKeyDown(event: KeyboardEvent, id: number | null) {
+  function onKeyDown(event: KeyboardEvent, id: number) {
     const step = tabMoveOf(event, mac)
     if (step != null) {
-      // The search's tab stays first, and the arrows with these keys show no other tab.
+      // The arrows with these keys show no other tab.
       event.preventDefault()
       const index = openTabs.findIndex((tab) => tab.id === id)
       // At an end of its group the tab stays, and nothing is drawn again to take the focus back.
-      if (id == null || moved(openTabs, id, index + step) === openTabs) return
+      if (moved(openTabs, id, index + step) === openTabs) return
       refocus.current = true
       workspace.moveTab(id, index + step)
       return
@@ -184,41 +174,6 @@ export function TabStrip() {
       onDrop={onDrop}
       className="no-scrollbar flex shrink-0 items-stretch overflow-x-auto border-b border-line bg-surface"
     >
-      {search && (
-        <div
-          id={SEARCH_TAB}
-          role="tab"
-          aria-selected={searchShown}
-          aria-controls={searchShown ? DOCUMENT_PANEL : undefined}
-          aria-keyshortcuts="Delete"
-          tabIndex={searchShown ? 0 : -1}
-          title={searchTabName(search.q)}
-          onClick={() => show(null)}
-          onKeyDown={(event) => onKeyDown(event, null)}
-          onAuxClick={(event) => {
-            if (event.button === 1) workspace.closeSearch()
-          }}
-          onMouseDown={(event) => {
-            if (event.button === 1) event.preventDefault()
-          }}
-          onContextMenu={(event) => menu.open(event, [{ label: 'Close', shortcut: 'Delete', onSelect: workspace.closeSearch }])}
-          className={`${base} max-w-60 cursor-pointer pr-1.5 ${searchShown ? active : inactive}`}
-        >
-          <Search className="size-4 shrink-0 text-accent" />
-          <span className="min-w-0 truncate">{searchTabName(search.q)}</span>
-          <span
-            aria-hidden
-            title="Close the search"
-            onClick={(event) => {
-              event.stopPropagation()
-              workspace.closeSearch()
-            }}
-            className={`-mr-0.5 rounded p-0.5 text-muted transition hover:bg-line hover:text-ink ${searchShown ? '' : 'opacity-0 group-hover:opacity-100'}`}
-          >
-            <X className="size-3.5" />
-          </span>
-        </div>
-      )}
       {openTabs.map((tab, index) => {
         const document = workspace.openDocuments.get(tab.id)
         const selected = tab.id === activeDocumentId
@@ -304,11 +259,8 @@ const SCROLL_STEP = 12
 const DROP_BEFORE = 'before:absolute before:inset-y-1.5 before:-left-px before:w-0.5 before:rounded-full before:bg-accent'
 const DROP_AFTER = 'after:absolute after:inset-y-1.5 after:-right-px after:w-0.5 after:rounded-full after:bg-accent'
 
-/** The panel below the tabs, which shows the open document or the search. */
+/** The panel below the tabs, which shows the open document. */
 export const DOCUMENT_PANEL = 'document-panel'
-
-/** The search's tab, which names the panel while it shows. */
-export const SEARCH_TAB = 'search-tab'
 
 /** The start of an open document's tab's id, its document's id after it, which names the panel while it is open. */
 export const TAB_ID = 'document-tab-'

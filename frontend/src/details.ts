@@ -88,7 +88,6 @@ export function copyUrl(copy: DocumentCopy): string {
     projectId: copy.project_id,
     library: { folderId: copy.folder_id },
     document: { id: copy.id, focus: null },
-    search: null,
     chatId: null,
     about: null,
   })

@@ -28,36 +28,35 @@ export type LibraryLayout = 'list' | 'grid'
 
 /**
  * The place of the library's that the view names, or null for a folder's: the favourites or the recent documents, narrowed
- * to the files whose names hold `name`; a name alone is every such file of the project's, wherever the folder.
+ * to the files whose names hold the search's words; the words alone are every such file of the project's, wherever the folder.
  */
-export function placeOf(view: Pick<LibraryView, 'favorites' | 'recent' | 'name'>): ListingPlace | null {
-  const named = view.name ? { name: view.name } : {}
+export function placeOf(view: Pick<LibraryView, 'favorites' | 'recent' | 'search'>): ListingPlace | null {
+  const name = view.search?.q
+  const named = name ? { name } : {}
   if (view.favorites) return { favorites: true, ...named }
   if (view.recent) return { recent: true, ...named }
-  return view.name ? { name: view.name } : null
+  return name ? { name } : null
 }
 
-/** Whether a place is the files of the whole project whose names hold some letters, which "All files" shows filtered. */
+/** Whether a place is the files of the whole project whose names hold some letters, which "All files" shows searched. */
 export const allNamed = (place: ListingPlace): place is { name: string } =>
   !('folder' in place || 'favorites' in place || 'recent' in place)
 
-/** What a place that is not a folder is called; the files of the project a name filter finds are "All files". */
+/** What a place that is not a folder is called; the files of the project whose names a search matches are "All files". */
 export function placeName(place: ListingPlace): string {
   if ('favorites' in place) return 'Favourites'
   if ('recent' in place) return 'Recent'
   return 'All files'
 }
 
+/** What the search's files say when no name holds its words, in any case: of every folder's files, a favourite's or a recent one's. */
+export function noNameWords(place: ListingPlace & { name: string }): string {
+  const whose = 'favorites' in place ? 'No favourite’s name' : 'recent' in place ? 'No recent file’s name' : 'No file’s name'
+  return `${whose} holds “${place.name}”.`
+}
+
 /** What a place that is not a folder holds, when it holds nothing. */
 export function emptyPlaceWords(place: ListingPlace): { title: string; body: string } {
-  if ('name' in place && place.name) {
-    return {
-      title: `No file’s name holds “${place.name}”`,
-      body: allNamed(place)
-        ? 'The filter looks for these letters, in any case, in the names of the files in every folder of the project.'
-        : 'The filter looks for these letters, in any case, in the names of the files listed here.',
-    }
-  }
   if ('favorites' in place) {
     return { title: 'No favourites yet', body: 'Choose “Add to favourites” in a document’s menu to find it here again, wherever it is in the project.' }
   }

@@ -10,6 +10,7 @@ import {
   gridMove,
   datesProblem,
   hasThumbnail,
+  noNameWords,
   placeName,
   placeOf,
   narrows,
@@ -26,21 +27,22 @@ describe('a place', () => {
     expect(placeName({ recent: true })).toBe('Recent')
   })
 
-  it('is narrowed by a name, which alone takes the files of every folder', () => {
-    expect(placeOf({ name: 'inv' })).toEqual({ name: 'inv' })
-    expect(placeOf({ favorites: true, name: 'inv' })).toEqual({ favorites: true, name: 'inv' })
-    expect(placeOf({ recent: true, name: 'inv' })).toEqual({ recent: true, name: 'inv' })
-    expect(placeOf({ name: '' })).toBeNull()
+  it("is narrowed to the names that hold a search's words, which alone take the files of every folder", () => {
+    const search = (q: string) => ({ q, filter: EMPTY_FILTER })
+    expect(placeOf({ search: search('inv') })).toEqual({ name: 'inv' })
+    expect(placeOf({ favorites: true, search: search('inv') })).toEqual({ favorites: true, name: 'inv' })
+    expect(placeOf({ recent: true, search: search('inv') })).toEqual({ recent: true, name: 'inv' })
+    // A search without words, narrowed already, names no file.
+    expect(placeOf({ search: { q: '', filter: { ...EMPTY_FILTER, mentions: ['March'] } } })).toBeNull()
+    expect(placeOf({ favorites: true, search: search('') })).toEqual({ favorites: true })
     expect(allNamed({ name: 'inv' })).toBe(true)
     expect(allNamed({ recent: true, name: 'inv' })).toBe(false)
     expect(allNamed({ folder: null })).toBe(false)
     expect(placeName({ name: 'inv' })).toBe('All files')
     expect(placeName({ recent: true, name: 'inv' })).toBe('Recent')
-    expect(emptyPlaceWords({ name: 'inv' })).toEqual({
-      title: 'No file’s name holds “inv”',
-      body: 'The filter looks for these letters, in any case, in the names of the files in every folder of the project.',
-    })
-    expect(emptyPlaceWords({ favorites: true, name: 'inv' }).body).toBe('The filter looks for these letters, in any case, in the names of the files listed here.')
+    expect(noNameWords({ name: 'inv' })).toBe('No file’s name holds “inv”.')
+    expect(noNameWords({ favorites: true, name: 'inv' })).toBe('No favourite’s name holds “inv”.')
+    expect(noNameWords({ recent: true, name: 'inv' })).toBe('No recent file’s name holds “inv”.')
     expect(emptyPlaceWords({ favorites: true }).title).toBe('No favourites yet')
     expect(emptyPlaceWords({ recent: true }).title).toBe('Nothing opened yet')
   })

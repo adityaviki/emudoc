@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { EMPTY_FILTER } from '../library.ts'
-import { buildWorkspaceUrl, parseWorkspaceUrl, sameFocus, searchedUrl, searching } from './url.ts'
+import { buildWorkspaceUrl, parseWorkspaceUrl, sameFocus, withSearch } from './url.ts'
 import type { WorkspaceUrl } from './url.ts'
 
 const parse = (url: string) => {
@@ -12,7 +12,6 @@ const home: WorkspaceUrl = {
   projectId: 3,
   library: { folderId: null },
   document: null,
-  search: null,
   chatId: null,
   about: null,
   canonical: true,
@@ -24,28 +23,18 @@ describe('parseWorkspaceUrl', () => {
     expect(parse('/projects/3/')).toEqual(home)
   })
 
-  it('reads the folder, its filter by name, the search, the open document and the chat', () => {
-    expect(parse('/projects/3/documents/41?folder=7&name=inv&q=late+delivery&page=2&chat=12')).toEqual({
+  it("reads the folder, the library's search, the open document and the chat", () => {
+    expect(parse('/projects/3/documents/41?folder=7&q=late+delivery&page=2&chat=12')).toEqual({
       ...home,
-      library: { folderId: 7, name: 'inv' },
+      library: { folderId: 7, search: { q: 'late delivery', filter: EMPTY_FILTER } },
       document: { id: 41, focus: { page: 2 } },
-      search: { q: 'late delivery', filter: EMPTY_FILTER },
       chatId: 12,
     })
     expect(parse('/projects/3?chat=new')?.chatId).toBe('new')
-    // Spaces alone filter nothing.
-    expect(parse('/projects/3?name=+')?.library).toEqual({ folderId: null })
-  })
-
-  it('reads the search tab shown, its words or none, and it beside a document open in front of it', () => {
-    const shown = parse('/projects/3/search?q=notice')!
-    expect(shown).toEqual({ ...home, search: { q: 'notice', filter: EMPTY_FILTER } })
-    expect(searching(shown)).toBe(true)
-    expect(parse('/projects/3/search')?.search).toEqual({ q: '', filter: EMPTY_FILTER })
-    const behind = parse('/projects/3/documents/41?q=notice')!
-    expect(behind.search).toEqual({ q: 'notice', filter: EMPTY_FILTER })
-    expect(searching(behind)).toBe(false)
-    expect(searching(home)).toBe(false)
+    // Spaces alone search nothing.
+    expect(parse('/projects/3?q=+')?.library).toEqual({ folderId: null })
+    // The favourites' or the recent documents' names are searched with them.
+    expect(parse('/projects/3?q=inv&favorites')?.library).toEqual({ folderId: null, favorites: true, search: { q: 'inv', filter: EMPTY_FILTER } })
   })
 
   it("reads what a new chat will be about, a folder or documents, and nothing beside another's", () => {
@@ -75,17 +64,26 @@ describe('parseWorkspaceUrl', () => {
     })
   })
 
-  it('reads the old chat page, and a search in the library as it was, as the workspace, to be rewritten', () => {
+  it('reads the old chat page, the search tab and the filter by name as the workspace, to be rewritten', () => {
     expect(parse('/projects/3/ask')).toEqual({ ...home, canonical: false })
     expect(parse('/projects/3/ask/5')).toEqual({ ...home, chatId: 5, canonical: false })
     expect(parse('/projects/3/ask/new')).toEqual({ ...home, chatId: 'new', canonical: false })
     expect(parse('/projects/3/ask?chat=9')).toEqual({ ...home, chatId: 9, canonical: false })
-    expect(parse('/projects/3?folder=7&q=notice')).toEqual({
+    // The search tab's, from 2026-11-05 until the search was the library's again.
+    expect(parse('/projects/3/search?folder=7&q=notice')).toEqual({
       ...home,
-      library: { folderId: 7 },
-      search: { q: 'notice', filter: EMPTY_FILTER },
+      library: { folderId: 7, search: { q: 'notice', filter: EMPTY_FILTER } },
       canonical: false,
     })
+    expect(parse('/projects/3/search')).toEqual({ ...home, canonical: false })
+    // The filter by name's words are the search's, unless the search tab had words of its own beside it.
+    expect(parse('/projects/3?favorites&name=inv')).toEqual({
+      ...home,
+      library: { folderId: null, favorites: true, search: { q: 'inv', filter: EMPTY_FILTER } },
+      canonical: false,
+    })
+    expect(parse('/projects/3/documents/41?name=inv&q=notice')?.library).toEqual({ folderId: null, search: { q: 'notice', filter: EMPTY_FILTER } })
+    expect(parse('/projects/3?name=+')).toEqual({ ...home, canonical: false })
   })
 
   it('says null for a path outside a project workspace', () => {
@@ -101,14 +99,12 @@ describe('buildWorkspaceUrl', () => {
     expect(
       buildWorkspaceUrl({
         ...home,
-        library: { folderId: 7, name: 'inv' },
+        library: { folderId: 7, search: { q: 'late delivery', filter: EMPTY_FILTER } },
         document: { id: 41, focus: { passage: 812 } },
-        search: { q: 'late delivery', filter: EMPTY_FILTER },
         chatId: 'new',
       }),
-    ).toBe('/projects/3/documents/41?folder=7&name=inv&q=late+delivery&passage=812&chat=new')
-    expect(buildWorkspaceUrl({ ...home, search: { q: 'notice', filter: EMPTY_FILTER } })).toBe('/projects/3/search?q=notice')
-    expect(buildWorkspaceUrl({ ...home, search: { q: '', filter: EMPTY_FILTER } })).toBe('/projects/3/search')
+    ).toBe('/projects/3/documents/41?folder=7&q=late+delivery&passage=812&chat=new')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, search: { q: 'notice', filter: EMPTY_FILTER } } })).toBe('/projects/3?q=notice')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, trash: true } })).toBe('/projects/3?trash=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, templates: true } })).toBe('/projects/3?templates=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, facts: 'purchase order' } })).toBe('/projects/3?facts=purchase+order')
@@ -139,11 +135,10 @@ describe('buildWorkspaceUrl', () => {
     const urls: WorkspaceUrl[] = [
       home,
       { ...home, chatId: 12 },
-      { ...home, search: { q: 'a & b = c?', filter: EMPTY_FILTER } },
-      { ...home, search: { q: '', filter: EMPTY_FILTER }, chatId: 12 },
-      { ...home, search: { q: 'notice', filter: EMPTY_FILTER }, document: { id: 41, focus: { passage: 812 } } },
-      { ...home, library: { folderId: 7, name: 'a & b' } },
-      { ...home, library: { folderId: null, favorites: true, name: 'inv' } },
+      { ...home, library: { folderId: null, search: { q: 'a & b = c?', filter: EMPTY_FILTER } } },
+      { ...home, library: { folderId: null, search: { q: '', filter: { ...EMPTY_FILTER, mentions: ['March'] } } }, chatId: 12 },
+      { ...home, library: { folderId: 7, search: { q: 'notice', filter: EMPTY_FILTER } }, document: { id: 41, focus: { passage: 812 } } },
+      { ...home, library: { folderId: null, favorites: true, search: { q: 'inv', filter: EMPTY_FILTER } } },
       { ...home, document: { id: 41, focus: { block: 0 } }, chatId: 12 },
       { ...home, library: { folderId: 7 }, document: { id: 41, focus: { page: 3 } } },
       { ...home, library: { folderId: null, trash: true }, chatId: 12 },
@@ -174,14 +169,28 @@ describe('buildWorkspaceUrl', () => {
 
   it('rewrites an old URL to the current shape', () => {
     expect(buildWorkspaceUrl(parse('/projects/3/ask/5')!)).toBe('/projects/3?chat=5')
-    expect(buildWorkspaceUrl(parse('/projects/3?folder=7&q=notice')!)).toBe('/projects/3/search?folder=7&q=notice')
+    expect(buildWorkspaceUrl(parse('/projects/3/search?folder=7&q=notice')!)).toBe('/projects/3?folder=7&q=notice')
+    expect(buildWorkspaceUrl(parse('/projects/3/documents/41?recent&name=inv')!)).toBe('/projects/3/documents/41?q=inv&recent=')
+  })
+})
+
+describe("the library's search", () => {
+  const filter = { ...EMPTY_FILTER, types: ['invoice'] }
+
+  it('is set in the place it is run from, its words trimmed, the place kept to go back to', () => {
+    expect(withSearch({ folderId: 7 }, { q: ' late fee ', filter })).toEqual({ folderId: 7, search: { q: 'late fee', filter } })
+    expect(withSearch({ folderId: null, favorites: true }, { q: 'inv', filter: EMPTY_FILTER })).toEqual({
+      folderId: null,
+      favorites: true,
+      search: { q: 'inv', filter: EMPTY_FILTER },
+    })
+    expect(withSearch({ folderId: 7, search: { q: 'notice', filter } }, { q: 'late fee', filter })).toEqual({ folderId: 7, search: { q: 'late fee', filter } })
   })
 
-  it("shows the header's words in the search tab, in front of a document, what narrows the search kept", () => {
-    const filter = { ...EMPTY_FILTER, types: ['invoice'] }
-    const reading = { ...home, document: { id: 41, focus: null }, search: { q: 'notice', filter } }
-    expect(searchedUrl(reading, 'late fee')).toBe('/projects/3/search?q=late+fee&type=invoice')
-    expect(searchedUrl({ ...home, library: { folderId: 7 } }, 'late fee')).toBe('/projects/3/search?folder=7&q=late+fee')
+  it('stays without words while something narrows it, and ends once nothing does', () => {
+    expect(withSearch({ folderId: 7, search: { q: 'notice', filter } }, { q: '  ', filter })).toEqual({ folderId: 7, search: { q: '', filter } })
+    expect(withSearch({ folderId: 7, search: { q: 'notice', filter } }, { q: '', filter: EMPTY_FILTER })).toEqual({ folderId: 7 })
+    expect(withSearch({ folderId: 7, search: { q: 'notice', filter } }, null)).toEqual({ folderId: 7 })
   })
 })
 
@@ -196,17 +205,17 @@ describe('a search in the URL', () => {
   }
 
   it("keeps what narrows it, each part its own parameter, its folder apart from the library's, and reads it back", () => {
-    const url = buildWorkspaceUrl({ ...home, library: { folderId: 7 }, search: { q: 'notice', filter } })
+    const url = buildWorkspaceUrl({ ...home, library: { folderId: 7, search: { q: 'notice', filter } } })
     expect(url).toBe(
-      '/projects/3/search?folder=7&q=notice&in=9&type=invoice&type=credit+note&after=2024-01-01&review=disputed&within=late+delivery&within=penalty',
+      '/projects/3?folder=7&q=notice&in=9&type=invoice&type=credit+note&after=2024-01-01&review=disputed&within=late+delivery&within=penalty',
     )
-    expect(parse(url)).toEqual({ ...home, library: { folderId: 7 }, search: { q: 'notice', filter } })
+    expect(parse(url)).toEqual({ ...home, library: { folderId: 7, search: { q: 'notice', filter } } })
   })
 
   it('leaves out what it cannot read, and opens no search where nothing is asked', () => {
-    expect(parse('/projects/3/search?q=notice&after=2024-1-1&review=lost&within=+&in=y')?.search).toEqual({ q: 'notice', filter: EMPTY_FILTER })
-    expect(parse('/projects/3/documents/41?within=penalty')?.search).toEqual({ q: '', filter: { ...EMPTY_FILTER, mentions: ['penalty'] } })
-    expect(parse('/projects/3/documents/41?in=x&q=+')?.search).toBeNull()
+    expect(parse('/projects/3?q=notice&after=2024-1-1&review=lost&within=+&in=y')?.library.search).toEqual({ q: 'notice', filter: EMPTY_FILTER })
+    expect(parse('/projects/3/documents/41?within=penalty')?.library.search).toEqual({ q: '', filter: { ...EMPTY_FILTER, mentions: ['penalty'] } })
+    expect(parse('/projects/3/documents/41?in=x&q=+')?.library.search).toBeUndefined()
   })
 })
 

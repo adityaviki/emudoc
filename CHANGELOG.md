@@ -12,6 +12,16 @@ the suite holds it to (`backend/tests/test_changelog.py`): `## YYYY-MM-DD` a day
 and `Operators:`, each a list of `- ` entries whose lines go on indented by two spaces, a day's
 newest entry first.
 
+## 2026-11-12
+
+Members:
+
+- A project is searched from the library's box again, and the header no longer has one: the
+  files whose names hold your words come first, as rows of the library, and the passages the
+  words find are listed below them. A passage opens its document beside the library, the search
+  staying where it was, and "Filter" narrows the passages as before. Every project is searched
+  from the box on the projects page.
+
 ## 2026-11-11
 
 Members:

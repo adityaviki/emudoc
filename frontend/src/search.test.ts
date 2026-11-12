@@ -2,15 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { searchAllParams } from './api.ts'
 import {
   EMPTY_SEARCH_ALL,
-  headerSearchWords,
   hitUrl,
+  librarySearchPlaceholder,
   narrowsAll,
   parseSearchAll,
   searchAllParts,
   searchAllProblem,
   searchAllUrl,
   searchAllWords,
-  searchTabName,
   withoutSearchAllPart,
 } from './search.ts'
 
@@ -73,15 +72,9 @@ it('opens a hit in its project, at its passage', () => {
   expect(hitUrl({ project_id: 7, document_id: 12, passage_id: 345 })).toBe('/projects/7/documents/12?passage=345')
 })
 
-describe("the header's search box", () => {
-  it('searches the project in a project, within what narrows its search, and every project elsewhere', () => {
-    expect(headerSearchWords({ name: 'Contracts', narrowed: false })).toEqual({ label: 'Search the project', placeholder: 'Search Contracts' })
-    expect(headerSearchWords({ name: 'Contracts', narrowed: true }).placeholder).toBe('Search within these documents')
-    expect(headerSearchWords(null)).toEqual({ label: 'Search all projects', placeholder: 'Search all projects' })
-  })
-
-  it("names the project's search tab by its words", () => {
-    expect(searchTabName('late fee')).toBe('Search: late fee')
-    expect(searchTabName('')).toBe('Search')
+describe("the library's search box", () => {
+  it("searches the files' names and the documents' text, or within what narrows the passages", () => {
+    expect(librarySearchPlaceholder(false)).toBe('Search names and text')
+    expect(librarySearchPlaceholder(true)).toBe('Search within these documents')
   })
 })

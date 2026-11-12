@@ -64,7 +64,7 @@ export interface Arrangement {
 /** The library's first order: by name, as the server lists when none is named. */
 export const BY_NAME: Arrangement = { sort: 'name', order: 'asc' }
 
-/** A place as a query key: a folder by its id, the root's null, the others by a word of their own, a name filter's alone `named`. */
+/** A place as a query key: a folder by its id, the root's null, the others by a word of their own, a search's names alone `named`. */
 export function placeKey(place: ListingPlace): number | string | null {
   if ('folder' in place) return place.folder
   if ('favorites' in place) return 'favorites'
@@ -74,7 +74,7 @@ export function placeKey(place: ListingPlace): number | string | null {
 /** The letters a place's file names are filtered by, or null for none. */
 export const nameOf = (place: ListingPlace): string | null => ('name' in place && place.name) || null
 
-// A name filter comes last, so that whatever asks again for a place's listings asks for its filtered ones too.
+// The names a search matches come last, so that whatever asks again for a place's listings asks for its searched ones too.
 export const listingKey = (projectId: number, place: ListingPlace, arrangement: Arrangement = BY_NAME) =>
   ['documents', projectId, placeKey(place), arrangement.sort, arrangement.order, nameOf(place)] as const
 /** Every order of a place's listing, for a change of what the place holds. */

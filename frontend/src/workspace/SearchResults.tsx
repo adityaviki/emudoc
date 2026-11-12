@@ -1,6 +1,6 @@
-// The project's search, in a tab of the middle pane beside the open documents: the header's box gives its words, the
-// address holds them with what narrows it (workspace/url.ts), and a hit opens its document in a tab of its own at the
-// passage, the search's tab staying to go back to.
+// The project's search's passages, in the library below the files whose names hold its words (workspace/Library.tsx):
+// the library's box gives its words, the address holds them with what narrows the passages (workspace/url.ts), and a
+// hit opens its document in the middle pane at the passage, the search staying in the library beside it.
 
 import { useQuery } from '@tanstack/react-query'
 import { Globe, Search, SlidersHorizontal, X } from 'lucide-react'
@@ -12,14 +12,14 @@ import { useMe } from '../auth.ts'
 import { folderChoices } from '../automations.ts'
 import { Button, Chip, EmptyState, IconButton, Loading, Notice } from '../components/ui.tsx'
 import { EMPTY_FILTER, MAX_WITHIN, filterParts, filterWords, narrows, withoutPart } from '../library.ts'
-import { EMPTY_SEARCH_ALL, HEADER_SEARCH, searchAllUrl } from '../search.ts'
+import { EMPTY_SEARCH_ALL, LIBRARY_SEARCH, searchAllUrl } from '../search.ts'
 import { useDocumentTypes } from './organizing.ts'
 import { SearchFilterDialog } from './Places.tsx'
 import { useWorkspace } from './state.ts'
 import type { WorkspaceSearch } from './url.ts'
 
-/** The search's hits, with its filter, the parts that narrow it, and the way to search within what it found. */
-export function SearchTab({ search }: { search: WorkspaceSearch }) {
+/** The search's passages, under a heading with its filter, the parts that narrow it, and the way to search within what it found. */
+export function SearchResults({ search }: { search: WorkspaceSearch }) {
   const workspace = useWorkspace()
   const navigate = useNavigate()
   const me = useMe()
@@ -40,8 +40,11 @@ export function SearchTab({ search }: { search: WorkspaceSearch }) {
   const within = query !== '' && hits.length > 0 && filter.mentions.length < MAX_WITHIN
 
   return (
-    <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
+    <section aria-labelledby={PASSAGES_HEADING} className="space-y-2 px-1 pt-3 pb-2">
       <div className="flex flex-wrap items-center gap-1.5">
+        <h2 id={PASSAGES_HEADING} className="mr-1 px-1 text-xs font-semibold text-muted">
+          Passages
+        </h2>
         <Button ref={filterButton} icon={<SlidersHorizontal className="size-3.5" />} onClick={() => setFiltering(true)} className="h-7 px-2 text-xs">
           Filter
         </Button>
@@ -52,8 +55,11 @@ export function SearchTab({ search }: { search: WorkspaceSearch }) {
               label={`Take off: ${words}`}
               className="size-5! text-accent hover:text-ink"
               onClick={() => {
-                workspace.showSearch({ q: query, filter: withoutPart(filter, part) })
-                filterButton.current?.focus()
+                const rest = withoutPart(filter, part)
+                workspace.showSearch({ q: query, filter: rest })
+                // The last part taken off a search without words ends it, and the box stays to search again.
+                if (query || narrows(rest)) filterButton.current?.focus()
+                else window.document.getElementById(LIBRARY_SEARCH)?.focus()
               }}
             >
               <X className="size-3" />
@@ -68,7 +74,7 @@ export function SearchTab({ search }: { search: WorkspaceSearch }) {
               className="h-7 px-2 text-xs"
               onClick={() => {
                 workspace.showSearch({ q: '', filter: { ...filter, mentions: [...filter.mentions, query] } })
-                window.document.getElementById(HEADER_SEARCH)?.focus()
+                window.document.getElementById(LIBRARY_SEARCH)?.focus()
               }}
             >
               Search within these
@@ -78,15 +84,15 @@ export function SearchTab({ search }: { search: WorkspaceSearch }) {
       </div>
       {!query && (
         <EmptyState icon={<Search />} title="What should be searched for?">
-          {filterWords(filter, folder)}. Type words in the search box at the top to search them.
+          {filterWords(filter, folder)}. Type words in the search box above to search them.
         </EmptyState>
       )}
       {results.isPending && query !== '' && <Loading />}
       {results.isError && <Notice tone="bad">Search failed: {results.error.message}</Notice>}
       {results.data && !results.data.semantic && <Notice>The embedding service is offline, so these are keyword matches only.</Notice>}
       {results.data && hits.length === 0 && (
-        <EmptyState title={`Nothing found for "${query}"${folder ? ` in ${folder}` : ''}`}>
-          Results combine exact word matches with matches on meaning.
+        <EmptyState title={`No passage found for "${query}"${folder ? ` in ${folder}` : ''}`}>
+          Passages are found by their exact words and by their meaning.
           <div className="mt-4 flex flex-wrap justify-center gap-2">
             {/* A narrowed search may miss what the rest of the project holds, and the project what the others do. */}
             {narrows(filter) && (
@@ -112,9 +118,12 @@ export function SearchTab({ search }: { search: WorkspaceSearch }) {
           onClose={() => setFiltering(false)}
         />
       )}
-    </div>
+    </section>
   )
 }
+
+/** The passages' heading, which names their section. */
+const PASSAGES_HEADING = 'search-passages'
 
 /** The search's filter form, with the types the model gave the project's documents to choose from, asked for as it opens. */
 function SearchFilterEditor(props: Omit<Parameters<typeof SearchFilterDialog>[0], 'types'>) {

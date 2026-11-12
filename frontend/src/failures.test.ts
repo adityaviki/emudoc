@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { failureWords, libraryPlace } from './failures.ts'
+import { EMPTY_FILTER } from './library.ts'
+
+const searched = (q: string) => ({ q, filter: EMPTY_FILTER })
 
 describe('failureWords', () => {
   it('has the page reloaded, as nothing below the header is left to try again', () => {
@@ -19,18 +22,19 @@ describe('failureWords', () => {
 
 describe('libraryPlace', () => {
   it('is the same for the same place, so a broken library stays broken while nothing moves', () => {
-    expect(libraryPlace({ folderId: 4, name: 'invoice' })).toBe(libraryPlace({ folderId: 4, name: 'invoice' }))
+    expect(libraryPlace({ folderId: 4, search: searched('invoice') })).toBe(libraryPlace({ folderId: 4, search: searched('invoice') }))
     expect(libraryPlace({ folderId: null })).toBe(libraryPlace({ folderId: null }))
   })
 
-  it('changes with the folder, a place, the filter by name, the trash, the templates, a facts table and its changes, each of which starts it afresh', () => {
+  it('changes with the folder, a place, the search and what narrows it, the trash, the templates, a facts table and its changes, each of which starts it afresh', () => {
     const places = [
       libraryPlace({ folderId: null }),
       libraryPlace({ folderId: 4 }),
       libraryPlace({ folderId: 5 }),
-      libraryPlace({ folderId: 4, name: 'invoice' }),
-      libraryPlace({ folderId: null, name: 'invoice' }),
-      libraryPlace({ folderId: null, favorites: true, name: 'invoice' }),
+      libraryPlace({ folderId: 4, search: searched('invoice') }),
+      libraryPlace({ folderId: null, search: searched('invoice') }),
+      libraryPlace({ folderId: null, search: { q: 'invoice', filter: { ...EMPTY_FILTER, types: ['invoice'] } } }),
+      libraryPlace({ folderId: null, favorites: true, search: searched('invoice') }),
       libraryPlace({ folderId: null, favorites: true }),
       libraryPlace({ folderId: null, recent: true }),
       libraryPlace({ folderId: null, trash: true }),
@@ -45,7 +49,7 @@ describe('libraryPlace', () => {
     expect(new Set(places).size).toBe(places.length)
   })
 
-  it("tells a filter by a folder's number from that folder", () => {
-    expect(libraryPlace({ folderId: null, name: '4' })).not.toBe(libraryPlace({ folderId: 4 }))
+  it("tells a search for a folder's number from that folder", () => {
+    expect(libraryPlace({ folderId: null, search: searched('4') })).not.toBe(libraryPlace({ folderId: 4 }))
   })
 })

@@ -24,7 +24,6 @@ import { describeConnection } from './connection.ts'
 import { formatDate } from './format.ts'
 import { DELETION_SECTION, deletionWords } from './organizationSettings.ts'
 import { ErrorBoundary } from './components/ErrorBoundary.tsx'
-import { HeaderSearch } from './components/HeaderSearch.tsx'
 import { Floating, Menu } from './components/Menu.tsx'
 import type { MenuItem } from './components/Menu.tsx'
 import { ThemeToggle } from './components/ThemeToggle.tsx'
@@ -163,7 +162,7 @@ function Shell() {
           <div className="flex min-w-0 shrink items-center gap-1.5">
             <Link to="/" className="flex shrink-0 items-center gap-2 rounded-md px-1 text-[15px] font-semibold tracking-tight">
               <img src="/favicon.svg" alt="" className="size-5" />
-              {/* A narrow screen keeps the mark, and room for the search; the link keeps its name. */}
+              {/* A narrow screen keeps the mark, and room for the switchers; the link keeps its name. */}
               <span className="sr-only sm:not-sr-only">Emudoc</span>
             </Link>
             {/* The organisation's switcher shows from a small screen up, and its crumb with it. */}
@@ -171,10 +170,8 @@ function Shell() {
             <OrganizationSwitcher />
             <ProjectSwitcher />
           </div>
-          {/* The one search box: the project's in a project, every project's elsewhere. */}
-          <div className="flex min-w-24 flex-1 justify-center">
-            <HeaderSearch />
-          </div>
+          {/* The project's search is its library's; every project's, the projects page's. */}
+          <div className="flex-1" />
           <div className="flex shrink-0 items-center gap-1 sm:gap-3">
             <ServiceStatus />
             <HelpMenu />
