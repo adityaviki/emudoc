@@ -58,7 +58,7 @@ DEVELOPMENT = {
 }
 DIRECTORY = LocalStorage(Path("unused"))
 # The SHA-256 of terms.md and privacy.md as the edition TERMS_VERSION names was settled.
-SETTLED = "a4ab3ab321e655a1bb9ee4b7fec2f77f73b5a0aadb000dfa233a44ca3f16f1de"
+SETTLED = "fc894bd316d11f5519cb7a485f423e39ab290349a8c0ce8ba19fdfcae376e1f9"
 OLDER = "2026-01-01"
 
 
@@ -126,16 +126,15 @@ def test_the_documents_name_who_runs_the_deployment():
     assert "OPERATOR_NAME is not set" in unset and "OPERATOR_EMAIL is not set" in unset
 
 
-def test_the_policy_says_where_messages_to_support_go():
+def test_the_policy_says_where_the_help_menus_messages_go():
     def said(**changes: object) -> str:
         return " ".join(privacy_policy(configured(**changes), DIRECTORY, {}).split())
 
-    apart = said(operator_email="privacy@example.com", support_email="help@example.com")
-    assert "They are sent to [help@example.com](mailto:help@example.com) by email" in apart
-    # One address answers both, unless the deployment names another for support.
-    alike = said(operator_email="privacy@example.com")
-    assert "They are sent to [privacy@example.com](mailto:privacy@example.com) by email" in alike
-    assert "They are sent to [OPERATOR_EMAIL is not set] by email" in said()
+    named = said(operator_email="privacy@example.com", support_email="help@example.com")
+    assert "They are sent by email to [help@example.com](mailto:help@example.com)," in named
+    # Without SUPPORT_EMAIL they go to the workspace's admins, never to OPERATOR_EMAIL.
+    admins = said(operator_email="privacy@example.com")
+    assert "They are sent by email to the organisation's other owners and admins, who" in admins
 
 
 def test_the_documents_say_how_long_the_workspace_keeps_chats_and_its_audit_log(monkeypatch):

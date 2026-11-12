@@ -1,16 +1,19 @@
 """Help for members: where to write for help and the status page (`GET /api/help`, public, since
 the page that cannot reach its server asks it too), the upload client the organisation's API keys
-offer (`GET /api/help/emudoc_upload.py`, app/client/), and a member's message to support from
-the app's help menu (`POST /api/feedback`), mailed to SUPPORT_EMAIL with what support needs to
-find what they met.
+offer (`GET /api/help/emudoc_upload.py`, app/client/), and a member's message from the app's help
+menu (`POST /api/feedback`), mailed with what its reader needs to find what they met.
+
+The message goes to SUPPORT_EMAIL where the server names one, a team's helpdesk; otherwise to the
+workspace's owners and admins, who run it, each by a mail of their own, the member who wrote
+left out. A sole owner or admin has nobody to write to there, which they are told.
 
 The message is the member's words and goes nowhere but the mail: not into a log line, nor an
 `AppError`, nor the subject, which the mailer logs when a relay refuses it. What is attached is
-the app's own: the account's and the organisation's ids, the page's path with the ids its query
+the app's own: the account's and the workspace's ids, the page's path with the ids its query
 names, the version the API runs, the browser's description of itself, and the reference of the
 last request the page saw refused or failed, under which the log keeps what happened. It
-changes nothing of the organisation's, so no audit row, and the queue's job gives the message
-up once it is sent (app/postbox.py), so the app keeps none of it.
+changes nothing of the workspace's, so no audit row, and the queue's job gives the message up
+once it is sent (app/postbox.py), so the app keeps none of it.
 """
 
 from datetime import UTC, datetime
@@ -18,13 +21,17 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
+from app.accounts import Account
 from app.api.auth import app_url
 from app.api.deps import AccountDep, SessionDep, limited
 from app.client import UPLOAD_CLIENT
 from app.config import get_settings
 from app.logs import current_context
 from app.mail import compose, support_message_email
+from app.models import Membership, User
 from app.postbox import post
 from app.ratelimit import FEEDBACK
 from app.schemas import FeedbackIn, FeedbackOut, HelpOut
@@ -32,10 +39,11 @@ from app.version import VERSION
 
 router = APIRouter(tags=["help"])
 
-# Only development runs without an address: production requires OPERATOR_EMAIL.
-NO_SUPPORT = (
-    "This deployment names no address for support: set SUPPORT_EMAIL or OPERATOR_EMAIL, then "
-    "restart the backend."
+# What a sole owner or admin is told, with nobody else to write to and no SUPPORT_EMAIL.
+NOBODY_ELSE = (
+    "You are this workspace's only owner or admin, so a message from here would come back to "
+    "you. To have the help menu write to someone, set SUPPORT_EMAIL on the server to their "
+    "address, or make another member an admin."
 )
 # The longest browser description a message carries; a real one is a few hundred characters.
 BROWSER_CHARS = 300
@@ -43,11 +51,12 @@ BROWSER_CHARS = 300
 
 @router.get("/help", response_model=HelpOut)
 def help_offered():
-    """Where members write for help and the status page. It reads no database, so that the page
-    that cannot reach its server, a database being down, still learns where the status page is."""
+    """Where members write for help, where the server names an address, and the status page. It
+    reads no database, so that the page that cannot reach its server, a database being down,
+    still learns where the status page is."""
     settings = get_settings()
     return HelpOut(
-        support_email=settings.support_address or None,
+        support_email=settings.support_email or None,
         status_page=settings.status_page_url or None,
     )
 
@@ -67,11 +76,13 @@ def upload_client():
     dependencies=[Depends(limited(FEEDBACK))],
 )
 def send_feedback(body: FeedbackIn, account: AccountDep, request: Request, session: SessionDep):
-    """Post the member's message to the support address, replies going to the member, and
-    answer with the reference it was sent under for them to quote."""
-    address = get_settings().support_address
-    if not address:
-        raise HTTPException(503, NO_SUPPORT)
+    """Post the member's message to SUPPORT_EMAIL, or to the workspace's other owners and admins,
+    replies going to the member, and answer with the reference it was sent under for them to
+    quote."""
+    support = get_settings().support_email
+    readers = [support] if support else _admins(session, account)
+    if not readers:
+        raise HTTPException(409, NOBODY_ELSE)
     user, organization = account.user, account.organization
     reference = str(current_context().get("request_id") or uuid4().hex)
     failed = (
@@ -83,7 +94,7 @@ def send_feedback(body: FeedbackIn, account: AccountDep, request: Request, sessi
     details = (
         f"Account: user {user.id}, "
         f"address {'confirmed' if user.email_verified_at else 'not confirmed'}",
-        f"Organisation: {organization.name} ({organization.slug}), id {organization.id}, where "
+        f"Workspace: {organization.name} ({organization.slug}), id {organization.id}, where "
         f"they are {account.role}",
         f"Page: {origin}{body.page}",
         failed,
@@ -98,13 +109,30 @@ def send_feedback(body: FeedbackIn, account: AccountDep, request: Request, sessi
         reference,
         f"{user.name} ({user.email})" if user.name else user.email,
         details,
-        f"{origin}/operator/organizations/{organization.id}",
     )
-    post(
-        session,
-        address,
-        compose(address, content, headers={"Reply-To": user.email}),
-        organization.id,
-    )
+    for address in readers:
+        post(
+            session,
+            address,
+            compose(address, content, headers={"Reply-To": user.email}),
+            organization.id,
+        )
     session.commit()
-    return FeedbackOut(reference=reference, to=address)
+    return FeedbackOut(reference=reference, to=support or None)
+
+
+def _admins(session: Session, account: Account) -> list[str]:
+    """The addresses of the workspace's owners and admins but the member writing, the longest
+    in it first."""
+    return list(
+        session.scalars(
+            select(User.email)
+            .join(Membership, Membership.user_id == User.id)
+            .where(
+                Membership.org_id == account.organization.id,
+                Membership.role.in_(("owner", "admin")),
+                User.id != account.user.id,
+            )
+            .order_by(Membership.created_at, User.id)
+        )
+    )

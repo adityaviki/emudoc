@@ -102,9 +102,6 @@ class Context:
     user_id: int | None = None
     # The API key a request came with (app/apikeys.py), which acts as `user_id`.
     api_key_id: int | None = None
-    # The operator viewing `user_id`'s account as support from their own session
-    # (app/support.py).
-    operator_id: int | None = None
     project_id: int | None = None
     document_id: int | None = None
     message_id: int | None = None

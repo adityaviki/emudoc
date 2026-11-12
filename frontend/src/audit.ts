@@ -292,7 +292,7 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
     parts.push(`for ${detail.days} day${detail.days === 1 ? '' : 's'}`)
     if (detail.password === true) parts.push('with a password')
   }
-  // A member's leave for support, and a view of their account, until when.
+  // A member's leave for Emudoc's support, and a view of their account, until when: rows from before the hosted service's support went (S.3).
   if (event.action === 'support_access_granted' && typeof detail.until === 'string') parts.push(`until ${formatDateTime(detail.until)}`)
   if (event.action === 'support_session_started' && typeof detail.ends_at === 'string') parts.push(`until ${formatDateTime(detail.ends_at)}`)
   // What a member did through an API key is theirs, with the key named as it was.
@@ -300,7 +300,7 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   if (key && typeof key === 'object' && 'name' in key) parts.push(`with the API key ${key.name}`)
   // What one of the deployment's operators did from the operator's area, by the id the deployment's records keep.
   if (typeof detail.operator === 'number') parts.push("by Emudoc's operators")
-  // What was done while Emudoc's support viewed the member's account with their leave.
+  // What was done while Emudoc's support viewed the member's account with their leave, in rows from before S.3.
   if (typeof detail.support === 'number') parts.push("by Emudoc's support, viewing their account")
   return parts.join(' · ')
 }

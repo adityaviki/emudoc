@@ -465,24 +465,8 @@ def account_deletion_email(name: str, due: str, link: str) -> Content:
     )
 
 
-def support_view_email(name: str, organization: str, ends: str, until: str, link: str) -> Content:
-    """To a member whose account Emudoc's support opened with their leave: in which
-    organisation, until when, and how to take the leave back, which also ends the view."""
-    return Content(
-        "Emudoc's support opened your account",
-        (
-            _greeting(name),
-            f"Emudoc's support opened your account in {organization}, as you let it, and sees "
-            f"it as you do until {ends}, without changing anything.",
-            f"Your leave for support lasts until {until}. If you did not expect this, or no "
-            "longer need help, withdraw it on your account page, which ends the view at once:",
-            Link(link, "Open your account page"),
-        ),
-    )
-
-
-# What a member's message to support is about, as its subject says it: the app's words, since
-# the mailer logs a subject, never the member's.
+# What a member's message from the help menu is about, as its subject says it: the app's words,
+# since the mailer logs a subject, never the member's.
 SUPPORT_SUBJECTS = {
     "problem": "A member reports a problem",
     "question": "A member asks a question",
@@ -491,12 +475,12 @@ SUPPORT_SUBJECTS = {
 
 
 def support_message_email(
-    kind: str, words: str, reference: str, sender: str, details: tuple[str, ...], area: str
+    kind: str, words: str, reference: str, sender: str, details: tuple[str, ...]
 ) -> Content:
-    """To the support address (SUPPORT_EMAIL): what a member wrote from the app's help menu,
-    and what support needs to find what they met, one detail a line (the account, the
-    organisation, the page, the request that failed). The member's words are in the body alone;
-    a reply goes to them (the message's Reply-To, app/api/help.py)."""
+    """To SUPPORT_EMAIL, or each of the workspace's owners and admins: what a member wrote from
+    the app's help menu, and what its reader needs to find what they met, one detail a line
+    (the account, the workspace, the page, the request that failed). The member's words are in
+    the body alone; a reply goes to them (the message's Reply-To, app/api/help.py)."""
     return Content(
         f"{SUPPORT_SUBJECTS[kind]}, reference {reference}",
         (
@@ -505,7 +489,6 @@ def support_message_email(
             "\n".join(details),
             "Reply to this message to answer them, and quote the reference if you write to "
             "anyone else about it.",
-            Link(area, "Open the organisation in the operator's area"),
         ),
     )
 

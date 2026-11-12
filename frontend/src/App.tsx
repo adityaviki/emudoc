@@ -18,9 +18,9 @@ import { UnsubscribePage } from './account/UnsubscribePage.tsx'
 import { UserMenu } from './account/UserMenu.tsx'
 import { VerifyPage } from './account/VerifyPage.tsx'
 import { AuthLayout } from './account/shared.tsx'
-import { api, auth, handleForbidden, handleSwitched, handleUnauthorized } from './api.ts'
+import { api, auth, handleForbidden, handleUnauthorized } from './api.ts'
 import type { Me } from './api.ts'
-import { ME_KEY, MeContext, forgetUser, loginPath, startAgainInOrganization, useMe, useMeQuery } from './auth.ts'
+import { ME_KEY, MeContext, forgetUser, loginPath, useMe, useMeQuery } from './auth.ts'
 import { describeConnection } from './connection.ts'
 import { ErrorBoundary } from './components/ErrorBoundary.tsx'
 import { Floating, Menu } from './components/Menu.tsx'
@@ -40,7 +40,6 @@ import { SubprocessorsPage } from './pages/SubprocessorsPage.tsx'
 import { SharedPage } from './shared/SharedPage.tsx'
 import { Workspace } from './pages/Workspace.tsx'
 import { describeServices } from './status.ts'
-import { viewWords } from './support.ts'
 
 /**
  * Asks who is signed in before showing anything. The sign-in pages render on their own; every
@@ -56,12 +55,6 @@ function App() {
     handleUnauthorized(() => forgetUser(queryClient))
     return () => handleUnauthorized(null)
   }, [queryClient])
-
-  // The session works in another organisation than the page shows, as when a view by support ended: start again.
-  useEffect(() => {
-    handleSwitched(startAgainInOrganization)
-    return () => handleSwitched(null)
-  }, [])
 
   // A request refused as not the account's to make: its role or standing may have changed since
   // the page asked, so ask again, and the pages offer only what it may do now.
@@ -170,7 +163,6 @@ function Shell() {
             <UserMenu />
           </div>
         </div>
-        <SupportBanner me={me} />
         <VerifyBanner me={me} />
       </header>
       <main className="min-h-0 flex-1">
@@ -270,29 +262,6 @@ function ProjectSwitcher() {
         </Floating>
       )}
     </>
-  )
-}
-
-/**
- * Says on every page that Emudoc's support views a member's account rather than its member, read only, and ends the view,
- * back to the operator's area: the page there, whatever the end answered, finds the session the operator's own again.
- */
-function SupportBanner({ me }: { me: Me }) {
-  const words = viewWords(me)
-  if (!words) return null
-  const end = () =>
-    void auth
-      .endSupportView()
-      .catch(() => undefined)
-      .then(() => window.location.assign('/operator'))
-
-  return (
-    <div className="flex items-center justify-center gap-3 border-t border-line bg-warn/5 px-4 py-1.5 text-[13px] text-warn">
-      <span className="min-w-0">{words}</span>
-      <button type="button" onClick={end} className="shrink-0 font-medium text-accent hover:underline">
-        End the view
-      </button>
-    </div>
   )
 }
 

@@ -34,7 +34,6 @@ import { NoticeChoices } from '../components/NoticeChoices.tsx'
 import { formatDate, formatDateTime } from '../format.ts'
 import { useLocalStorage } from '../hooks.ts'
 import { browserNoticesKey } from '../notifications.ts'
-import { SUPPORT_SPANS, leaveWords } from '../support.ts'
 import { browserTimeZone, timeZoneChoices, zoneLabel } from '../timeZones.ts'
 import { ChangeEmailForm } from './ChangeEmail.tsx'
 import { DeleteAccountForm } from './DeleteAccount.tsx'
@@ -66,7 +65,6 @@ export function AccountPage() {
           <PasswordSection />
           <TwoFactorSection me={me} />
           <SessionsSection />
-          <SupportSection me={me} />
           <DataSection me={me} />
           <DeleteSection me={me} />
         </div>
@@ -470,44 +468,6 @@ function SessionsSection() {
           <Button onClick={() => revokeOthers.mutate()} disabled={revokeOthers.isPending}>
             Sign out everywhere else
           </Button>
-        </div>
-      )}
-    </Section>
-  )
-}
-
-/**
- * Whether Emudoc's support may see the account in the organisation it works in, as its member sees it and changing
- * nothing: given for a day or a week, and withdrawn here, which ends a view at once.
- */
-function SupportSection({ me }: { me: Me }) {
-  const queryClient = useQueryClient()
-  const change = useMutation({
-    mutationFn: (days: number | null) => (days === null ? auth.keepSupportOut() : auth.letSupportIn(days)),
-    onSuccess: (account) => setSignedIn(queryClient, account),
-  })
-  return (
-    <Section
-      title="Emudoc's support"
-      description="When you ask Emudoc's support for help, let it see your account in this organisation as you see it, without changing anything. You are emailed each time support opens it, and the organisation's audit log records it."
-    >
-      <p className="text-[13px]">{leaveWords(me)}</p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {me.support_until ? (
-          <Button onClick={() => change.mutate(null)} disabled={change.isPending}>
-            Withdraw
-          </Button>
-        ) : (
-          SUPPORT_SPANS.map(({ days, label }) => (
-            <Button key={days} onClick={() => change.mutate(days)} disabled={change.isPending}>
-              Let support in {label}
-            </Button>
-          ))
-        )}
-      </div>
-      {change.isError && (
-        <div className="mt-3">
-          <Notice tone="bad">{change.error.message}</Notice>
         </div>
       )}
     </Section>

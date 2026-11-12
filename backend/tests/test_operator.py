@@ -47,11 +47,6 @@ ACTIONS = (
     ("POST", "/api/operator/jobs/requeue", {"job_ids": []}),
     ("PUT", "/api/operator/providers/google", {"off": False}),
 )
-# What the area changes without a body: a view of a member's account as support, and its end.
-VIEWS = (
-    ("POST", "/api/operator/organizations/1/members/1/support"),
-    ("DELETE", "/api/operator/support"),
-)
 PRICED = "test:priced"
 
 
@@ -133,16 +128,6 @@ def test_nobody_but_an_operator_finds_the_area(client, session, operator, accoun
             method, path, content=b"{", headers={"Content-Type": "application/json"}
         )
         assert malformed.status_code == 422, path
-    for method, path in VIEWS:
-        for who, refused in (
-            ("a member", member),
-            ("the operator from elsewhere", elsewhere),
-            ("the operator with a key", keyed),
-            ("the local account", nobody),
-        ):
-            assert not_found(refused.request(method, path)), (who, path)
-        bare = headerless.request(method, path)
-        assert (bare.status_code, bare.json()["detail"]) == (403, CROSS_SITE), path
 
     # Once the operator is no longer one, the area is gone for their session too.
     main(["operators", "remove", "olga@example.com"])

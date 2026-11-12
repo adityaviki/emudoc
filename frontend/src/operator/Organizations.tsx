@@ -2,13 +2,13 @@
 // one of them as the `usage` command shows it, with its usage page as its members read it, its
 // members and what its work cost.
 
-import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
 import type { FormEvent } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router'
 import type { UsagePage } from '../api.ts'
 import { Button, FIELD, Loading, Notice, Row, Section } from '../components/ui.tsx'
-import { formatDate, formatDateTime, formatSize } from '../format.ts'
+import { formatDate, formatSize } from '../format.ts'
 import { operatorApi } from './api.ts'
 import type { OrganizationDetail } from './api.ts'
 import { Cell, Heading, Table } from './Table.tsx'
@@ -173,13 +173,8 @@ function Organization({ detail, currency }: { detail: OrganizationDetail; curren
             </div>
           )}
         </Section>
-        <Section
-          title="Members"
-          description="A member who lets Emudoc's support see their account, on their account page, can be viewed here as they see it, read only, an hour at a time. They are emailed, and the organisation's audit log records it."
-        >
-          <Table
-            columns={[{ label: 'Name' }, { label: 'Address' }, { label: 'Role' }, { label: 'Two-factor' }, { label: 'Joined' }, { label: 'Support' }]}
-          >
+        <Section title="Members">
+          <Table columns={[{ label: 'Name' }, { label: 'Address' }, { label: 'Role' }, { label: 'Two-factor' }, { label: 'Joined' }]}>
             {detail.members.map((member) => (
               <tr key={member.user_id}>
                 <Cell>{member.name || '—'}</Cell>
@@ -187,34 +182,11 @@ function Organization({ detail, currency }: { detail: OrganizationDetail; curren
                 <Cell>{member.role}</Cell>
                 <Cell>{member.mfa_enabled ? 'on' : 'off'}</Cell>
                 <Cell className="whitespace-nowrap text-muted">{formatDate(member.joined_at)}</Cell>
-                <Cell className="whitespace-nowrap">
-                  {member.support_until ? (
-                    <ViewAs orgId={organization.id} userId={member.user_id} name={member.name || member.email} until={member.support_until} />
-                  ) : (
-                    <span className="text-muted">not allowed</span>
-                  )}
-                </Cell>
               </tr>
             ))}
           </Table>
         </Section>
       </div>
-    </>
-  )
-}
-
-/** Opens the app as the member sees it, while they let support see their account, until the view ends. */
-function ViewAs({ orgId, userId, name, until }: { orgId: number; userId: number; name: string; until: string }) {
-  const view = useMutation({
-    mutationFn: () => operatorApi.viewAs(orgId, userId),
-    onSuccess: () => window.location.assign('/'),
-  })
-  return (
-    <>
-      <Button onClick={() => view.mutate()} disabled={view.isPending} title={`Allowed until ${formatDateTime(until)}`}>
-        View as {name}
-      </Button>
-      {view.isError && <span className="ml-2 text-bad">{view.error.message}</span>}
     </>
   )
 }

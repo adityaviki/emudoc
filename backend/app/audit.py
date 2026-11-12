@@ -29,9 +29,9 @@ not recorded: it is a view, and what is done after it is.
 
 What a member does with an API key (app/apikeys.py) is theirs, with the key's id and name as
 it was in the detail's `api_key`, so the log tells a program's acts from the member's own.
-What Emudoc's support does while it views a member's account with their leave (app/support.py),
-which changes nothing but may download, is the member's with the operator's id in the
-detail's `support`; the leave, its withdrawal and each view's start and end are rows too.
+Rows from before 2026-11-13 may carry a `support`, the operator who viewed the member's account
+as Emudoc's support, a view the hosted service had (S.3), with the actions of its leave and
+its views.
 
 Admins and owners read their organisation's rows page by page through `GET /api/audit`, by
 action, member, project and span, and download them as a CSV file (app/api/audit.py), which the
@@ -105,12 +105,9 @@ def audit(
     detail: dict[str, Any] | None = None,
 ) -> None:
     """Add a row for what the account's member did through the request, naming the API key it
-    came with, if any, as it was then, or the operator who viewed the account as support; the
-    caller commits."""
+    came with, if any, as it was then; the caller commits."""
     if account.key is not None:
         detail = {**(detail or {}), "api_key": {"id": account.key.id, "name": account.key.name}}
-    if account.operator_id is not None:
-        detail = {**(detail or {}), "support": account.operator_id}
     audit_event(
         session,
         action,

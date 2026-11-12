@@ -1200,14 +1200,14 @@ export interface PageError {
   path: string
 }
 
-/** Where members write for help (backend/app/api/help.py): none only in development. */
+/** Where members write for help (backend/app/api/help.py): SUPPORT_EMAIL, or none where the help menu writes to the workspace's owners and admins. */
 export interface Help {
   support_email: string | null
   /** The status page outside the deployment, which says whether it is up; none where it names none. */
   status_page: string | null
 }
 
-/** What a member writes to support about, which the mail's subject says. */
+/** What a member writes about from the help menu, which the mail's subject says. */
 export type FeedbackKind = 'problem' | 'question' | 'idea'
 
 /** A request the API refused or failed, by the reference its answer carried, under which the log keeps it. */
@@ -1217,7 +1217,7 @@ export interface FailedRequest {
 }
 
 /**
- * A message to support from the help menu: the member's words, and where they were, as the page's
+ * A message from the help menu: the member's words, and where they were, as the page's
  * path with the ids its query names, never its words (src/help/feedback.ts).
  */
 export interface Feedback {
@@ -1227,10 +1227,10 @@ export interface Feedback {
   failed: FailedRequest | null
 }
 
-/** A message posted to support: the reference it went under, for the member to quote, and the address an answer comes from. */
+/** A message posted from the help menu: the reference it went under, for the member to quote, and the address an answer comes from, null for the workspace's owners and admins. */
 export interface FeedbackSent {
   reference: string
-  to: string
+  to: string | null
 }
 
 /** A company the deployment sends data to, as the server reads it from its settings. */
@@ -1594,10 +1594,6 @@ export interface Me {
   checklist_hidden: boolean
   tour_seen: boolean
   invite_hidden: boolean
-  /** Until when the user lets Emudoc's support see their account in this organisation (backend/app/support.py), null while they do not. */
-  support_until: string | null
-  /** Set while one of Emudoc's operators views the account as support rather than the user signed in: read only, this organisation alone, until `ends_at`. */
-  support_view: { ends_at: string } | null
 }
 
 /** A signed-in user an admin removed from the workspace: in none until invited again (backend/app/api/deps.py), which is all the app shows them. */
@@ -2055,7 +2051,6 @@ export class Unreachable extends Error {
 }
 
 let onUnauthorized: (() => void) | null = null
-let onSwitched: (() => void) | null = null
 let onForbidden: (() => void) | null = null
 let lastFailure: FailedRequest | null = null
 
@@ -2066,15 +2061,6 @@ let lastFailure: FailedRequest | null = null
  */
 export function handleUnauthorized(handler: (() => void) | null) {
   onUnauthorized = handler
-}
-
-/**
- * What happens when the server refused a request because the session works in another
- * organisation than the page shows, as when a view by support ends: the app registers a handler
- * that starts it again there.
- */
-export function handleSwitched(handler: (() => void) | null) {
-  onSwitched = handler
 }
 
 /**
@@ -2090,16 +2076,12 @@ export function handleForbidden(handler: (() => void) | null) {
 
 /**
  * The last request of this page's that the API refused or failed, by the id its answer carried
- * (X-Request-ID, backend/app/logs.py): what a message to support attaches, for support to find
- * in the log what the member met. Null until one did.
+ * (X-Request-ID, backend/app/logs.py): what a message from the help menu attaches, for whoever
+ * answers to find in the log what the member met. Null until one did.
  */
 export function lastFailedRequest(): FailedRequest | null {
   return lastFailure
 }
-
-// The header a refusal names the organisation the session works in by, once a view by support
-// ended (ORGANIZATION_HEADER in backend/app/api/deps.py).
-const ORGANIZATION_HEADER = 'X-Organization'
 
 /**
  * Every request carries this header. The server refuses a change without it, which is what keeps
@@ -2123,7 +2105,6 @@ async function send(path: string, init?: RequestInit, onProgress?: Progress): Pr
   const forSession = !path.startsWith('/auth/') && !path.startsWith('/shared')
   if (response.status === 401 && forSession) onUnauthorized?.()
   if (response.status === 403 && forSession) onForbidden?.()
-  if (response.status === 409 && response.headers.has(ORGANIZATION_HEADER)) onSwitched?.()
   return response
 }
 
@@ -2245,12 +2226,6 @@ export const auth = {
   /** Hide the list of first steps or show it again, or say the tour was seen; a field left out stays as it is. */
   chooseOnboarding: (body: { checklist_hidden?: boolean; tour_seen?: boolean; invite_hidden?: boolean }) =>
     request<Me>('/auth/onboarding', json('PATCH', body)),
-  /** Let Emudoc's support see the account in the organisation it works in for `days` from now, in place of a leave given before. */
-  letSupportIn: (days: number) => request<Me>('/auth/support-access', json('PUT', { days })),
-  /** Withdraw that leave, which also ends a view of the account by support. */
-  keepSupportOut: () => request<Me>('/auth/support-access', { method: 'DELETE' }),
-  /** Ends the view of a member's account the operator's session holds (backend/app/api/operator.py), from the banner the view shows. */
-  endSupportView: () => request<void>('/operator/support', { method: 'DELETE' }),
   /**
    * Stops the email of the kind of notice a notice's link was made for, to its user, signed in
    * or not: the token in the link says whose and which. Mirrors `unsubscribe` in
@@ -2391,7 +2366,7 @@ export const api = {
   help: () => request<Help>('/help'),
   /** Public: what a share link shows, and its view's cookie; a 401 asks for its password, a 404 says it stopped. */
   openShared: (token: string, password?: string) => request<Shared>('/shared', json('POST', { token, password })),
-  /** Mails the member's message to support; a 429 says when they may write again. */
+  /** Mails the member's message to SUPPORT_EMAIL or the workspace's owners and admins; a 429 says when they may write again, a 409 that a sole admin has nobody to write to. */
   sendFeedback: (feedback: Feedback) => request<FeedbackSent>('/feedback', json('POST', feedback)),
   /** Owners and admins only; anyone else gets a 403. The page older than the row `before`, of the rows the filter picks. */
   audit: (filter: AuditFilter, before: number | null = null, limit = 50) => {

@@ -76,16 +76,12 @@ organisation uploaded a document about you, ask the organisation first; we help 
   the organisation.
 - **Usage**: the pages, questions and model use your organisation counted, and what they cost,
   each with the member it was for, to show the organisation what it used and what that cost.
-- **Support access**: when you let our support see your account in an organisation, until when,
-  and each time support opened it, so that it sees your account only while you allow it and you
-  and the organisation's owners and admins can tell when it did. While it has it open, support
-  sees what you see in that organisation, your account page included, and changes nothing.
-- **Messages to support**: what you write to us from the app's help menu, with your name, email
-  address and role, the ids of your account and organisation, the page you wrote from, the
-  version of the service, your browser's description of itself and the reference of the last
-  request the page saw fail, so that we can answer you and find what went wrong. They are sent
-  to $support by email, where our support keeps them as long as it needs to answer you and
-  follow up; the service itself keeps none of it once the mail is sent.
+- **Messages from the help menu**: what you write from the app's help menu, with your name,
+  email address and role, the ids of your account and organisation, the page you wrote from,
+  the version of the service, your browser's description of itself and the reference of the
+  last request the page saw fail, so that whoever answers can help you and find what went
+  wrong. They are sent by email to $support, who keep them as long as they need to answer you
+  and follow up; the service itself keeps none of it once the mail is sent.
 - **The audit log**: who signed in, uploaded, downloaded, deleted or shared what, and when,
   with the IP address of the request. Your organisation's owners and admins can read it and
   download it as a file, to see what happens to their documents, which is their and our
@@ -94,7 +90,7 @@ organisation uploaded a document about you, ask the organisation first; we help 
   (as a hash only), each browser you signed in with and each API key made in a minute, how
   many wrong passwords and codes they were tried with in an hour, how many share links each IP
   address opened in a minute and how many wrong passwords each link and address were tried
-  with in an hour, and how many messages each account sent to support in an hour, to slow down
+  with in an hour, and how many messages each account sent from the help menu in an hour, to slow down
   password guessing and floods.
 - **Server logs**: the IP address, time and path of each request and the account and project it
   was for, and the service's own record of what it did, to keep it running and to find faults.
@@ -103,8 +99,8 @@ $more_records
 
 We send you email only about your account: to confirm your address or a new one, to tell your
 address when it was replaced or when another account asked to take it, to reset your password,
-to tell you when sign-ins to it were paused after many wrong passwords, to tell you when our
-support opened it with your leave, and to confirm that you asked for your account to be deleted;
+to tell you when sign-ins to it were paused after many wrong passwords, and to confirm that you
+asked for your account to be deleted;
 and to an address a member of an organisation invited,
 the invitation. Besides, we tell you notices about your work in the service, in
 your notification centre in the app and by email: when documents you uploaded took a while to
@@ -190,8 +186,6 @@ $region
 - **The answers kept for a program's idempotency keys**, a day, or until its API key goes.
 - **Webhooks**, until an owner or admin removes them or the organisation goes; what was sent to
   each, $webhook_days days.
-- **Your leave for support**, until you withdraw it or are removed from the organisation, or
-  $credential_days days after it ran out; the audit log keeps when support opened your account.
 - **The browsers you signed in with**, until $browser_days days after their last sign-in.
 - **The notices in your notification centre**, $notification_days days, read or not; those
   about an organisation go when an owner or admin removes you from it.
@@ -232,8 +226,7 @@ $third_parties so there is nothing to consent to.
   rest of the hour, and the account's owner is told.
 - Every request is checked against the organisation it is for, so no organisation can reach
   another's data.
-- The people who run the service see no member's account or documents unless the member lets
-  our support see their own, which is read only, lasts an hour at a time and is recorded.
+- The people who run the service see no member's account or documents.
 $more_security
 
 ## Your rights

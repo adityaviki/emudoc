@@ -12,17 +12,6 @@ export interface Operator {
   environment: 'development' | 'production'
   version: string
   currency: string
-  /** The member's account the operator's session views as support (backend/app/support.py), null for none. */
-  viewing: Viewing | null
-}
-
-export interface Viewing {
-  org_id: number
-  organization: string
-  user_id: number
-  name: string
-  email: string
-  ends_at: string
 }
 
 export interface OrganizationRow {
@@ -48,8 +37,6 @@ export interface Member {
   role: Role
   mfa_enabled: boolean
   joined_at: string
-  /** Until when the member lets support see their account here, null while they do not. */
-  support_until: string | null
 }
 
 /** What work cost over a span of days, against DAILY_SPEND_CAP (null for none, and for one organisation by itself). */
@@ -240,8 +227,4 @@ export const operatorApi = {
   /** Run failed jobs again by id, or every one for null. */
   requeue: (jobIds: number[] | null) => request<Requeued>('/jobs/requeue', 'POST', { job_ids: jobIds }),
   switchProvider: (name: string, off: boolean) => request<Provider[]>(`/providers/${encodeURIComponent(name)}`, 'PUT', { off }),
-  /** View the member's account in the organisation as support, from the operator's own session, while the member lets it. */
-  viewAs: (orgId: number, userId: number) => request<Viewing>(`/organizations/${orgId}/members/${userId}/support`, 'POST'),
-  endView: () => request<void>('/support', 'DELETE'),
-  /** Mail an address the link that makes an account, which works while sign-up is closed. */
 }

@@ -51,7 +51,6 @@ from app.api import (
     reviews,
     search,
     share_links,
-    support,
     templates,
     trash,
     usage,
@@ -559,7 +558,6 @@ def create_app(
         usage.router,
         notifications.router,
         onboarding.router,
-        support.router,
         help.router,
     ):
         app.include_router(router, prefix="/api", dependencies=[Depends(refuse_cross_site)])

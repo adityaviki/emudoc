@@ -1993,20 +1993,6 @@ class OnboardingIn(BaseModel):
     invite_hidden: bool | None = None
 
 
-class SupportAccessIn(BaseModel):
-    """How many days from now the member lets Emudoc's support see their account in the
-    organisation they work in (app/support.py), a week at most, SUPPORT_DAYS."""
-
-    days: int = Field(ge=1, le=7)
-
-
-class SupportViewOut(BaseModel):
-    """The view of a member's account an operator holds as support, which the page says on
-    every page while it lasts."""
-
-    ends_at: dt.datetime
-
-
 class OnboardingStepOut(BaseModel):
     """One of the organisation's first steps, and whether it is taken."""
 
@@ -2136,12 +2122,6 @@ class MeOut(BaseModel):
     checklist_hidden: bool
     tour_seen: bool
     invite_hidden: bool
-    # Until when the user lets Emudoc's support see their account in this organisation, None
-    # while they do not (app/support.py).
-    support_until: dt.datetime | None
-    # Set while an operator views the account as support rather than the user signed in: read
-    # only, the organisation alone.
-    support_view: SupportViewOut | None
 
 
 class OrganizationChangeIn(BaseModel):
@@ -2702,17 +2682,19 @@ class PageErrorOut(BaseModel):
 
 
 class HelpOut(BaseModel):
-    """The help menu (app/api/help.py): the address members write to for help, which is none
-    only in development, and the status page, where the deployment has one."""
+    """The help menu (app/api/help.py): the address members write to for help, where the server
+    names one (SUPPORT_EMAIL; without it the help menu's messages go to the workspace's owners
+    and admins), and the status page, where it has one."""
 
     support_email: str | None
     # The public status page (STATUS_PAGE_URL), outside the deployment.
     status_page: str | None
 
 
-# What a member writes to support about (`SUPPORT_SUBJECTS` in app/mail.py).
+# What a member writes about from the help menu (`SUPPORT_SUBJECTS` in app/mail.py).
 FeedbackKind = Literal["problem", "question", "idea"]
-# The longest message to support: a page of a letter or two, whatever they pasted into it.
+# The longest message from the help menu: a page of a letter or two, whatever they pasted
+# into it.
 MAX_FEEDBACK_CHARS = 10_000
 
 
@@ -2725,8 +2707,8 @@ class FailedRequestIn(BaseModel):
 
 
 class FeedbackIn(BaseModel):
-    """A member's message to support from the help menu: what about, their words, and what the
-    page attaches of where they were. The page is its path with the ids its query names (an
+    """A member's message from the help menu: what about, their words, and what the page
+    attaches of where they were. The page is its path with the ids its query names (an
     open chat's, a folder's), never the query's words (`feedbackPage` in
     frontend/src/help/feedback.ts)."""
 
@@ -2744,8 +2726,9 @@ class FeedbackIn(BaseModel):
 class FeedbackOut(BaseModel):
     # The id the message was sent under, which its subject names, for the member to quote.
     reference: str
-    # Where it went, and so where an answer comes from.
-    to: str
+    # Where it went, and so where an answer comes from: SUPPORT_EMAIL, or None for the
+    # workspace's owners and admins.
+    to: str | None
 
 
 # The account export (app/export.py): what the app keeps about a person, as the file the
@@ -2792,8 +2775,6 @@ class ExportedMembership(BaseModel):
     joined_at: dt.datetime
     # The organisation's private projects the user was chosen to see, by name.
     private_projects: list[str]
-    # Until when the user lets Emudoc's support see their account there, if they do.
-    support_until: dt.datetime | None
     # The Monday whose weekly digest of what arrived they were last told (app/digests.py).
     digested_on: dt.date | None = None
 
@@ -3248,20 +3229,8 @@ class ProjectExportFile(BaseModel):
 # them.
 
 
-class OperatorViewOut(BaseModel):
-    """The member's account the operator's session views as support (app/support.py)."""
-
-    org_id: int
-    organization: str
-    user_id: int
-    name: str
-    email: str
-    ends_at: dt.datetime
-
-
 class OperatorOut(BaseModel):
-    """Who opened the area, the deployment it is about, and the member's account their session
-    views as support, if one."""
+    """Who opened the area and the deployment it is about."""
 
     user_id: int
     name: str
@@ -3269,7 +3238,6 @@ class OperatorOut(BaseModel):
     environment: str
     version: str
     currency: str
-    viewing: OperatorViewOut | None
 
 
 class OperatorOrganizationRow(BaseModel):
@@ -3296,8 +3264,6 @@ class OperatorMemberOut(BaseModel):
     role: str
     mfa_enabled: bool
     joined_at: dt.datetime
-    # Until when the member lets support see their account here, None while they do not.
-    support_until: dt.datetime | None
 
 
 class CostOut(BaseModel):

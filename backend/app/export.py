@@ -80,7 +80,6 @@ from app.models import (
     QuestionSet,
     Section,
     ShareLink,
-    SupportGrant,
     UsageEvent,
     User,
 )
@@ -213,13 +212,6 @@ def account_export(session: Session, user: User) -> AccountExport:
         .order_by(Project.name, Project.id)
     ):
         private_projects[org_id].append(name)
-    leaves = dict(
-        session.execute(
-            select(SupportGrant.org_id, SupportGrant.expires_at).where(
-                SupportGrant.user_id == user.id, SupportGrant.expires_at > func.now()
-            )
-        ).all()
-    )
     sessions = session.scalars(
         select(SessionRow).where(SessionRow.user_id == user.id).order_by(SessionRow.id)
     ).all()
@@ -350,7 +342,6 @@ def account_export(session: Session, user: User) -> AccountExport:
                 role=membership.role,
                 joined_at=membership.created_at,
                 private_projects=private_projects[organization.id],
-                support_until=leaves.get(organization.id),
                 digested_on=membership.digested_on,
             )
             for membership, organization in memberships
