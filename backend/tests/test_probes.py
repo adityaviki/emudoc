@@ -55,8 +55,7 @@ def test_liveness_touches_nothing_and_readiness_the_database(client, database_do
 
 
 def test_the_probes_name_the_version_that_answers(client, monkeypatch):
-    # deploy/aws/release.sh waits until the commit it released answers, and the user menu
-    # shows it.
+    # An upgrade can wait until the version it started answers, and the user menu shows it.
     monkeypatch.setattr("app.main.VERSION", COMMIT)
     for path in ("/api/livez", "/api/health"):
         assert client.get(path).json() == {"status": "ok", "version": COMMIT}

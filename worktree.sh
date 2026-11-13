@@ -6,7 +6,9 @@
 # files go to its own backend/data, and the suite in it names its own databases
 # (tests/conftest.py). `remove` takes away what `new` made, the branch only once main holds its
 # commits, and fast-forwards the main checkout's main to origin/main when it is checked out and
-# no dev.sh runs there (one that does moves it up itself, migrating first).
+# no follow.sh runs there (one that does moves it up itself, migrating first). This script and
+# follow.sh are the private archive's, for the owner's sessions: the published tree leaves them
+# out (.gitattributes).
 #
 #   emudoc/worktree.sh start <name>    make it unless it is there, and start Claude Code in it
 #   emudoc/worktree.sh new <name>      make it; prints its path and nothing else on stdout
@@ -27,12 +29,12 @@ dir=.claude/worktrees/$name
 key=${name//-/_}
 database=emudoc_wt_$key
 sql() { docker compose exec -T db psql -U emudoc -d postgres -v ON_ERROR_STOP=1 -qAt -c "$1"; }
-# Whether a dev.sh runs in the main checkout (the service's, or one in a terminal), which follows
-# origin/main on its own.
-dev_running() {
+# Whether a follow.sh runs in the main checkout (the service's, or one in a terminal), which
+# follows origin/main on its own.
+following_runs() {
   local pid here
   here=$(pwd -P)
-  for pid in $(pgrep -f '(^|/)dev\.sh$' || true); do
+  for pid in $(pgrep -f '(^|/)follow\.sh$' || true); do
     [ "$(readlink "/proc/$pid/cwd")" = "$here" ] && return 0
   done
   return 1
@@ -75,14 +77,14 @@ case $1 in
   remove)
     git worktree remove "$dir"
     git fetch -q origin
-    # The main checkout's main moved up to what was merged, as dev.sh does before it starts.
-    # While a dev.sh runs there it is left to it: moved from here, the servers reload on what
+    # The main checkout's main moved up to what was merged, as follow.sh does before it starts.
+    # While a follow.sh runs there it is left to it: moved from here, the servers reload on what
     # came at once, the backend refusing a database behind a migration that came with it, and
-    # dev.sh, finding main no longer behind, never starts again to migrate (2026-11-05). It
+    # follow.sh, finding main no longer behind, never starts again to migrate (2026-11-05). It
     # fast-forwards within FOLLOW_SECONDS itself, starting again first when a migration came.
     if [ "$(git symbolic-ref --short -q HEAD)" = main ]; then
-      if dev_running; then
-        echo "Left main to the dev.sh that runs here: it moves up to origin/main within half a minute."
+      if following_runs; then
+        echo "Left main to the follow.sh that runs here: it moves up to origin/main within half a minute."
       else
         git merge -q --ff-only origin/main \
           || echo "Left main where it was: it cannot fast-forward to origin/main."

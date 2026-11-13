@@ -1,16 +1,13 @@
-# The checks a change passes before it is called done (CLAUDE.md, "Commands"), each run once
-# (the owner's, 2026-10-31, while the app is in development): the backend's suite and the
-# frontend's checks run on the developer's machine before a pull request is merged, and here only
-# by hand on any branch (Actions, CI, Run workflow) and on Dependabot's pull requests, whose
-# updates nobody checked yet; the rest, the heavy jobs, run on a push to main, by hand and on
-# Dependabot's pull requests. The developer's own pull requests run nothing. OpenTofu and the
-# embeddings server have workflows of their own, run when what they check changes
-# (opentofu.yml, embeddings.yml). Each step
-# runs the command a developer would, so a red step is reproduced by running it on a checkout.
-# Actions are pinned by commit and the tools that come as images by digest: a moved tag changes
-# nothing here until this file does. A push to main also pushes the image it checked and, once
-# every check passed, releases it on staging (deploying.md, "Releases from CI"). The jobs run on
-# a developer's machine while the repository variable RUNNER says so (ci-runner).
+# The checks every pull request and every commit on main pass, on GitHub's runners: the
+# backend's suite in three parts, the frontend's checks, the browser test, the load test at a
+# small size, the image run as a team runs it, the history's secrets, and the scripts and the
+# configuration (CONTRIBUTING.md, "Checks"). Each step runs the command a contributor would, so
+# a red step is reproduced by running it on a checkout. No job holds a secret or writes to the
+# repository, so a pull request from a fork runs every one; main's ruleset requires them all
+# (.github/rulesets/main.json). The suite through a pooler, the embeddings server and the audits
+# have workflows of their own, run when what they check changes (pooler.yml, embeddings.yml,
+# audit.yml). Actions are pinned by commit and the tools that come as images by digest: a moved
+# tag changes nothing here until this file does.
 name: CI
 
 on:
@@ -19,9 +16,7 @@ on:
   pull_request:
   workflow_dispatch:
 
-# The checks read the code: no step writes to the repository or holds a secret. The two jobs
-# that reach the deployment on main ask GitHub for a token of their own, which AWS trades for an
-# hour of a role that trusts main alone (deploy/aws/account, modules/environment/release.tf).
+# The checks read the code: no step writes to the repository or holds a secret.
 permissions:
   contents: read
 
@@ -32,6 +27,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
+  # The promtool of this Prometheus checks the example rules (deploy/prometheus); it moves by
+  # hand, as the other tools here do.
+  PROMETHEUS: prom/prometheus:v3.16.0@sha256:e04987641b57704f408e31f6373ba4138ecf27cb4a165d24aabb6c38fddd0f06
   SHELLCHECK: koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d
   ACTIONLINT: rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
   TRIVY: aquasec/trivy:0.73.0@sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c
@@ -43,20 +41,13 @@ jobs:
   # parts it by a hash of each test's id), so that the slowest takes a third of the time.
   backend:
     name: Backend (${{ matrix.database }}, ${{ matrix.shard }} of 3)
-    # This machine's runners (ci-runner) while the repository variable RUNNER names
-    # their label, else GitHub's; a pull request of Dependabot's always runs on GitHub's,
-    # since what it brings in is nobody's code here yet. The other jobs run where this
-    # one does.
-    runs-on: &runner ${{ github.actor != 'dependabot[bot]' && vars.RUNNER || 'ubuntu-24.04' }}
-    # Checked on the developer's machine before the merge (CLAUDE.md), so here by hand and on
-    # Dependabot's pull requests alone; Frontend likewise.
-    if: &checked_here ${{ github.event_name == 'workflow_dispatch' || github.event.pull_request.user.login == 'dependabot[bot]' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        # The same suite through pgbouncer is the Pooler workflow's (pooler.yml), every night
-        # and on a change to what talks to the database in a way a pooler sees.
+        # The same suite through pgbouncer is the Pooler workflow's (pooler.yml), on a change
+        # to what talks to the database in a way a pooler sees.
         database: [postgres]
         shard: [1, 2, 3]
         include:
@@ -102,8 +93,7 @@ jobs:
 
   frontend:
     name: Frontend
-    if: *checked_here
-    runs-on: *runner
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     defaults:
       run:
@@ -144,12 +134,7 @@ jobs:
   # and the same answer every run. On a failure the report and the trace are kept for a week.
   e2e:
     name: End to end
-    # The heavy jobs (this one, the load test, the image, the secrets and the scripts) run once a
-    # change is on main, by hand, and on Dependabot's pull requests, whose updates they check;
-    # never on the developer's own pull requests, which are merged once the checks of CLAUDE.md
-    # pass on the developer's machine.
-    if: &heavy ${{ github.event_name != 'pull_request' || github.event.pull_request.user.login == 'dependabot[bot]' }}
-    runs-on: *runner
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -199,8 +184,7 @@ jobs:
   # On a failure its logs are kept for a week.
   loadtest:
     name: Load test
-    if: *heavy
-    runs-on: *runner
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -231,21 +215,12 @@ jobs:
 
   # The image of the commit, built once, named by its full SHA (the version /api/health
   # reports) and smoke-tested: deploy/compose.yml run from it with the quick start's .env, in a
-  # project of its own (check-image.sh). On main it is also scanned as the Audit workflow scans it, and
-  # pushed to the account's repository, which takes images from this job's role alone; the
-  # Staging job below releases it once every check passed. Without the repository variables
-  # (deploying.md, "Releases from CI") the job stops after the smoke test.
+  # project of its own (check-image.sh). Its known vulnerabilities are Audit's, every week and
+  # on a change to what it is built from, and Publish's before a release's image is pushed.
   image:
     name: Image
-    if: *heavy
-    runs-on: *runner
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
-    # A pull request's token says pull_request and another branch's names it: AWS refuses both.
-    permissions:
-      contents: read
-      id-token: write
-    env:
-      PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AWS_PUSH_ROLE != '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -254,33 +229,13 @@ jobs:
         run: docker build -t "emudoc:$GITHUB_SHA" --build-arg "VERSION=$GITHUB_SHA" .
       - name: Run
         run: .github/scripts/check-image.sh "emudoc:$GITHUB_SHA"
-      # What is known today about what would ship: a high or critical vulnerability with a fix
-      # stops the release here, as it fails Audit's morning run (audit.yml, the same command).
-      - name: Vulnerabilities
-        if: env.PUSH == 'true'
-        run: >-
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/src:ro" -w /src
-          "$TRIVY" image --quiet --skip-version-check --scanners vuln,secret --severity
-          HIGH,CRITICAL --ignore-unfixed --table-mode detailed --exit-code 1
-          --ignorefile .trivyignore.yaml "emudoc:$GITHUB_SHA"
-      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
-        if: env.PUSH == 'true'
-        with:
-          role-to-assume: ${{ vars.AWS_PUSH_ROLE }}
-          role-session-name: github-${{ github.run_id }}-${{ github.run_attempt }}
-          aws-region: ${{ vars.AWS_REGION || 'eu-central-1' }}
-      # Unless the repository has it already, as when the job runs again.
-      - name: Push
-        if: env.PUSH == 'true'
-        run: deploy/aws/push-image.sh "emudoc:$GITHUB_SHA"
 
   # A key or a .env file in any commit, gitleaks' rules and .gitleaks.toml's. Found here, it has
   # been pushed: revoke the key first, then rewrite the history. The pre-commit hook finds it
   # before the commit.
   secrets:
     name: Secrets
-    if: *heavy
-    runs-on: *runner
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -297,8 +252,7 @@ jobs:
 
   scripts:
     name: Scripts and configuration
-    if: *heavy
-    runs-on: *runner
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -314,79 +268,24 @@ jobs:
           docker run --rm -v "$PWD:/mnt" -w /mnt "$SHELLCHECK" "${scripts[@]}"
       - name: Workflows
         run: docker run --rm -v "$PWD:/repo" -w /repo "$ACTIONLINT" -color
-      # The Prometheus configuration and the alerting rules it loads, each rule against the
-      # series that should and should not fire it (alerts.test.yml), and the AWS instance's
-      # Alertmanager configuration with where it sends each severity (a critical alert pages and
-      # reaches the alerts topic), by the promtool and amtool of the images the instance runs
-      # (deploy/aws/compose.yml), so that what Dependabot moves there is what checks them.
+      # The example Prometheus configuration and the alerting rules it loads, each rule against
+      # the series that should and should not fire it (alerts.test.yml), by the promtool of the
+      # Prometheus above.
       - name: Alerting rules
         run: |
-          image() {
-            sed -nE "s|^ +image: (prom/$1:[^ ]+@sha256:[0-9a-f]{64})$|\1|p" deploy/aws/compose.yml
-          }
-          prometheus=$(image prometheus) alertmanager=$(image alertmanager)
-          : "${prometheus:?deploy/aws/compose.yml names no Prometheus}"
-          : "${alertmanager:?deploy/aws/compose.yml names no Alertmanager}"
           promtool() {
             docker run --rm -v "$PWD/deploy/prometheus:/p:ro" -w /p --entrypoint promtool \
-              "$prometheus" "$@"
+              "$PROMETHEUS" "$@"
           }
           promtool check config prometheus.yml
           promtool test rules alerts.test.yml
-          amtool() {
-            docker run --rm -v "$PWD/deploy/aws:/a:ro" -w /a --entrypoint amtool "$alertmanager" \
-              "$@"
-          }
-          amtool check-config alertmanager.yml
-          # The receivers a label set reaches, in order; amtool exits 1 on others.
-          routes() {
-            local receivers=$1
-            shift
-            amtool config routes test --config.file alertmanager.yml \
-              --verify.receivers="$receivers" "$@"
-          }
-          routes pages,alerts severity=critical alertname=EmudocNoApi
-          routes alerts severity=warning alertname=EmudocVacuumBehind
-          routes heartbeat severity=none alertname=EmudocWatchdog
       # uv, pnpm, Node and Python at the Dockerfile's versions wherever else they are named.
       - name: Tool versions
         run: .github/scripts/check-versions.sh
-      # The deployment's OpenTofu and the Dockerfile; what was looked at and accepted is in
+      # The Dockerfile and the compose files; what was looked at and accepted is in
       # .trivyignore.yaml with its reason. The checks are the ones this trivy release carries,
       # so a newer set changes nothing until the image does.
       - name: Misconfigurations
         run: >-
           docker run --rm -v "$PWD:/src:ro" -w /src "$TRIVY" config --quiet --skip-check-update
           --exit-code 1 --ignorefile .trivyignore.yaml .
-
-  # Every commit on main that passed every check runs on staging: the image the Image job
-  # pushed, released by deploy/aws/release.sh, which waits until staging's /api/health names
-  # the commit. One release at a time, whichever workflow starts it; production is the Release
-  # workflow's, by hand, and takes only what ran here.
-  staging:
-    name: Staging
-    # What runs on main: the suite and the frontend were checked before the merge (above).
-    needs: [e2e, loadtest, image, secrets, scripts]
-    if: >-
-      github.event_name == 'push' && github.ref == 'refs/heads/main'
-      && vars.AWS_PUSH_ROLE != '' && vars.AWS_STAGING_ROLE != ''
-    runs-on: *runner
-    # Systems Manager gives the release an hour on the instance (release.sh).
-    timeout-minutes: 70
-    permissions:
-      contents: read
-      id-token: write
-    concurrency:
-      group: release-staging
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
-        with:
-          role-to-assume: ${{ vars.AWS_STAGING_ROLE }}
-          role-session-name: github-${{ github.run_id }}-${{ github.run_attempt }}
-          aws-region: ${{ vars.AWS_REGION || 'eu-central-1' }}
-      - name: Release
-        run: deploy/aws/release.sh staging "$GITHUB_SHA"

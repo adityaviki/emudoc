@@ -173,9 +173,9 @@ def health(session: SessionDep):
     """Whether the app can serve requests, for load balancers, uptime checks and an
     orchestrator's readiness probe: a free database connection, and a database that answers.
 
-    Besides, it names the version that answered (app/version.py), which deploy/aws/release.sh
-    waits for and the user menu shows: the commit an image was built from, which says which
-    code runs and nothing of how it is set up. Nothing else: this route is public, so it must
+    Besides, it names the version that answered (app/version.py), which an upgrade can wait
+    for and the user menu shows: the release or the commit an image was built from, which says
+    which code runs and nothing of how it is set up. Nothing else: this route is public, so it must
     not reveal the deployment's settings. A database that cannot be reached is 503 with one
     line in the log, not a traceback per probe; a pool with no connection free is 503 too
     (`pool_exhausted`).

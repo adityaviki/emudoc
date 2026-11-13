@@ -94,8 +94,8 @@ address=http://$("${compose[@]}" port api 8000)
 
 curl -fsS "$address/api/livez" >/dev/null
 curl -fsS "$address/api/health" >/dev/null
-# The version the build was given (the Dockerfile's VERSION, also its version label), which
-# deploy/aws/release.sh waits for after a release.
+# The version the build was given (the Dockerfile's VERSION, also its version label), which a
+# team's upgrade can wait for on /api/health.
 version=$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.version"}}' "$image")
 if [[ $(curl -fsS "$address/api/health") != *"\"version\":\"$version\""* ]]; then
   echo "The API does not name the version the image was built as, $version." >&2

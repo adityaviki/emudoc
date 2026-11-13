@@ -4,7 +4,7 @@
 # Dockerfile or the deployment's compose files. Minor and patch updates come as one pull request
 # per ecosystem, a major one alone.
 #
-# Not here: the OpenTofu providers. The versions of uv, pnpm, Node and Python, named in the
+# Not here: the versions of uv, pnpm, Node and Python, named in the
 # Dockerfile and the workflows, move by hand (below, only the digests of Node's and Python's
 # tags move); .github/scripts/check-versions.sh fails when they disagree. uv's image, copied
 # from in the Dockerfile rather than built from, is one Dependabot does not read.
@@ -60,7 +60,7 @@ updates:
       actions:
         patterns: ["*"]
 
-  # The image's bases (Dockerfile, and the CI runners' in ci-runner) and the compose files'
+  # The image's bases (Dockerfile) and the compose files'
   # images, each pinned by digest. An update is the digest a tag was rebuilt with (Debian's security
   # updates, ClamAV's signatures) or a newer tag with its own. These two ecosystems take one
   # cooldown in days for both (the semver-*-days options make the whole file invalid, and Dependabot
@@ -71,7 +71,7 @@ updates:
   # request per ecosystem, without update-types, which would leave a digest out: Dependabot groups
   # by the version that changes, and a digest changes none.
   - package-ecosystem: docker
-    directories: [/, /ci-runner]
+    directory: /
     schedule:
       interval: weekly
       day: monday
@@ -87,18 +87,13 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: python
         update-types: ["version-update:semver-minor"]
-      # The runners' Ubuntu stays the LTS that GitHub's ubuntu-24.04 runners are (24.10 is not).
-      - dependency-name: ubuntu
-        update-types: ["version-update:semver-minor"]
 
-  # docker-compose.yml (the development database, the profiles), deploy/compose.yml (Postgres,
-  # ClamAV, llama.cpp's server and Caddy beside the app), deploy/aws/compose.yml (Prometheus and
-  # Alertmanager) and
-  # ci-runner/compose.yml (the CI runners' Docker daemons). llama.cpp's `server` tag is its
+  # docker-compose.yml (the development database, the profiles) and deploy/compose.yml (Postgres,
+  # ClamAV, llama.cpp's server and Caddy beside the app). llama.cpp's `server` tag is its
   # daily build: each Monday proposes that morning's digest, as the cooldown reads push dates from
   # Docker Hub alone, and CI's Embeddings job checks it.
   - package-ecosystem: docker-compose
-    directories: [/, /deploy, /deploy/aws, /ci-runner]
+    directories: [/, /deploy]
     schedule:
       interval: weekly
       day: monday

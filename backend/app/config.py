@@ -78,6 +78,13 @@ CLAMD_PORT = 3310
 # (AGENT_MODEL: the Ask tab's agent), each with its fallback.
 INDEX = "index"
 AGENT = "agent"
+# What a page's setting is, said when it is not a web address.
+PAGES = {
+    "status_page_url": "STATUS_PAGE_URL is the address of the status page, such as "
+    "https://status.example.com",
+    "source_url": "SOURCE_URL is the address of the code's source, such as "
+    "https://git.example.com/team/emudoc",
+}
 # The model a development checkout runs when .env names none. Production refuses to run on it
 # (`Settings.production_problems`): a default moves with the code and the provider retires
 # models on a schedule of its own, so a deployment names the model it was tried with.
@@ -373,6 +380,10 @@ class Settings(BaseSettings):
     # it reports on (deploying.md, "The status page"): the help menu and the page that cannot
     # reach its server link to it. Empty links to none.
     status_page_url: str = ""
+    # Where the source of the code this deployment runs is, which the help menu offers every
+    # member as the AGPL asks (app/version.py, `source_url`). Empty is the public repository at
+    # the running release; a team that runs code of its own changes points it at its copy.
+    source_url: str = ""
     # How many days the deployment keeps the backups of its database and bucket, zero for
     # none, unset for not said. The app makes none itself; at start it holds the bucket's
     # earlier versions to this (app/storage.py, `check_versions`), and `encrypt-secrets` says
@@ -698,15 +709,12 @@ class Settings(BaseSettings):
         """The providers DISABLED_PROVIDERS switches off, by name."""
         return frozenset(_listed(self.disabled_providers))
 
-    @field_validator("status_page_url")
+    @field_validator("status_page_url", "source_url")
     @classmethod
-    def _a_page(cls, value: str) -> str:
+    def _a_page(cls, value: str, info: ValidationInfo) -> str:
         value = value.strip()
         if value and not re.fullmatch(r"https?://[^\s/?#@]+(?:[/?#]\S*)?", value):
-            raise ValueError(
-                "STATUS_PAGE_URL is the address of the status page, such as "
-                "https://status.example.com"
-            )
+            raise ValueError(PAGES[info.field_name])
         return value
 
     @field_validator("fts_language")

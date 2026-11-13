@@ -1,14 +1,11 @@
 """The repository's rules on GitHub against its workflows. main takes a commit only through a
-pull request (.github/rulesets/main.json, which GitHub holds once applied with `gh api`,
-deploying.md "The repository's rules"), and while the app is in development (the owner's,
-2026-10-31) each check runs once for a change: the backend's suite and the frontend's checks on
-the developer's machine before the merge, so CI runs them only by hand and on Dependabot's pull
-requests; the heavy jobs once the change is on main; OpenTofu, the embeddings, the suite through
-a pooler and the audits once what they check changes there. The developer's own pull request
-runs nothing, and the ruleset requires no check, which a check that never reports would hold
-back for good. A production release is a job of the GitHub environment production, whose
-reviewer approves it and whose jobs alone production's release role trusts
-(deploy/aws/production)."""
+pull request (.github/rulesets/main.json, which GitHub holds once applied with `gh api`), whose
+checks it requires: every job of CI, which runs on every pull request on GitHub's runners and
+holds no secret, so that a fork's pull request runs them all, and the contributor licence
+agreement's (CONTRIBUTING.md). The repository's admins may merge a pull request before its
+checks end, never push past one. The suite through a pooler, the embeddings and the audits run
+once what they check changes, and are not required, since a pull request they skip would wait
+for them for good."""
 
 import json
 import re
@@ -48,20 +45,9 @@ def combinations(matrix: dict) -> list[dict]:
 
 
 def checks_of_a_pull_request() -> set[str]:
-    """CI's check runs on the developer's pull request: each job's name with its matrix filled in,
-    but those its condition keeps off it (to main, to a run by hand, to Dependabot's)."""
+    """CI's check runs on a pull request: each job's name with its matrix filled in."""
     checks = set()
     for job in workflow("ci.yml")["jobs"].values():
-        condition = job.get("if", "")
-        if any(
-            kept in condition
-            for kept in (
-                "github.event_name == 'push'",
-                "github.event_name != 'pull_request'",
-                "github.event_name == 'workflow_dispatch'",
-            )
-        ):
-            continue
         for values in combinations(job.get("strategy", {}).get("matrix", {})):
             checks.add(named(job["name"], values))
     return checks
@@ -83,62 +69,75 @@ def test_main_takes_a_commit_only_through_a_pull_request():
 
     assert rules["target"] == "branch" and rules["enforcement"] == "active"
     assert rules["conditions"]["ref_name"] == {"include": ["refs/heads/main"], "exclude": []}
-    # Nobody pushes past it, the organisation's owners included.
-    assert rules["bypass_actors"] == []
+    # The repository's admins alone may pass the rules, and only by merging a pull request: the
+    # owner merges their own before its checks end, and nobody pushes to main.
+    assert rules["bypass_actors"] == [
+        {"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}
+    ]
     # Neither deleted nor rewritten, and no merge commits.
     assert {"deletion", "non_fast_forward", "required_linear_history"} <= kinds.keys()
-    # The one member may not approve their own pull request: the checks hold a change back.
+    # The checks hold a change back, not an approval, which the one maintainer cannot give
+    # their own pull request.
     assert kinds["pull_request"]["required_approving_review_count"] == 0
     assert set(kinds["pull_request"]["allowed_merge_methods"]) == {"rebase", "squash"}
 
 
-def test_main_requires_no_check_while_the_developers_pull_requests_run_none():
+def test_main_requires_every_check_of_a_pull_request_and_the_cla():
     _, kinds = ruleset()
-    assert "required_status_checks" not in kinds
-    assert checks_of_a_pull_request() == set()
+    required = kinds["required_status_checks"]
+    # Checked against main as it is now, not as the branch left it.
+    assert required["strict_required_status_checks_policy"] is True
+    checks = {
+        check["context"]: check.get("integration_id")
+        for check in required["required_status_checks"]
+    }
+    # CI's jobs from GitHub Actions, by their check runs' names with the matrix filled in.
+    assert {name for name, app in checks.items() if app == 15368} == checks_of_a_pull_request()
+    # CLA Assistant's status, set by its app on each pull request.
+    assert checks.keys() - checks_of_a_pull_request() == {"license/cla"}
 
 
-def test_each_check_runs_once_for_a_change():
-    jobs = workflow("ci.yml")["jobs"]
-    kept_to = {name: job.get("if", "") for name, job in jobs.items() if name != "staging"}
-    # Checked on the developer's machine before the merge: here by hand and for Dependabot.
-    here = {name for name, condition in kept_to.items() if "'workflow_dispatch'" in condition}
-    assert here == {"backend", "frontend"}
-    # The heavy jobs, once the change is on main, and for Dependabot; staging waits for them.
-    heavy = {name for name, condition in kept_to.items() if "!= 'pull_request'" in condition}
-    assert heavy == {"e2e", "loadtest", "image", "secrets", "scripts"}
-    assert here | heavy == set(kept_to)
-    assert all("dependabot[bot]" in kept_to[name] for name in here | heavy)
-    assert set(jobs["staging"]["needs"]) == heavy
-    # The rest run once a change to what they check is on main, never on the developer's pull
-    # request; the embeddings on Dependabot's too, which update llama.cpp's server.
-    for name in ("pooler.yml", "audit.yml", "opentofu.yml", "embeddings.yml"):
+def test_every_pull_request_runs_the_checks_without_a_secret():
+    on = triggers("ci.yml")
+    assert on["push"] == {"branches": ["main"]} and "pull_request" in on
+    for name, job in workflow("ci.yml")["jobs"].items():
+        # Every job, on GitHub's runners: none is kept off a pull request.
+        assert "if" not in job, name
+        assert job["runs-on"] == "ubuntu-24.04", name
+        assert job.get("permissions", {"contents": "read"}) == {"contents": "read"}, name
+    assert workflow("ci.yml")["permissions"] == {"contents": "read"}
+    workflows = sorted((GITHUB / "workflows").glob("*.yml"))
+    for path in workflows:
+        text = path.read_text()
+        # No workflow runs a fork's code with the repository's token, nor on a machine of ours.
+        assert "pull_request_target" not in text and "vars." not in text, path.name
+        assert "self-hosted" not in text, path.name
+    # The one secret is the token that pushes a release's image, in Publish's last step.
+    holding = {path.name for path in workflows if "secrets." in path.read_text()}
+    assert holding == {"publish.yml"}
+    # The suite through a pooler and the embeddings run on a pull request that changes what they
+    # check, as on main; the audits on main alone, and once a week for the news.
+    for name in ("pooler.yml", "embeddings.yml"):
         on = triggers(name)
         assert on["push"]["branches"] == ["main"] and on["push"]["paths"], name
-    assert all("pull_request" not in triggers(name) for name in ("pooler.yml", "audit.yml"))
-    assert "pull_request" not in triggers("opentofu.yml")
-    # The one workflow that holds a key asks the models every morning and once a change to what
-    # it asks with is on main, never on a pull request, whose code could read the key.
-    models = triggers("models.yml")
-    assert models["push"]["branches"] == ["main"] and models["push"]["paths"]
-    assert "pull_request" not in models and models["schedule"]
-    assert all("refs/heads/main" in job["if"] for job in workflow("models.yml")["jobs"].values())
-    (embeddings,) = workflow("embeddings.yml")["jobs"].values()
-    assert "dependabot[bot]" in embeddings["if"]
-    # Pooler runs on no schedule, the same tree being checked once; Audit once a week, for news.
-    assert "schedule" not in triggers("pooler.yml")
-    assert [entry["cron"].split()[-1] for entry in triggers("audit.yml")["schedule"]] == ["1"]
+        assert on["pull_request"]["paths"] == on["push"]["paths"], name
+        assert all("if" not in job for job in workflow(name)["jobs"].values()), name
+    audit = triggers("audit.yml")
+    assert audit["push"]["paths"] and "pull_request" not in audit
+    assert [entry["cron"].split()[-1] for entry in audit["schedule"]] == ["1"]
     # A release's image is published on a version tag alone, and by hand only checked.
     publish = triggers("publish.yml")
     assert set(publish) == {"push", "workflow_dispatch"}
     assert publish["push"] == {"tags": ["v[0-9]+.[0-9]+.[0-9]+"]}
-    # No job of another workflow shares a name with one of CI's, which would make it ambiguous.
+    # No job of another workflow shares a name with one of CI's, which would make the
+    # ruleset's check ambiguous.
     others = {
         job["name"]
-        for name in ("audit.yml", "models.yml", "pooler.yml", "release.yml", "publish.yml")
-        for job in workflow(name)["jobs"].values()
+        for path in workflows
+        if path.name != "ci.yml"
+        for job in workflow(path.name)["jobs"].values()
     }
-    assert not others & {job["name"] for job in jobs.values()}
+    assert not others & checks_of_a_pull_request()
 
 
 def test_a_release_s_image_is_pushed_only_once_both_platforms_ran():
@@ -165,19 +164,18 @@ def test_a_release_s_image_is_pushed_only_once_both_platforms_ran():
     assert "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/emudoc" in str(job["steps"])
 
 
-def test_a_production_release_is_a_job_of_the_environment_its_role_trusts():
-    release = workflow("release.yml")["jobs"]["release"]
-    aws = ROOT_DIR / "deploy" / "aws"
-
-    assert (
-        release["environment"] == "${{ inputs.environment == 'production' && 'production' || '' }}"
-    )
-    assert re.search(
-        r'^\s*github_environment\s*=\s*"production"$',
-        (aws / "production" / "main.tf").read_text(),
-        re.MULTILINE,
-    )
-    # Staging's role trusts main, since CI's Staging job, which releases every commit of main,
-    # belongs to no environment.
-    assert "github_environment" not in (aws / "staging" / "main.tf").read_text()
-    assert "environment" not in workflow("ci.yml")["jobs"]["staging"]
+def test_the_published_tree_leaves_the_owner_s_tools_out():
+    # What a contributor runs works without the owner's tools.
+    dev = (ROOT_DIR / "dev.sh").read_text()
+    assert "follow" not in dev and "worktree" not in dev and "systemctl" not in dev
+    # The public repository starts from `git archive` of main, which leaves out what the private
+    # archive's .gitattributes marks export-ignore, itself among them: the published tree holds
+    # neither the tools nor the file.
+    attributes = ROOT_DIR / ".gitattributes"
+    tools = {"follow.sh", "worktree.sh"}
+    if not attributes.exists():
+        assert not any((ROOT_DIR / name).exists() for name in tools)
+        return
+    lines = [line.split() for line in attributes.read_text().splitlines()]
+    ignored = {words[0] for words in lines if words[1:] == ["export-ignore"]}
+    assert tools | {".gitattributes"} <= ignored

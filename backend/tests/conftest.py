@@ -177,6 +177,8 @@ os.environ["SAMPLE_PROJECT"] = "false"
 # Members write to support at one address, whatever `.env` names; tests/test_help.py changes it.
 os.environ["SUPPORT_EMAIL"] = "support@emudoc.example.com"
 os.environ["STATUS_PAGE_URL"] = ""
+# The help menu's link to the code's source is the public repository's.
+os.environ["SOURCE_URL"] = ""
 
 from alembic import command  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

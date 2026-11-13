@@ -16,6 +16,9 @@ newest entry first.
 
 Members:
 
+- The help menu has a "Source code" link, to the code of the Emudoc your workspace runs: Emudoc
+  is free software under the GNU AGPL.
+
 - Where your workspace sends no email, Emudoc no longer pretends it does. The help menu says so
   and lists whom to write to from your own email, each a link to a message that carries the page
   you were on. Your account page offers notices under the bell alone. To move your account to a
@@ -58,6 +61,17 @@ Members:
 
 Operators:
 
+- Emudoc is licensed under the GNU Affero General Public License, version 3 only (`LICENSE`;
+  `NOTICE` names the copyright and the other projects' licences). The help menu's "Source code"
+  offers every member the running version's source, as the licence's section 13 asks: by
+  default the public repository at the running release's tag; a team that runs changes of its
+  own points the new `SOURCE_URL` at its copy (deploying.md, "The source code").
+- The repository is ready to be public: the AWS deployment (`deploy/aws`, with the Release,
+  Models and OpenTofu workflows and CI's Staging) and the self-hosted CI runners are out, and CI
+  runs every check on every pull request on GitHub's runners, holding no secret, so that a
+  fork's pull request runs them all. The image no longer carries `/app/deploy`. `dev.sh` runs the
+  servers alone, without following `origin/main`. Contributors sign a licence agreement
+  (`CLA.md`, `CONTRIBUTING.md`).
 - Where no mail relay is set, `POST /api/feedback` answers 409 rather than queuing a message
   the log would keep by its subject alone, `GET /api/help` says `mail`, and `POST /api/auth/email`
   moves an owner's or admin's account at once and refuses a member's. `POST

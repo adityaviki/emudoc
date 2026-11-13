@@ -1,0 +1,51 @@
+Emudoc
+Copyright (C) 2026 adityaviki
+
+Emudoc is free software: you can redistribute it and/or modify it under the terms of the GNU
+Affero General Public License as published by the Free Software Foundation, version 3 of the
+License only (SPDX: AGPL-3.0-only). It is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See LICENSE for the licence's text.
+
+Section 13 of the licence asks whoever runs a modified version for people to use over a network
+to offer them its source. The help menu's "Source code" link does so: it opens the public
+repository at the running release, or SOURCE_URL where a deployment names its own copy
+(deploying.md, "The source code").
+
+The name Emudoc and its logo are not licensed by the AGPL.
+
+
+Other projects' software
+------------------------
+
+Emudoc uses other projects' software, each under its own licence, which travels with it: the
+Python packages in backend/uv.lock, the JavaScript packages in frontend/pnpm-lock.yaml, the
+Debian packages the Dockerfile installs, and the images deploy/compose.yml runs beside the app.
+Every one was checked against the AGPL-3.0 on 2026-11-13 (`pnpm licenses list`, and each Python
+package's metadata) and none is incompatible with it. Most are under the MIT, ISC, BSD or
+Apache-2.0 licences. Those under other terms:
+
+- psycopg and psycopg-binary, the PostgreSQL driver: LGPL-3.0-only.
+- pi-heif, which reads HEIC photos: BSD-3-Clause, its wheels bundling libheif and libde265,
+  each LGPL-3.0.
+- certifi, the certificate authorities' bundle: MPL-2.0.
+- pypdfium2, which reads and draws PDFs: BSD-3-Clause and Apache-2.0, with PDFium and the
+  libraries its wheels bundle under their own licences, listed in the package.
+- LibreOffice (its writer, calc and impress packages in the image), which the converter runs to
+  show Word, PowerPoint and Excel files as they look: MPL-2.0.
+- The fonts in backend/app/fonts (Noto Sans) and the image's Noto, Liberation and Carlito
+  fonts: SIL Open Font License 1.1 (backend/app/fonts/OFL.txt); Caladea: Apache-2.0; DejaVu:
+  the Bitstream Vera licence.
+- PostgreSQL's client programs in the image, and the pgvector image deploy/compose.yml runs:
+  the PostgreSQL licence.
+- The frontend's development tools alone (not in the built page): axe-core and lightningcss,
+  MPL-2.0.
+
+Not part of Emudoc, and not distributed with it:
+
+- EmbeddingGemma, the embedding model deploy/compose.yml downloads from Hugging Face when it
+  first starts, is Google's, under the Gemma Terms of Use and its prohibited use policy, which
+  whoever runs it accepts (deploying.md, "The model and its terms").
+- ClamAV, which the compose file's scan profile runs from its own image, is GPL-2.0; Emudoc
+  talks to it over the network.
+- The model providers' APIs are each provider's service, under its own terms.

@@ -2654,13 +2654,16 @@ class PageErrorOut(BaseModel):
 class HelpOut(BaseModel):
     """The help menu (app/api/help.py): the address members write to for help, where the server
     names one (SUPPORT_EMAIL; without it the help menu's messages go to the workspace's owners
-    and admins), the status page, where it has one, and whether the install mails anything
-    (`relay_set` in app/mail.py): without, the menu sends nothing and says whom to write to."""
+    and admins), the status page, where it has one, whether the install mails anything
+    (`relay_set` in app/mail.py): without, the menu sends nothing and says whom to write to; and
+    where the running code's source is, which the AGPL has the app offer (SOURCE_URL, else the
+    public repository at the running release: `source_url` in app/version.py)."""
 
     support_email: str | None
     # The public status page (STATUS_PAGE_URL), outside the deployment.
     status_page: str | None
     mail: bool
+    source: str
 
 
 # What a member writes about from the help menu (`SUPPORT_SUBJECTS` in app/mail.py).

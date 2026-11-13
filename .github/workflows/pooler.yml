@@ -1,16 +1,15 @@
 # The backend's suite through pgbouncer in transaction mode, as a deployment behind such a pooler
-# runs, with the worker's listener on Postgres itself (deploying.md, "A pooler"). It
-# was CI's on every pull request until 2026-10-31, doubling the suite's minutes for a check that
-# only a change to how the app talks to the database can fail; now it runs once such a change is
-# on main, and by hand (every night and on pull requests too, until the same day: nothing else
-# changes between two runs of the same tree). It is not one of main's required
-# checks (.github/rulesets/main.json): a red run is read and fixed like Audit's.
+# runs, with the worker's listener on Postgres itself (deploying.md, "A pooler"). Only a change
+# to how the app talks to the database can fail it, so it runs on a pull request or a push to
+# main that changes such a file, and by hand. It is not one of main's required checks
+# (.github/rulesets/main.json), which a pull request it skips would wait for: a red run is read
+# and fixed like Audit's.
 name: Pooler
 
 on:
   push:
     branches: [main]
-    paths:
+    paths: &paths
       # What sets a session's state, prepares statements, listens or takes advisory locks, and
       # what the suite's database and dependencies come from.
       - backend/app/config.py
@@ -30,20 +29,22 @@ on:
       - backend/uv.lock
       - docker-compose.yml
       - .github/workflows/pooler.yml
+  pull_request:
+    paths: *paths
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# A newer push to a pull request replaces its run in progress.
 concurrency:
-  group: pooler-${{ github.ref }}
-  cancel-in-progress: false
+  group: pooler-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   pooler:
     name: Backend through pgbouncer (${{ matrix.shard }} of 3)
-    # Where CI's jobs run (ci.yml).
-    runs-on: ${{ github.actor != 'dependabot[bot]' && vars.RUNNER || 'ubuntu-24.04' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false

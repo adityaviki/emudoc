@@ -84,16 +84,11 @@ COPY backend/migrations migrations
 COPY backend/app app
 RUN .venv/bin/python -m compileall -q app migrations
 COPY --from=frontend /app/frontend/dist /app/frontend/dist
-# What a release on AWS runs on the instance (deploy/aws/host/release, taken out of the image by
-# emudoc-release): the compose files, Caddy's, the drill's scripts and the host's own, so that
-# a tag carries the deployment it was tested with. The app reads none of it.
-COPY deploy /app/deploy
 # The version the image is, which /api/health and the user menu show (app/version.py): a
 # release's number for an image published on a version tag (.github/workflows/publish.yml),
-# else the commit's full SHA its tag repeats, which deploy/aws/release.sh waits for; "unknown"
-# when the build was not told. REVISION is the commit, the SHA again unless told. Declared
-# after the last RUN and COPY: they differ with every commit, and a layer after them would be
-# built again each time.
+# else the commit's full SHA its tag repeats; "unknown" when the build was not told. REVISION
+# is the commit, the SHA again unless told. Declared after the last RUN and COPY: they differ
+# with every commit, and a layer after them would be built again each time.
 ARG VERSION=unknown
 ARG REVISION=$VERSION
 LABEL org.opencontainers.image.version=$VERSION \

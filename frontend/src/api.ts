@@ -1207,6 +1207,8 @@ export interface Help {
   status_page: string | null
   /** The install mails something; without, the menu sends nothing and says whom to write to. */
   mail: boolean
+  /** Where the running code's source is, which the AGPL has the app offer: SOURCE_URL, else the public repository at the running release. */
+  source: string
 }
 
 /** What a member writes about from the help menu, which the mail's subject says. */

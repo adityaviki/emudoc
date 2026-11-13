@@ -24,7 +24,8 @@ groups:
           description: "Its health check and its log say why; a worker that stopped exits to be restarted."
 
       # `process` names what is missing, so that an Alertmanager need not say again that the
-      # one worker or API at an address does not answer (deploy/aws/alertmanager.yml).
+      # one worker or API at an address does not answer (its inhibit rule: deploying.md, "Rules
+      # on the metrics").
       - alert: EmudocNoWorker
         expr: absent(up{job="emudoc", process="worker"} == 1)
         for: 5m
@@ -406,8 +407,7 @@ groups:
 
   # A dead man's switch: an alert that always fires, so that its silence says the rules are no
   # longer evaluated or no longer reach the operator. An Alertmanager sends it to a service that
-  # calls when it stops hearing it (on AWS the heartbeat topic, whose silence CloudWatch
-  # reports: deploy/aws/alertmanager.yml) and to nobody else.
+  # calls when it stops hearing it (a monitoring service's heartbeat check) and to nobody else.
   - name: emudoc-watchdog
     rules:
       - alert: EmudocWatchdog

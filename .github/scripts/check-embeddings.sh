@@ -14,8 +14,7 @@
 #
 # It needs the network for the image and the weights (Hugging Face), and runs in a Compose
 # project of its own, removed at the end but for the weights' volume, which check-image.sh
-# shares and the CI runners keep (ci-runner/clean.sh): the weights are checked by their SHA-256
-# as they are downloaded and named by it.
+# shares: the weights are checked by their SHA-256 as they are downloaded and named by it.
 
 set -euo pipefail
 

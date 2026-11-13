@@ -78,8 +78,8 @@ async function newFolder(page: Page, name: string) {
 
 test('a new member uploads a contract, finds it, asks about it and opens the cited passage', async ({ page, browser, request }) => {
   // About 3.5 minutes on a machine of its own (2026-10-24, with the connected folder's step);
-  // CI's runners share one (ci-runner/), where it took 5 beside the backend suites and an image
-  // build, and ran out of the 5 it had then.
+  // CI's runners once shared one, where it took 5 beside the backend suites and an image build,
+  // and ran out of the 5 it had then.
   test.setTimeout(480_000)
   // The colleague's browser, from the invitation on.
   let theirs: BrowserContext
@@ -718,7 +718,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expectAccessible(page, 'the usage page')
   })
 
-  await test.step("find in the help menu, the run mailing nothing, the workspace's admin to write to, by a mail that carries the page", async () => {
+  await test.step("find in the help menu, the run mailing nothing, the workspace's admin to write to, by a mail that carries the page, and the code's source", async () => {
     // This run names no SUPPORT_EMAIL and no relay, so the menu sends nothing and names the workspace's owners and admins: Ada.
     await grace.getByRole('button', { name: 'Help', exact: true }).click()
     const help = grace.getByRole('dialog', { name: 'Help' })
@@ -730,6 +730,8 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     const href = (await ada.getAttribute('href')) ?? ''
     expect(href.startsWith(`mailto:${address}?subject=`)).toBe(true)
     expect(decodeURIComponent(href)).toMatch(/Page: http:\/\/[^/]+\/projects\/\d+/)
+    // The code's source, which the AGPL has the deployment offer: a checkout's is the public repository.
+    await expect(help.getByRole('link', { name: 'Source code', exact: true })).toHaveAttribute('href', 'https://github.com/emudocai/emudoc')
     await expectAccessible(grace, 'the help menu')
     await grace.keyboard.press('Escape')
     await expect(help).toHaveCount(0)
