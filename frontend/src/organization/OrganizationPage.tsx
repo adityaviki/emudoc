@@ -5,7 +5,7 @@
 // another of them, and the invitations its owners and admins send.
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Copy, History, KeyRound, UserMinus, UserPlus } from 'lucide-react'
+import { AtSign, Check, Copy, History, KeyRound, UserMinus, UserPlus } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useLocation } from 'react-router'
@@ -933,8 +933,9 @@ function MembersSection({ me }: { me: Me }) {
 // anyone but an owner (backend/app/api/organizations.py); their own role nobody changes here.
 function MemberRow({ me, member }: { me: Me; member: Member }) {
   const queryClient = useQueryClient()
-  // Handing the organisation over asks for the password; removing and a reset link ask to be sure.
-  const [open, setOpen] = useState<'hand over' | 'remove' | 'reset' | null>(null)
+  // Handing the organisation over asks for the password; removing and a reset link ask to be
+  // sure, and a link that moves the account for the address it moves to.
+  const [open, setOpen] = useState<'hand over' | 'remove' | 'reset' | 'address' | null>(null)
   const refresh = () => queryClient.invalidateQueries({ queryKey: MEMBERS_KEY })
   const changeRole = useMutation({
     mutationFn: (role: Role) => organizations.changeRole(member.user_id, role),
@@ -994,6 +995,11 @@ function MemberRow({ me, member }: { me: Me; member: Member }) {
           </Button>
         )}
         {manageable && open === null && (
+          <Button variant="ghost" onClick={() => setOpen('address')}>
+            Change address…
+          </Button>
+        )}
+        {manageable && open === null && (
           <Button variant="ghost" onClick={() => setOpen('remove')}>
             Remove…
           </Button>
@@ -1006,6 +1012,7 @@ function MemberRow({ me, member }: { me: Me; member: Member }) {
       )}
       {open === 'hand over' && <HandOverForm me={me} successor={member} onClose={() => setOpen(null)} />}
       {open === 'reset' && <ResetLinkForm member={member} onClose={() => setOpen(null)} />}
+      {open === 'address' && <EmailLinkForm member={member} onClose={() => setOpen(null)} />}
       {open === 'remove' && (
         <div className="mt-3 max-w-md space-y-3">
           <Notice tone="warn">
@@ -1070,6 +1077,68 @@ function ResetLinkForm({ member, onClose }: { member: Member; onClose: () => voi
         </>
       )}
     </div>
+  )
+}
+
+// A link that moves the member's account to the address they asked for, for a member who moves
+// where the install mails nothing, so that no link sent to the new address could confirm it
+// (backend/app/api/organizations.py). Opening it confirms the address, the owner or admin
+// vouching for it, and its making is in the audit log.
+function EmailLinkForm({ member, onClose }: { member: Member; onClose: () => void }) {
+  const queryClient = useQueryClient()
+  const [email, setEmail] = useState('')
+  const make = useMutation({
+    mutationFn: () => organizations.emailLink(member.user_id, email.trim()),
+    // The list shows the new address once the link is opened and the list fetched again.
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: MEMBERS_KEY }),
+  })
+  const name = member.name || member.email
+
+  function submit(event: FormEvent) {
+    event.preventDefault()
+    if (email.trim()) make.mutate()
+  }
+
+  if (make.isSuccess) {
+    return (
+      <div className="mt-3 max-w-lg space-y-3">
+        <HandedLink label={`Address link for ${name}`} link={make.data.link} />
+        <p className="text-xs text-muted">
+          Opened, it makes {email.trim().toLowerCase()} the address {name} signs in with, confirmed. It works once, until{' '}
+          {formatDateTime(make.data.expires_at)}, and it is not shown again.
+        </p>
+        <Button variant="ghost" onClick={onClose}>
+          Done
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <form onSubmit={submit} className="mt-3 max-w-md space-y-3">
+      <p className="text-[13px] text-muted">
+        Make a link that moves {name}'s account from {member.email} to the address they asked for. Whoever opens it makes
+        the change, so hand it to {name} alone. Their earlier links stop working.
+      </p>
+      <InputField
+        label="New email address"
+        type="email"
+        autoComplete="off"
+        required
+        autoFocus
+        value={email}
+        onChange={(event) => setEmail(event.target.value)}
+      />
+      {make.isError && <Notice tone="bad">{make.error.message}</Notice>}
+      <div className="flex gap-2">
+        <Button type="submit" variant="primary" icon={<AtSign className="size-4" />} disabled={!email.trim() || make.isPending}>
+          Make the link
+        </Button>
+        <Button variant="ghost" onClick={onClose}>
+          Cancel
+        </Button>
+      </div>
+    </form>
   )
 }
 

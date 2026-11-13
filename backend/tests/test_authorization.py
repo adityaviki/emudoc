@@ -507,6 +507,11 @@ def members(w: World) -> list[Route]:
     return [
         ("PATCH", f"/api/organization/members/{w.member_id}", {"json": {"role": "viewer"}}),
         ("POST", f"/api/organization/members/{w.member_id}/reset-link", {}),
+        (
+            "POST",
+            f"/api/organization/members/{w.member_id}/email-link",
+            {"json": {"email": "moved@example.com"}},
+        ),
         ("DELETE", f"/api/organization/members/{w.member_id}", {}),
     ]
 

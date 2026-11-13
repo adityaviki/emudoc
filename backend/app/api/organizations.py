@@ -44,7 +44,7 @@ from sqlalchemy.orm import Session
 
 from app.access import forget_projects
 from app.accounts import Account
-from app.api.auth import app_url, confirm_account, me_out
+from app.api.auth import ADDRESS_HELD, app_url, confirm_account, me_out
 from app.api.deps import AccountDep, SessionDep, limited
 from app.audit import audit
 from app.config import get_settings
@@ -65,16 +65,17 @@ from app.postbox import BY_EMAIL
 from app.ratelimit import SIGN_INS
 from app.reviews import forget_assignments
 from app.schemas import (
+    EmailLinkIn,
+    HandedLinkOut,
     LanguagesOut,
     MemberOut,
     MemberRoleIn,
     MeOut,
     OrganizationChangeIn,
     OwnershipIn,
-    ResetLinkOut,
 )
 from app.security import MFA_YOURS_FIRST, longer_than_sessions
-from app.signups import handed_reset_link
+from app.signups import handed_email_link, handed_reset_link
 
 router = APIRouter(tags=["organizations"])
 
@@ -107,6 +108,13 @@ ADMINS_RESET = (
 )
 OWNERS_RESET_OWNERS = "Only an owner can make a link that resets an owner's password."
 YOUR_OWN_PASSWORD = "Change your own password on your account page instead."
+ADMINS_MOVE = (
+    "Only the owners and admins of the workspace can make a link that moves a member's account "
+    "to a new address. Ask one of them to."
+)
+OWNERS_MOVE_OWNERS = "Only an owner can make a link that moves an owner's account."
+YOUR_OWN_ADDRESS = "Change your own address on your account page instead."
+THEIR_ADDRESS = "That is the member's address already. Type the new one they asked for."
 
 
 @router.patch("/organization", response_model=MeOut)
@@ -238,7 +246,7 @@ def remove_member(user_id: int, account: AccountDep, request: Request, session: 
 
 @router.post(
     "/organization/members/{user_id}/reset-link",
-    response_model=ResetLinkOut,
+    response_model=HandedLinkOut,
     dependencies=[Depends(limited(SIGN_INS))],
 )
 def make_reset_link(user_id: int, account: AccountDep, request: Request, session: SessionDep):
@@ -259,7 +267,42 @@ def make_reset_link(user_id: int, account: AccountDep, request: Request, session
     link, ends = handed_reset_link(session, session.get(User, user_id), app_url(request))
     audit(session, account, request, "reset_link_made", target=("user", user_id))
     session.commit()
-    return ResetLinkOut(link=link, expires_at=ends)
+    return HandedLinkOut(link=link, expires_at=ends)
+
+
+@router.post(
+    "/organization/members/{user_id}/email-link",
+    response_model=HandedLinkOut,
+    dependencies=[Depends(limited(SIGN_INS))],
+)
+def make_email_link(
+    user_id: int, body: EmailLinkIn, account: AccountDep, request: Request, session: SessionDep
+):
+    """A link that moves another member's account to the address they asked for, for the owner
+    or admin who asks to copy and hand on, which works for HANDED_LINK_TTL: how a member moves
+    to a new address where the install mails nothing, so that no link mailed there can confirm
+    it (`request_email_change` in app/api/auth.py). Opening it confirms the address: the owner or
+    admin vouches for it. Held to the asker's role as a reset link is; an address with an
+    account is refused, and the member's earlier links to move theirs stop working. The audit
+    log keeps who made it."""
+    if not account.is_at_least("admin"):
+        raise HTTPException(403, ADMINS_MOVE)
+    manager = _manager(session, account)
+    if user_id == account.user.id:
+        raise HTTPException(400, YOUR_OWN_ADDRESS)
+    membership = _membership(session, account, user_id)
+    if not manager.is_at_least(membership.role):
+        raise HTTPException(403, OWNERS_MOVE_OWNERS)
+    user = session.get(User, user_id)
+    email = body.email.strip().lower()
+    if email == user.email:
+        raise HTTPException(400, THEIR_ADDRESS)
+    if session.scalar(select(User.id).where(User.email == email)) is not None:
+        raise HTTPException(409, ADDRESS_HELD)
+    link, ends = handed_email_link(session, user, email, app_url(request))
+    audit(session, account, request, "email_link_made", target=("user", user_id))
+    session.commit()
+    return HandedLinkOut(link=link, expires_at=ends)
 
 
 @router.post("/organization/owner", response_model=MeOut, dependencies=[Depends(limited(SIGN_INS))])

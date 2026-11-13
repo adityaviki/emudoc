@@ -1704,10 +1704,14 @@ once its lease runs out. Through Resend that is once: the message's key goes as 
   message by its subject alone, since its link may sign in, and the operator's reports to
   `ALERT_EMAIL`, which carry none, whole. A team runs so on purpose: an owner or admin hands
   invitations and password-reset links on from the members list (`python -m app.maintenance
-  reset-password` prints one), the forgotten-password page says to ask them, and the notices
-  are told in the app alone. Nobody can confirm a new address, or finish a sign-up, which
-  `SIGNUP_OPEN` would offer. Every start says so, and the Administration page's services
-  show the mail as none.
+  reset-password` prints one), the forgotten-password page says to ask them, and so does the
+  account page for a member moving to a new address, whose link an owner or admin makes there
+  too ("Change address…"), an owner or admin moving their own at once once their password
+  confirms it. The help menu sends nothing and names whom to write to from one's own mail
+  ("Support"), and the notices are told in the app alone, the account page and the
+  workspace's offering no email choice. Nobody can finish a sign-up, which `SIGNUP_OPEN`
+  would offer. Every start says so, and the Administration page's services show the mail as
+  none.
 
 Production refuses `SMTP_URL` and `RESEND_API_KEY` both set, a key that is not Resend's or a
 webhook secret that is not one, quoting neither.
@@ -3617,7 +3621,10 @@ same over `trace_id` for the job it queued. The message goes through the mail qu
 rest of the members' mail ("Mail"), and the queue gives it up once it is sent, so the app keeps
 nothing of it: no table, no audit row, no log line holds the member's words. The help menu
 answers with the reference and where the message went; a member writes `RATE_FEEDBACK`
-messages an hour (10), past which the menu says when to try again. Until 2026-11-13 a member could also let Emudoc's
+messages an hour (10), past which the menu says when to try again. Where no relay is set
+("Mail"), the message would reach the log by its subject alone, so the menu sends none: it names
+`SUPPORT_EMAIL`, or else the workspace's owners and admins, to write to from the member's own
+mail, each a link to a mail that carries the page and the failed request's reference. Until 2026-11-13 a member could also let Emudoc's
 support see their account from the operator's area; a team that runs its own install asks its
 members what they see instead.
 

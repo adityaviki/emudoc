@@ -10,10 +10,11 @@ so that two browsers at once make one admin.
 After that people come in by invitation (app/invitations.py), whose link the owner or admin who
 made it is shown as well as mailed, since an install may have no mail relay; for the same reason
 a member who forgot their password is handed a link that sets it (`handed_reset_link`), made from
-the members list or the `reset-password` command. Sign-up is closed by default (SIGNUP_OPEN):
-the sign-up form and a first sign-in through Google or Microsoft are refused, and the pages say
-to ask the team's admin for an invitation. Open, a sign-up joins the workspace as a member
-instead of making an organisation of its own.
+the members list or the `reset-password` command, and one who moves to a new address a link that
+moves their account (`handed_email_link`), made from the members list. Sign-up is closed by
+default (SIGNUP_OPEN): the sign-up form and a first sign-in through Google or Microsoft are
+refused, and the pages say to ask the team's admin for an invitation. Open, a sign-up joins the
+workspace as a member instead of making an organisation of its own.
 
 A database that holds several organisations, as development's does, keeps working: the
 workspace a sign-up joins is the one made first, the local account's aside.
@@ -32,8 +33,10 @@ from app.models import Organization, User, UserSession
 
 # Held while the setup looks for a user and makes the first, so that two at once make one.
 SETUP_LOCK = MIGRATION_LOCK + 7
-# The frontend's page a reset link opens (frontend/src/account/PasswordPages.tsx).
+# The frontend's pages a reset link (frontend/src/account/PasswordPages.tsx) and a link that
+# moves an account to a new address (frontend/src/account/ConfirmEmailPage.tsx) open.
 RESET_PAGE = "/reset-password"
+EMAIL_PAGE = "/confirm-email"
 
 SIGNUP_CLOSED = (
     "Accounts on this Emudoc are made by invitation. Ask your team's admin to invite you, or "
@@ -114,3 +117,14 @@ def handed_reset_link(session: Session, user: User, app_url: str) -> tuple[str, 
     commits."""
     token = issue_link_token(session, user, "reset_password", user.email, HANDED_LINK_TTL)
     return f"{app_url.rstrip('/')}{RESET_PAGE}#token={quote(token)}", now() + HANDED_LINK_TTL
+
+
+def handed_email_link(
+    session: Session, user: User, email: str, app_url: str
+) -> tuple[str, datetime]:
+    """A link that moves the user's account to `email`, for an owner or admin to hand on where
+    the install mails nothing, and when it stops working (HANDED_LINK_TTL). Opening it confirms
+    the address as a mailed one does (`confirm_email_change` in app/api/auth.py): the owner or
+    admin vouches for it. Their earlier links to move it stop working. The caller commits."""
+    token = issue_link_token(session, user, "change_email", email, HANDED_LINK_TTL)
+    return f"{app_url.rstrip('/')}{EMAIL_PAGE}#token={quote(token)}", now() + HANDED_LINK_TTL

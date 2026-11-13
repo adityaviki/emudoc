@@ -20,8 +20,8 @@ import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, rele
 // download it and open the bell's notice that it is ready, leave the account's menu by the
 // keyboard, choose the workspace's settings, read them in its audit log and download it, invite a colleague as a
 // viewer from under that answer, who makes an account from the invitation's link, copied since the run mails nothing, ends her tour, finds
-// the project and is offered no change to it until made a member, then write for help from her help menu to the
-// workspace's admin, which mails the page written from, make a read key, which reads the
+// the project and is offered no change to it until made a member, then find in her help menu, the run mailing nothing,
+// the workspace's admin to write to, by a mail that carries the page, make a read key, which reads the
 // versioned API and its contract, add a webhook, then make the project private, which she no longer finds until chosen for it, and share the chat, which the
 // colleague then reads but does not ask in; then read when each member was last seen, and on the workspace's
 // Administration page its jobs, services and costs, and switch the model's provider off and on
@@ -718,21 +718,19 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expectAccessible(page, 'the usage page')
   })
 
-  await test.step("write for help from the help menu to the workspace's admin, which mails the page the member wrote from", async () => {
-    // This run names no SUPPORT_EMAIL, so a member's message goes to the workspace's owners and admins: Ada.
+  await test.step("find in the help menu, the run mailing nothing, the workspace's admin to write to, by a mail that carries the page", async () => {
+    // This run names no SUPPORT_EMAIL and no relay, so the menu sends nothing and names the workspace's owners and admins: Ada.
     await grace.getByRole('button', { name: 'Help', exact: true }).click()
     const help = grace.getByRole('dialog', { name: 'Help' })
-    await expectAccessible(grace, 'the help menu')
     await expect(help.getByText("Write to your workspace's admins", { exact: true })).toBeVisible()
-    await help.getByRole('button', { name: 'A question' }).click()
-    await help.getByLabel('Message').fill('Can one project hold two price lists?')
-    await help.getByRole('button', { name: 'Send' }).click()
-    await expect(help.getByRole('status')).toContainText(`Sent to your workspace's admins. The answer comes to ${colleague}`)
-    // Ada was mailed before, so the newest message to her is awaited until it is this one.
-    await expect.poll(() => messageTo(address)).toContain('Can one project hold two price lists?')
-    const mail = await messageTo(address)
-    expect(mail).toContain('A member asks a question, reference ')
-    expect(mail).toContain('/projects/')
+    await expect(help.getByText('This workspace sends no email, so the help menu cannot send your message.', { exact: false })).toBeVisible()
+    await expect(help.getByRole('button', { name: 'Send' })).toHaveCount(0)
+    const ada = help.getByRole('link', { name: `Ada Lovelace, ${address}`, exact: true })
+    // The mail from her own carries the page she wrote from, as the form's message did.
+    const href = (await ada.getAttribute('href')) ?? ''
+    expect(href.startsWith(`mailto:${address}?subject=`)).toBe(true)
+    expect(decodeURIComponent(href)).toMatch(/Page: http:\/\/[^/]+\/projects\/\d+/)
+    await expectAccessible(grace, 'the help menu')
     await grace.keyboard.press('Escape')
     await expect(help).toHaveCount(0)
     await expect(grace.getByRole('button', { name: 'Help', exact: true })).toBeFocused()

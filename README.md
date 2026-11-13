@@ -1063,7 +1063,9 @@ address the provider does not vouch for gets a verification link, and a banner a
 it is used. Sign-in sets a session cookie, marked `Secure` over HTTPS and always in production. The account page (the
 initials in the header) changes the name and the time zone the mail is dated in (the browser's at
 sign-up; the pages date everything in the browser's own), moves the account to a new email
-address through a link sent there, which the old address is told of once it is opened, changes
+address through a link sent there, which the old address is told of once it is opened (where the
+install mails nothing, an owner or admin moves their own at once, confirmed by the password, and
+a member asks one of them for the link, below), changes
 the password, turns on a code from an authenticator app at sign-in (shown as a QR code to scan,
 with recovery codes for a lost phone; its secret is kept encrypted with `ENCRYPTION_KEYS`, which
 the database never holds, so a copy of it makes no codes), lists the browsers and devices that are signed in and
@@ -1073,7 +1075,8 @@ could not be indexed and why (`backend/app/notices.py`), that a question set's r
 mentioned them in a comment or replied in a thread they wrote in, and, once a member turns it on,
 on Monday morning of their zone what arrived over the week in the projects they see, by name
 (`backend/app/digests.py`). Each is told under the bell in the header, the member's
-notification centre of the workspace (kept 90 days), and by email, each way on or off by kind; a notice's own link and a
+notification centre of the workspace (kept 90 days), and by email, each way on or off by kind
+(where the install mails nothing, the account page and the workspace's offer the first way alone); a notice's own link and a
 mail program's "Unsubscribe" turn its kind's email off, and a browser may show them as they come
 as the computer's own notifications while the app is open. A forgotten password is reset
 through a link sent by email, which signs the account out everywhere. The worker sends the
@@ -1233,8 +1236,11 @@ handing the organisation over. Nobody changes their own role there, so an organi
 keeps an owner. A member removed loses what leaving loses, and one removed from their last
 organisation gets an empty one of their own. For a member who forgot their password where the
 install mails nothing, an owner or admin makes a link that sets it from the members list ("Reset
-link…"), shown to copy and hand on, for a member within their own role, which works once within
-a day and is kept in the audit log; `maintenance reset-password <address>` prints one too. A project is seen by everyone in the
+password…"), shown to copy and hand on, for a member within their own role, which works once within
+a day and is kept in the audit log; `maintenance reset-password <address>` prints one too. In the
+same way, for a member who moves to a new address, which no link mailed there could confirm, an
+owner or admin makes a link that moves their account to the address they asked for ("Change
+address…"); opened, it confirms the address, the owner or admin vouching for it. A project is seen by everyone in the
 organisation until it is made private ("Who sees it" on its card, or "Private" when making it):
 then only the members chosen for it see it, and the owners and admins, who see every project,
 so that none is left that nobody can manage. Whoever may change the project chooses; a member
@@ -1372,8 +1378,12 @@ account, the workspace,
 the page's path with the ids of what was open, the version, the browser, and the reference of
 the last request the page saw refused or failed, which the log is searched by. The member's
 words go into the mail alone, never into the log, the subject or a table; the menu answers with
-the message's reference. A member writes 10 messages an hour (`RATE_FEEDBACK`). `deploying.md`
-("Support") says what the message holds and how to find its request.
+the message's reference. A member writes 10 messages an hour (`RATE_FEEDBACK`). Where the
+install mails nothing, the message would reach its log by the subject alone, so the menu sends
+none (`GET /api/help`'s `mail`, the route refusing with 409): it names whom to write to from the
+member's own mail, `SUPPORT_EMAIL` or the workspace's owners and admins, each a link to a mail
+that carries the page's address and the failed request's reference. `deploying.md` ("Support")
+says what the message holds and how to find its request.
 
 The API and the worker serve metrics in Prometheus's format on a port of their own
 (`METRICS_ADDRESS`; the image's containers on 9464, which the compose file publishes nowhere):

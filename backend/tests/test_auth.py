@@ -14,7 +14,9 @@ from sqlalchemy import func, select, update
 
 from app.accounts import LOCAL_OWNER_EMAIL, add_member, create_account, create_user
 from app.api.auth import (
+    ADDRESS_HELD,
     ADDRESS_TAKEN,
+    ASK_FOR_THE_LINK,
     CODE_INVALID,
     LINK_INVALID,
     LOCAL_ADDRESS,
@@ -41,7 +43,7 @@ from app.auth import (
 from app.config import Settings, get_settings
 from app.db import SessionLocal
 from app.mail import MailError, Message
-from app.models import Organization, User
+from app.models import AuditEvent, Organization, User
 from app.oidc import Handshake
 from app.sample import add_sample
 from app.signups import NOT_SET_UP, SIGNUP_CLOSED
@@ -216,6 +218,7 @@ def test_signup_mails_a_link_whose_page_makes_the_account(client, session, maile
     assert unfinished.status_code == 422 and "a-reset-token" not in unfinished.text
 
 
+@pytest.mark.usefixtures("relay")
 def test_signup_is_answered_alike_for_an_address_with_an_account(client, mailer, open_signup):
     signup(client)
     stranger = another_browser(client)
@@ -485,6 +488,7 @@ def test_the_name_and_time_zone_change_and_the_zone_starts_as_the_browsers(clien
     assert client.patch("/api/auth/profile", json={"name": "x" * 201}).status_code == 422
 
 
+@pytest.mark.usefixtures("relay")
 def test_an_account_moves_to_a_new_address_through_a_link_sent_there(
     client, session, mailer, signed_in_only
 ):
@@ -508,7 +512,7 @@ def test_an_account_moves_to_a_new_address_through_a_link_sent_there(
 
     sent = len(mailer.sent)
     asked = change_email(client, "Ada@Analytical.org", password=PASSWORD)
-    assert asked.status_code == 202
+    assert (asked.status_code, asked.json()) == (202, {"moved": False})
     (to, subject, body), *_ = mailer.sent[sent:]
     assert to == "ada@analytical.org" and subject == "Confirm your new email address"
     assert "Hi Ada," in body and "keeps its old address" in body
@@ -545,6 +549,7 @@ def test_an_account_moves_to_a_new_address_through_a_link_sent_there(
     signup(another_browser(client), "ada@example.com")
 
 
+@pytest.mark.usefixtures("relay")
 def test_a_taken_address_is_answered_alike_and_told_instead(
     client, mailer, monkeypatch, signed_in_only
 ):
@@ -580,7 +585,7 @@ def test_a_taken_address_is_answered_alike_and_told_instead(
     assert "write to help@emudoc.example at once" in mailer.sent[-1][2]
 
 
-@pytest.mark.usefixtures("one_minute")
+@pytest.mark.usefixtures("one_minute", "relay")
 def test_an_address_is_asked_for_at_a_rate(client, mailer, monkeypatch, signed_in_only):
     monkeypatch.setattr(get_settings(), "rate_sign_ins", 1)
     signup(client)
@@ -596,6 +601,7 @@ def test_an_address_is_asked_for_at_a_rate(client, mailer, monkeypatch, signed_i
     assert len(mailer.sent) == 1
 
 
+@pytest.mark.usefixtures("relay")
 def test_an_account_without_a_password_confirms_with_its_address_typed_out(
     client, session, mailer, signed_in_only
 ):
@@ -609,6 +615,45 @@ def test_an_account_without_a_password_confirms_with_its_address_typed_out(
     assert asked.status_code == 202
     assert confirm_email(client, mailer.token()).status_code == 204
     assert me(client).json()["email"] == "ada@analytical.org"
+
+
+def test_where_nothing_is_mailed_an_owner_moves_at_once_and_a_member_asks_for_a_link(
+    client, session, mailer, signed_in_only
+):
+    ada = signup(client)
+    bob_client = another_browser(client)
+    signup(bob_client, "bob@example.com", name="Bob", joins=ada["organization"]["id"])
+    session.execute(update(User).values(email_verified_at=None))
+    session.commit()
+    assert client.post("/api/auth/verify/resend").status_code == 202
+    unconfirmed = mailer.token()
+
+    # No link mailed could confirm the new address: a member asks an owner or admin for one,
+    # told so before the password is asked for.
+    for confirmation in ({"password": PASSWORD}, {"password": "not it"}):
+        refused = change_email(bob_client, "bob@analytical.org", **confirmation)
+        assert (refused.status_code, refused.json()["detail"]) == (409, ASK_FOR_THE_LINK)
+    assert me(bob_client).json()["email"] == "bob@example.com"
+
+    # An owner, with nobody above to ask, moves at once once the password confirms it, but
+    # never to an address with an account, since no mail answers alike.
+    wrong = change_email(client, "ada@analytical.org", password="not it")
+    assert wrong.status_code == 403 and wrong.json()["detail"] == WRONG_PASSWORD
+    taken = change_email(client, "Bob@Example.com", password=PASSWORD)
+    assert (taken.status_code, taken.json()["detail"]) == (409, ADDRESS_HELD)
+    sent = len(mailer.sent)
+    moved = change_email(client, "Ada@Analytical.org", password=PASSWORD)
+    assert (moved.status_code, moved.json()) == (202, {"moved": True})
+    account = me(client).json()
+    assert account["email"] == "ada@analytical.org" and account["email_verified"] is True
+    # The old address is told, as a link opened would have it, and its links are void.
+    [(to, subject, _)] = mailer.sent[sent:]
+    assert to == "ada@example.com" and subject == "Your email address was changed"
+    void = confirm_email(another_browser(client), unconfirmed)
+    assert void.status_code == 400
+    recorded = session.scalars(select(AuditEvent.action).order_by(AuditEvent.id)).all()
+    assert recorded[-2:] == ["email_change_requested", "email_changed"]
+    login(another_browser(client), "ada@analytical.org")
 
 
 def test_the_local_account_keeps_its_address_but_may_be_renamed(client):

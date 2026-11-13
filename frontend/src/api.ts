@@ -1205,6 +1205,8 @@ export interface Help {
   support_email: string | null
   /** The status page outside the deployment, which says whether it is up; none where it names none. */
   status_page: string | null
+  /** The install mails something; without, the menu sends nothing and says whom to write to. */
+  mail: boolean
 }
 
 /** What a member writes about from the help menu, which the mail's subject says. */
@@ -1457,7 +1459,8 @@ export interface InvitationSent extends Invitation {
 }
 
 /** A link that sets a member's password, for an owner or admin to hand on, and when it stops working. */
-export interface ResetLink {
+/** A link an owner or admin makes for a member to hand on: one that sets their password, or one that moves their account to a new address. */
+export interface HandedLink {
   link: string
   expires_at: string
 }
@@ -1603,7 +1606,7 @@ export interface AuthOptions {
   signup_open: boolean
   /** The install has no account yet: every page sends to the setup, `/setup`. */
   setup_needed: boolean
-  /** The install mails something; without, a forgotten password's link is asked of an owner or admin. */
+  /** The install mails something; without, a forgotten password's link, or one that moves an account, is asked of an owner or admin, and notices are told in the app alone. */
   mail: boolean
 }
 
@@ -1761,6 +1764,7 @@ export type AuditAction =
   | 'my_file_copied'
   | 'reset_link_made'
   | 'provider_switched'
+  | 'email_link_made'
 
 /** One row of the organisation's audit log, which its owners and admins read. */
 export interface AuditEvent {
@@ -2191,9 +2195,10 @@ export const auth = {
   /**
    * Mails the link that makes `email` the account's, confirmed by the password, or by the current
    * address for an account without one. Answers alike whether or not the address has an account.
+   * Where the install mails nothing, an owner or admin is `moved` at once, and a member refused.
    */
   requestEmailChange: (body: { email: string; password?: string; current_email?: string }) =>
-    request<void>('/auth/email', json('POST', body)),
+    request<{ moved: boolean }>('/auth/email', json('POST', body)),
   confirmEmailChange: (token: string) => request<void>('/auth/email/confirm', json('POST', { token })),
 
   verifyEmail: (token: string) => request<void>('/auth/verify', json('POST', { token })),
@@ -2255,7 +2260,10 @@ export const organizations = {
   /** As `changeRole`; the member's private chats in its projects go, and they keep their account in no workspace until invited again. */
   removeMember: (userId: number) => request<void>(`/organization/members/${userId}`, { method: 'DELETE' }),
   /** As `changeRole`, for another member: a link that sets their password, which stops their earlier ones. */
-  resetLink: (userId: number) => request<ResetLink>(`/organization/members/${userId}/reset-link`, { method: 'POST' }),
+  resetLink: (userId: number) => request<HandedLink>(`/organization/members/${userId}/reset-link`, { method: 'POST' }),
+  /** As `resetLink`: a link that moves their account to the address they asked for, which stops their earlier ones. */
+  emailLink: (userId: number, email: string) =>
+    request<HandedLink>(`/organization/members/${userId}/email-link`, json('POST', { email })),
   /** Owners only, confirmed by the password, or by the email address for an account without one. */
   handOver: (body: { user_id: number; password?: string; email?: string }) =>
     request<Me>('/organization/owner', json('POST', body)),

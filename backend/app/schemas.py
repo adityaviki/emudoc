@@ -2005,6 +2005,14 @@ class EmailChangeIn(BaseModel):
     current_email: str | None = Field(None, max_length=320)
 
 
+class EmailChangeOut(BaseModel):
+    """What became of a request to move the account: a link mailed to the new address, which
+    makes the change once opened, or, where the install mails nothing, the account of an owner
+    or admin moved at once (`moved`), who has nobody above them to ask for the link."""
+
+    moved: bool
+
+
 class MeteredOut(BaseModel):
     """What the organisation used over one UTC day, or one month from its first day (`metered`
     in app/usage.py): the pages its uploads brought in, the questions it asked, and what all its
@@ -2188,12 +2196,19 @@ class InvitationSentOut(InvitationOut):
     mailed: bool
 
 
-class ResetLinkOut(BaseModel):
-    """A link that sets a member's password, made by an owner or admin for them to hand on,
+class HandedLinkOut(BaseModel):
+    """A link made by an owner or admin for a member, to hand on where the install mails
+    nothing: one that sets their password, or one that moves their account to a new address;
     and when it stops working."""
 
     link: str
     expires_at: dt.datetime
+
+
+class EmailLinkIn(BaseModel):
+    """The address a member asked an owner or admin to move their account to."""
+
+    email: Email
 
 
 # API_KEY_SCOPES in app/models.py, which the database's check constraint holds.
@@ -2639,11 +2654,13 @@ class PageErrorOut(BaseModel):
 class HelpOut(BaseModel):
     """The help menu (app/api/help.py): the address members write to for help, where the server
     names one (SUPPORT_EMAIL; without it the help menu's messages go to the workspace's owners
-    and admins), and the status page, where it has one."""
+    and admins), the status page, where it has one, and whether the install mails anything
+    (`relay_set` in app/mail.py): without, the menu sends nothing and says whom to write to."""
 
     support_email: str | None
     # The public status page (STATUS_PAGE_URL), outside the deployment.
     status_page: str | None
+    mail: bool
 
 
 # What a member writes about from the help menu (`SUPPORT_SUBJECTS` in app/mail.py).

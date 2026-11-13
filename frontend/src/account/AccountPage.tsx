@@ -13,6 +13,7 @@ import {
   PASSWORD_MIN_LENGTH,
   ROLE_LABELS,
   auth,
+  isWithin,
 } from '../api.ts'
 import type { Me, MfaSetup, UserSession } from '../api.ts'
 import { ME_KEY, setSignedIn, useMe, useSignOut } from '../auth.ts'
@@ -34,6 +35,7 @@ import { formatDateTime } from '../format.ts'
 import { useLocalStorage } from '../hooks.ts'
 import { browserNoticesKey } from '../notifications.ts'
 import { browserTimeZone, timeZoneChoices, zoneLabel } from '../timeZones.ts'
+import { useAuthOptions } from './authOptions.ts'
 import { ChangeEmailForm } from './ChangeEmail.tsx'
 import { DeleteAccountForm } from './DeleteAccount.tsx'
 import { PasswordField } from './shared.tsx'
@@ -143,11 +145,19 @@ function ProfileForm({ me }: { me: Me }) {
   )
 }
 
+// Where the install mails nothing, no link reaches the address: an owner or admin, with nobody
+// above them to ask, moves their own account at once, and a member asks one of them for the link
+// that moves theirs, made from the members list (backend/app/api/organizations.py).
 function EmailSection({ me }: { me: Me }) {
   const [changing, setChanging] = useState(false)
   const resend = useMutation({ mutationFn: auth.resendVerification })
+  const mailed = useAuthOptions().data?.mail ?? true
+  const movesItself = mailed || isWithin('admin', me.role)
   return (
-    <Section title="Email address" description="Where Emudoc writes to you, and the address you sign in with.">
+    <Section
+      title="Email address"
+      description={mailed ? 'Where Emudoc writes to you, and the address you sign in with.' : 'The address you sign in with.'}
+    >
       <div className="flex flex-wrap items-center gap-2 text-[13px]">
         <span className="truncate font-medium">{me.email}</span>
         {me.email_verified ? (
@@ -155,7 +165,7 @@ function EmailSection({ me }: { me: Me }) {
         ) : (
           <>
             <Chip>Not confirmed</Chip>
-            {resend.isSuccess ? (
+            {!mailed ? null : resend.isSuccess ? (
               <span className="text-muted">A new link is on its way.</span>
             ) : (
               <button
@@ -172,8 +182,14 @@ function EmailSection({ me }: { me: Me }) {
         )}
       </div>
       <div className="mt-4">
-        {changing ? (
-          <ChangeEmailForm me={me} onClose={() => setChanging(false)} />
+        {!movesItself ? (
+          <p className="max-w-md text-[13px] leading-relaxed text-muted">
+            This workspace sends no email, so a new address cannot be confirmed by a link sent to it. To change yours, ask
+            one of its owners or admins for the link that moves your account, which they make from the members list on
+            the workspace's page.
+          </p>
+        ) : changing ? (
+          <ChangeEmailForm me={me} mailed={mailed} onClose={() => setChanging(false)} />
         ) : (
           <Button onClick={() => setChanging(true)}>Change email address…</Button>
         )}
@@ -189,6 +205,7 @@ function EmailSection({ me }: { me: Me }) {
  */
 function NoticesSection({ me }: { me: Me }) {
   const location = useLocation()
+  const mailed = useAuthOptions().data?.mail
   const box = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (location.hash === '#notices') {
@@ -199,7 +216,11 @@ function NoticesSection({ me }: { me: Me }) {
     <div ref={box} id="notices" className="scroll-mt-6">
       <Section
         title="Notices"
-        description="News about your work in Emudoc, under the bell in the header and by email. Until you choose, each kind is told as your workspace tells its members. Email about your account and invitations is sent either way."
+        description={
+          mailed
+            ? 'News about your work in Emudoc, under the bell in the header and by email. Until you choose, each kind is told as your workspace tells its members. Email about your account and invitations is sent either way.'
+            : 'News about your work in Emudoc, under the bell in the header. Until you choose, each kind is told as your workspace tells its members.'
+        }
       >
         {/* Turning a kind on by email also writes again to an address that bounced. */}
         <NoticeChoices key={JSON.stringify(me.notices)} saved={me.notices} change={(choice) => auth.updateProfile({ notices: [choice] })} />
