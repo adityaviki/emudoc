@@ -277,7 +277,7 @@ def events(chat: ChatDep, message_id: int, request: Request, session: SessionDep
     The stream looks at the table with a session of its own each time, so the request's gives
     its connection back before the stream begins, not when it ends: an answer is followed for
     as long as it is written, and twenty members following answers would otherwise hold twenty
-    connections and wait for more at each look (the load test, deploying.md "Load"). It has
+    connections and wait for more at each look (the load test, docs/load.md). It has
     only read, so the commit writes nothing.
     """
     followed = answer_in(chat, message_id, session).id

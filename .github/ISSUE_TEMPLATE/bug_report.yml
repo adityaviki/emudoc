@@ -1,0 +1,61 @@
+name: Bug report
+description: Something in Emudoc does not work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for taking the time to report it. A security problem goes to the repository's
+        Security tab instead, privately (SECURITY.md).
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+      description: What you did, and what Emudoc did. A screenshot helps.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen again
+      description: The steps, from a page anyone can reach. Attach a document if it takes one, with nothing private in it.
+      placeholder: |
+        1. Upload …
+        2. Ask …
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The user menu shows it, and `/api/health` reports it.
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: runs
+    attributes:
+      label: How it runs
+      options:
+        - The compose file, with the published image
+        - The published image, some other way
+        - An image built from a checkout
+        - A checkout, for development
+    validations:
+      required: true
+  - type: input
+    id: models
+    attributes:
+      label: Models
+      description: AGENT_MODEL and INDEX_MODEL, if the bug is about indexing or answers.
+      placeholder: google:gemini-3.5-flash-lite
+  - type: textarea
+    id: logs
+    attributes:
+      label: What the log says
+      description: The lines of `docker compose logs api worker` around it, with any key or address taken out. A page that failed shows a reference, which its lines name.
+      render: text

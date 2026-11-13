@@ -24,8 +24,8 @@ The warning: when a day's spending reaches ALERT_SHARE of the cap, the worker's 
 (app/worker.py) mails ALERT_EMAIL, once that day, in the same round as the failed jobs
 (`alert_spending`); a `spend_alerts` row says it was sent. The costs command
 (app/maintenance.py) prints the day's cost, and the usage command the workspace's by kind; the
-providers' consoles have the bill itself, and a budget set there is the last line (the README
-says where).
+providers' consoles have the bill itself, and a budget set there is the last line
+(deploying.md, "The models").
 """
 
 import math

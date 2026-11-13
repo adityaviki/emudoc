@@ -87,7 +87,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# As the README's update does: the release step alone first, then the rest.
+# As deploying.md's "Upgrades" does: the release step alone first, then the rest.
 "${compose[@]}" run --rm migrate
 "${compose[@]}" up --detach --wait --wait-timeout 600
 address=http://$("${compose[@]}" port api 8000)

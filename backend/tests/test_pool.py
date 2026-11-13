@@ -128,7 +128,7 @@ def test_a_member_following_an_answer_holds_no_connection_while_it_is_written(
     # app/api/chats.py). The request's own session gives its connection back before the
     # stream begins: twenty members following answers held twenty for the answers' length,
     # and each look waited for a twenty-first, so every answer waited DB_POOL_TIMEOUT and some
-    # streams ended without their end (the load test, deploying.md "Load").
+    # streams ended without their end (the load test, docs/load.md).
     services.llm.agent_turns = [FakeTurn(TextPart("90 days."))]
     chat = Chat(project_id=indexed.project_id, user_id=account.user.id, title="Notice")
     session.add(chat)

@@ -1,4 +1,4 @@
-"""A document's versions (README, "How it works"): a member gives a document a new file, as a
+"""A document's versions: a member gives a document a new file, as a
 contract comes back signed or an invoice is sent again corrected, and the document reads the new
 file in the earlier one's place. It keeps its id, and so everything that names it: its chats'
 scope, its review, its share links, its members' checks of its facts, the API's `Document.id` and
