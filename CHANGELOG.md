@@ -33,7 +33,8 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
   or the price list), run when you ask or by an automation as documents arrive; reviews with an
   assignee, disputed or approved; question sets asked on a schedule, each run a report.
 - Writing: the agent drafts letters and replies from the documents (a dispute letter, a reply
-  to a supplier) for you to edit, and writes and edits Word documents in your own My files.
+  to a supplier) for you to edit, and writes and edits Word documents and Excel workbooks in
+  your own My files, a workbook's formulas worked out as it is written.
 - Working together: a workspace with roles, projects private to the members chosen for them,
   chats private until shared with the project, comments on the words of a document with
   mentions, a project's activity, links that share a document or an answer with someone outside,
@@ -49,7 +50,8 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 - One image for amd64 and arm64, `ghcr.io/emudocai/emudoc`, and one compose file that runs
   everything on one server: Postgres with pgvector, the migrations, the API, a worker and the
   embeddings server, and behind profiles ClamAV, a converter that shows Office files as they
-  look, and Caddy with a certificate from Let's Encrypt. A team sets four values in `.env`.
+  look and works out the formulas of the workbooks the agent writes, and Caddy with a
+  certificate from Let's Encrypt. A team sets four values in `.env`.
 - A new install opens its setup page, which makes the first admin and the workspace. Sign-up is
   closed unless `SIGNUP_OPEN`; without a mail relay, admins hand invitations and password links
   on themselves.

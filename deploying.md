@@ -864,6 +864,15 @@ address, update no linked section or field, and recalculate no formula (a spread
 values it was saved with), and reads the file with its type's import filter alone, so that a
 file of another format named as a .docx is refused rather than read by a filter nobody checked.
 
+The converter also works out the formulas of the Excel workbooks the agent writes in a member's
+My files (`app/sheet_files.py`): their library writes a formula without its value, so the worker
+sends each workbook it wrote to the converter, which saves it again as a workbook
+(`?to=xlsx`, an `xlsx` alone), every formula saved without a value worked out under the same
+profile, and the worker writes those values into its own file. A formula there may not fetch
+(`WEBSERVICE`, `IMAGE` and the like) nor name another workbook, and a member's workbook whose
+formulas do is not edited by the agent. Without a converter, or while it does not answer, the
+workbook is kept with its formulas alone, which Excel works out as it opens it.
+
 Its limits are its command's options in the compose file: `--concurrency` conversions at once
 (2), `--timeout` seconds one may take (120), `--max-mb` the largest file it takes (100, as large
 as `MAX_UPLOAD_MB`: raise them together), and the container's memory (2 GB), past which the
@@ -871,7 +880,8 @@ kernel ends the conversion. The image carries LibreOffice without its windows or
 fonts documents name most (Carlito and Caladea for Calibri and Cambria, Liberation for Arial,
 Times New Roman and Courier New, Noto for the other scripts), about 400 MB more for every
 process's image; Debian's security updates reach it as the image is built again, which Audit
-does every week. CI's image check converts a Word file in a container with no network.
+does every week. CI's image check converts a Word file in a container with no network, and
+works out a workbook's formulas for the worker.
 
 A converter out of reach or busy is tried again three more times, after 2, 4 and 8 minutes; then
 the document says its pages could not be made, with "Try again", and the job is a dead letter

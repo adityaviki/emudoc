@@ -23,6 +23,10 @@ the passages. It answers as a model would that does the least the app asks:
 - an agent turn offered `create_document`, for a question that begins "Write a Word document",
   writes after its search a document, "Notes on the invoice", of the best passage's first sentence
   and its reference into the member's My files, then says that it is there;
+- an agent turn offered `create_spreadsheet`, for a question that begins "Make an Excel
+  workbook", makes after its search a workbook, "Lines of the invoice", of a sheet holding the
+  best passage's reference, its first sentence and a formula of that sentence's length, then says
+  that it is there;
 - an embedding is the text's words hashed into EMBEDDING_DIM dimensions, so a passage and a
   question that share words are near each other.
 
@@ -313,6 +317,17 @@ def agent_turn(messages: list[dict[str, Any]], tools: list[str]) -> dict[str, An
             said = (sentence.group(1) if sentence else passage).strip()
             arguments = {"title": "Notes on the invoice", "markdown": f"# Notes\n\n{said} {ref}"}
             return {"tool": "create_document", "arguments": arguments}
+    if "create_spreadsheet" in tools and question.startswith("Make an Excel workbook"):
+        if KEPT in results[-1]:
+            return {"text": "It is in your files."}
+        if found := CITED.search(results[-1]):
+            ref, passage = found.groups()
+            sentence = SENTENCE.match(passage.strip())
+            said = (sentence.group(1) if sentence else passage).strip()
+            rows = [["Passage", "Words", "Length"], [ref, f"'{said}", "=LEN(B2)"]]
+            sheets = [{"name": "Lines", "rows": rows}]
+            arguments = {"title": "Lines of the invoice", "sheets": sheets}
+            return {"tool": "create_spreadsheet", "arguments": arguments}
     if "create_draft" in tools and question.startswith("Draft "):
         if OFFERED in results[-1]:
             return {"text": "It is offered below as a draft for the project's drafts."}

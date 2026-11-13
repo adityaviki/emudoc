@@ -59,9 +59,9 @@ admins what it cost.
 
 Ask for a reply email, a dispute letter, a summary memo, a comparison table or a report, and the
 answer may offer it as a draft of the project, which "Write the draft" under it writes, if you
-may change the project. Ask for a Word document, a letter or a memo to keep, or for changes to
-one of your files, and the assistant writes it into your My files, where only you see it, and
-the answer's step opens it ([Working together](/help/working-together)).
+may change the project. Ask for a Word document, a letter or a memo to keep, an Excel workbook,
+or for changes to one of your files, and the assistant writes it into your My files, where only
+you see it, and the answer's step opens it ([Working together](/help/working-together)).
 
 ## Keyboard shortcuts
 

@@ -1,6 +1,8 @@
 """The converter: a small HTTP server that turns a Word, PowerPoint, Excel, RTF or HTML file into a
 PDF with LibreOffice, so that the document pane can show it as it looks, page by page
-(app/conversion.py is the app's side, which sends it each file and keeps the PDF).
+(app/conversion.py is the app's side, which sends it each file and keeps the PDF); and that saves
+an Excel workbook again as one, so that the formulas of a workbook the agent wrote have values
+(`?to=xlsx`, `Converter.calculate`: openpyxl writes formulas without them, app/sheet_files.py).
 
 LibreOffice reads formats as old and as large as its own through import filters written in C++,
 and a document can name other files and addresses for it to fetch: a linked image, a section
@@ -24,6 +26,9 @@ standard library alone.
                               convert; 411 without a length; 413 past --max-mb; 422 for a file
                               LibreOffice could not convert; 503 while every slot stayed taken;
                               504 for a conversion past --timeout. An error's body is a sentence.
+    POST /convert?type=xlsx&to=xlsx
+                              the same for a workbook saved again as one, its formulas saved
+                              without a value worked out (SAVED_AS); 400 for another type.
     GET /health               200 and LibreOffice's version as JSON, once the first conversion
                               at the start has made the profile every other copies.
 """
@@ -60,10 +65,20 @@ TYPES = {
     "rtf": "Rich Text Format",
     "html": "HTML (StarWriter)",
 }
+# What a file is converted into: the PDF by default, and for a workbook, itself saved again (`to`),
+# each with the export filter LibreOffice writes it by, the start of such a file and its type.
+OUTPUTS = {
+    "pdf": ("pdf", b"%PDF-", "application/pdf"),
+    "xlsx": (
+        "xlsx:Calc MS Excel 2007 XML",
+        b"PK\x03\x04",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ),
+}
+SAVED_AS = {"xlsx": ("pdf", "xlsx")}
 # LibreOffice's command, which the tests replace with a stand-in.
 LIBREOFFICE = ("soffice",)
 CHUNK = 1024 * 1024
-PDF_HEADER = b"%PDF-"
 # What the profile made at the start converts, to have LibreOffice write the rest of its profile
 # once rather than for every file, and to know at the start that it runs.
 FIRST_FILE = "<!doctype html><title>Emudoc</title><p>The converter's first page.</p>"
@@ -78,7 +93,9 @@ FIRST_FILE = "<!doctype html><title>Emudoc</title><p>The converter's first page.
 # "never", each component numbering always, never and on request in an order of its own); and
 # a spreadsheet's formulas keep the values it was saved with (RecalcMode 1, "never"), so that
 # WEBSERVICE and external references fetch nothing and the page shows what its author last saw.
-# A formula saved without a value is still worked out.
+# A formula saved without a value is still worked out: every formula of a workbook openpyxl wrote,
+# which is what a workbook saved again as one (`?to=xlsx`) is for, the app refusing first any
+# formula that would fetch (`_reaches_out` in app/sheet_files.py).
 PROFILE_SETTINGS = """\
 <?xml version="1.0" encoding="UTF-8"?>
 <oor:items xmlns:oor="http://openoffice.org/2001/registry" \
@@ -101,6 +118,7 @@ xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XM
 """
 
 UNKNOWN_TYPE = f"The converter takes {', '.join(TYPES)} files; name the type as ?type=…."
+UNKNOWN_OUTPUT = "The converter makes PDFs of every type it takes, and an xlsx file of an xlsx one."
 NO_LENGTH = "The file's length is needed, as Content-Length."
 TOO_LARGE = "The file is larger than the converter takes ({limit} MB)."
 UNCONVERTED = "LibreOffice could not read the file, so it was not converted."
@@ -154,18 +172,19 @@ class LibreOffice:
         )
         self.version = version.stdout.decode(errors="replace").strip()
 
-    def convert(self, source: Path) -> Path:
-        """The PDF made of `source`, beside it; raises `Failed`."""
+    def convert(self, source: Path, to: str = "pdf") -> Path:
+        """The file of `to` (OUTPUTS) made of `source`, beside it; raises `Failed`."""
         if not self._slots.acquire(timeout=self.limits.timeout):
             raise Failed(HTTPStatus.SERVICE_UNAVAILABLE, BUSY)
         try:
             profile = source.parent / "profile"
             shutil.copytree(self.profile, profile, symlinks=True)
-            return self._run(source, profile)
+            return self._run(source, profile, to)
         finally:
             self._slots.release()
 
-    def _run(self, source: Path, profile: Path) -> Path:
+    def _run(self, source: Path, profile: Path, to: str = "pdf") -> Path:
+        export, header, _ = OUTPUTS[to]
         out = source.parent / "out"
         out.mkdir()
         command = [
@@ -181,7 +200,7 @@ class LibreOffice:
             "--nologo",
             "--norestore",
             "--convert-to",
-            "pdf",
+            export,
             "--outdir",
             str(out),
             str(source),
@@ -206,11 +225,11 @@ class LibreOffice:
             with suppress(ProcessLookupError, PermissionError):
                 os.killpg(process.pid, signal.SIGKILL)
             process.wait()
-        pdf = out / f"{source.stem}.pdf"
+        made = out / f"{source.stem}.{to}"
         try:
-            with pdf.open("rb") as file:
-                if file.read(len(PDF_HEADER)) == PDF_HEADER:
-                    return pdf
+            with made.open("rb") as file:
+                if file.read(len(header)) == header:
+                    return made
         except FileNotFoundError:
             pass
         raise Failed(HTTPStatus.UNPROCESSABLE_ENTITY, UNCONVERTED)
@@ -239,9 +258,14 @@ class Handler(BaseHTTPRequestHandler):
         if url.path != "/convert":
             self._sentence(HTTPStatus.NOT_FOUND, NOT_FOUND, close=True)
             return
-        kind = parse_qs(url.query).get("type", [""])[0]
+        query = parse_qs(url.query)
+        kind = query.get("type", [""])[0]
         if kind not in TYPES:
             self._sentence(HTTPStatus.BAD_REQUEST, UNKNOWN_TYPE, close=True)
+            return
+        to = query.get("to", ["pdf"])[0]
+        if to not in SAVED_AS.get(kind, ("pdf",)):
+            self._sentence(HTTPStatus.BAD_REQUEST, UNKNOWN_OUTPUT, close=True)
             return
         length = self.headers.get("Content-Length", "")
         if not length.isdigit():
@@ -257,7 +281,7 @@ class Handler(BaseHTTPRequestHandler):
             source = Path(job) / f"document.{kind}"
             self._receive(source, int(length))
             try:
-                pdf = libreoffice.convert(source)
+                made = libreoffice.convert(source, to)
             except Failed as failure:
                 log.warning(
                     "A %s file of %s bytes was not converted after %.1f s: %s",
@@ -268,19 +292,20 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 self._sentence(failure.status, str(failure))
                 return
-            size = pdf.stat().st_size
+            size = made.stat().st_size
             log.info(
-                "A %s file of %s bytes became a PDF of %s bytes in %.1f s",
+                "A %s file of %s bytes became a %s file of %s bytes in %.1f s",
                 kind,
                 length,
+                to,
                 size,
                 time.monotonic() - started,
             )
             self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", "application/pdf")
+            self.send_header("Content-Type", OUTPUTS[to][2])
             self.send_header("Content-Length", str(size))
             self.end_headers()
-            with pdf.open("rb") as file:
+            with made.open("rb") as file:
                 shutil.copyfileobj(file, self.wfile, CHUNK)
 
     def _receive(self, path: Path, length: int) -> None:

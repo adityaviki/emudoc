@@ -98,7 +98,9 @@ The agent (`backend/app/agent/`) answers with five read-only tools over the inde
 and `read` returns a passage's exact text. A member who may change the project is also offered
 `create_draft`, by which an answer offers a draft that only the member's press writes; and every
 member is offered the tools of their own My files (`agent/writing.py`: `list_my_files`,
-`read_file`, `create_document`, `edit_document`, `copy_to_my_files`), each write a version only
+`read_file`, `create_document`, `edit_document`, `create_spreadsheet`, `edit_spreadsheet`,
+`copy_to_my_files`; Word documents by python-docx in `word_files.py`, workbooks by openpyxl in
+`sheet_files.py`, their formulas' values worked out by the converter), each write a version only
 they see. Every tool is scoped to the chat's project, and to its folder or documents, by the
 server, never by the model.
 

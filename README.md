@@ -27,7 +27,7 @@ you choose.
   contract, the price list) when you ask or as documents arrive, with reviews, assignees and
   question sets asked on a schedule.
 - **Create**: the agent drafts letters and replies from the documents for you to edit, and
-  writes and edits Word documents in your own files.
+  writes and edits Word documents and Excel workbooks in your own files.
 - **Work together**: a workspace with roles, private projects, comments with mentions, a
   project's activity, notices, and links that share a document or an answer outside.
 - **Bring documents in** by upload, by an upload client that sends a folder, by mail to a

@@ -5,6 +5,7 @@ ask for their pages."""
 
 import sys
 import threading
+from collections.abc import Callable
 from datetime import UTC, datetime
 from http import HTTPStatus
 from pathlib import Path
@@ -32,6 +33,7 @@ from app.converter import (
     PROFILE_SETTINGS,
     TYPES,
     UNCONVERTED,
+    UNKNOWN_OUTPUT,
     ConverterServer,
     Failed,
     LibreOffice,
@@ -68,7 +70,10 @@ if b"slow" in content:
     time.sleep(30)
 if b"unreadable" in content:
     sys.exit(0)
-(Path(args[args.index("--outdir") + 1]) / (source.stem + ".pdf")).write_bytes(pdf.read_bytes())
+# A workbook saved again as one is the workbook itself here.
+into = args[args.index("--convert-to") + 1].split(":")[0]
+made = pdf.read_bytes() if into == "pdf" else content
+(Path(args[args.index("--outdir") + 1]) / (source.stem + "." + into)).write_bytes(made)
 """
 
 
@@ -130,6 +135,46 @@ def test_the_converter_answers_a_pdf_of_the_file(converter_server, tmp_path, sam
     )
     # Nothing of a conversion is left behind but the profile.
     assert [path.name for path in (tmp_path / "work").iterdir()] == ["profile"]
+
+
+def test_the_converter_saves_a_workbook_again_as_one(converter_server):
+    address, log = converter_server()
+    convert = f"{address}/convert"
+    workbook = b"PK\x03\x04 a workbook"
+    response = httpx.post(convert, params={"type": "xlsx", "to": "xlsx"}, content=workbook)
+    assert response.status_code == 200
+    assert response.headers["content-type"] == (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    assert response.content == workbook
+    calls = log.read_text().splitlines()
+    assert "--infilter=Calc MS Excel 2007 XML" in calls[-1]
+    assert "--convert-to xlsx:Calc MS Excel 2007 XML" in calls[-1]
+    # Only a workbook is saved again, and only as a workbook.
+    for kind, to in [("docx", "xlsx"), ("xlsx", "docx"), ("xlsx", "odt")]:
+        refused = httpx.post(convert, params={"type": kind, "to": to}, content=b"PK")
+        assert (refused.status_code, refused.text) == (400, UNKNOWN_OUTPUT)
+
+    # The app's client, for the agent's workbooks (app/sheet_files.py).
+    converter = Converter(address)
+    assert converter.calculate(workbook) == workbook
+    with pytest.raises(ConvertError) as unreadable:
+        converter.calculate(b"unreadable")
+    assert not unreadable.value.transient
+    with pytest.raises(ConvertError) as away:
+        Converter("http://127.0.0.1:9").calculate(workbook)
+    assert away.value.transient
+
+
+def test_a_converter_answering_what_is_no_workbook_is_refused():
+    def answer(request: httpx.Request) -> httpx.Response:
+        assert dict(request.url.params) == {"type": "xlsx", "to": "xlsx"}
+        return httpx.Response(200, content=b"%PDF-1.7")
+
+    converter = Converter("http://converter:8080")
+    converter._client = httpx.Client(base_url=converter.url, transport=httpx.MockTransport(answer))
+    with pytest.raises(ConvertError, match="answered with what is not a workbook"):
+        converter.calculate(b"PK\x03\x04")
 
 
 def test_every_type_has_its_filter_and_the_profile_blocks_what_a_document_names():
@@ -264,14 +309,16 @@ def test_a_render_child_measures_a_pdfs_pages(sample_pdf, tmp_path):
 
 
 class FakeConverter:
-    """Stands in for the converter: answers the PDF it was given for any file, or raises
-    `refusal` while it is set."""
+    """Stands in for the converter: answers the PDF it was given for any file, and a workbook
+    saved again as `calculating` would work its formulas out (the workbook itself by default), or
+    raises `refusal` while it is set."""
 
     def __init__(self, pdf: Path):
         self.pdf = pdf
         self.url = "http://converter:8080"
         self.refusal: ConvertError | None = None
         self.converted: list[str] = []
+        self.calculating: Callable[[bytes], bytes] = lambda workbook: workbook
 
     def check(self) -> str:
         return "FakeOffice 1.0"
@@ -281,6 +328,12 @@ class FakeConverter:
         if self.refusal is not None:
             raise self.refusal
         into.write_bytes(self.pdf.read_bytes())
+
+    def calculate(self, workbook: bytes) -> bytes:
+        self.converted.append("calculated")
+        if self.refusal is not None:
+            raise self.refusal
+        return self.calculating(workbook)
 
 
 @pytest.fixture
