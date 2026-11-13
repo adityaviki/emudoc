@@ -13,6 +13,13 @@ import { Button, Chip, Loading, Notice, Row, Section } from '../components/ui.ts
 import { formatDateTime } from '../format.ts'
 import { Cell, Heading, Table } from './Table.tsx'
 
+// How the mail goes (`sent_through` in backend/app/mail.py), and without a relay what is done instead.
+const MAIL = {
+  smtp: 'an SMTP relay sends it',
+  resend: 'Resend sends it',
+  none: "none: nothing is mailed, and invitations and password resets are links handed on from the members' page",
+}
+
 export function ServicesView() {
   const queryClient = useQueryClient()
   const services = useQuery({ queryKey: ['admin', 'services'], queryFn: admin.services })
@@ -26,7 +33,7 @@ export function ServicesView() {
   return (
     <>
       <Heading title="Services" command="database">
-        The models, the embeddings endpoint, the scanner, the storage and the database, as the worker's watch sees them now.
+        The models, the embeddings endpoint, the scanner, the mail, the storage and the database, as the worker's watch sees them now.
       </Heading>
       {services.isPending ? (
         <Loading />
@@ -111,6 +118,7 @@ export function ServicesView() {
                 </span>
               </Row>
               <Row label="Scanner">{services.data.scanner ? 'ClamAV scans every upload' : 'none: uploads are not scanned'}</Row>
+              <Row label="Mail">{MAIL[services.data.mail ?? 'none']}</Row>
               <Row label="Storage">{services.data.storage_origin ?? 'a directory'}</Row>
               <Row label="Database">
                 Postgres {services.data.database.version} with pgvector {services.data.database.vector ?? 'not installed'}, as{' '}

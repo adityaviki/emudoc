@@ -2528,13 +2528,15 @@ class NotificationsReadIn(BaseModel):
 
 class AuthOptions(BaseModel):
     """What the sign-in pages can offer besides a password, whether anyone may sign up (while
-    nobody may, the pages say to ask the team's admin for an invitation), and `setup_needed`
+    nobody may, the pages say to ask the team's admin for an invitation), `setup_needed`
     while the install has no account yet, which every page then sends to the setup
-    (app/signups.py)."""
+    (app/signups.py), and whether the install mails anything (`relay_set` in app/mail.py):
+    without, a forgotten password's page says to ask an owner or admin for the link."""
 
     providers: list[OAuthProviderOut]
     signup_open: bool
     setup_needed: bool
+    mail: bool
 
 
 class LLMStatus(BaseModel):
@@ -3338,6 +3340,9 @@ class AdminServicesOut(BaseModel):
     embedding_model: str
     embedding_address: str
     scanner: bool
+    # How the mail goes: "smtp", "resend", or None where nothing is mailed (`sent_through` in
+    # app/mail.py).
+    mail: Literal["smtp", "resend"] | None
     # Where the files are kept: the bucket's origin, or None for a directory.
     storage_origin: str | None
     concerns: list[ConcernOut]

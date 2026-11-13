@@ -247,8 +247,8 @@ class Settings(BaseSettings):
     storage_url: str = (BACKEND_DIR / "data").as_uri()
     # The ClamAV daemon that scans every upload before it is indexed or served
     # (app/scanning.py): clamd://host:3310, or clamd:///run/clamav/clamd.ctl for one on this
-    # machine. Empty, nothing is scanned and every document says so; `off` is the same choice
-    # made on purpose, the only form production accepts besides a daemon.
+    # machine. Empty or `off`, nothing is scanned, every document says so, and a production
+    # start warns.
     scanner_url: str = ""
     # The converter (app/converter.py, the image run as a container of its own) that turns a
     # Word, PowerPoint, Excel, RTF or HTML upload into the PDF the document pane shows it by,
@@ -360,9 +360,9 @@ class Settings(BaseSettings):
     # puts the Gemini Developer API (google: models) under Google's paid terms: no use of the
     # prompts to improve its products, and its data processing addendum. On the free tier
     # Google may use the documents and questions it is sent and have people read them, and
-    # nothing in a key or a reply tells the two apart, so production refuses google: models
-    # until this says so. Vertex AI (google-cloud: models) runs under a Cloud project's own
-    # terms and needs no such word.
+    # nothing in a key or a reply tells the two apart, so a production start warns about
+    # google: models until this says so (app/startup.py). Vertex AI (google-cloud: models) runs
+    # under a Cloud project's own terms and needs no such word.
     google_paid_tier: bool = False
     # Where members' messages to support go: what they write from the app's help menu, with
     # the page and the request it was about (app/api/help.py), and the address the mail about an
@@ -500,13 +500,14 @@ class Settings(BaseSettings):
     # Where a new password is checked against the passwords exposed in data breaches: a
     # service with Have I Been Pwned's range API (app/passwords.py), which is sent the first five
     # characters of the password's SHA-1 alone. Its own, by default; one run on the deployment's
-    # own network, from the downloaded list, sends nothing out. Empty checks nothing. A service
-    # that does not answer lets the password through, and the log says so.
+    # own network, from the downloaded list, sends nothing out. Empty checks nothing, for a
+    # server without the internet. A service that does not answer lets the password through,
+    # and the log says so.
     pwned_passwords_url: str = "https://api.pwnedpasswords.com"
     # The keys the database's secrets are encrypted with (app/keyring.py): the authenticators'
     # secrets of two-factor sign-in, so that a copy of the database or of its backups cannot
-    # make a member's codes. Each key is 32 random bytes in base64, as `openssl rand -base64
-    # 32` prints one, and the keys are separated by commas: the first encrypts, and every one
+    # make a member's codes. Each key is 32 random bytes in base64, as `python -m app.keyring`
+    # prints one, and the keys are separated by commas: the first encrypts, and every one
     # decrypts what it encrypted, so a key is rotated by putting a new one first and running
     # `python -m app.maintenance encrypt-secrets`. Kept apart from the database's backups, or
     # encrypting gains nothing; and a key that stopped being the first is kept for as long as a
@@ -517,8 +518,9 @@ class Settings(BaseSettings):
 
     # The mail the app sends (deploying.md, "Mail"): through Resend's API with RESEND_API_KEY
     # (re_…), else through the SMTP relay SMTP_URL names, smtp://user:pass@host:587 (STARTTLS)
-    # or smtps://user:pass@host:465 (TLS). With neither, the messages are written to the log,
-    # which is enough to click the links in development.
+    # or smtps://user:pass@host:465 (TLS). With neither nothing is mailed: development writes
+    # the messages to the log, which is enough to click the links, and production their
+    # subjects alone, since a link signs in (app/mail.py).
     smtp_url: str = ""
     resend_api_key: str = ""
     mail_from: str = "Emudoc <no-reply@localhost>"
@@ -822,14 +824,15 @@ class Settings(BaseSettings):
         """What stops these settings from serving a deployment, each as the step that fixes it.
 
         Development's conveniences are production's holes: the well-known database password
-        and encryption key, requests without a session acting as the owner, sign-in links
-        written to the log, uploads nobody scans, a model key that may be on a free tier which
-        trains on what it is sent, files and links whose place depends on where the process
-        happens to run, and connections that would carry the documents unencrypted across a
-        network the deployment does not own (app/network.py), or that could not check the
-        server's certificate at all. `environ` is read for the last: OpenSSL takes where to look
-        for the authorities from the process environment, not from these settings. Empty in
-        development, and for settings that are fit.
+        and encryption key, requests without a session acting as the owner, files and links
+        whose place depends on where the process happens to run, and connections that would
+        carry the documents unencrypted across a network the deployment does not own
+        (app/network.py), or that could not check the server's certificate at all. `environ` is
+        read for the last: OpenSSL takes where to look for the authorities from the process
+        environment, not from these settings. What a team may run without, a mail relay, a
+        scanner, and the word that a Gemini key is on the paid tier, is its own choice: the
+        start warns about each (app/startup.py) and refuses none. Empty in development, and for
+        settings that are fit.
         """
         if self.environment != "production":
             return []
@@ -864,17 +867,11 @@ class Settings(BaseSettings):
                 "https://emudoc.example.com, so that the links in emails and the OAuth "
                 "redirect do not depend on what a proxy says."
             )
-        if not (self.smtp_url or self.resend_api_key):
-            problems.append(
-                "SMTP_URL is not set, so verification and password-reset links would be "
-                "written to the log; name an SMTP relay, or set RESEND_API_KEY to send through "
-                "Resend."
-            )
         if not self.encryption_keys:
             problems.append(
                 "ENCRYPTION_KEYS is not set, so the authenticators' secrets of two-factor "
                 "sign-in would be encrypted with development's key, which is in the code; "
-                f"make a key with {NEW_KEY} and keep it apart from the database's backups."
+                f"make one with {NEW_KEY} and keep it apart from the database's backups."
             )
         elif DEVELOPMENT_KEY in parse_keys(self.encryption_keys):
             problems.append(
@@ -882,12 +879,6 @@ class Settings(BaseSettings):
                 "with a copy of the database could read the authenticators' secrets it "
                 f"encrypted; make a key with {NEW_KEY}, put it first, run `python -m "
                 "app.maintenance encrypt-secrets`, then remove development's."
-            )
-        if not self.scanner_url:
-            problems.append(
-                "SCANNER_URL is not set, so uploads would reach the other members of a project "
-                "unscanned; name the ClamAV daemon, as clamd://clamav:3310, or set it to off "
-                "to run without scanning on purpose."
             )
         if problem := scanner_problem(parse_scanner_url(self.scanner_url)):
             problems.append(problem)
@@ -950,16 +941,6 @@ class Settings(BaseSettings):
                     "the deployment without a release; name the version the alias points to "
                     "now, from the provider's list of models."
                 )
-        gemini = [model.variable for model in self.models if model_provider(model.name) == "google"]
-        if gemini and not self.google_paid_tier:
-            uses = f"{listing(gemini)} {'uses' if len(gemini) == 1 else 'use'}"
-            problems.append(
-                f"{uses} the Gemini Developer API (google:), whose free tier lets Google use "
-                "the documents and questions it is sent to improve its products, and the app "
-                "cannot tell a free key from a paid one; once billing is on for the key's "
-                "Google Cloud project, set GOOGLE_PAID_TIER=true, or use Vertex AI as "
-                "google-cloud:<model>."
-            )
         if self.daily_spend_cap and not self.model_prices:
             problems.append(
                 "DAILY_SPEND_CAP is set, but MODEL_PRICES is empty, so no cost is recorded and "

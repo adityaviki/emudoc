@@ -233,13 +233,15 @@ def test_the_start_says_which_scanner_runs_or_warns(clamd, caplog, monkeypatch):
         with pytest.raises(ScanError, match="not ClamAV's daemon"):
             check_scanner(settings, ClamdScanner(clamd.server_address))
 
-        # No scanner is development's default and production's choice, said at every start.
+        # No scanner, unset or off, is development's default and a team's choice, said at
+        # every start of a deployment, which it does not stop.
         caplog.clear()
         check_scanner(settings, None)
         assert caplog.text == ""
         monkeypatch.setattr(settings, "environment", "production")
         check_scanner(settings, None)
-        assert "SCANNER_URL is off: uploads are not scanned" in caplog.text
+        assert "SCANNER_URL names no scanner: uploads are not scanned" in caplog.text
+        assert "Name the ClamAV daemon, as clamd://clamav:3310, to scan them." in caplog.text
 
 
 def test_a_flagged_upload_is_quarantined_and_nothing_of_it_is_served(

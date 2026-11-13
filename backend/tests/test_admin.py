@@ -181,6 +181,10 @@ def test_the_services_show_the_models_and_what_the_watch_sees(
     assert models["AGENT_MODEL"]["disabled"] == settings.agent_model.startswith("google:")
     assert shown["embedding_address"] == services.embedder.address
     assert shown["scanner"] and shown["storage_origin"] is None
+    # The suite mails nothing; a relay set says how the mail goes.
+    assert shown["mail"] is None
+    monkeypatch.setattr(settings, "smtp_url", "smtp://mailer:secret@smtp.example.com:587")
+    assert client.get("/api/organization/services").json()["mail"] == "smtp"
     (concern,) = (concern for concern in shown["concerns"] if concern["key"] == "embeddings")
     assert services.embedder.UNREACHABLE in concern["message"]
     assert datetime.fromisoformat(concern["raised_at"]) == raised

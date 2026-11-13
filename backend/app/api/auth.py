@@ -84,6 +84,7 @@ from app.mail import (
     email_change_email,
     email_changed_email,
     password_reset_email,
+    relay_set,
     sign_ins_paused_email,
     sign_up_email,
     verification_email,
@@ -273,8 +274,8 @@ class SignInRefused(Exception):
 @router.get("/options", response_model=AuthOptions)
 def options(session: SessionDep):
     """What the sign-in pages can offer: the identity providers that are set up, whether
-    anyone may sign up, and whether the install has no account yet, so that every page sends to
-    the setup (app/signups.py)."""
+    anyone may sign up, whether the install has no account yet, so that every page sends to
+    the setup (app/signups.py), and whether it mails anything."""
     settings = get_settings()
     return AuthOptions(
         providers=[
@@ -282,6 +283,7 @@ def options(session: SessionDep):
         ],
         signup_open=settings.signup_open,
         setup_needed=needs_setup(session),
+        mail=relay_set(settings),
     )
 
 

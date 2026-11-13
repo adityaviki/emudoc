@@ -30,9 +30,9 @@ on one machine; this is what changes for a deployment. The processes below run f
   load them at start, during which the workers hold uploads in the queue and try again. Its
   own limits must allow a file as large as `MAX_UPLOAD_MB`: `StreamMaxLength`, `MaxFileSize`
   and `MaxScanSize` in `clamd.conf` (the compose file's `clamav` service sets them through
-  the image's `CLAMD_CONF_*` variables; an older image takes a mounted `clamd.conf`). A
-  deployment that runs without a scanner says so with `SCANNER_URL=off`, and the worker
-  warns at every start.
+  the image's `CLAMD_CONF_*` variables; an older image takes a mounted `clamd.conf`). It is
+  the team's choice: a deployment runs without one, `SCANNER_URL` empty or `off`, every
+  document saying it was not scanned and every start warning.
 - **The converter**, named in `CONVERTER_URL`, which turns each Word, PowerPoint, Excel, RTF and
   HTML upload into the PDF the document pane shows it by, as it looks: the image run as
   `python -m app.converter`, a container of its own that holds no settings and reaches nothing
@@ -40,11 +40,13 @@ on one machine; this is what changes for a deployment. The processes below run f
 - **An embeddings endpoint** in `EMBEDDING_BASE_URL`, which turns every passage and every
   search into a vector for search by meaning: llama.cpp's server beside the app, as the
   compose file runs it, or a hosted one: "The embeddings endpoint", below.
-- **A mail relay** for the sign-in links: an SMTP relay in `SMTP_URL` (SES's on AWS), or Resend
-  through its API with `RESEND_API_KEY`, with the sending domain's SPF, DKIM and DMARC records
-  in its DNS, and the provider's news of what bounced reaching the app: "Mail", below. The
-  workers send the mail, so a relay that is down holds the links back while they try again
-  for half an hour; the form answers as usual, and the worker's log names the failure.
+- **A mail relay**, if the team wants mail: an SMTP relay in `SMTP_URL` (SES's on AWS), or
+  Resend through its API with `RESEND_API_KEY`, with the sending domain's SPF, DKIM and DMARC
+  records in its DNS, and the provider's news of what bounced reaching the app: "Mail", below.
+  The workers send the mail, so a relay that is down holds the links back while they try again
+  for half an hour; the form answers as usual, and the worker's log names the failure. Without
+  one nothing is mailed: an owner or admin hands invitations and password-reset links on, the
+  notices are told in the app alone, and every start says so ("The providers", under "Mail").
 - **The model providers** named by `INDEX_MODEL` and `AGENT_MODEL`, and by their fallbacks,
   each on terms that forbid training on what it is sent, each model named by its version and
   tried with `python -m app.maintenance models`: "The models" and "What leaves the deployment",
@@ -66,10 +68,12 @@ on one machine; this is what changes for a deployment. The processes below run f
 The settings arrive through the process environment or a secret manager, never a `.env` file:
 `ENVIRONMENT=production` makes the app copy nothing from one, and makes it refuse to start with
 development's conveniences (the compose database's password, `LOCAL_ACCOUNT=true`, no
-`STORAGE_URL`, `APP_URL`, `SMTP_URL`, `SCANNER_URL` or `EMBEDDING_BASE_URL`, no `AGENT_MODEL` or
-`INDEX_MODEL` or one its provider moves, a free-tier Gemini key, no key for a model or its
-fallback, an embeddings endpoint that turns its requests down, and a connection that would
-carry the documents unencrypted off the deployment's own network), naming each.
+`STORAGE_URL`, `APP_URL`, `ENCRYPTION_KEYS` or `EMBEDDING_BASE_URL`, no `AGENT_MODEL` or
+`INDEX_MODEL` or one its provider moves, no key for a model or its fallback, an embeddings
+endpoint that turns its requests down, and a connection that would carry the documents
+unencrypted off the deployment's own network), naming each. What a team may run without, a
+mail relay, a scanner, and the word that a Gemini key is on the paid tier
+(`GOOGLE_PAID_TIER`), it refuses nowhere: each start warns about each one left out.
 `.env.example` documents every setting; the README's "Configuration" says what the ones that
 matter do.
 
@@ -881,7 +885,7 @@ overloaded model, but not an outage, a revoked key or an unpaid bill. The kill s
 keeps the app working: `DISABLED_PROVIDERS=google` with fallbacks of Anthropic's stops Google's
 bill while Claude indexes and answers. A fallback is sent what its primary is, so it is held to
 everything a primary is: its provider's terms must forbid training on what it is sent,
-`GOOGLE_PAID_TIER` is needed for a `google:` one, its address may not be plain HTTP off the
+`GOOGLE_PAID_TIER` says so of a `google:` one, its address may not be plain HTTP off the
 own network, and its key must be in the environment: a start refuses a fallback that cannot be
 set up, as it would its primary. It needs its price in `MODEL_PRICES`, or what it answers
 counts nothing against the spending cap: production refuses `DAILY_SPEND_CAP` without one. A production start without a fallback for a kind of work
@@ -1463,9 +1467,11 @@ account's row decrypts nowhere; `backend/app/keyring.py`, `backend/app/encrypted
 keys from `ENCRYPTION_KEYS`, which the database never sees. Passwords and session tokens are
 hashes and need no key.
 
-Make a key with `openssl rand -base64 32` and put it where the other secrets are kept: on one
-machine in the settings' file, on AWS under the secrets path ("The settings"). Production
-refuses to start without one, and with development's, which is in the code. Keep it apart from
+Make a key with `python -m app.keyring` (in the image, `docker compose run --rm api python -m
+app.keyring`; `openssl rand -base64 32` makes one as good), which reads no settings and so runs
+where they lack one, and put it where the other secrets are kept: on one machine in the
+settings' file, on AWS under the secrets path ("The settings"). Production refuses to start
+without one, and with development's, which is in the code. Keep it apart from
 the database's backups, or encrypting gains nothing; and keep it as surely as the backups, since
 a lost key loses every authenticator it encrypted. A member whose secret no key decrypts is told
 to sign in with a recovery code and set the app up again, and a connected folder whose grant no
@@ -1517,8 +1523,9 @@ their terms again before choosing; they change):
   processing addendum, and logs them for a limited time to detect abuse. A key made in AI Studio
   is on the free tier until billing is on, and on the free tier Google uses what it is sent to
   improve its products and has people read some of it. Nothing in a key or a reply tells the
-  two apart, so production refuses `google:` models until `GOOGLE_PAID_TIER=true` says billing
-  is on. Set it after looking at the project's billing page, not before.
+  two apart, so every production start warns about `google:` models until
+  `GOOGLE_PAID_TIER=true` says billing is on. Set it after looking at the project's billing
+  page, not before.
 - **Vertex AI** (`google-cloud:` models). Google Cloud's terms and its data processing addendum,
   through the project's billing account, and a region of the operator's choosing for the
   requests (`GOOGLE_CLOUD_LOCATION`, `us-central1` unless set; `eu` keeps them in the EU). It
@@ -1658,8 +1665,15 @@ once its lease runs out. Through Resend that is once: the message's key goes as 
 - **Resend**: `RESEND_API_KEY` (an API key with sending access, `re_…`) sends through
   `https://api.resend.com/emails`, from `MAIL_FROM`, whose domain is added and verified in
   Resend's dashboard first.
-- **Neither**: the log mailer writes each message, links and all, to the worker's log
-  (development's, where the API runs the worker). Production refuses to start so.
+- **Neither**: nothing is mailed. In development the log mailer writes each message, links and
+  all, to the worker's log (where the API runs the worker). In production it writes a member's
+  message by its subject alone, since its link may sign in, and the operator's reports to
+  `ALERT_EMAIL`, which carry none, whole. A team runs so on purpose: an owner or admin hands
+  invitations and password-reset links on from the members list (`python -m app.maintenance
+  reset-password` prints one), the forgotten-password page says to ask them, and the notices
+  are told in the app alone. Nobody can confirm a new address, or finish a sign-up, which
+  `SIGNUP_OPEN` would offer. Every start says so, and the Administration page's services
+  show the mail as none.
 
 Production refuses `SMTP_URL` and `RESEND_API_KEY` both set, a key that is not Resend's or a
 webhook secret that is not one, quoting neither.
@@ -2010,8 +2024,9 @@ now.
 Logs carry no email address of the app's making: a refused sign-in names the address by its
 SHA-256, as the rate limits count it, and a mail that fails is logged with its subject and the
 relay's answer, every address in it replaced by `<address>`. The log mailer of development
-writes every message, links included; production cannot use it, since it requires
-`SMTP_URL`. The worker must run for any of this to happen: an API without one purges nothing.
+writes every message, links included; production's, where no relay is set, a member's message
+by its subject alone ("The providers", under "Mail"). The worker must run for any of this to
+happen: an API without one purges nothing.
 
 ## Backups
 
@@ -3643,9 +3658,9 @@ fails over to its fallback" (or `INDEX_MODEL`), or the provider's status page:
 
 A new model is a release of its own, tried as a fallback first:
 
-1. It must keep the app's promises: terms that forbid training on what it is sent,
-   `GOOGLE_PAID_TIER` for a `google:` one ("What leaves the deployment"), and a version in its
-   name, not an alias.
+1. It must keep the app's promises: terms that forbid training on what it is sent, billing
+   on and `GOOGLE_PAID_TIER` for a `google:` one ("What leaves the deployment"), and a version
+   in its name, not an alias.
 2. Name it as the fallback of its kind of work, with its key where the secrets are and its
    price in `MODEL_PRICES` (production refuses `DAILY_SPEND_CAP` with a model it cannot price),
    and release.
@@ -3695,7 +3710,7 @@ of the same tag (the Release workflow).
 | `GOOGLE_OAUTH_CLIENT_SECRET`, `MICROSOFT_OAUTH_CLIENT_SECRET` | The provider's console, which holds two secrets at once | A sign-in with each, then the old secret deleted there |
 | `GOOGLE_DRIVE_CLIENT_SECRET`, `DROPBOX_APP_SECRET`, `ONEDRIVE_CLIENT_SECRET` | The service's console | "Sync now" on a connected folder of each, then the old secret deleted there |
 | `SENTRY_DSN` | A new client key in the tracker's project | An error reaches the tracker, then the old key disabled |
-| `ENCRYPTION_KEYS` | `openssl rand -base64 32`, put first, the old key after it | `encrypt-secrets`; the old key removed after `BACKUP_DAYS` ("The encryption keys") |
+| `ENCRYPTION_KEYS` | `python -m app.keyring`, put first, the old key after it | `encrypt-secrets`; the old key removed after `BACKUP_DAYS` ("The encryption keys") |
 | The bucket's (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) | The bucket's provider; on AWS there are none, the host renews a role's session every quarter of an hour | The start's line "The bucket keeps …" |
 | The Models workflow's | The provider, with a low spending limit | `gh secret set`, then a run by hand |
 | pgBackRest's `repo1-cipher-pass` | Not for a repository that holds backups: a new repository under the new passphrase, the old one kept with its own until its backups pass `BACKUP_DAYS` | `pgbackrest --stanza=emudoc info` |
@@ -4414,7 +4429,7 @@ the roots' `settings` the others ("The settings").
 | `MAX_UPLOAD_MB` | `100` | | The largest file |
 | `MAX_UPLOAD_FILES` | `100` | | Files one request may carry |
 | `MAX_UPLOAD_REQUEST_MB` | `500` | | The bytes of one request's files together |
-| `SCANNER_URL` | none | required, `off` for none | The ClamAV daemon every upload is scanned by |
+| `SCANNER_URL` | none | a warning without, `off` alike | The ClamAV daemon every upload is scanned by |
 | `CONVERTER_URL` | none | `http://converter:8080` beside the app | The converter that shows Word, PowerPoint, Excel, RTF and HTML documents as they look ("The converter"); none shows them by their text |
 | `PARSE_TIMEOUT` | `300` | | Seconds a parse may take |
 | `PARSE_MEMORY_MB` | `2048` | | The memory a parse may hold |
@@ -4446,7 +4461,7 @@ the roots' `settings` the others ("The settings").
 | `PRICE_CURRENCY` | `USD` | | The prices' currency |
 | `DAILY_SPEND_CAP` | `0` | | What every organisation together may spend a day; 0 for no limit |
 | `DISABLED_PROVIDERS` | none | | The kill switch: providers switched off, by prefix |
-| `GOOGLE_PAID_TIER` | `false` | needed for a `google:` model | Billing is on for the Gemini key's project, so Google trains on nothing it is sent |
+| `GOOGLE_PAID_TIER` | `false` | a warning without, for a `google:` model | Billing is on for the Gemini key's project, so Google trains on nothing it is sent |
 | `GOOGLE_API_KEY`, `GEMINI_API_KEY` | none | a secret, for a `google:` model | The Gemini API's key |
 | `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION` | `us-central1` for the location | needed for a `google-cloud:` model | Vertex AI's service account, project and location |
 | `ANTHROPIC_API_KEY` | none | a secret, for an `anthropic:` model | Anthropic's key |
@@ -4496,13 +4511,13 @@ and the like), named on its models' pages.
 
 | Variable | Default | In production | What |
 | --- | --- | --- | --- |
-| `SMTP_URL` | none: the mail is logged | required, or `RESEND_API_KEY` | The relay the mail goes through ("Mail") |
+| `SMTP_URL` | none: nothing is mailed, and the log has each message (development) or its subject | a warning without it or `RESEND_API_KEY` | The relay the mail goes through ("Mail") |
 | `RESEND_API_KEY` | none | a secret, or `SMTP_URL` | Resend's API key, which sends the mail through Resend instead ("Mail") |
 | `RESEND_WEBHOOK_SECRET` | none | a secret | The signing secret of Resend's webhook, which says what bounced ("Mail") |
 | `MAIL_EVENTS_QUEUE` | none | | The SQS queue of SES's bounces and complaints, which the worker reads ("Mail"; the AWS module writes it) |
 | `INBOUND_DOMAIN` | none | with a provider that hands its mail over | The domain of the projects' addresses, whose mail becomes their documents ("Mail in") |
 | `INBOUND_MAIL_QUEUE` | none | | The SQS queue of SES's notices of the mail sent to projects' addresses, which the worker waits on ("Mail in"; the AWS module writes it) |
-| `PWNED_PASSWORDS_URL` | `https://api.pwnedpasswords.com` | | Where new passwords are checked against breaches ("Rates"); empty checks nothing |
+| `PWNED_PASSWORDS_URL` | `https://api.pwnedpasswords.com` | | Where new passwords are checked against breaches ("Rates"); empty checks nothing, for a server without the internet |
 | `ENCRYPTION_KEYS` | development's key, which is in the code | required, a secret | The keys the authenticators' secrets and the connected folders' grants are encrypted with, the first encrypting ("The encryption keys") |
 | `MAIL_FROM` | `Emudoc <no-reply@localhost>` | | The sender |
 | `ALERT_EMAIL` | none | | Where the worker reports ("What the worker mails") |

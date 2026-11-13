@@ -8,8 +8,10 @@ turns its requests down, with a pgvector that loses a project's passages to the 
 does not own (app/network.py), or with a bucket that keeps deleted files longer than BACKUP_DAYS
 says (`check_versions` in app/storage.py), and anywhere without a temporary directory to write in
 or with a sample
-project whose files its index does not describe (app/sample); then, refused by none of it, they
-queue what a changed embedding model left stale. One function does all of it,
+project whose files its index does not describe (app/sample). What a team may run without, a mail
+relay, a scanner, the word that a Gemini key is on the paid tier, is warned about at every start
+of a deployment and refused nowhere. Then, refused by none of it, they queue what a changed
+embedding model left stale. One function does all of it,
 so that the two processes refuse the same misconfigurations and a check added for one is not
 forgotten by the other.
 """
@@ -18,15 +20,24 @@ import logging
 import os
 import tempfile
 from collections.abc import Mapping
+from urllib.parse import urlsplit
 
-from app.config import AGENT, BUNDLED_LIBPQ, INDEX, Settings, export_env_file, model_provider
+from app.config import (
+    AGENT,
+    BUNDLED_LIBPQ,
+    INDEX,
+    Settings,
+    export_env_file,
+    listing,
+    model_provider,
+)
 from app.conversion import converter_from_settings
 from app.db import check_schema
 from app.embeddings import Embedder, EmbeddingError
 from app.encrypted import check_encrypted
 from app.indexing.pipeline import Services
 from app.llm import LLM, LLMUnavailable
-from app.mail import mailer_from_settings
+from app.mail import mailer_from_settings, sent_through
 from app.maintenance import check_embeddings, requeue_stale_embeddings, warn_about_old_layout
 from app.network import MODEL_BASE_URLS, plain_http_problem, trust_store_problem
 from app.postgres import check_database
@@ -53,6 +64,18 @@ EMBEDDING_SETTINGS = (
     "http://embeddings:8080/v1 for the compose file's server, that the endpoint serves "
     "EMBEDDING_MODEL (Ollama's after `ollama pull`) as vectors of EMBEDDING_DIM, and "
     "EMBEDDING_API_KEY if it asks for one."
+)
+# What a deployment without a mail relay goes without, said at every start (`check_mail`).
+NO_MAIL = (
+    "No mail relay is set (SMTP_URL, or RESEND_API_KEY for Resend), so nothing is mailed: an "
+    "owner or admin hands invitations and password-reset links on from the members' page, a "
+    "member who forgot their password asks one of them, the notices are told in the app alone, "
+    "and nobody can move their account to a new address. Set one to mail them."
+)
+NO_SIGNUP = (
+    "SIGNUP_OPEN is true, but a sign-up is finished from the link mailed to its address, and "
+    "nothing is mailed, so nobody can sign up; invite them from the members' page instead, or "
+    "set a mail relay."
 )
 
 
@@ -92,6 +115,7 @@ def prepare(settings: Settings, services: Services | None = None) -> Services:
     check_versions(settings, services.storage)
     warn_about_old_layout(services.storage)
     check_scanner(settings, services.scanner)
+    check_mail(settings)
     check_model(settings, services.llm)
     check_embedder(settings, services.embedder)
     # Last: a start refused for its settings, a mistyped EMBEDDING_MODEL among them, must not
@@ -180,6 +204,16 @@ def check_model(settings: Settings, llm: LLM) -> None:
                 )
     if settings.environment != "production":
         return
+    gemini = [model.variable for model in settings.models if model_provider(model.name) == "google"]
+    if gemini and not settings.google_paid_tier:
+        log.warning(
+            "%s the Gemini Developer API (google:), whose free tier lets Google use the documents "
+            "and questions it is sent to improve its products and have people read some of them, "
+            "and the app cannot tell a free key from a paid one. Once billing is on for the "
+            "key's Google Cloud project, set GOOGLE_PAID_TIER=true to say so, or use Vertex AI "
+            "as google-cloud:<model>.",
+            f"{listing(gemini)} {'uses' if len(gemini) == 1 else 'use'}",
+        )
     try:
         llm.check()
     except LLMUnavailable as error:
@@ -191,6 +225,25 @@ def check_model(settings: Settings, llm: LLM) -> None:
             "%s Until then the app runs without the model: no summaries, facts, scans or answers.",
             error,
         )
+
+
+def check_mail(settings: Settings) -> None:
+    """At start, say how the mail goes, and in a deployment that mails nothing, what goes
+    without.
+
+    A team may run without a relay: the links the app mails are handed on by an owner or admin
+    instead (S.1), and the log keeps them out (`LogMailer`). So the start refuses nothing, but
+    says it at every start, as it does a scanner left out (`check_scanner`).
+    """
+    way = sent_through(settings)
+    if way == "resend":
+        log.info("Mail is sent through Resend")
+    elif way == "smtp":
+        log.info("Mail is sent through the relay at %s", urlsplit(settings.smtp_url).hostname)
+    elif settings.environment == "production":
+        log.warning(NO_MAIL)
+        if settings.signup_open:
+            log.warning(NO_SIGNUP)
 
 
 def check_embedder(settings: Settings, embedder: Embedder) -> None:

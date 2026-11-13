@@ -64,8 +64,8 @@ with the scanner's verdict, nothing of it is indexed, and no member can open or 
 until an editor deletes it (or has it scanned again with "Index again", once the signatures
 have changed); the worker reports each quarantine to `ALERT_EMAIL`. A daemon that is down
 holds the upload in the queue, retried like any passing failure. Without a scanner the stage is
-skipped and every document says so, which production accepts only when `SCANNER_URL` is
-set to `off` on purpose.
+skipped and every document says so: a team's choice, since the uploads are its own, which
+every production start warns about.
 
 | Stage     | What it does                                                                      | Needs      |
 | --------- | --------------------------------------------------------------------------------- | ---------- |
@@ -811,14 +811,15 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   data breaches: Have I Been Pwned's range API by default, which is sent the first five
   characters of the password's SHA-1 alone, or a copy of its list on your own network. A
   breached password is refused at sign-up, from a reset link and on the account page; a
-  service that does not answer lets it through. Empty checks nothing.
+  service that does not answer lets it through. Empty checks nothing, for a server without the
+  internet.
 - `SCANNER_URL` names the ClamAV daemon that scans every upload before it is indexed or
   served: `clamd://host:3310`, or `clamd:///run/clamav/clamd.ctl` for one on the same
   machine. The file is streamed to it, so the daemon needs no access to the storage; its own
   limits (`StreamMaxLength`, `MaxFileSize`, `MaxScanSize` in `clamd.conf`) must allow a file
-  of `MAX_UPLOAD_MB`, or it refuses the file and the document says so. Empty, nothing is
-  scanned and every document says so; `off` is the same choice stated, the only form
-  production accepts besides a daemon. clamd's protocol has no encryption, so production
+  of `MAX_UPLOAD_MB`, or it refuses the file and the document says so. Empty or `off`,
+  nothing is scanned, every document says so and a production start warns. clamd's protocol
+  has no encryption, so production
   takes a daemon on the deployment's own network only. `docker compose --profile clamav up -d
   --wait` runs one to try this with.
 - `CONVERTER_URL` names the converter that shows Word, PowerPoint, Excel, RTF and HTML documents
@@ -854,13 +855,14 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   A production deployment injects every secret through the environment or a secret manager
   instead; the backend then copies nothing from `.env`, and a missing key is reported as one to
   set in the environment. Production also refuses to start, listing what to change, when the
-  settings are development's: the `docker compose` database's password, `LOCAL_ACCOUNT=true`,
-  no `STORAGE_URL`, no `APP_URL`, no `SMTP_URL`, no `SCANNER_URL`, no `EMBEDDING_BASE_URL`, a
-  `google:` model without `GOOGLE_PAID_TIER`, a `DAILY_SPEND_CAP` without `MODEL_PRICES`, no
-  key for the model, an embeddings endpoint that turns its requests down, or a connection that
+  settings would leave a team's server unsafe: the `docker compose` database's password,
+  `LOCAL_ACCOUNT=true`, no `STORAGE_URL`, no `APP_URL`, no `ENCRYPTION_KEYS` (`python -m
+  app.keyring` makes one), no `EMBEDDING_BASE_URL`, a `DAILY_SPEND_CAP` without
+  `MODEL_PRICES`, no key for the model, an embeddings endpoint that turns its requests down, or a connection that
   would carry the documents unencrypted off the deployment's own network: a database there without `sslmode=verify-full`, a scanner there, or an
   embeddings endpoint, a model's address or a bucket there over plain `http://`
-  (`deploying.md`, "Encryption"). It does not serve the interactive API docs at `/docs`, and it marks
+  (`deploying.md`, "Encryption"). A mail relay, a scanner and `GOOGLE_PAID_TIER` it does
+  without, and says so at every start. It does not serve the interactive API docs at `/docs`, and it marks
   the session cookie `Secure` and sends `Strict-Transport-Security` whatever the request's
   scheme, since a deployment is behind TLS; a request that still reaches it as plain HTTP is
   logged with what the proxy should send.
@@ -958,10 +960,10 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   (`gemini-flash-latest`, `chatgpt-4o-latest`): a deployment names the version it tried. The index model is sent the text
   and the scanned pages of every document, the agent each question and the passages it reads,
   so a deployment uses providers whose terms forbid training on them (`deploying.md` says
-  where each provider stands). Production refuses `google:` models, the Gemini Developer API,
-  until `GOOGLE_PAID_TIER=true` says billing is on for the key's Google Cloud project: on the
-  free tier Google may use what it is sent to improve its products, and a free key looks like
-  a paid one. `google-cloud:` reaches the same models through Vertex AI. A request through
+  where each provider stands). A production start warns about `google:` models, the Gemini
+  Developer API, until `GOOGLE_PAID_TIER=true` says billing is on for the key's Google Cloud
+  project: on the free tier Google may use what it is sent to improve its products, and a free
+  key looks like a paid one. `google-cloud:` reaches the same models through Vertex AI. A request through
   OpenRouter is forwarded only to a provider of the model that neither stores it nor trains on
   it.
 - Each provider reads its own key: `GOOGLE_API_KEY` for `google:` models, `ANTHROPIC_API_KEY`
@@ -995,7 +997,10 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
 - Sign-in: `LOCAL_ACCOUNT=true` lets a request without a session act as a local owner account,
   for development on one machine (off by default); `APP_URL` is the address the links in emails
   point at; `SMTP_URL` sends the emails over TLS to a relay whose certificate the machine
-  trusts, or `RESEND_API_KEY` through Resend's API (without either they go to the log);
+  trusts, or `RESEND_API_KEY` through Resend's API. Without either nothing is mailed: the log
+  has each message in development and its subject alone in production, an owner or admin hands
+  invitations and password-reset links on, the forgotten-password page says to ask them, and
+  the Administration page's services show the mail as none;
   `GOOGLE_OAUTH_CLIENT_ID` and `MICROSOFT_OAUTH_CLIENT_ID` with their secrets offer sign-in with
   those providers.
 

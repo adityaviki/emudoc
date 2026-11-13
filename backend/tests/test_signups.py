@@ -184,9 +184,17 @@ def test_the_reset_password_command_prints_a_link_that_sets_it(
 def test_the_sign_in_pages_are_told_whether_anyone_may_sign_up(client, monkeypatch):
     # Closed as an install starts, when the pages say to ask the team's admin for an invitation;
     # nothing else is offered, no booking page or mail to anyone outside the team.
-    assert options(client) == {"providers": [], "signup_open": False, "setup_needed": True}
+    assert options(client) == {
+        "providers": [],
+        "signup_open": False,
+        "setup_needed": True,
+        "mail": False,
+    }
     monkeypatch.setattr(get_settings(), "signup_open", True)
     assert options(client)["signup_open"] is True
+    # Whether a forgotten password's link is mailed, or asked of an owner or admin.
+    monkeypatch.setattr(get_settings(), "smtp_url", "smtp://mailer:secret@smtp.example.com")
+    assert options(client)["mail"] is True
 
 
 def test_a_closed_sign_up_refuses_every_address_alike(client, mailer, signed_in_only):

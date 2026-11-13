@@ -7,6 +7,7 @@ import { Link, useNavigate } from 'react-router'
 import { ApiError, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, auth } from '../api.ts'
 import { setSignedIn } from '../auth.ts'
 import { Button, InputField, Notice } from '../components/ui.tsx'
+import { useAuthOptions } from './authOptions.ts'
 import { useLinkToken } from './linkToken.ts'
 import { AuthCard, PasswordField } from './shared.tsx'
 
@@ -19,10 +20,24 @@ const BACK_TO_LOGIN = (
 export function ForgotPasswordPage() {
   const [email, setEmail] = useState('')
   const forgot = useMutation({ mutationFn: () => auth.forgotPassword(email.trim()) })
+  const options = useAuthOptions()
 
   function submit(event: FormEvent) {
     event.preventDefault()
     if (email.trim()) forgot.mutate()
+  }
+
+  // An install that mails nothing hands the link on by hand: an owner or admin makes it from the
+  // members list (backend/app/api/organizations.py), or the server's `reset-password` command.
+  if (options.data && !options.data.mail) {
+    return (
+      <AuthCard title="Ask your admin for a link" footer={BACK_TO_LOGIN}>
+        <p className="text-[13px] leading-relaxed text-muted">
+          This workspace sends no email, so the link to set a new password comes from one of its owners or admins. Ask
+          one of them to make you one: they find it beside your name in the members list.
+        </p>
+      </AuthCard>
+    )
   }
 
   if (forgot.isSuccess) {

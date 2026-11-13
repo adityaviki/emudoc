@@ -1603,6 +1603,8 @@ export interface AuthOptions {
   signup_open: boolean
   /** The install has no account yet: every page sends to the setup, `/setup`. */
   setup_needed: boolean
+  /** The install mails something; without, a forgotten password's link is asked of an owner or admin. */
+  mail: boolean
 }
 
 /** A signed-in browser or device. */
@@ -2403,6 +2405,8 @@ export interface Services {
   embedding_model: string
   embedding_address: string
   scanner: boolean
+  /** How the mail goes; null where nothing is mailed. */
+  mail: 'smtp' | 'resend' | null
   storage_origin: string | null
   concerns: Concern[]
   unchecked: string[]
