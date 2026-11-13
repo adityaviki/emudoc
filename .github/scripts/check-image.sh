@@ -5,8 +5,8 @@
 # migrates it, the API and the worker start once the embeddings server answers, the API answers
 # its probes with the version the image was built as and serves the page and the files it names,
 # both serve their metrics, and the converter turns a Word file into a PDF with the image's
-# LibreOffice on the network only the worker shares, and a backup restores into an empty database
-# with the files it holds. The suite builds no image, so this is what
+# LibreOffice on the network only the worker shares and works out the formulas of a workbook the
+# agent writes, and a backup restores into an empty database with the files it holds. The suite builds no image, so this is what
 # finds a file the image lacks (.dockerignore is an allowlist), a path that moved, something
 # written outside /tmp, or a compose file and an example that no longer start together. The
 # models are a name and an address nothing answers at, since production builds them at start
@@ -145,6 +145,20 @@ assert answer.startswith(b"%PDF-"), answer[:200]
   echo "The worker did not reach the converter at CONVERTER_URL." >&2
   exit 1
 }
+# A workbook as the agent writes one, its formulas without values, saved again by the converter
+# and the values it worked out written into it (app/sheet_files.py), as the worker does.
+calculate='
+import sys, urllib.request
+from app.sheet_files import Sheet, created, reading, with_values
+written = created([Sheet("Prices", [["Item", "Total"], ["Bolts", "=6*7"], ["Joined", "=TEXTJOIN(\"+\",TRUE,A1:A2)"]])])
+request = urllib.request.Request(sys.argv[1] + "/convert?type=xlsx&to=xlsx", data=written, method="POST")
+read = reading(with_values(written, urllib.request.urlopen(request, timeout=300).read()))
+assert "B2 =6*7 → 42" in read and "B3 =TEXTJOIN(\"+\",TRUE,A1:A2) → \"Item+Bolts\"" in read, read
+'
+"${compose[@]}" exec -T worker python -c "$calculate" http://converter:8080 || {
+  echo "The converter did not work out the formulas of a workbook for the worker." >&2
+  exit 1
+}
 # The metrics, on the port of their own the image listens on (METRICS_ADDRESS), which nothing
 # publishes: the API's requests, and the worker's figures of the database.
 metrics() {
@@ -220,4 +234,4 @@ validate=(
 }
 
 passed=true
-echo "The image $image ($version) runs deploy/compose.yml in production: it migrates, serves the page, its ${#files[@]} files and the probes beside the embeddings server, runs the worker, both serve their metrics, its converter turns a Word file into a PDF for the worker, and a backup restores into an empty database with its $held originals."
+echo "The image $image ($version) runs deploy/compose.yml in production: it migrates, serves the page, its ${#files[@]} files and the probes beside the embeddings server, runs the worker, both serve their metrics, its converter turns a Word file into a PDF and works out a workbook's formulas for the worker, and a backup restores into an empty database with its $held originals."

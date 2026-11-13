@@ -1509,6 +1509,23 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('listitem').filter({ hasText: 'by the agent in a chat' })).toContainText('a Word document, by the agent in a chat')
   })
 
+  await test.step('ask in a chat for an Excel workbook, which the agent makes in My files, and open it from its step', async () => {
+    await page.goto('/')
+    await page.getByRole('link', { name: /^Supplier contracts/ }).click()
+    await expect(page).not.toHaveURL(/[?&]chat=/)
+    const composer = page.getByPlaceholder('Ask a question about these documents')
+    await composer.fill('Make an Excel workbook of the invoice.')
+    await composer.press('Enter')
+    const open = page.getByRole('button', { name: 'Open Lines of the invoice.xlsx' })
+    await expect(open).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByText('Made the workbook "Lines of the invoice" in My files')).toBeVisible()
+    await open.click()
+    await expect(page.getByRole('heading', { name: 'Lines of the invoice.xlsx' })).toBeFocused()
+    await expect(page.getByRole('list', { name: 'Versions' })).toContainText('Written by the agent · From a chat')
+    await page.getByRole('button', { name: 'Back to My files' }).click()
+    await expect(page.getByRole('list', { name: 'My files' })).toContainText('Lines of the invoice.xlsx')
+  })
+
   await test.step("give the project an address, list a supplier's domain, whose mail becomes documents, and read what became of a stranger's", async () => {
     await page.goto('/')
     await page.getByRole('link', { name: /^Supplier contracts/ }).click()

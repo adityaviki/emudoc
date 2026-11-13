@@ -53,10 +53,13 @@ the project or shared by link.
 
 The assistant writes there for you, whatever your role. Ask in a chat for a letter, a memo or a
 report and it writes the Word document into your My files, its sources as numbered notes, and
-the answer's step ("Wrote … into My files") opens it. Ask it to change one of your files, or a
-Word document of the project, which it copies into My files first, and it edits it in place,
-keeping the formatting of everything it does not change. Each change is a new version you can go
-back to. It writes Word documents, not workbooks, and never changes the project's library.
+the answer's step ("Wrote … into My files") opens it. Ask for a spreadsheet, a table of what the
+documents say or a calculation, and it makes an Excel workbook there, with formulas where a value
+comes from others, so that you can follow and change them. Ask it to change one of your files,
+or a Word document or workbook of the project, which it copies into My files first, and it edits
+it in place, keeping the formatting of everything it does not change. Each change is a new
+version you can go back to. A workbook holding charts, pictures, pivot tables or macros it reads
+but leaves to Excel to change, and it never changes the project's library.
 
 ## Share links
 

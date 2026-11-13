@@ -1,13 +1,15 @@
-"""The agent writes the asker's My files (app/agent/writing.py, app/word_files.py): asked in a chat,
-it writes a Word document into the member's own files, reads and edits one by its paragraphs'
-numbers keeping what it does not touch, and copies a document of the project's library to edit as
-a private copy. Each write is a version the member alone sees; an answer started over writes its
-file again rather than a second one, and a try no longer the answer's writes nothing."""
+"""The agent writes the asker's My files (app/agent/writing.py, app/word_files.py,
+app/sheet_files.py): asked in a chat, it writes a Word document or an Excel workbook into the
+member's own files, reads and edits one, a document by its paragraphs' numbers and a workbook by its
+cells, keeping what it does not touch, and copies a document of the project's library to edit as a
+private copy. Each write is a version the member alone sees; an answer started over writes its file
+again rather than a second one, and a try no longer the answer's writes nothing."""
 
 import io
 
 import pytest
 from docx import Document as WordDocument
+from openpyxl import load_workbook
 from pydantic_ai.messages import TextPart, ToolCallPart, ToolReturnPart
 from sqlalchemy import func, select
 
@@ -16,17 +18,23 @@ from app.agent.tools import ToolContext, Writing
 from app.agent.writing import (
     COPIED,
     STOPPED,
+    UNCALCULATED,
     WRITTEN,
     CopyToMyFilesInput,
     CreateDocumentInput,
+    CreateSpreadsheetInput,
     EditDocumentInput,
+    EditSpreadsheetInput,
     ReadFileInput,
     copy_to_my_files,
     create_document,
+    create_spreadsheet,
     edit_document,
+    edit_spreadsheet,
     read_file,
 )
 from app.answers import answer, offers_my_files
+from app.conversion import ConvertError
 from app.indexing.pipeline import process_document
 from app.models import (
     ChatMessage,
@@ -41,9 +49,11 @@ from app.word_files import Change, EditRefused, edited, reading
 from tests.conftest import FakeTurn, data_of
 from tests.test_api import create_project
 from tests.test_audit import actions
+from tests.test_conversion import FakeConverter
 from tests.test_my_files import kept, shown, view, word, workbook
 from tests.test_offered_drafts import asked, the_answer
 from tests.test_regenerate import regenerate
+from tests.test_sheet_files import worked_out
 
 
 @pytest.fixture
@@ -84,11 +94,20 @@ def context(session, services, project_id: int, user_id: int, **writing) -> Tool
 
 def opened(services, session, file_id: int, number: int | None = None):
     """A version of a file of My files as python-docx reads it, the newest by default."""
+    return WordDocument(io.BytesIO(stored(services, session, file_id, number)))
+
+
+def sheets(services, session, file_id: int, **options):
+    """The newest version of a workbook of My files as openpyxl reads it."""
+    return load_workbook(io.BytesIO(stored(services, session, file_id)), **options)
+
+
+def stored(services, session, file_id: int, number: int | None = None) -> bytes:
     session.expire_all()
     query = select(MyFileVersion).where(MyFileVersion.file_id == file_id)
     query = query.where(MyFileVersion.number == number) if number else query
     version = session.scalars(query.order_by(MyFileVersion.number.desc()).limit(1)).one()
-    return WordDocument(io.BytesIO(services.storage.get(version.storage_key)))
+    return services.storage.get(version.storage_key)
 
 
 def results(services) -> list[str]:
@@ -202,9 +221,15 @@ def test_the_agent_reads_a_file_by_numbered_paragraphs_and_its_tables(
     assert "has no file" in read_file(tools, ReadFileInput(file_id=uploaded["id"] + 1))
     others = context(session, services, project["id"], account.user.id + 1000)
     assert "has no file" in read_file(others, ReadFileInput(file_id=uploaded["id"]))
-    # A workbook waits for the next tools.
+    # A workbook is read by its cells.
     sheet = kept(client, project["id"], "Prices.xlsx", workbook(("Item", "Price"), ("Bolts", 5)))
-    assert "Excel workbook" in read_file(tools, ReadFileInput(file_id=sheet["id"]))
+    view(services)
+    assert read_file(tools, ReadFileInput(file_id=sheet["id"])).splitlines()[1:] == [
+        '1 sheet: "Sheet" (A1:B2).',
+        'Sheet "Sheet":',
+        'A1 "Item" | B1 "Price"',
+        'A2 "Bolts" | B2 5',
+    ]
 
 
 def test_an_edit_keeps_a_version_and_whatever_it_does_not_touch(
@@ -357,8 +382,8 @@ def test_the_agent_copies_a_project_document_to_edit_it_as_a_private_copy(
     detail = shown(client, file.id)
     assert (detail["origin_name"], detail["latest"]["note"]) == ("policy.docx", COPIED)
     assert opened(services, session, file.id).paragraphs[0].text == "Travel Policy"
-    # Only a Word document, of this project and out of its trash.
-    assert "not a Word document" in copy_to_my_files(
+    # Only a Word document or a workbook, of this project and out of its trash.
+    assert "neither a Word document" in copy_to_my_files(
         tools, CopyToMyFilesInput(document_id=scanned.id)
     )
     assert "No document with id" in copy_to_my_files(
@@ -479,3 +504,216 @@ def test_a_file_the_member_uploaded_is_read_through_the_answer(client, session, 
         f"file {uploaded['id']} · Letter.docx · Word document · version 1 · changed "
     )
     assert "[2] (Normal) Pay us." in read
+
+
+INVOICE_LINES = [
+    ["Item", "Qty", "Unit price", "Total"],
+    ["Bolts", 120, 0.35, "=B2*C2"],
+    ["Nuts", "3", "1.5", "=B3*C3"],
+    ["Total", "", "", "=SUM(D2:D3)"],
+]
+
+
+def test_an_answer_writes_an_excel_workbook_its_formulas_worked_out(
+    client, session, services, account, project, sample_pdf
+):
+    services.converter = FakeConverter(sample_pdf)
+    values = {"D2": 42, "D3": 4.5, "D4": 46.5}
+    services.converter.calculating = lambda data: worked_out(data, values)
+    chat_id, message_id = asked(
+        client,
+        services,
+        project["id"],
+        "Make me a spreadsheet of the invoice's lines.",
+        FakeTurn(
+            ToolCallPart(
+                "create_spreadsheet",
+                {
+                    "title": "Invoice lines",
+                    "sheets": [
+                        {
+                            "name": "Lines",
+                            "rows": INVOICE_LINES,
+                            "formats": [{"cells": "C:D", "format": "#,##0.00"}],
+                        }
+                    ],
+                },
+                "write-1",
+            )
+        ),
+        FakeTurn(TextPart("I made a workbook of the invoice's lines.")),
+    )
+
+    assert {"create_spreadsheet", "edit_spreadsheet"} <= set(services.llm.agent_tools[0])
+    file = session.scalars(select(MyFile)).one()
+    assert (file.name, file.kind, file.answer_id, file.answer_ordinal) == (
+        "Invoice lines.xlsx",
+        "xlsx",
+        message_id,
+        0,
+    )
+    written = results(services)[-1]
+    assert written.startswith(f"Kept Invoice lines.xlsx in the member's My files as file {file.id}")
+    assert UNCALCULATED not in written
+    # The formulas, and the values the converter worked out, are the file's.
+    assert sheets(services, session, file.id)["Lines"]["D4"].value == "=SUM(D2:D3)"
+    values = sheets(services, session, file.id, data_only=True)["Lines"]
+    assert [values[cell].value for cell in ("B2", "B3", "D2", "D4")] == [120, 3, 42, 46.5]
+    assert values["D4"].number_format == "#,##0.00"
+    assert services.converter.converted[0] == "calculated"
+    # The step keeps the title and the sheets' names, never the cells, which are the file's.
+    step = the_answer(client, chat_id)["steps"][-1]
+    assert step["input"] == {"title": "Invoice lines", "sheets": ["Lines"]}
+    assert step["file"] == {"id": file.id, "name": "Invoice lines.xlsx", "version": 1}
+    assert (
+        "my_file_added",
+        {
+            "kind": "xlsx",
+            "by_model": True,
+            "size_bytes": shown(client, file.id)["latest"]["size_bytes"],
+            "chat": chat_id,
+        },
+    ) in actions(session)
+
+
+def test_without_the_converter_a_workbook_is_kept_with_its_formulas_alone(
+    client, session, services, account, project, sample_pdf
+):
+    tools = context(session, services, project["id"], account.user.id)
+    lines = {"title": "Lines", "sheets": [{"name": "Lines", "rows": INVOICE_LINES}]}
+    # No converter in the deployment.
+    kept_alone = create_spreadsheet(tools, CreateSpreadsheetInput.model_validate(lines))
+    assert UNCALCULATED in kept_alone
+    file_id = session.scalars(select(MyFile.id)).one()
+    assert "D4 =SUM(D2:D3) → (not worked out)" in read_file(tools, ReadFileInput(file_id=file_id))
+    # A converter that fails keeps nothing from being written either.
+    services.converter = FakeConverter(sample_pdf)
+    services.converter.refusal = ConvertError("The converter is busy.", transient=True)
+    assert UNCALCULATED in create_spreadsheet(
+        tools, CreateSpreadsheetInput.model_validate({**lines, "title": "Lines again"})
+    )
+    # Nor does a workbook of no formulas ask it.
+    services.converter.refusal = None
+    plain = {"title": "Plain", "sheets": [{"name": "Items", "rows": [["Item"], ["Bolts"]]}]}
+    written = create_spreadsheet(tools, CreateSpreadsheetInput.model_validate(plain))
+    assert UNCALCULATED not in written
+    assert "calculated" not in services.converter.converted[1:]
+    # What cannot be written is said, and nothing is.
+    refused = create_spreadsheet(
+        tools,
+        CreateSpreadsheetInput.model_validate(
+            {"title": "Rates", "sheets": [{"name": "Rates", "rows": [['=WEBSERVICE("x")']]}]}
+        ),
+    )
+    assert refused.startswith('Nothing was written: Sheet 1 ("Rates"): A1: the formula calls')
+    assert files(session) == 3
+
+
+def test_the_agent_edits_a_workbook_by_its_cells_keeping_a_version(
+    client, session, services, account, project
+):
+    uploaded = kept(
+        client,
+        project["id"],
+        "Prices.xlsx",
+        workbook(("Item", "Price"), ("Bolts", 0.35), ("Washers", 0.1), ("Total", "=SUM(B2:B3)")),
+    )
+    view(services)
+    tools = context(session, services, project["id"], account.user.id)
+
+    def edit(version: int, *changes: dict) -> str:
+        return edit_spreadsheet(
+            tools,
+            EditSpreadsheetInput.model_validate(
+                {
+                    "file_id": uploaded["id"],
+                    "version": version,
+                    "changes": list(changes),
+                    "note": "Added the nuts.",
+                }
+            ),
+        )
+
+    done = edit(
+        1,
+        {"op": "insert_rows", "row": 3},
+        {"op": "set", "cell": "A3", "rows": [["Nuts", 1.5]]},
+        {"op": "rename_sheet", "name": "Prices"},
+    )
+    assert done.startswith(
+        f'Kept version 2 of Prices.xlsx (file {uploaded["id"]}): inserted row 3 of "Sheet"; set '
+        'A3:B3 of "Sheet"; renamed the sheet "Sheet" "Prices". '
+    )
+    # No converter here, so the total is the formula's to work out in Excel.
+    assert UNCALCULATED in done
+    prices = sheets(services, session, uploaded["id"])["Prices"]
+    assert [[cell.value for cell in row] for row in prices.iter_rows()] == [
+        ["Item", "Price"],
+        ["Bolts", 0.35],
+        ["Nuts", 1.5],
+        ["Washers", 0.1],
+        ["Total", "=SUM(B2:B4)"],
+    ]
+    detail = shown(client, uploaded["id"])
+    assert (detail["latest"]["number"], detail["latest"]["note"]) == (2, "Added the nuts.")
+
+    # An edit names the newest version, and is made whole or not at all.
+    assert "Version 1 is not the newest of Prices.xlsx: version 2 is" in edit(
+        1, {"op": "set", "rows": [["x"]]}
+    )
+    refused = edit(2, {"op": "set", "cell": "A6", "rows": [["x"]]}, {"op": "delete_sheet"})
+    assert refused == (
+        "Nothing was changed: Change 2 (delete_sheet): a workbook keeps at least one sheet."
+    )
+    assert shown(client, uploaded["id"])["latest"]["number"] == 2
+    # Each kind of file is changed by its own tool.
+    letter_file = kept(client, project["id"], "Letter.docx", word("Dear Acme,"))
+    view(services)
+    assert (
+        edit_spreadsheet(
+            tools,
+            EditSpreadsheetInput.model_validate(
+                {
+                    "file_id": letter_file["id"],
+                    "version": 1,
+                    "changes": [{"op": "delete_sheet"}],
+                    "note": "x",
+                }
+            ),
+        )
+        == "Letter.docx is a Word document: change it with edit_document."
+    )
+    assert (
+        edit_document(
+            tools,
+            EditDocumentInput.model_validate(
+                {
+                    "file_id": uploaded["id"],
+                    "version": 2,
+                    "changes": [{"op": "delete", "paragraph": 1}],
+                    "note": "x",
+                }
+            ),
+        )
+        == "Prices.xlsx is an Excel workbook: change it with edit_spreadsheet."
+    )
+
+
+def test_the_agent_copies_a_workbook_of_the_library_to_edit_it(
+    client, session, services, account, project, make_document, sample_xlsx
+):
+    budget = make_document(sample_xlsx, project=session.get(Project, project["id"]))
+    session.commit()
+    process_document(budget.id, services)
+    session.expire_all()
+    tools = context(session, services, project["id"], account.user.id)
+
+    copied = copy_to_my_files(tools, CopyToMyFilesInput(document_id=budget.id))
+    file = session.scalars(select(MyFile)).one()
+    assert (file.name, file.kind, file.origin_document_id) == ("budget.xlsx", "xlsx", budget.id)
+    assert copied.endswith(
+        "Read the copy with read_file, then change it with edit_spreadsheet: the project's "
+        "document stays as it is until the member copies the file back into the library."
+    )
+    read = read_file(tools, ReadFileInput(file_id=file.id, sheet="Totals"))
+    assert read.splitlines()[-2:] == ['Sheet "Totals":', 'A1 "Total" | B1 1500.5']

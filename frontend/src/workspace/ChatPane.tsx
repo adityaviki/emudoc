@@ -8,6 +8,7 @@ import {
   FilePen,
   FilePlus,
   FileSearch,
+  FileSpreadsheet,
   FileText,
   Files,
   Folder,
@@ -1168,6 +1169,8 @@ const STEP_ICONS: Record<string, LucideIcon> = {
   read_file: FileSearch,
   create_document: FilePlus,
   edit_document: FilePen,
+  create_spreadsheet: FileSpreadsheet,
+  edit_spreadsheet: FilePen,
   copy_to_my_files: Copy,
 }
 
@@ -1199,7 +1202,10 @@ function describeStep({ name, input }: Step): string {
       return 'Read a file of My files'
     case 'create_document':
       return typeof input.title === 'string' ? `Wrote "${input.title}" into My files` : 'Wrote a document into My files'
+    case 'create_spreadsheet':
+      return typeof input.title === 'string' ? `Made the workbook "${input.title}" in My files` : 'Made a workbook in My files'
     case 'edit_document':
+    case 'edit_spreadsheet':
       return 'Edited a file of My files'
     case 'copy_to_my_files':
       return `Copied document ${input.document_id} into My files`

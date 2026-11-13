@@ -64,6 +64,10 @@ MAX_VIEW_BYTES = 500 * 1024 * 1024
 MAX_TRIES = 4
 FIRST_WAIT = timedelta(minutes=2)
 PDF_HEADER = b"%PDF-"
+WORKBOOK_HEADER = b"PK\x03\x04"
+# How long the agent waits for a workbook's formulas to be worked out: the converter's own limit
+# on a conversion, and a little more for a turn behind another.
+CALCULATE_TIMEOUT = httpx.Timeout(150, connect=10)
 
 # What a member is told while the converter cannot be asked, and once it could not be for good.
 UNAVAILABLE = (
@@ -157,6 +161,26 @@ class Converter:
         with into.open("rb") as made:
             if made.read(len(PDF_HEADER)) != PDF_HEADER:
                 raise ConvertError(f"The converter at {self.url} answered with what is not a PDF.")
+
+    def calculate(self, workbook: bytes) -> bytes:
+        """The workbook saved again by the converter (app/converter.py, `?to=xlsx`), where every
+        formula saved without a value, as openpyxl saves them all, was worked out. Raises
+        `ConvertError`."""
+        try:
+            response = self._client.post(
+                "/convert",
+                params={"type": "xlsx", "to": "xlsx"},
+                content=workbook,
+                headers={"Content-Type": "application/octet-stream"},
+                timeout=CALCULATE_TIMEOUT,
+            )
+        except httpx.TransportError as error:
+            raise self._unreachable(error) from error
+        if response.status_code != 200:
+            raise _refused(self.url, response.status_code, response.content)
+        if not response.content.startswith(WORKBOOK_HEADER):
+            raise ConvertError(f"The converter at {self.url} answered with what is not a workbook.")
+        return response.content
 
     def _unreachable(self, error: Exception) -> ConvertError:
         return ConvertError(
