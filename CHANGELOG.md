@@ -16,6 +16,8 @@ newest entry first.
 
 Members:
 
+- Where your workspace sends no email, the forgotten-password page says to ask one of its owners
+  or admins for a link to set a new password, rather than promising an email that never comes.
 - Owners and admins have an Administration page, from the account's menu or the workspace's
   page: the background work with what failed and why, which they can run again, how the models
   and services stand, with a switch that stops a model provider at once, and what the models
@@ -50,6 +52,19 @@ Members:
 
 Operators:
 
+- Production starts without a mail relay, without ClamAV and without `GOOGLE_PAID_TIER`, and
+  warns about each at every start: they are a team's own choices, not what keeps its server
+  safe. Without `SMTP_URL` or `RESEND_API_KEY` nothing is mailed, the log has a member's message
+  by its subject alone (its link signs in), owners and admins hand invitations and reset links
+  on, and the Administration page's services show the mail as none; with `SIGNUP_OPEN` the start
+  says that nobody can finish a sign-up. `SCANNER_URL` left empty is now the same as `off`.
+  What is unsafe is still refused: the compose database's password, `LOCAL_ACCOUNT`, no
+  `APP_URL`, `STORAGE_URL`, `ENCRYPTION_KEYS` or `EMBEDDING_BASE_URL`, development's key, a model
+  its provider moves, and a connection unencrypted off the deployment's network.
+- `python -m app.keyring` prints a new key for `ENCRYPTION_KEYS`, and the refusal without one names
+  it; it reads no settings, so it runs where they lack one (in the image, `docker compose run
+  --rm api python -m app.keyring`). `.env.example` now starts with what a team sets: `APP_URL`,
+  `DATABASE_URL`, `ENCRYPTION_KEYS`, and the models with a provider's key.
 - The operator's area is now the workspace's Administration page, at `/admin` in the members'
   app, for its owners and admins: the jobs and the dead letters to run again (`GET
   /api/organization/jobs`, `POST /api/organization/jobs/requeue`), the services and the

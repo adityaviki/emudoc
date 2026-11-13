@@ -25,7 +25,7 @@ from app.config import (
     get_settings,
     load_settings,
 )
-from app.keyring import DEVELOPMENT_KEY
+from app.keyring import DEVELOPMENT_KEY, new_key, parse_keys
 from app.main import MODELS_UNAVAILABLE, create_app
 from app.network import MODEL_BASE_URLS
 
@@ -181,7 +181,6 @@ def deployment(tmp_path, monkeypatch) -> dict[str, object]:
         "smtp_url": "smtp://mailer:secret@smtp.example.com:587",
         "scanner_url": "clamd://clamav:3310",
         "embedding_base_url": "http://embeddings:8080/v1",
-        "google_paid_tier": True,
         "encryption_keys": A_KEY,
     }
 
@@ -194,15 +193,7 @@ def test_a_complete_production_configuration_is_accepted(deployment):
 
 def test_production_refuses_every_development_convenience_in_one_message(deployment):
     # An operator fixes the whole list in one go instead of one setting per restart.
-    for name in (
-        "storage_url",
-        "app_url",
-        "smtp_url",
-        "scanner_url",
-        "embedding_base_url",
-        "google_paid_tier",
-        "encryption_keys",
-    ):
+    for name in ("storage_url", "app_url", "embedding_base_url", "encryption_keys"):
         del deployment[name]
     deployment["database_url"] = WITH_THE_DEVELOPMENT_PASSWORD
     deployment["local_account"] = True
@@ -216,13 +207,12 @@ def test_production_refuses_every_development_convenience_in_one_message(deploym
         "LOCAL_ACCOUNT",
         "STORAGE_URL",
         "APP_URL",
-        "SMTP_URL",
-        "SCANNER_URL",
         "EMBEDDING_BASE_URL",
-        "GOOGLE_PAID_TIER",
         "ENCRYPTION_KEYS",
     ):
         assert variable in message
+    # The key's refusal names the command that makes one.
+    assert "make one with `python -m app.keyring`" in message
     # Each line says what to do; none repeats the database's address or password.
     assert "emudoc:emudoc" not in message and "db.internal" not in message
 
@@ -234,10 +224,7 @@ def test_production_refuses_every_development_convenience_in_one_message(deploym
         ({"local_account": True}, "LOCAL_ACCOUNT"),
         ({"storage_url": None}, "STORAGE_URL"),
         ({"app_url": ""}, "APP_URL"),
-        ({"smtp_url": ""}, "SMTP_URL"),
-        ({"scanner_url": ""}, "SCANNER_URL"),
         ({"embedding_base_url": None}, "EMBEDDING_BASE_URL"),
-        ({"google_paid_tier": False}, "GOOGLE_PAID_TIER"),
         ({"encryption_keys": ""}, "ENCRYPTION_KEYS"),
         ({"encryption_keys": f"{A_KEY},{DEVELOPMENT}"}, "ENCRYPTION_KEYS"),
     ],
@@ -374,16 +361,15 @@ def test_production_reads_connected_folders_from_the_services_themselves(deploym
         assert said in stop.value.code
 
 
-def test_production_runs_without_a_scanner_only_when_told_to(deployment):
-    # Unscanned uploads reach every member of a project, so leaving the scanner out is a
-    # choice to state, not a default to fall into; development scans nothing by default.
-    deployment["scanner_url"] = "off"
-    assert load_settings(**deployment).production_problems() == []
-    deployment["scanner_url"] = ""
-    with pytest.raises(SystemExit) as stop:
-        load_settings(**deployment)
-    assert "set it to off to run without scanning on purpose" in stop.value.code
-    assert load_settings(**{**deployment, "environment": "development"}).production_problems() == []
+def test_production_runs_without_a_mail_relay_a_scanner_or_gemini_s_paid_tier(deployment):
+    # What keeps a team's server safe is refused; these are the team's own choices, which the
+    # start warns about (tests/test_startup.py, test_scanning.py) and lets through: nothing is
+    # mailed and the links are handed on by hand, the uploads are the team's own, and the
+    # provider's terms are the team's.
+    for name in ("smtp_url", "scanner_url"):
+        del deployment[name]
+    assert load_settings(**deployment, google_paid_tier=False).production_problems() == []
+    assert load_settings(**deployment, scanner_url="off").production_problems() == []
 
 
 def test_production_names_its_embeddings_endpoint(deployment):
@@ -406,34 +392,30 @@ def test_production_names_its_embeddings_endpoint(deployment):
     assert load_settings(**{**deployment, "environment": "development"}).production_problems() == []
 
 
-def test_production_takes_gemini_s_developer_api_only_on_the_paid_tier(deployment):
-    # The free tier lets Google use what it is sent to improve its products, and a free key
-    # looks like a paid one, so the operator says which it is; Vertex AI needs no such word.
-    deployment["google_paid_tier"] = False
-    with pytest.raises(SystemExit) as stop:
-        load_settings(**deployment)
-    (line,) = stop.value.code.splitlines()[1:]
-    assert "INDEX_MODEL and AGENT_MODEL use the Gemini Developer API" in line
-    assert "set GOOGLE_PAID_TIER=true, or use Vertex AI as google-cloud:<model>" in line
-    # A fallback is sent what its primary is.
-    deployment["agent_fallback_model"] = "google:gemini-3.5-flash-lite"
-    with pytest.raises(SystemExit) as stop:
-        load_settings(**deployment)
-    assert "INDEX_MODEL, AGENT_MODEL and AGENT_FALLBACK_MODEL use the Gemini" in stop.value.code
-    del deployment["agent_fallback_model"]
-
-    deployment["agent_model"] = "anthropic:claude-opus-5-5"
-    with pytest.raises(SystemExit) as stop:
-        load_settings(**deployment)
-    assert "INDEX_MODEL uses the Gemini Developer API" in stop.value.code
-    deployment["index_model"] = "google-cloud:gemini-2.5-flash-lite"
-    assert load_settings(**deployment).production_problems() == []
-    deployment["index_model"] = "openrouter:google/gemini-2.5-flash-lite"
-    assert load_settings(**deployment).production_problems() == []
-    # A switched-off provider is still the one the deployment would use once it is back.
-    deployment.update(index_model="google:gemini-2.5-flash-lite", disabled_providers="google")
-    with pytest.raises(SystemExit):
-        load_settings(**deployment)
+def test_the_key_command_prints_a_key_the_settings_take_where_they_have_none():
+    # Production refuses to run without a key and names this command, so it must run where the
+    # settings are refused: here a production environment with no database and no key, where
+    # the maintenance command would stop as it is imported.
+    env = {
+        name: value
+        for name, value in os.environ.items()
+        if name not in ("DATABASE_URL", "ENCRYPTION_KEYS")
+    }
+    env["ENVIRONMENT"] = "production"
+    run = subprocess.run(
+        [sys.executable, "-m", "app.keyring"],
+        cwd=BACKEND_DIR,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert run.returncode == 0, run.stderr
+    key = run.stdout.strip()
+    assert len(parse_keys(key)) == 1
+    assert load_settings(_env_file=None, database_url=A_DATABASE, encryption_keys=key)
+    # Each is new.
+    assert new_key() != new_key()
 
 
 def test_production_runs_only_on_the_models_it_names(deployment):
@@ -714,8 +696,6 @@ def test_development_runs_with_everything_production_refuses(deployment):
         embedding_base_url="http://embeddings.example.com/v1",
         local_account=True,
         app_url="",
-        smtp_url="",
-        google_paid_tier=False,
         encryption_keys="",
     )
     del deployment["storage_url"]
@@ -724,8 +704,8 @@ def test_development_runs_with_everything_production_refuses(deployment):
 
 def test_a_production_command_with_development_settings_prints_the_list_and_no_traceback():
     # The suite's environment is development's: the test database with the compose password,
-    # LOCAL_ACCOUNT on, and here no app address or mail relay either.
-    env = dict(os.environ, ENVIRONMENT="production", APP_URL="", SMTP_URL="")
+    # LOCAL_ACCOUNT on, and here no app address either.
+    env = dict(os.environ, ENVIRONMENT="production", APP_URL="")
     run = subprocess.run(
         [sys.executable, "-m", "app.maintenance", "rebuild-embeddings"],
         cwd=BACKEND_DIR,
@@ -736,7 +716,7 @@ def test_a_production_command_with_development_settings_prints_the_list_and_no_t
     )
     assert run.returncode == 1
     assert run.stderr.startswith("ENVIRONMENT is production, but")
-    for variable in ("DATABASE_URL", "LOCAL_ACCOUNT", "APP_URL", "SMTP_URL"):
+    for variable in ("DATABASE_URL", "LOCAL_ACCOUNT", "APP_URL"):
         assert variable in run.stderr
     assert "Traceback" not in run.stderr
 
@@ -898,7 +878,6 @@ def test_the_guide_says_what_production_requires(deployment):
         "agent_model": "anthropic:claude-sonnet-5-5",
         "index_model": "anthropic:claude-haiku-5-5",
     }
-    del complete["google_paid_tier"]
     assert Settings(**complete).production_problems({}) == []
     required = set()
     for name in complete.keys() & Settings.model_fields.keys():

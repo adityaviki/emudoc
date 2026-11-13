@@ -14,11 +14,12 @@ member typed, an organisation's say, stays text however much it looks like an ad
 
 A member's mail is posted through the queue (app/postbox.py) and sent by the worker through a
 `Mailer`; the operator's reports (ALERT_EMAIL) are sent at once by the thread that writes them,
-since the queue may be what they report on. There are three mailers: the log mailer writes each
-message to the log, which is enough to follow a link in development and never runs in
-production; the SMTP mailer sends through any relay (Amazon SES's on AWS, deploying.md "Mail");
-and the Resend mailer through Resend's API, which takes the message's key so that a message sent
-again after a lost lease is sent once. When one fails it logs the message's subject and what the
+since the queue may be what they report on. There are three mailers: the log mailer, where no
+relay is set, writes each message to the log, which is enough to follow a link in development,
+and in production a member's message by its subject alone, since its link may sign in; the SMTP
+mailer sends through any relay (Amazon SES's on AWS, deploying.md "Mail"); and the Resend mailer
+through Resend's API, which takes the message's key so that a message sent again after a lost
+lease is sent once. When one fails it logs the message's subject and what the
 relay said with every address in it hidden, since the person a message was for is no business
 of the log's, and says whether trying again later may help.
 """
@@ -175,10 +176,26 @@ class Mailer(Protocol):
 
 
 class LogMailer:
-    """Writes messages to the log instead of sending them."""
+    """Writes messages to the log instead of sending them, where no relay is set.
+
+    With `bodies` (development) the whole message, to follow its link. Without (production) a
+    message composed from a template, a member's, by its subject alone: its link may sign in,
+    confirm an address or join the workspace, and the log is read by more people than the
+    member, while the address is no business of the log's. The operator's reports are text
+    alone (`html` None) and carry no link, so they keep their text, the log being then where
+    they are read.
+    """
+
+    def __init__(self, bodies: bool = True):
+        self.bodies = bodies
 
     def send(self, message: Message) -> None:
-        log.info("Email to %s: %s\n%s", message.to, message.subject, message.text)
+        if self.bodies:
+            log.info("Email to %s: %s\n%s", message.to, message.subject, message.text)
+        elif message.html is None:
+            log.warning("Not mailed, since no relay is set: %s\n%s", message.subject, message.text)
+        else:
+            log.info("Not mailed, since no relay is set: %s", message.subject)
 
 
 class SmtpMailer:
@@ -333,7 +350,15 @@ def hide_addresses(text: str) -> str:
 def relay_set(settings: Settings) -> bool:
     """Whether the deployment names a way to send mail; without one each message is only
     logged (`LogMailer`), and the links the app mails are handed on by hand instead."""
-    return bool(settings.resend_api_key or settings.smtp_url)
+    return sent_through(settings) is not None
+
+
+def sent_through(settings: Settings) -> str | None:
+    """How the mail goes, as the admins' services page says it: "resend", "smtp", or None where
+    nothing is mailed. Resend first, as `mailer_from_settings` takes it."""
+    if settings.resend_api_key:
+        return "resend"
+    return "smtp" if settings.smtp_url else None
 
 
 def mailer_from_settings(settings: Settings) -> Mailer:
@@ -341,7 +366,7 @@ def mailer_from_settings(settings: Settings) -> Mailer:
         return ResendMailer(settings.resend_api_key, settings.mail_from, httpx.Client())
     if settings.smtp_url:
         return SmtpMailer(settings.smtp_url, settings.mail_from)
-    return LogMailer()
+    return LogMailer(bodies=settings.environment != "production")
 
 
 def _greeting(name: str) -> str:

@@ -1,6 +1,7 @@
 """What every process checks before it serves or works (app/startup.py) that no other module's
 tests cover: a temporary directory to write uploads in, in development a word on a database
-URL whose certificate check would fail, and an embeddings endpoint that answers."""
+URL whose certificate check would fail, an embeddings endpoint that answers, and in production a
+word on what a team chose to run without."""
 
 import os
 import tempfile
@@ -11,7 +12,10 @@ import pytest
 
 from app.config import get_settings
 from app.startup import (
+    NO_MAIL,
+    NO_SIGNUP,
     check_embedder,
+    check_mail,
     check_model,
     check_temporary_directory,
     prepare,
@@ -193,6 +197,7 @@ def test_production_says_what_stops_while_a_model_without_a_fallback_cannot_answ
     production, monkeypatch, caplog
 ):
     monkeypatch.setattr(get_settings(), "agent_fallback_model", "anthropic:claude-haiku-5-5")
+    monkeypatch.setattr(get_settings(), "google_paid_tier", True)
     with caplog.at_level("WARNING", logger="app.startup"):
         check_model(get_settings(), FakeLLM())
     assert caplog.messages == [
@@ -200,3 +205,63 @@ def test_production_says_what_stops_while_a_model_without_a_fallback_cannot_answ
         "the key or has been retired, no document gets its summaries, facts or scanned pages "
         "read; set INDEX_FALLBACK_MODEL, best to a model of another provider."
     ]
+
+
+def test_production_warns_of_gemini_s_free_tier_until_told_it_is_paid(monkeypatch, caplog):
+    # The free tier lets Google use what it is sent, and a free key looks like a paid one; the
+    # provider's terms are the team's, so a deployment starts and is told at every start.
+    settings = get_settings()
+    for name in ("index_fallback_model", "agent_fallback_model"):
+        monkeypatch.setattr(settings, name, "anthropic:claude-haiku-5-5")
+    monkeypatch.setattr(settings, "google_paid_tier", False)
+
+    def warned() -> list[str]:
+        caplog.clear()
+        with caplog.at_level("WARNING", logger="app.startup"):
+            check_model(settings, FakeLLM())
+        return caplog.messages
+
+    assert warned() == []
+    monkeypatch.setattr(settings, "environment", "production")
+    (line,) = warned()
+    assert line.startswith("INDEX_MODEL and AGENT_MODEL use the Gemini Developer API (google:)")
+    assert "set GOOGLE_PAID_TIER=true to say so, or use Vertex AI as google-cloud:<model>" in line
+    # A fallback is sent what its primary is.
+    monkeypatch.setattr(settings, "agent_fallback_model", "google:gemini-3.5-flash-lite")
+    monkeypatch.setattr(settings, "agent_model", "anthropic:claude-opus-5-5")
+    (line,) = warned()
+    assert line.startswith("INDEX_MODEL and AGENT_FALLBACK_MODEL use the Gemini Developer API")
+    monkeypatch.setattr(settings, "google_paid_tier", True)
+    assert warned() == []
+    # Vertex AI is under a Cloud project's own terms, and OpenRouter under its own: neither is
+    # the Developer API.
+    monkeypatch.setattr(settings, "google_paid_tier", False)
+    monkeypatch.setattr(settings, "index_model", "google-cloud:gemini-2.5-flash-lite")
+    monkeypatch.setattr(settings, "agent_fallback_model", "openrouter:google/gemini-2.5-flash")
+    assert warned() == []
+
+
+# The mail: how it goes, and in a deployment that mails nothing, what goes without.
+
+
+def test_the_start_says_how_the_mail_goes_and_production_what_goes_without(monkeypatch, caplog):
+    settings = get_settings()
+
+    def said() -> list[str]:
+        caplog.clear()
+        with caplog.at_level("INFO", logger="app.startup"):
+            check_mail(settings)
+        return caplog.messages
+
+    # Development logs each message, links and all, and needs no word.
+    assert said() == []
+    monkeypatch.setattr(settings, "environment", "production")
+    assert said() == [NO_MAIL]
+    assert NO_MAIL.startswith("No mail relay is set (SMTP_URL, or RESEND_API_KEY for Resend)")
+    # An open sign-up is finished from a mailed link, so nobody could.
+    monkeypatch.setattr(settings, "signup_open", True)
+    assert said() == [NO_MAIL, NO_SIGNUP]
+    monkeypatch.setattr(settings, "smtp_url", "smtp://mailer:secret@smtp.example.com:587")
+    assert said() == ["Mail is sent through the relay at smtp.example.com"]
+    monkeypatch.setattr(settings, "resend_api_key", "re_" + "x" * 20)
+    assert said() == ["Mail is sent through Resend"]

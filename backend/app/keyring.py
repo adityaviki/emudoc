@@ -12,7 +12,10 @@ eight hex digits of its SHA-256, which says nothing of the key: several keys can
 once, the first encrypting and every one decrypting what it encrypted, which is how a key is
 rotated (deploying.md, "The encryption keys").
 
-Imports nothing of the app but its errors: config.py checks the setting with it.
+Imports nothing of the app but its errors: config.py checks the setting with it. And so it is
+also the command that makes a key, `python -m app.keyring`, which must run where the settings
+lack one: the maintenance command reads them as it is imported, and production refuses to run
+without a key (`production_problems` in app/config.py).
 """
 
 import base64
@@ -36,8 +39,8 @@ PREFIX = f"{VERSION}."
 # Development's key, which anyone reading the code knows, like the compose database's password:
 # a checkout runs without choosing one, and production refuses it.
 DEVELOPMENT_KEY = hashlib.sha256(b"Emudoc's development key, which anyone can read").digest()
-# How an operator makes a key.
-NEW_KEY = "`openssl rand -base64 32`"
+# How an operator makes a key (`openssl rand -base64 32` makes one as good).
+NEW_KEY = "`python -m app.keyring`"
 KEY_FORM = (
     f"each key is {KEY_BYTES} random bytes in base64, as {NEW_KEY} prints one, and the keys "
     "are separated by commas"
@@ -151,3 +154,12 @@ def _decoded(text: str) -> bytes | None:
         return base64.b64decode(text + "=" * (-len(text) % 4), validate=True)
     except (binascii.Error, ValueError):
         return None
+
+
+def new_key() -> str:
+    """A key for ENCRYPTION_KEYS: KEY_BYTES random bytes in base64, as `parse_keys` reads it."""
+    return base64.b64encode(os.urandom(KEY_BYTES)).decode()
+
+
+if __name__ == "__main__":
+    print(new_key())

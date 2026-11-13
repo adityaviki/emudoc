@@ -23,6 +23,8 @@ from app.mail import (
     compose,
     invitation_email,
     mailer_from_settings,
+    password_reset_email,
+    sent_through,
 )
 
 SENDER = "Emudoc <no-reply@mail.example.com>"
@@ -286,3 +288,28 @@ def test_the_settings_choose_the_mailer():
     assert chosen(resend_api_key="re_123") is ResendMailer
     assert chosen(smtp_url="smtp://mailer:secret@smtp.example.com") is SmtpMailer
     assert chosen() is LogMailer
+    # As the admins' services page says it, Resend first as the mailer takes it.
+    assert sent_through(Settings(_env_file=None)) is None
+    both = Settings(_env_file=None, resend_api_key="re_123", smtp_url="smtp://smtp.example.com")
+    assert sent_through(both) == "resend"
+    assert sent_through(Settings(_env_file=None, smtp_url="smtp://smtp.example.com")) == "smtp"
+
+
+def test_production_logs_a_members_message_by_its_subject_alone(caplog):
+    # Where nothing is mailed, the link a member's message carries signs in, and the log is read
+    # by more people than the member; the operator's reports carry no link, and the log is then
+    # where they are read.
+    link = "https://emudoc.example.com/reset-password#token=secret-token"
+    reset = compose("ada@example.com", password_reset_email("Ada", link))
+    report = Message("ops@example.com", "2 jobs given up", "The parser broke on 2 documents.")
+    for environment, shown in (("development", True), ("production", False)):
+        mailer = mailer_from_settings(Settings(_env_file=None, environment=environment))
+        caplog.clear()
+        with caplog.at_level("INFO", logger="app.mail"):
+            mailer.send(reset)
+            mailer.send(report)
+        assert ("secret-token" in caplog.text) is shown
+        assert ("ada@example.com" in caplog.text) is shown
+        assert reset.subject in caplog.text
+        assert "The parser broke on 2 documents." in caplog.text
+    assert caplog.messages[0] == "Not mailed, since no relay is set: Reset your password"

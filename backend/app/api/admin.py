@@ -33,6 +33,7 @@ from app.audit import audit
 from app.config import get_settings, model_provider
 from app.deadletters import NamedJob, named_jobs, requeue
 from app.jobs import HISTORY, JOB_STATES, QUEUE_BY_STATE, workers_seen
+from app.mail import sent_through
 from app.models import JOB_KINDS, Job, WatchAlert
 from app.postgres import server
 from app.schemas import (
@@ -213,6 +214,7 @@ def services_status(services: ServicesDep, session: SessionDep):
         embedding_model=settings.embedding_model,
         embedding_address=services.embedder.address,
         scanner=services.scanner is not None,
+        mail=sent_through(settings),
         storage_origin=services.storage.origin,
         concerns=[
             ConcernOut(

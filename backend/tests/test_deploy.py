@@ -71,13 +71,16 @@ ALERTING = {
 # they look, which a deployment may do without, and the app holds the bucket's earlier versions
 # to how long the backups are kept, which a deployment may leave unsaid. And for the host's: its
 # journal keeps the logs as long as SERVER_LOG_DAYS (host/settings), which the app reads nothing
-# of.
+# of. The scanner and the mail the module runs and makes, which a team may run without, the start
+# warning (app/startup.py).
 NOT_CHECKED = {
     "AWS_DEFAULT_REGION",
     "SENTRY_ENVIRONMENT",
     "CONVERTER_URL",
     "BACKUP_DAYS",
     "SERVER_LOG_DAYS",
+    "SCANNER_URL",
+    "SMTP_URL",
 }
 
 

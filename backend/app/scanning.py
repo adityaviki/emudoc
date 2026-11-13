@@ -192,13 +192,15 @@ def check_scanner(settings: Settings, scanner: Scanner | None) -> None:
 
     A daemon that is down is a passing problem the stage retries, and one that is still
     loading its signatures answers in a minute, so the process starts and says so rather than
-    stopping; a deployment that chose to run without one is reminded of it at every start.
+    stopping; a deployment that runs without one, unset or `off`, is reminded of it at every
+    start: the uploads are the team's own, and the choice is theirs.
     """
     if scanner is None:
         if settings.environment == "production":
             log.warning(
-                "SCANNER_URL is off: uploads are not scanned for malware, and every member of a "
-                "project can open what the others upload."
+                "SCANNER_URL names no scanner: uploads are not scanned for malware, and every "
+                "member of a project can open what the others upload. Name the ClamAV daemon, "
+                "as clamd://clamav:3310, to scan them."
             )
         return
     try:
