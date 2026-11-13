@@ -12,7 +12,7 @@ import type { FormEvent } from 'react'
 import { useLocation } from 'react-router'
 import { ApiError, api, hasPages, isImage, isSheet, sharedFileUrl, sharedPageUrl, sourceLabel } from '../api.ts'
 import type { SharedAnswer, SharedDocument, Source } from '../api.ts'
-import { AuthCard, LegalLinks, PasswordField } from '../account/shared.tsx'
+import { AuthCard, PasswordField } from '../account/shared.tsx'
 import { ImagePreview, PagesView, SheetView, TextView } from '../components/DocumentViews.tsx'
 import { ThemeToggle } from '../components/ThemeToggle.tsx'
 import { Button, ButtonLink, Chip, Notice, Segmented, Spinner } from '../components/ui.tsx'
@@ -107,7 +107,6 @@ export function SharedPage() {
         <ThemeToggle />
       </header>
       <main className="flex flex-1 flex-col items-center px-4 pt-6 pb-10">{body}</main>
-      <LegalLinks />
     </div>
   )
 }

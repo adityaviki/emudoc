@@ -51,7 +51,7 @@ export function usePrintTitle(title: string) {
 }
 
 /**
- * Names a page anyone reads (the terms, the sign-in pages) in the browser's tab and to
+ * Names a page anyone reads (the sign-in pages, a share link's) in the browser's tab and to
  * a search engine, which reads the title the page shows once its script ran. The page's own again
  * once it goes.
  */
@@ -68,11 +68,6 @@ export function usePageTitle(title: string | undefined) {
 
 export function useFolders(projectId: number) {
   return useQuery({ queryKey: ['folders', projectId], queryFn: () => api.folders(projectId) })
-}
-
-/** The current edition of the terms of service and privacy policy; it changes only with a deployment. */
-export function useLegal() {
-  return useQuery({ queryKey: ['legal'], queryFn: api.legal, staleTime: Infinity })
 }
 
 /** Where members write for help, and the status page; they change only with a deployment. */

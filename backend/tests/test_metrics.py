@@ -233,7 +233,7 @@ def test_a_request_is_counted_under_the_pattern_of_its_route(client, monkeypatch
         ("emudoc_http_requests_total", {"method": "GET", "route": "other", "status": "404"}),
         (
             "emudoc_http_requests_total",
-            {"method": "GET", "route": "/api/subprocessors", "status": "500"},
+            {"method": "GET", "route": "/api/v1/openapi.json", "status": "500"},
         ),
         ("emudoc_http_requests_total", {"method": "GET", "route": "/api/health", "status": "200"}),
     )
@@ -244,9 +244,9 @@ def test_a_request_is_counted_under_the_pattern_of_its_route(client, monkeypatch
     def boom(*args, **kwargs):
         raise RuntimeError("an error nobody planned for")
 
-    monkeypatch.setattr(main, "subprocessors", boom)
+    monkeypatch.setattr(main, "_contract", boom)
     failing = TestClient(client.app, headers=APP_HEADERS, raise_server_exceptions=False)
-    assert failing.get("/api/subprocessors").status_code == 500
+    assert failing.get("/api/v1/openapi.json").status_code == 500
 
     assert counted("emudoc_http_requests_total", method="GET", route=route, status="200") == 1
     assert counted("emudoc_http_request_seconds_count", method="GET", route=route) == 1
@@ -258,7 +258,7 @@ def test_a_request_is_counted_under_the_pattern_of_its_route(client, monkeypatch
     )
     assert (
         counted(
-            "emudoc_http_requests_total", method="GET", route="/api/subprocessors", status="500"
+            "emudoc_http_requests_total", method="GET", route="/api/v1/openapi.json", status="500"
         )
         == 1
     )

@@ -11,7 +11,6 @@ import { browserTimeZone } from '../timeZones.ts'
 import { AUTH_OPTIONS_KEY, useAuthOptions } from './authOptions.ts'
 import { AuthCard } from './shared.tsx'
 import { NewPasswordField } from './SignupPage.tsx'
-import { useTermsBox } from './termsBox.tsx'
 
 const SIGN_IN = (
   <Link to="/login" className="font-medium text-accent hover:underline">
@@ -33,15 +32,13 @@ export function SetupPage() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const terms = useTermsBox()
   const setup = useMutation({
-    mutationFn: (version: string) =>
+    mutationFn: () =>
       auth.setup({
         email: email.trim(),
         name: name.trim(),
         password,
         workspace: workspace.trim(),
-        terms_version: version,
         time_zone: browserTimeZone(),
       }),
     onSuccess: (account) => {
@@ -50,11 +47,9 @@ export function SetupPage() {
       setSignedIn(queryClient, account)
       navigate('/', { replace: true })
     },
-    // The terms changed while the page was open, which unticks the box once fetched again, or someone set the
-    // install up meanwhile, which the page then says.
+    // Someone set the install up meanwhile, which the page then says.
     onError: (error) => {
       if (error instanceof ApiError && error.status === 409) {
-        void queryClient.invalidateQueries({ queryKey: ['legal'] })
         void queryClient.invalidateQueries({ queryKey: AUTH_OPTIONS_KEY })
       }
     },
@@ -81,9 +76,7 @@ export function SetupPage() {
 
   function submit(event: FormEvent) {
     event.preventDefault()
-    if (workspace.trim() && email.trim() && password.length >= PASSWORD_MIN_LENGTH && terms.version) {
-      setup.mutate(terms.version)
-    }
+    if (workspace.trim() && email.trim() && password.length >= PASSWORD_MIN_LENGTH) setup.mutate()
   }
 
   return (
@@ -118,9 +111,8 @@ export function SetupPage() {
           onChange={(event) => setEmail(event.target.value)}
         />
         <NewPasswordField value={password} onChange={setPassword} />
-        {terms.box}
         {setup.isError && <Notice tone="bad">{setup.error.message}</Notice>}
-        <Button type="submit" variant="primary" className="w-full" disabled={setup.isPending || !terms.ready}>
+        <Button type="submit" variant="primary" className="w-full" disabled={setup.isPending}>
           Create the workspace
         </Button>
       </form>

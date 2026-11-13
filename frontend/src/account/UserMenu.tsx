@@ -1,4 +1,4 @@
-import { Building2, Compass, FileText, Lock, LogOut, ShieldCheck, Users } from 'lucide-react'
+import { Compass, LogOut, ShieldCheck, Users } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { useMatch, useNavigate } from 'react-router'
 import { useMe, useSignOut } from '../auth.ts'
@@ -8,8 +8,8 @@ import { useVersion } from '../hooks.ts'
 import { takeTour } from '../tour.ts'
 
 /** The signed-in user's initials in the header, opening the way to the account page, the
- * organisation's, the tour of a project's workspace while one is open, the terms, the privacy
- * policy and the subprocessor list, and out, above the version that runs. */
+ * organisation's, the tour of a project's workspace while one is open, and out, above the version
+ * that runs. */
 export function UserMenu() {
   const me = useMe()
   const signOut = useSignOut()
@@ -25,9 +25,6 @@ export function UserMenu() {
     { label: 'Workspace', icon: Users, onSelect: () => navigate('/organization') },
     // The tour points at a workspace's parts, so it is offered where they are.
     ...(inProject ? [{ label: 'Take the tour', icon: Compass, onSelect: takeTour } satisfies MenuItem] : []),
-    { label: 'Terms of service', icon: FileText, onSelect: () => navigate('/terms') },
-    { label: 'Privacy policy', icon: Lock, onSelect: () => navigate('/privacy') },
-    { label: 'Subprocessors', icon: Building2, onSelect: () => navigate('/subprocessors') },
     'separator',
     { label: 'Sign out', icon: LogOut, onSelect: signOut },
   ]

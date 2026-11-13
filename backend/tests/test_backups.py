@@ -1,5 +1,5 @@
-"""Backups and restores: how long the bucket keeps a deleted file, against what the privacy
-policy says (BACKUP_DAYS), and what `after-restore` sets right once the database is restored to
+"""Backups and restores: how long the bucket keeps a deleted file, against what BACKUP_DAYS
+says, and what `after-restore` sets right once the database is restored to
 an earlier point: the files deleted since come back from the bucket's versions, the ids move past
 the storage's, every sign-in ends and the audit logs record it. An upload refuses a place in the
 storage that a lost document's files still hold.
@@ -123,7 +123,7 @@ def test_the_start_says_how_long_the_bucket_keeps_a_deleted_file(backup_days, ca
     with caplog.at_level(logging.INFO, logger="app.storage"):
         check_versions(get_settings(), bucket(versioning="Suspended", lifecycle=[rule(30)]))
     assert "(versioning is suspended)" in caplog.text
-    # With no backups promised, a bucket without versions is what the policy says.
+    # With no backups said to be kept, a bucket without versions is what BACKUP_DAYS says.
     backup_days(0)
     caplog.clear()
     with caplog.at_level(logging.INFO, logger="app.storage"):
@@ -152,10 +152,10 @@ def test_production_refuses_a_bucket_that_keeps_deleted_files_longer_than_it_say
         check_versions(get_settings(), bucket(lifecycle=None))
     assert str(forever.value) == (
         "The bucket keeps every deleted or replaced file for good (versioning is on, and no "
-        "lifecycle rule removes the earlier versions of every file the app keeps), but the "
-        "privacy policy says a deleted account is gone from the backups 35 days after its "
-        "deletion (BACKUP_DAYS): add a lifecycle rule whose NoncurrentVersionExpiration is at "
-        "most 35 days. Production does not start until they agree."
+        "lifecycle rule removes the earlier versions of every file the app keeps), but "
+        "BACKUP_DAYS says a deleted file is gone from the backups 35 days after its deletion: "
+        "add a lifecycle rule whose NoncurrentVersionExpiration is at most 35 days. Production "
+        "does not start until they agree."
     )
     with pytest.raises(RuntimeError, match="shorten the rule to at most 35 days, or raise "):
         check_versions(get_settings(), bucket(lifecycle=[rule(60)]))
@@ -163,7 +163,7 @@ def test_production_refuses_a_bucket_that_keeps_deleted_files_longer_than_it_say
     with pytest.raises(RuntimeError, match="for 60 days"):
         check_versions(get_settings(), bucket(versioning="Suspended", lifecycle=[rule(60)]))
     backup_days(0, "production")
-    with pytest.raises(RuntimeError, match="BACKUP_DAYS is 0, which the privacy policy words"):
+    with pytest.raises(RuntimeError, match="BACKUP_DAYS is 0, which says the deployment keeps no"):
         check_versions(get_settings(), bucket(lifecycle=[rule(1)]))
     check_versions(get_settings(), bucket(versioning=""))
 

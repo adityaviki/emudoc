@@ -583,8 +583,6 @@ def test_the_export_holds_the_users_data_and_nothing_of_anyone_elses(
         "created_at",
         "email_verified_at",
         "two_factor_enabled_at",
-        "terms_version",
-        "terms_accepted_at",
         "deletion_due_at",
         "sign_in_providers",
         "notices",

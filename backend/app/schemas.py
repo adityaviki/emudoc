@@ -1846,9 +1846,7 @@ class SetupIn(BaseModel):
     password: Password
     # The team's name, which the workspace takes as typed; the route refuses it blank.
     workspace: str = Field(max_length=200)
-    # As at a sign-up: the edition of the terms the form showed and the admin ticked, and the
-    # browser's zone.
-    terms_version: str | None = Field(None, max_length=40)
+    # As at a sign-up: the browser's zone.
     time_zone: TimeZone = ""
 
 
@@ -1874,18 +1872,9 @@ class SignupFinishIn(LinkTokenIn):
 
     name: str = Field("", max_length=200)
     password: Password
-    # The edition of the terms of service and privacy policy the form showed and the person
-    # ticked (TERMS_VERSION, app/legal/); an account is made only when it is the current one.
-    terms_version: str | None = Field(None, max_length=40)
     # The browser's zone, for the dates in the account's mail; one the app does not know is
     # left out rather than refused.
     time_zone: TimeZone = ""
-
-
-class TermsIn(BaseModel):
-    """The edition of the terms the user read and accepts, which must be the current one."""
-
-    version: str = Field(max_length=40)
 
 
 class LoginIn(BaseModel):
@@ -2059,9 +2048,6 @@ class OrganizationOut(_FromORM):
     id: int
     name: str
     slug: str
-    # The region its data is kept in, as DATA_REGION names it (eu, us), None when the
-    # deployment promised none as it was created (app/residency.py).
-    region: str | None
     # Its settings, as its owners and admins chose them: the language its documents are
     # searched in (a text search configuration, app/languages.py), None for the deployment's;
     # the days it keeps a chat after its last question (app/retention.py) and an audit log
@@ -2110,12 +2096,6 @@ class MeOut(BaseModel):
     # When the account will be purged, if its user asked for it to be deleted
     # (app/retention.py); until then the app offers nothing but keeping it.
     deletion_due_at: dt.datetime | None
-    # The edition of the terms of service and privacy policy the user accepted and when
-    # (app/legal/), and whether the current edition still waits for them: until it is
-    # accepted, the app offers nothing but accepting it, a copy of the data, and leaving.
-    terms_version: str | None
-    terms_accepted_at: dt.datetime | None
-    terms_due: bool
     # Whether the user hid the projects page's list of first steps, whether they ended the tour
     # of a project's workspace, and whether they hid the chat's suggestion to invite their team,
     # for every organisation (app/onboarding.py).
@@ -2455,7 +2435,6 @@ class InvitationSignupIn(LinkTokenIn):
 
     name: str = Field("", max_length=200)
     password: Password
-    terms_version: str | None = Field(None, max_length=40)
     time_zone: TimeZone = ""
 
 
@@ -2615,34 +2594,6 @@ class StatusOut(BaseModel):
     uploads: UploadLimitsOut
 
 
-class SubprocessorOut(_FromORM):
-    """A company the deployment sends data to (app/subprocessors.py)."""
-
-    name: str
-    purpose: str
-    data: str
-    # Where it handles what it receives, when the settings show it (app/residency.py).
-    location: str | None
-
-
-class SubprocessorsOut(BaseModel):
-    """The /subprocessors page: the region the deployment keeps its documents in (DATA_REGION:
-    eu, us), None when it promises none, and the companies it sends data to."""
-
-    region: str | None
-    subprocessors: list[SubprocessorOut]
-
-
-class LegalOut(BaseModel):
-    """The /terms and /privacy pages (app/legal/): the current edition, its date in words, and
-    the two documents as Markdown, filled in from the deployment's settings."""
-
-    version: str
-    published: str
-    terms: str
-    privacy: str
-
-
 class HealthOut(BaseModel):
     status: Literal["ok"]
     # The commit the image was built from, or "development" (app/version.py).
@@ -2746,8 +2697,6 @@ class ExportedAccount(BaseModel):
     created_at: dt.datetime
     email_verified_at: dt.datetime | None
     two_factor_enabled_at: dt.datetime | None
-    terms_version: str | None
-    terms_accepted_at: dt.datetime | None
     deletion_due_at: dt.datetime | None
     sign_in_providers: list[ExportedIdentity]
     # How each kind of notice is told (app/notices.py).

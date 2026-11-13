@@ -18,7 +18,6 @@ from app.api.invitations import ADMINS_ONLY, INVITED_ALREADY, OWNERS_INVITE_OWNE
 from app.auth import CREDENTIAL_HISTORY, prune_credentials
 from app.config import get_settings
 from app.db import engine
-from app.legal import TERMS_VERSION
 from app.models import Invitation, Membership, User
 from app.signups import SIGNUP_CLOSED
 from tests.test_audit import actions
@@ -33,6 +32,7 @@ from tests.test_auth import (
 )
 from tests.test_auth import start as begin_oauth
 from tests.test_organizations import join
+from tests.test_passwords import BREACHED_ONE, checked  # noqa: F401 (a fixture)
 from tests.test_ratelimit import counted_afresh
 
 
@@ -68,16 +68,10 @@ def accept(client, token: str):
     return client.post("/api/auth/invitation/accept", json={"token": token})
 
 
-def sign_up_invited(client, token: str, name="Bob", password=PASSWORD, terms=TERMS_VERSION):
+def sign_up_invited(client, token: str, name="Bob", password=PASSWORD):
     return client.post(
         "/api/auth/invitation/signup",
-        json={
-            "token": token,
-            "name": name,
-            "password": password,
-            "terms_version": terms,
-            "time_zone": "Europe/Berlin",
-        },
+        json={"token": token, "name": name, "password": password, "time_zone": "Europe/Berlin"},
     )
 
 
@@ -93,6 +87,7 @@ def expire(session, email: str, ago: timedelta = timedelta(minutes=1)) -> None:
 # Invitations
 
 
+@pytest.mark.usefixtures("checked")
 def test_an_invitation_makes_a_new_account_a_member_and_nothing_more(client, session, mailer, ada):
     org_id = ada["organization"]["id"]
     sent = invite(client, "Bob@Example.com", "viewer")
@@ -120,16 +115,16 @@ def test_an_invitation_makes_a_new_account_a_member_and_nothing_more(client, ses
     }
     assert (page["expired"], page["has_account"]) == (False, False)
 
-    # The terms are accepted as at any sign-up, and a refusal leaves the invitation open.
-    refused = sign_up_invited(bob, token, terms=None)
-    assert refused.status_code == 400
+    # The password is checked as at any sign-up, and a refusal leaves the invitation open.
+    refused = sign_up_invited(bob, token, password=BREACHED_ONE)
+    assert refused.status_code == 422
     made = sign_up_invited(bob, token)
     assert made.status_code == 201, made.text
     account = made.json()
     assert (account["organization"]["id"], account["role"]) == (org_id, "viewer")
     # No organisation of his own: the one that invited him is his only one.
     assert session.scalar(select(func.count()).select_from(Membership)) == 2
-    assert account["email_verified"] is True and account["terms_due"] is False
+    assert account["email_verified"] is True
     assert account["time_zone"] == "Europe/Berlin"
     assert me(bob).json()["organization"]["id"] == org_id
 
@@ -141,10 +136,9 @@ def test_an_invitation_makes_a_new_account_a_member_and_nothing_more(client, ses
         ("ada@acme.com", "owner"),
         ("bob@example.com", "viewer"),
     ]
-    assert [(action, detail) for action, detail in actions(session, org_id)][-4:] == [
+    assert [(action, detail) for action, detail in actions(session, org_id)][-3:] == [
         ("invitation_sent", {"role": "viewer"}),
         ("sign_up", {"method": "password"}),
-        ("terms_accepted", {"version": TERMS_VERSION}),
         ("invitation_accepted", {"role": "viewer"}),
     ]
 
@@ -344,7 +338,7 @@ def test_a_new_account_through_a_provider_joins_the_organisation_that_invited_it
     assert arrived.headers["location"] == "/"
     account = me(grace).json()
     assert (account["organization"]["id"], account["role"]) == (org_id, "viewer")
-    assert account["email_verified"] is True and account["terms_due"] is True
+    assert account["email_verified"] is True
     assert actions(session, org_id)[-3:] == [
         ("sign_up", {"method": "google"}),
         ("invitation_accepted", {"role": "viewer"}),

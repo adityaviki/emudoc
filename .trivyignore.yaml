@@ -75,10 +75,10 @@ misconfigurations:
     paths: [deploy/aws/account/trail.tf, deploy/aws/modules/environment/logs.tf]
     statement: >-
       Logs are written once, never changed, and expire by a rule: unversioned, an expired log
-      is gone, as the privacy policy says of the environment's access and flow logs
-      (ACCESS_LOG_DAYS). A trail file removed or changed is found by `aws cloudtrail
-      validate-logs` through the digest files that chain them; versions would not keep one
-      from an administrator, who may delete those too.
+      is gone, as the environment's access and flow logs must be after access_log_days. A trail
+      file removed or changed is found by `aws cloudtrail validate-logs` through the digest
+      files that chain them; versions would not keep one from an administrator, who may delete
+      those too.
 
   - id: AWS-0078
     paths: [deploy/aws/modules/environment/database.tf]

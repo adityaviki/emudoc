@@ -15,21 +15,15 @@ Every request asks OpenRouter to forward it only to providers that neither store
 what they are sent (`DATA_POLICY`), so that a model reached through it keeps the terms the app
 promises its users; the other providers' terms come with the key (deploying.md).
 
-A deployment that keeps its data in one region (DATA_REGION, app/residency.py) holds to it the
-two providers that let a request choose: OpenRouter is reached at the region's own address
-(`openrouter_url`), which sends a request only to providers in the region, and Claude is told to
-run in the US when that is the region (`inference_geo`). The other providers are placed by their
-own settings, which the start-up checks read.
-
 Each kind of work may have a fallback (AGENT_FALLBACK_MODEL, INDEX_FALLBACK_MODEL): the model
 asked when the first cannot answer because its provider is down, overloaded or out of reach, or
 refuses the key, the account or the model itself, as it does a model it retired (`_falls_back`).
 It is not asked when the request was refused, since another model would refuse it too or it
 hides a fault of the app's, nor when a reply took too long. A model that failed so is asked
 after its fallback for PASS_OVER_SECONDS, so that a provider that is down costs one request a
-minute its retries rather than every request. Each model is asked with the settings of its own
-provider (Claude's `inference_geo` goes to Claude alone), which is why the app tries them itself
-rather than through Pydantic AI's FallbackModel, which sends one set to all. What a fallback
+minute its retries rather than every request. Each model is built, switched off and passed over
+on its own, which is why the app tries them itself rather than through Pydantic AI's
+FallbackModel. What a fallback
 answered is counted under its own name and price (app/usage.py), and is logged with what made
 the first model fail.
 """
@@ -42,7 +36,6 @@ import threading
 import time
 from collections.abc import Callable, Collection, Coroutine, Iterator, Sequence
 from concurrent.futures import Future
-from functools import partial
 from typing import Any, Literal, TypeVar
 
 import httpx
@@ -71,7 +64,6 @@ from pydantic_ai.models import Model, ModelRequestParameters, infer_model
 from pydantic_ai.providers import Provider, infer_provider
 from pydantic_ai.providers.google import GoogleProvider
 from pydantic_ai.providers.google_cloud import GoogleCloudProvider
-from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.usage import RequestUsage, RunUsage
 
@@ -112,8 +104,6 @@ PASS_OVER_SECONDS = 60
 # that store prompts and may train on them; a model that no such provider serves fails with
 # OpenRouter's own sentence rather than reach one.
 DATA_POLICY = {"data_collection": "deny"}
-# OpenRouter's address when no region is asked for.
-OPENROUTER_URL = "https://openrouter.ai/api/v1"
 # The codes by which providers say the key is wrong (Anthropic, OpenAI, Google's 400) or the
 # account has nothing left to pay with (OpenAI), whatever the status.
 KEY_REJECTED = frozenset({"authentication_error", "invalid_api_key", "API_KEY_INVALID"})
@@ -386,58 +376,23 @@ def _setup_problem(name: str, error: Exception, settings: Settings) -> str:
     return f"{name!r} cannot be used. {message}"
 
 
-def inference_geo(name: str, region: str) -> str | None:
-    """Where Claude is told to run a request for the model `name` when the deployment keeps its
-    data in `region` (DATA_REGION): in the US for the US, the one region Anthropic's API offers
-    besides anywhere. None leaves it to the workspace's default, and is all there is for any
-    other provider or region; app/residency.py refuses a Claude model under the EU."""
-    return "us" if region == "us" and model_provider(name) == "anthropic" else None
-
-
-def openrouter_url(region: str) -> str:
-    """Where OpenRouter is reached for a deployment that keeps its data in `region`: the
-    region's own address, which forwards a request only to providers in the region and fails it
-    when none serves the model, or the usual one without a region."""
-    return f"https://{region}.openrouter.ai/api/v1" if region else OPENROUTER_URL
-
-
-class _RegionalOpenRouter(OpenRouterProvider):
-    """OpenRouter at a region's address (`openrouter_url`), which the library has no setting
-    for: it builds its client from `base_url`, so the address is set before that happens."""
-
-    def __init__(self, region: str):
-        self._region = region
-        super().__init__()
-
-    @property
-    def base_url(self) -> str:
-        return openrouter_url(self._region)
-
-
-def _provider(name: str, *, region: str = "") -> Provider[Any]:
-    """The provider behind a model-name prefix, reading its key from the environment, held to
-    `region` (DATA_REGION) where the provider lets the app choose."""
+def _provider(name: str) -> Provider[Any]:
+    """The provider behind a model-name prefix, reading its key from the environment."""
     # Google's SDK gives up at the first rate-limit or overload response unless told to retry,
     # on either of its APIs. Anthropic's and OpenAI's retry twice by default.
     if name == "google":
         return GoogleProvider(retry_options=HttpRetryOptions(attempts=GOOGLE_ATTEMPTS))
     if name == "google-cloud":
         return GoogleCloudProvider(retry_options=HttpRetryOptions(attempts=GOOGLE_ATTEMPTS))
-    if name == "openrouter" and region:
-        return _RegionalOpenRouter(region)
     return infer_provider(name)
 
 
-def _settings(effort: str, geo: str | None = None, **settings: Any) -> dict[str, Any]:
+def _settings(effort: str, **settings: Any) -> dict[str, Any]:
     """Model settings for one request. An empty `effort` leaves the model's own default.
 
-    OpenRouter's data policy goes on every request; the other providers ignore it. `geo` is
-    where Claude is to run the request (`inference_geo`); it goes only to a Claude model, since
-    the field rides in the request's body, which another provider would refuse.
+    OpenRouter's data policy goes on every request; the other providers ignore it.
     """
     settings["openrouter_provider"] = dict(DATA_POLICY)
-    if geo:
-        settings["extra_body"] = {"inference_geo": geo}
     if effort:
         settings["thinking"] = effort
     return settings
@@ -651,15 +606,11 @@ class LLM:
         with self._lock:
             if name not in self._models:
                 try:
-                    provider = partial(_provider, region=self._settings.data_region)
-                    self._models[name] = infer_model(name, provider)
+                    self._models[name] = infer_model(name, _provider)
                 except Exception as error:
                     # An unknown name, a missing key, or a provider whose package is absent.
                     raise LLMUnavailable(_setup_problem(name, error, self._settings)) from error
             return self._models[name]
-
-    def _geo(self, name: str) -> str | None:
-        return inference_geo(name, self._settings.data_region)
 
     def _candidates(self, role: str) -> list[ModelSetting]:
         """The models for `role`'s work in the order to ask them: as the settings list them,
@@ -729,7 +680,6 @@ class LLM:
             instructions=INDEX_SYSTEM,
             model_settings=_settings(
                 self._settings.index_effort,
-                self._geo(name),
                 max_tokens=INDEX_MAX_TOKENS,
                 timeout=INDEX_TIMEOUT,
             ),
@@ -780,7 +730,7 @@ class LLM:
         # library's, which for a stream is per read, so it is the longest pause allowed; the
         # whole turn is bounded by `ModelStream`.
         settings = _settings(
-            self._settings.agent_effort, self._geo(name), anthropic_cache=True, timeout=STREAM_STALL
+            self._settings.agent_effort, anthropic_cache=True, timeout=STREAM_STALL
         )
         try:
             return self._model(name), settings

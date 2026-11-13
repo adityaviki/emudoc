@@ -155,11 +155,6 @@ def deployment(tmp_path, monkeypatch) -> dict[str, object]:
         "RUN_WORKER",
         "LOG_FORMAT",
         "GOOGLE_PAID_TIER",
-        "HOSTING_PROVIDER",
-        "OPERATOR_NAME",
-        "OPERATOR_EMAIL",
-        "BACKUP_DAYS",
-        "SERVER_LOG_DAYS",
         "DATABASE_POOLER",
         "DATABASE_LISTEN_URL",
         "SSL_CERT_FILE",
@@ -187,11 +182,6 @@ def deployment(tmp_path, monkeypatch) -> dict[str, object]:
         "scanner_url": "clamd://clamav:3310",
         "embedding_base_url": "http://embeddings:8080/v1",
         "google_paid_tier": True,
-        "hosting_provider": "Hetzner Online GmbH, Germany",
-        "operator_name": "Emudoc GmbH, Example Street 1, 10115 Berlin, Germany",
-        "operator_email": "privacy@emudoc.example.com",
-        "backup_days": 35,
-        "server_log_days": 30,
         "encryption_keys": A_KEY,
     }
 
@@ -211,11 +201,6 @@ def test_production_refuses_every_development_convenience_in_one_message(deploym
         "scanner_url",
         "embedding_base_url",
         "google_paid_tier",
-        "hosting_provider",
-        "operator_name",
-        "operator_email",
-        "backup_days",
-        "server_log_days",
         "encryption_keys",
     ):
         del deployment[name]
@@ -235,11 +220,6 @@ def test_production_refuses_every_development_convenience_in_one_message(deploym
         "SCANNER_URL",
         "EMBEDDING_BASE_URL",
         "GOOGLE_PAID_TIER",
-        "HOSTING_PROVIDER",
-        "OPERATOR_NAME",
-        "OPERATOR_EMAIL",
-        "BACKUP_DAYS",
-        "SERVER_LOG_DAYS",
         "ENCRYPTION_KEYS",
     ):
         assert variable in message
@@ -258,11 +238,6 @@ def test_production_refuses_every_development_convenience_in_one_message(deploym
         ({"scanner_url": ""}, "SCANNER_URL"),
         ({"embedding_base_url": None}, "EMBEDDING_BASE_URL"),
         ({"google_paid_tier": False}, "GOOGLE_PAID_TIER"),
-        ({"hosting_provider": " "}, "HOSTING_PROVIDER"),
-        ({"operator_name": ""}, "OPERATOR_NAME"),
-        ({"operator_email": ""}, "OPERATOR_EMAIL"),
-        ({"backup_days": None}, "BACKUP_DAYS"),
-        ({"server_log_days": None}, "SERVER_LOG_DAYS"),
         ({"encryption_keys": ""}, "ENCRYPTION_KEYS"),
         ({"encryption_keys": f"{A_KEY},{DEVELOPMENT}"}, "ENCRYPTION_KEYS"),
     ],
@@ -741,14 +716,9 @@ def test_development_runs_with_everything_production_refuses(deployment):
         app_url="",
         smtp_url="",
         google_paid_tier=False,
-        hosting_provider="",
-        operator_name="",
-        operator_email="",
         encryption_keys="",
     )
     del deployment["storage_url"]
-    del deployment["backup_days"]
-    del deployment["server_log_days"]
     assert load_settings(**deployment).production_problems() == []
 
 
@@ -848,14 +818,19 @@ def test_the_interactive_api_docs_are_served_in_development_only(client, service
 # app reads, so that a deployment's operator finds every variable in one place.
 
 GUIDE = ROOT_DIR / "deploying.md"
-# What the app's libraries read rather than its own code: the providers' keys (Pydantic AI's),
-# the bucket's credentials (boto3's), the trust store (OpenSSL's) and the proxy's address
-# (uvicorn's).
+# What the app's libraries read rather than its own code: the providers' keys and Vertex AI's
+# account and place (Pydantic AI's and Google's), the bucket's credentials and region (boto3's),
+# the trust store (OpenSSL's) and the proxy's address (uvicorn's).
 READ_BY_THE_LIBRARIES = {
     "ANTHROPIC_API_KEY",
     "OPENROUTER_API_KEY",
     "OPENAI_API_KEY",
+    "GOOGLE_API_KEY",
+    "GEMINI_API_KEY",
+    "GOOGLE_APPLICATION_CREDENTIALS",
     "GOOGLE_CLOUD_PROJECT",
+    "GOOGLE_CLOUD_LOCATION",
+    "AWS_DEFAULT_REGION",
     "AWS_ACCESS_KEY_ID",
     "AWS_SECRET_ACCESS_KEY",
     "AWS_SESSION_TOKEN",
@@ -913,7 +888,7 @@ def test_the_guide_lists_every_setting_with_its_default():
 def test_the_guide_lists_what_the_app_reads_besides_its_settings():
     source = "\n".join(path.read_text() for path in (BACKEND_DIR / "app").rglob("*.py"))
     read = set(READ_BY_NAME.findall(source)) | set(MODEL_BASE_URLS.values())
-    assert "GOOGLE_APPLICATION_CREDENTIALS" in read and "OLLAMA_BASE_URL" in read
+    assert "TMPDIR" in read and "OLLAMA_BASE_URL" in read
     assert read | READ_BY_THE_LIBRARIES <= listed().keys()
 
 

@@ -84,7 +84,7 @@ variable "deletion_protection" {
 }
 
 variable "backup_days" {
-  description = "BACKUP_DAYS: how long the database's backups and the bucket's earlier versions are kept, which the privacy policy names. RDS keeps at most 35."
+  description = "BACKUP_DAYS: how long the database's backups and the bucket's earlier versions are kept, which the app holds the bucket to at start. RDS keeps at most 35."
   type        = number
   default     = 35
 
@@ -95,7 +95,7 @@ variable "backup_days" {
 }
 
 variable "access_log_days" {
-  description = "ACCESS_LOG_DAYS: how long the documents bucket's access logs and the VPC's flow logs are kept, which the privacy policy names, since they hold members' IP addresses."
+  description = "How long the documents bucket's access logs and the VPC's flow logs are kept, which hold members' IP addresses."
   type        = number
   default     = 30
 
@@ -106,7 +106,7 @@ variable "access_log_days" {
 }
 
 variable "server_log_days" {
-  description = "SERVER_LOG_DAYS: how long the instance's journal keeps the containers' logs (the app's, with each request's client address, and Caddy's access log) and RDS keeps Postgres's, which the privacy policy names."
+  description = "SERVER_LOG_DAYS: how long the instance's journal keeps the containers' logs (the app's, with each request's client address, and Caddy's access log) and RDS keeps Postgres's."
   type        = number
   default     = 30
 
@@ -116,25 +116,8 @@ variable "server_log_days" {
   }
 }
 
-variable "data_region" {
-  description = "DATA_REGION: eu, us, or empty for no promise. The app checks the bucket and the models against it at start; the region the provider is configured for must be in it."
-  type        = string
-  default     = ""
-
-  validation {
-    condition     = contains(["", "eu", "us"], var.data_region)
-    error_message = "data_region is eu, us or empty."
-  }
-}
-
-variable "hosting_provider" {
-  description = "HOSTING_PROVIDER, as the subprocessor list names who runs the servers and the database; empty says Amazon Web Services and the region."
-  type        = string
-  default     = ""
-}
-
 variable "settings" {
-  description = "The app's other settings, by their names in .env.example: the operator, the models, their prices and limits. An empty value is no setting. Secrets (keys, passwords, client secrets) never go here: they are put into the secrets path by hand (deploying.md, \"On AWS\")."
+  description = "The app's other settings, by their names in .env.example: the models, their prices and limits, and where members write for help. An empty value is no setting. Secrets (keys, passwords, client secrets) never go here: they are put into the secrets path by hand (deploying.md, \"On AWS\")."
   type        = map(string)
   default     = {}
 
@@ -147,10 +130,10 @@ variable "settings" {
   # can say; backend/tests/test_deploy.py keeps this list in step with it.
   validation {
     condition = alltrue([
-      for name in ["OPERATOR_NAME", "OPERATOR_EMAIL", "AGENT_MODEL", "INDEX_MODEL"] :
+      for name in ["AGENT_MODEL", "INDEX_MODEL"] :
       lookup(var.settings, name, "") != ""
     ])
-    error_message = "OPERATOR_NAME, OPERATOR_EMAIL, AGENT_MODEL and INDEX_MODEL are the operator's to fill in (deploy/aws/shared/main.tf): production refuses to start without them."
+    error_message = "AGENT_MODEL and INDEX_MODEL are the operator's to fill in (deploy/aws/shared/main.tf): production refuses to start without them."
   }
 
   validation {

@@ -1148,27 +1148,6 @@ def test_an_openrouter_turn_keeps_to_providers_that_store_nothing(monkeypatch):
     assert recorder.body()["provider"] == {"data_collection": "deny"}
 
 
-@pytest.mark.parametrize("region", ["eu", "us"])
-def test_openrouter_is_reached_at_the_region_s_own_address(monkeypatch, region):
-    # Its regional address sends a request only to providers in the region, and fails it when
-    # none serves the model rather than leave the region.
-    chunk = {
-        "id": "gen-03",
-        "object": "chat.completion.chunk",
-        "created": 0,
-        "model": "google/gemini-2.5-flash-lite",
-        "choices": [{"index": 0, "delta": {"content": "Ninety days."}, "finish_reason": "stop"}],
-    }
-    recorder = Recorder(openrouter_stream(chunk))
-    llm = recorded_llm(monkeypatch, recorder, OPENROUTER, data_region=region)
-    with llm.stream_agent("Be brief.", QUESTION, []) as stream:
-        list(stream)
-    request = recorder.requests[0]
-    assert str(request.url) == f"https://{region}.openrouter.ai/api/v1/chat/completions"
-    assert request.headers["authorization"] == "Bearer test-key"
-    assert recorder.body()["provider"] == {"data_collection": "deny"}
-
-
 def message(content, stop_reason="end_turn", **extra) -> dict:
     return {
         "id": "msg_01",
@@ -1229,30 +1208,6 @@ def test_claude_structured_request(monkeypatch):
     assert body["output_config"]["format"]["type"] == "json_schema"
     assert "cache_control" not in body
     assert "provider" not in body
-    # Without a region the workspace's default decides where Claude runs.
-    assert "inference_geo" not in body
-
-
-def test_claude_is_told_to_run_in_the_us_when_the_data_is_kept_there(monkeypatch):
-    reply = message([{"type": "text", "text": json.dumps(ANALYSIS)}])
-    recorder = Recorder(
-        httpx2.Response(200, json=reply),
-        claude_stream(({"type": "text", "text": "Ninety days."}, []), stop_reason="end_turn"),
-    )
-    llm = recorded_llm(monkeypatch, recorder, CLAUDE, data_region="us")
-    llm.structured("the document", DocumentAnalysis)
-    with llm.stream_agent("Be brief.", QUESTION, []) as stream:
-        list(stream)
-    assert [recorder.body(index)["inference_geo"] for index in (0, 1)] == ["us", "us"]
-
-
-def test_only_claude_is_told_where_to_run(monkeypatch):
-    # The field rides in the request's body, which Gemini's API would refuse.
-    reply = gemini({"text": json.dumps(ANALYSIS)})
-    recorder = Recorder(httpx2.Response(200, json=reply))
-    llm = recorded_llm(monkeypatch, recorder, GEMINI, data_region="us")
-    llm.structured("the document", DocumentAnalysis)
-    assert "inference_geo" not in recorder.requests[0].content.decode()
 
 
 def test_agent_loop_over_recorded_claude_streams(monkeypatch, services, indexed):
@@ -1385,8 +1340,8 @@ def test_a_gemini_out_of_reach_leaves_its_requests_to_claude(monkeypatch, caplog
 
 
 def test_each_model_is_asked_with_its_own_provider_s_settings(monkeypatch):
-    # Claude is told where to run in the body of the request, which another provider's API
-    # would refuse; OpenRouter sends whatever extra body it is given.
+    # Claude is asked to cache the prompt and OpenRouter to keep to its data policy, each by
+    # the fields its own API reads.
     chunk = {
         "id": "gen-04",
         "object": "chat.completion.chunk",
@@ -1417,7 +1372,6 @@ def test_each_model_is_asked_with_its_own_provider_s_settings(monkeypatch):
         agent_model=CLAUDE,
         index_fallback_model=OPENROUTER,
         agent_fallback_model=OPENROUTER,
-        data_region="us",
     )
     clock = [1000.0]
     monkeypatch.setattr("app.llm.time", SimpleNamespace(monotonic=lambda: clock[0]))
@@ -1428,8 +1382,7 @@ def test_each_model_is_asked_with_its_own_provider_s_settings(monkeypatch):
         list(stream)
         assert stream.response().text == "Ninety days."
     assert stream.model == OPENROUTER
-    assert [claude_recorder.body(index)["inference_geo"] for index in (0, 1)] == ["us", "us"]
+    assert len(claude_recorder.requests) == 2
     assert "cache_control" in claude_recorder.body(1)
     for index in (0, 1):
-        assert "inference_geo" not in openrouter_recorder.requests[index].content.decode()
         assert openrouter_recorder.body(index)["provider"] == {"data_collection": "deny"}

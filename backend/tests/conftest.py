@@ -175,7 +175,6 @@ os.environ["PRERENDER_PAGES"] = "0"
 # would be in every test that signs up; tests/test_sample.py turns it on.
 os.environ["SAMPLE_PROJECT"] = "false"
 # Members write to support at one address, whatever `.env` names; tests/test_help.py changes it.
-os.environ["OPERATOR_EMAIL"] = ""
 os.environ["SUPPORT_EMAIL"] = "support@emudoc.example.com"
 os.environ["STATUS_PAGE_URL"] = ""
 
@@ -211,7 +210,6 @@ from app.indexing.enrich import (  # noqa: E402
 )
 from app.indexing.pipeline import Services, process_document  # noqa: E402
 from app.jobs import SEND_EMAIL, claim, finish, queue_index  # noqa: E402
-from app.legal import TERMS_VERSION  # noqa: E402
 from app.llm import LLMUnavailable, OcrBlock, OcrPage  # noqa: E402
 from app.mail import Message  # noqa: E402
 from app.main import create_app  # noqa: E402
@@ -457,18 +455,15 @@ class FakeS3Client:
         self,
         *buckets: str,
         origin: str | None = None,
-        location: str | None = None,
         encryption: str | None = "AES256",
         versioning: str = "",
         lifecycle: list[dict] | None = None,
     ):
         self.buckets = set(buckets) or {"bucket"}
-        # Where signed URLs lead (the bucket's own host under s3.example unless given), the
-        # region the bucket says it is in, which AWS answers as None for us-east-1, and its
+        # Where signed URLs lead (the bucket's own host under s3.example unless given), and its
         # default encryption, which every AWS bucket has had since 2023; None is a bucket
         # without one.
         self.origin = origin
-        self.location = location
         self.encryption = encryption
         # Its versioning ("Enabled", "Suspended", "" for never) and lifecycle rules, None for
         # none. With versioning enabled a delete puts a marker over the key's versions, which
@@ -498,11 +493,6 @@ class FakeS3Client:
         self.calls.append("head_bucket")
         self._check_bucket(Bucket, "HeadBucket")
         return {}
-
-    def get_bucket_location(self, *, Bucket: str) -> dict:
-        self.calls.append("get_bucket_location")
-        self._check_bucket(Bucket, "GetBucketLocation")
-        return {"LocationConstraint": self.location}
 
     def get_bucket_encryption(self, *, Bucket: str) -> dict:
         self.calls.append("get_bucket_encryption")
@@ -937,16 +927,10 @@ def account(session) -> Account:
 
 @pytest.fixture
 def make_account(session):
-    """A user with a role in an organisation: a new one, or the one given. The user has
-    accepted the current terms, as one who signed up has."""
+    """A user with a role in an organisation: a new one, or the one given."""
 
     def make(email: str, organization: Organization | None = None, role: str = "owner") -> Account:
-        user = User(
-            email=email,
-            name=email.split("@")[0].title(),
-            terms_version=TERMS_VERSION,
-            terms_accepted_at=datetime.now(UTC),
-        )
+        user = User(email=email, name=email.split("@")[0].title())
         if organization is None:
             slug = email.split("@")[1].split(".")[0]
             organization = Organization(name=slug.title(), slug=slug)

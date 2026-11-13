@@ -85,8 +85,7 @@ log = logging.getLogger(__name__)
     THREAD_REPLIED,
 ) = NOTICE_KINDS
 IN_APP = NOTICE_CHANNELS[0]
-# How long a notice stays in its member's notification centre, read or not; the privacy policy
-# says so.
+# How long a notice stays in its member's notification centre, read or not.
 NOTIFICATION_DAYS = 90
 # How long an upload must take to settle for its member to be told: one indexed sooner was
 # most likely watched in the library.

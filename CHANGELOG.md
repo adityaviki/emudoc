@@ -16,6 +16,10 @@ newest entry first.
 
 Members:
 
+- Emudoc no longer has terms of service, a privacy policy or a list of subprocessors of its own:
+  the pages are gone, a new account is made without ticking a box, and nobody is asked to
+  accept new terms. Your team, which runs Emudoc, tells you what it keeps and who receives it.
+  The workspace's page no longer says which region its data is kept in.
 - Emudoc opens at its sign-in for anyone not signed in: the public home page is gone. While
   sign-up is closed, the sign-in and sign-up pages say to ask your team's admin for an invitation,
   with no button to request access or book a demo.
@@ -40,6 +44,20 @@ Members:
 
 Operators:
 
+- The terms of service, the privacy policy, the subprocessor list and the residency rules are
+  gone: `/terms`, `/privacy` and `/subprocessors`, `GET /api/legal`, `GET /api/subprocessors`,
+  `POST /api/auth/terms`, the page that asked for new terms, `terms_version` in the setup's, the
+  sign-up's and the invitation's bodies and `terms_due` in `/api/auth/me`, and
+  `users.terms_version`, `users.terms_accepted_at` and `organizations.region` (dropped by the
+  migration). The settings `HOSTING_PROVIDER`, `OPERATOR_NAME`, `OPERATOR_EMAIL`, `DATA_REGION`,
+  `ACCESS_LOG_DAYS` and `SERVER_LOG_DAYS` are no longer read (left in the environment, they are
+  ignored), production no longer requires `BACKUP_DAYS`, and `SUPPORT_EMAIL` falls back to
+  nobody. OpenRouter is reached at its usual address and Claude is no longer told where to run,
+  and the start no longer checks where the models, the bucket and the embeddings endpoint are,
+  so the app no longer asks a bucket its region (`s3:GetBucketLocation`). The AWS module writes
+  neither `HOSTING_PROVIDER`, `DATA_REGION` nor `ACCESS_LOG_DAYS`, asks for `OPERATOR_NAME` and
+  `OPERATOR_EMAIL` no more, and drops its `data_region` and `hosting_provider` variables.
+  `deploying.md`'s "What leaves the deployment" says what each provider receives.
 - The public site is gone: the home page at `/` (`frontend/home.html`, the build's `--mode site`,
   `app/site.py`), its fonts and logos in `frontend/public/brand/`, the sitemap, `SEARCH_ENGINES`
   and `BOOKING_URL` (left in `.env`, they are ignored), and `book_url` and `book_label` of `GET

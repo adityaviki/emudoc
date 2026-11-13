@@ -3,7 +3,7 @@
 # the documents bucket's server access logs, every request with the requester's address and
 # browser, which for the page images and downloads a member's browser fetches by a signed
 # address are the member's, and whose query names a download's file. Both are personal data, so
-# they go after access_log_days, which the privacy policy names (ACCESS_LOG_DAYS, settings.tf).
+# they go after access_log_days.
 # Access logs rather than CloudTrail's data events, which cost per request. Neither of the
 # containers' roles reaches this bucket.
 

@@ -136,7 +136,7 @@ export interface CheckboxProps extends Omit<InputHTMLAttributes<HTMLInputElement
   mixed?: boolean
 }
 
-/** A box to tick beside a sentence, such as the acceptance of the terms. */
+/** A box to tick beside a sentence. */
 export function Checkbox({ label, id, className = '', mixed = false, ...props }: CheckboxProps) {
   const generated = useId()
   const inputId = id ?? generated

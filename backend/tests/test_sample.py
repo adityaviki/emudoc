@@ -14,7 +14,6 @@ from sqlalchemy import select
 from app.config import get_settings
 from app.indexing.pipeline import process_document
 from app.jobs import LIVE
-from app.legal import TERMS_VERSION
 from app.models import AuditEvent, Document, Job, Organization, Passage, Project, UsageEvent
 from app.sample import (
     DESCRIPTION,
@@ -202,7 +201,7 @@ def test_the_copy_is_the_apps_own_act_in_the_audit_log(client, session, sample_o
     signup(client)
     sample = the_sample(client)
     rows = session.scalars(select(AuditEvent).order_by(AuditEvent.id)).all()
-    assert [row.action for row in rows] == ["sign_up", "terms_accepted", "sample_added"]
+    assert [row.action for row in rows] == ["sign_up", "sample_added"]
     added = rows[-1]
     assert added.user_id is None and added.project_id == sample["id"]
     assert (added.target_type, added.target_id) == ("project", sample["id"])
@@ -221,8 +220,6 @@ def test_a_sign_up_finds_the_workspaces_and_adds_none(
         handshake.nonce, sub="google-grace", email="grace@example.com"
     )
     assert callback(client, code="the-code", state=handshake.state).status_code == 302
-    # Accepted on the page a provider's sign-up lands on, before anything else is shown.
-    assert client.post("/api/auth/terms", json={"version": TERMS_VERSION}).status_code == 200
     assert the_sample(client)["document_count"] == FILE_COUNT
     assert len(session.scalars(select(Project).where(Project.sample.is_(True))).all()) == 1
 

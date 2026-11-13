@@ -5,9 +5,9 @@ or a storage this code was not written for, build the services the pipeline and 
 with, and in production refuse to run without a usable model or with an embeddings endpoint that
 turns its requests down, with a pgvector that loses a project's passages to the search's filter
 (app/postgres.py), with a model or a bucket reached in the clear across a network the deployment
-does not own (app/network.py), with a bucket that keeps deleted files longer than the privacy
-policy says (`check_versions` in app/storage.py), or outside the region the deployment promises
-(app/residency.py), and anywhere without a temporary directory to write in or with a sample
+does not own (app/network.py), or with a bucket that keeps deleted files longer than BACKUP_DAYS
+says (`check_versions` in app/storage.py), and anywhere without a temporary directory to write in
+or with a sample
 project whose files its index does not describe (app/sample); then, refused by none of it, they
 queue what a changed embedding model left stale. One function does all of it,
 so that the two processes refuse the same misconfigurations and a check added for one is not
@@ -30,7 +30,6 @@ from app.mail import mailer_from_settings
 from app.maintenance import check_embeddings, requeue_stale_embeddings, warn_about_old_layout
 from app.network import MODEL_BASE_URLS, plain_http_problem, trust_store_problem
 from app.postgres import check_database
-from app.residency import check_residency
 from app.sample import check_sample
 from app.scanning import check_scanner, scanner_from_settings
 from app.search import check_fts_language
@@ -95,9 +94,6 @@ def prepare(settings: Settings, services: Services | None = None) -> Services:
     check_scanner(settings, services.scanner)
     check_model(settings, services.llm)
     check_embedder(settings, services.embedder)
-    # After `export_env_file`: the Vertex location and the base URLs that place a model are
-    # read where the providers read them.
-    check_residency(settings, services.storage, os.environ)
     # Last: a start refused for its settings, a mistyped EMBEDDING_MODEL among them, must not
     # first queue every document to be embedded again.
     requeue_stale_embeddings()

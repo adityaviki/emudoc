@@ -10,7 +10,7 @@ import { ME_KEY, useSignOut } from '../auth.ts'
 import { ThemeToggle } from '../components/ThemeToggle.tsx'
 import { Button, Notice } from '../components/ui.tsx'
 import { RecoveryCodes, SetupStep } from './TwoFactor.tsx'
-import { AuthCard, LegalLinks } from './shared.tsx'
+import { AuthCard } from './shared.tsx'
 
 type Phase = { kind: 'idle' } | { kind: 'setup'; setup: MfaSetup } | { kind: 'codes'; codes: string[] }
 
@@ -67,7 +67,6 @@ export function MfaPending({ me }: { me: Me }) {
           )}
         </AuthCard>
       </main>
-      <LegalLinks />
     </div>
   )
 }

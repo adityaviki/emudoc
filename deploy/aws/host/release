@@ -66,9 +66,9 @@ else
   exit 1
 fi
 
-# How long the journal keeps the containers' logs and the host's own (SERVER_LOG_DAYS, which
-# the privacy policy names), read by journald at its start; its restart keeps the services'
-# streams, and Docker's lines wait in the socket meanwhile.
+# How long the journal keeps the containers' logs and the host's own (SERVER_LOG_DAYS), read by
+# journald at its start; its restart keeps the services' streams, and Docker's lines wait in the
+# socket meanwhile.
 journald=/etc/systemd/journald.conf.d/emudoc.conf
 if ! cmp -s /etc/emudoc/next/journald.conf "$journald"; then
   install -D -m 0644 /etc/emudoc/next/journald.conf "$journald"

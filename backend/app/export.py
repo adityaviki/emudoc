@@ -132,20 +132,19 @@ from app.storage import Storage, export_key
 log = logging.getLogger(__name__)
 
 ABOUT = (
-    "What Emudoc keeps about you: your account and the edition of the terms you accepted, how you "
-    "are told each kind of notice and whether the mail provider said not to write to your "
-    "address, how you sign in, the workspace you belong to and the private projects you were "
-    "chosen to see, the browsers and devices you signed in from in the last month and when each "
-    "browser you signed in with did so first and last, the chats you started with every question "
-    "and answer, the chats you pinned, the documents you starred and the ones you opened lately, "
-    "the links you made that show a document or an answer to whoever holds them, the question "
-    "sets you made with their questions, the comments you wrote on documents, the files of your My "
-    "files with their versions (download the files themselves from the app), the notices in your "
-    "notification centre, the usage counted to you, and what the audit logs of your organisations "
-    "recorded you doing. Answers cite passages of documents as [P<number>]. The documents "
-    "themselves are not in this file: they belong to the organisation that holds them. Your "
-    "password and recovery codes are kept only as hashes, and they and your authenticator secret "
-    "are left out."
+    "What Emudoc keeps about you: your account, how you are told each kind of notice and whether "
+    "the mail provider said not to write to your address, how you sign in, the workspace you "
+    "belong to and the private projects you were chosen to see, the browsers and devices you "
+    "signed in from in the last month and when each browser you signed in with did so first and "
+    "last, the chats you started with every question and answer, the chats you pinned, the "
+    "documents you starred and the ones you opened lately, the links you made that show a "
+    "document or an answer to whoever holds them, the question sets you made with their "
+    "questions, the comments you wrote on documents, the files of your My files with their "
+    "versions (download the files themselves from the app), the notices in your notification "
+    "centre, the usage counted to you, and what the audit logs of your organisations recorded you "
+    "doing. Answers cite passages of documents as [P<number>]. The documents themselves are not "
+    "in this file: they belong to the organisation that holds them. Your password and recovery "
+    "codes are kept only as hashes, and they and your authenticator secret are left out."
 )
 
 # How long a project's export is kept for the member who asked for it, once it is ready: long
@@ -318,8 +317,6 @@ def account_export(session: Session, user: User) -> AccountExport:
             created_at=user.created_at,
             email_verified_at=user.email_verified_at,
             two_factor_enabled_at=user.totp_enabled_at,
-            terms_version=user.terms_version,
-            terms_accepted_at=user.terms_accepted_at,
             deletion_due_at=user.deletion_due_at,
             sign_in_providers=[
                 ExportedIdentity(provider=row.provider, email=row.email, linked_at=row.created_at)

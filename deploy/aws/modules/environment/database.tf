@@ -34,8 +34,8 @@ resource "aws_db_parameter_group" "main" {
     value = "300000"
   }
 
-  # Postgres's own log is among the server logs the privacy policy names (SERVER_LOG_DAYS) and
-  # promises hold no email address. An error's DETAIL repeats the key or row it refused ("Key
+  # Postgres's own log is among the server logs, kept for SERVER_LOG_DAYS, which hold no email
+  # address. An error's DETAIL repeats the key or row it refused ("Key
   # (email)=(…) already exists"), so the log keeps an error's first line and its statement
   # alone, whose values the app binds as $1. RDS deletes a file of the log, an hour's lines,
   # once it is older than its period in minutes (7 days at most): a day short of the policy's.
@@ -81,8 +81,8 @@ resource "aws_db_instance" "main" {
   multi_az               = var.database_multi_az
   ca_cert_identifier     = "rds-ca-rsa2048-g1"
 
-  # Point-in-time recovery over the last backup_days, and no snapshot kept longer: the privacy
-  # policy promises that a deleted account is gone from the backups within BACKUP_DAYS.
+  # Point-in-time recovery over the last backup_days, and no snapshot kept longer, so that a
+  # deleted account is gone from the backups within BACKUP_DAYS.
   backup_retention_period  = var.backup_days
   backup_window            = "02:00-02:30"
   maintenance_window       = "sun:03:00-sun:04:00"

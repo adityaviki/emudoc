@@ -53,13 +53,11 @@ class Member:
     async def set_up(self, email: str) -> dict:
         """Make the install's admin and its workspace on the setup page, as whoever runs a new
         install does (app/signups.py), signed in."""
-        version = (await self._ok("GET", "/api/legal")).json()["version"]
         body = {
             "email": email,
             "name": "Load",
             "password": "a load test's password",
             "workspace": "Load",
-            "terms_version": version,
         }
         return (await self._ok("POST", "/api/auth/setup", json=body)).json()
 

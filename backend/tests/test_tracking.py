@@ -89,9 +89,9 @@ def boom(*args, **kwargs):
 
 
 def test_an_unplanned_error_is_answered_with_the_reference_to_quote(failing, monkeypatch, caplog):
-    monkeypatch.setattr(main, "subprocessors", boom)
+    monkeypatch.setattr(main, "_contract", boom)
     request_id = "0f8fad5b-d9cb-469f-a165-70867728950e"
-    response = failing.get("/api/subprocessors", headers={"X-Request-ID": request_id})
+    response = failing.get("/api/v1/openapi.json", headers={"X-Request-ID": request_id})
 
     assert response.status_code == 500
     assert response.json() == {
@@ -105,7 +105,7 @@ def test_an_unplanned_error_is_answered_with_the_reference_to_quote(failing, mon
     carries_the_headers(response)
     assert response.headers["cache-control"] == "no-store"
     # A request of the app's own gets an id of its own all the same.
-    own = failing.get("/api/subprocessors")
+    own = failing.get("/api/v1/openapi.json")
     assert own.json()["request_id"] == own.headers["X-Request-ID"]
     assert own.headers["X-Request-ID"] in own.json()["detail"]
 
@@ -155,8 +155,8 @@ def test_a_message_the_app_wrote_is_shown_and_its_cause_is_not(failing, monkeypa
         except ValueError as error:
             raise AppError("The model's reply could not be read; ask again.") from error
 
-    monkeypatch.setattr(main, "subprocessors", refuse)
-    assert failing.get("/api/subprocessors").status_code == 500
+    monkeypatch.setattr(main, "_contract", refuse)
+    assert failing.get("/api/v1/openapi.json").status_code == 500
 
     (event,) = tracker.events
     cause, error = event["exception"]["values"]
@@ -172,8 +172,8 @@ def test_a_refusal_the_app_answers_on_purpose_is_no_error(client, monkeypatch, t
     def unreachable(*args, **kwargs):
         raise StorageError("The bucket could not be reached.", transient=True)
 
-    monkeypatch.setattr(main, "subprocessors", unreachable)
-    assert client.get("/api/subprocessors").status_code == 503
+    monkeypatch.setattr(main, "_contract", unreachable)
+    assert client.get("/api/v1/openapi.json").status_code == 503
     assert client.get("/api/no-such-route").status_code == 404
     assert client.post("/api/projects", json={}).status_code == 422
     assert tracker.events == []

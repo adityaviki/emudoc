@@ -18,12 +18,12 @@ the end of the run it logs one line, "Job 812 (answer_question) ran 48.2 s (done
 `timing` field holds them all (deploying.md, "Traces"): a slow answer a member reports, or the
 slowest of the hour, is read from one line, where the metrics only say that some were slow.
 
-The log rather than OpenTelemetry's SDK, on purpose. The log is kept for SERVER_LOG_DAYS and
-the privacy policy names it, while spans sent to a tracing service would be one more store of
-members' ids to hold to that period, or one more company to list. And a global tracer provider
-turns on spans the app did not write: FastAPI's, with each request's path and query, and
-Anthropic's SDK's (app/metrics.py's docstring). The ids have the shape of a W3C trace's, so a
-collector that turns log lines into spans can keep them.
+The log rather than OpenTelemetry's SDK, on purpose. The log is kept as long as the deployment
+keeps its server logs, while spans sent to a tracing service would be one more store of
+members' ids to hold to that period, or one more company to send them to. And a global tracer
+provider turns on spans the app did not write: FastAPI's, with each request's path and query,
+and Anthropic's SDK's (app/metrics.py's docstring). The ids have the shape of a W3C trace's, so
+a collector that turns log lines into spans can keep them.
 
 A span holds the app's own words: its kind, a model's configured name, a stage, a tool among
 the agent's own (a name the model made up is "unknown"), how it ended, tokens and seconds;
