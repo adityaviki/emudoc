@@ -10,12 +10,12 @@ from pydantic_ai.tools import ToolDefinition
 
 from app.answers import ANSWER_PROMPT_VERSION
 from app.check_runs import REPORT_PROMPT_VERSION
-from app.drafts import DRAFT_PROMPT_VERSION
 from app.golden import JUDGE_PROMPT_VERSION
 from app.indexing.enrich import ENRICH_PROMPT_VERSION, SECTIONS_PROMPT_VERSION
 from app.llm import OCR_PROMPT_VERSION
 from app.prompts import DIGITS, prompt_version, untagged
 from app.question_reports import QUESTION_SET_PROMPT_VERSION
+from app.writings import DRAFT_PROMPT_VERSION
 
 
 def test_a_version_is_a_short_hash_that_any_edit_of_a_text_changes():

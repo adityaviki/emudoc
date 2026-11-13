@@ -41,7 +41,7 @@ from app.conversion import (
 from app.db import SessionLocal
 from app.errors import shown
 from app.jobs import LIVE, VIEW_MY_FILE, Job, Lease, LeaseLost, enqueue, renew
-from app.models import MyFile, MyFileVersion, Organization, Project
+from app.models import MyFile, MyFileVersion, MyFileWriting, Organization, Project
 from app.rendering import RenderError
 from app.scanning import ScanError, Scanner
 from app.storage import Storage, StorageError, my_file_key, my_file_prefix
@@ -276,9 +276,15 @@ def delete_file(session: Session, storage: Storage, file: MyFile) -> None:
 
 
 def drop_files(session: Session, org_id: int, user_id: int) -> None:
-    """Delete the member's files in every project of the organisation they are leaving, in the
-    caller's transaction; the storage walk sweeps their files once it has committed."""
+    """Delete the member's files in every project of the organisation they are leaving, and the
+    writings they asked for there (app/writings.py), in the caller's transaction; the storage walk
+    sweeps their files once it has committed."""
     session.execute(delete(MyFile).where(MyFile.org_id == org_id, MyFile.user_id == user_id))
+    session.execute(
+        delete(MyFileWriting).where(
+            MyFileWriting.org_id == org_id, MyFileWriting.user_id == user_id
+        )
+    )
 
 
 def ask_view(

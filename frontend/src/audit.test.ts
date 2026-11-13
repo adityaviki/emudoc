@@ -164,7 +164,7 @@ describe('a row', () => {
     expect(describeDetail(event('cross_checks_run', { names: ['Totals'], report: false, automation: 'New invoices' }))).toBe(
       'Totals, by the automation “New invoices”',
     )
-    // A draft: its kind, what it was about counted, and how it changed, never what it says.
+    // A draft, of the rows from before drafts became files of My files: its kind, what it was about counted, and how it changed, never what it says.
     expect(describeDetail(event('draft_created', { kind: 'dispute_letter', documents: 1 }))).toBe('Dispute letter, about 1 document')
     expect(describeDetail(event('draft_created', { kind: 'summary_memo', documents: 0 }))).toBe('Summary memo, about what the model finds')
     expect(describeDetail(event('draft_created', { kind: 'reply_email', documents: 1, chat: 4 }))).toBe('Reply email, about 1 document, from a chat')
@@ -258,6 +258,9 @@ describe('a row', () => {
   it('words a file of My files by its kind and version, and says when the agent wrote it', () => {
     expect(describeDetail(event('my_file_added', { kind: 'docx', size_bytes: 9 }))).toBe('a Word document')
     expect(describeDetail(event('my_file_added', { kind: 'docx', by_model: true, chat: 4 }))).toBe('a Word document, by the agent in a chat')
+    expect(describeDetail(event('my_file_added', { kind: 'docx', by_model: true, writing: 'dispute_letter' }))).toBe(
+      'a Word document, by the agent: a dispute letter',
+    )
     expect(describeDetail(event('my_file_version_added', { kind: 'docx', version: 3, by_model: true }))).toBe(
       'a Word document, version 3, by the agent in a chat',
     )

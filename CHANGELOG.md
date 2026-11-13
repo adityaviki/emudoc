@@ -32,9 +32,10 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 - Checks: cross-checks between documents (an invoice against its purchase order, the contract
   or the price list), run when you ask or by an automation as documents arrive; reviews with an
   assignee, disputed or approved; question sets asked on a schedule, each run a report.
-- Writing: the agent drafts letters and replies from the documents (a dispute letter, a reply
-  to a supplier) for you to edit, and writes and edits Word documents and Excel workbooks in
-  your own My files, a workbook's formulas worked out as it is written.
+- Writing: the agent writes letters, replies, memos and reports from the documents as Word
+  documents in your own My files, to your project's templates for each kind, and writes and
+  edits Excel workbooks there, a workbook's formulas worked out as it is written. A disputed
+  document's "Write a dispute letter" has the letter written into your My files.
 - Working together: a workspace with roles, projects private to the members chosen for them,
   chats private until shared with the project, comments on the words of a document with
   mentions, a project's activity, links that share a document or an answer with someone outside,

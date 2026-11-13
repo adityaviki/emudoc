@@ -1,7 +1,8 @@
 // A member's own files in a project, their My files (backend/app/my_files.py): the words of their list and of a file's
-// place in the library, its versions, what keeps one from being shown or served, and a copy into the library.
+// place in the library, its versions, what keeps one from being shown or served, a copy into the library, and the
+// documents the agent is asked to write there outside a chat (backend/app/drafts.py), while it writes them.
 
-import type { Document, MyFile, MyFileKind, MyFileVersion } from './api.ts'
+import type { Document, DraftKind, MyFile, MyFileKind, MyFileVersion, MyFileWriting, MyFiles } from './api.ts'
 import { formatDateTime, formatSize } from './format.ts'
 
 /** The query of the member's files in a project, which a file added, changed or deleted asks again. */
@@ -13,7 +14,7 @@ export const myFileKey = (fileId: number) => ['my-file', fileId] as const
 export const MY_FILE_ACCEPT = '.docx,.xlsx'
 /** What each kind of file is called. */
 export const KIND_WORDS: Record<MyFileKind, string> = { docx: 'Word document', xlsx: 'Excel workbook' }
-/** How often an open file is asked again while its newest version waits for its scan or its pages. */
+/** How often an open file, or the list, is asked again while a version waits for its scan or its pages, or the agent writes a file. */
 export const MY_FILE_POLL = 2000
 
 export const MY_FILES_NOTE =
@@ -80,4 +81,24 @@ export function copiedWords(document: Document, asVersion: boolean): string {
   return asVersion
     ? `“${document.filename}” in the library is now version ${document.version}. Its new file is being read.`
     : `“${document.filename}” is in the library now, being read. Your file stays here.`
+}
+
+/** Whether the agent has yet to settle the writing, and My files should ask again. */
+export const underWay = (writing: Pick<MyFileWriting, 'status'>) => writing.status !== 'failed'
+
+/** Whether the list should be asked again: a file's newest version waits for its scan or its pages, or a writing is under way. */
+export function following(listed: Pick<MyFiles, 'files' | 'writings'>): boolean {
+  return listed.files.some((file) => waiting(file.latest)) || listed.writings.some(underWay)
+}
+
+/** How far a writing is, in a line: waiting for the worker, being written, or why it failed. */
+export function writingWords(writing: MyFileWriting): string {
+  if (writing.status === 'queued') return 'Waiting to be written…'
+  if (writing.status === 'writing') return 'Being written…'
+  return writing.error ?? 'It could not be written. Try again.'
+}
+
+/** The dispute letter a disputed document's review asks the agent for, about it alone. */
+export function disputeLetter(document: Pick<Document, 'id'>): { kind: DraftKind; document_ids: number[] } {
+  return { kind: 'dispute_letter', document_ids: [document.id] }
 }

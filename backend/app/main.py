@@ -30,7 +30,7 @@ from app.api import (
     connectors,
     cross_checks,
     documents,
-    drafts,
+    draft_templates,
     duplicates,
     exports,
     favorites,
@@ -393,7 +393,7 @@ KEYED = (
     automations.router,
     question_sets.router,
     reviews.router,
-    drafts.router,
+    draft_templates.router,
     mailbox.router,
     my_files.router,
 )

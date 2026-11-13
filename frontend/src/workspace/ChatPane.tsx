@@ -13,11 +13,11 @@ import {
   Files,
   Folder,
   FolderLock,
+  LayoutTemplate,
   Link2,
   ListTree,
   Lock,
   MessagesSquare,
-  PenLine,
   Pencil,
   Pin,
   PinOff,
@@ -33,7 +33,7 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import type { KeyboardEvent, ReactNode } from 'react'
+import type { KeyboardEvent } from 'react'
 import { api, organizations, pageLabel, sectionPath, sourceLabel } from '../api.ts'
 import type { Chat, ChatScope, DraftKind, ScopeIn, Source, StepFile, TextFormat } from '../api.ts'
 import { useMe } from '../auth.ts'
@@ -72,9 +72,8 @@ import { askForComposer, listHint, onMac, takeComposerAsk, useComposerAsks } fro
 import { askHeld } from '../status.ts'
 import { answerFileUrl, chatFileUrl } from '../textFiles.ts'
 import { trashKey } from '../trash.ts'
-import { KIND_LABELS } from '../drafts.ts'
+import { KIND_LABELS, kindWords } from '../draftTemplates.ts'
 import { describeAnswerUsage } from '../usage.ts'
-import { OfferedDraft } from './Drafts.tsx'
 import { InviteTeam } from './InviteTeam.tsx'
 import { documentQuery } from './listing.ts'
 import { ShareDialog } from './ShareLinks.tsx'
@@ -655,11 +654,6 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
                 }
                 fileOf={answerFileOf(chatId, message)}
                 onOpenFile={starter ? undefined : openFile}
-                offer={
-                  message.draft && message.id != null && chatId != null && message.status !== 'streaming' ? (
-                    <OfferedDraft chatId={chatId} messageId={message.id} offer={message.draft} own={!starter} />
-                  ) : null
-                }
               />
             ),
           )}
@@ -951,8 +945,6 @@ interface AnswerProps {
   onRegenerate?: () => void
   // Offline or without a model the answer cannot be tried again just now.
   retryHeld?: boolean
-  // The draft the answer offers, once it is written.
-  offer?: ReactNode
   // Offered on a finished answer to a member who may share it by link.
   onShare?: () => void
   // Where an answer with words downloads as each file, once it is no longer being written.
@@ -968,7 +960,7 @@ function answerFileOf(chatId: number | null, message: Message): ((format: TextFo
   return (format) => answerFileUrl(chatId, id, format)
 }
 
-function Answer({ message, currency, onOpen, onReconnect, onRetry, onRegenerate, retryHeld, offer, onShare, fileOf, onOpenFile }: AnswerProps) {
+function Answer({ message, currency, onOpen, onReconnect, onRetry, onRegenerate, retryHeld, onShare, fileOf, onOpenFile }: AnswerProps) {
   // Number the cited passages in the order the answer first mentions them.
   const cited = [...new Set([...message.content.matchAll(/\[P(\d+)\]/g)].map((match) => Number(match[1])))]
     .filter((id) => message.sources[id])
@@ -1023,7 +1015,6 @@ function Answer({ message, currency, onOpen, onReconnect, onRetry, onRegenerate,
           }
         />
       )}
-      {offer}
       {message.notice && (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <p className="text-sm text-muted">{message.notice}</p>
@@ -1164,8 +1155,8 @@ const STEP_ICONS: Record<string, LucideIcon> = {
   search: Search,
   query_facts: Table2,
   read: BookOpen,
-  create_draft: PenLine,
   list_my_files: FolderLock,
+  get_template: LayoutTemplate,
   read_file: FileSearch,
   create_document: FilePlus,
   edit_document: FilePen,
@@ -1193,13 +1184,15 @@ function describeStep({ name, input }: Step): string {
       if (input.section_id != null) return 'Read a section'
       if (input.passage_id != null) return 'Read around a passage'
       return input.page_from != null ? `Read from page ${input.page_from}` : 'Read a document'
-    case 'create_draft':
-      return `Offered a draft: ${KIND_LABELS[input.kind as DraftKind] ?? 'a draft'}`
     // The asker's My files (backend/app/agent/writing.py), named alike for whoever reads the chat.
     case 'list_my_files':
       return 'Looked through My files'
     case 'read_file':
       return 'Read a file of My files'
+    case 'get_template':
+      return typeof input.kind === 'string' && input.kind in KIND_LABELS
+        ? `Read the project’s template for ${kindWords(input.kind as DraftKind)}`
+        : 'Read one of the project’s writing templates'
     case 'create_document':
       return typeof input.title === 'string' ? `Wrote "${input.title}" into My files` : 'Wrote a document into My files'
     case 'create_spreadsheet':
@@ -1209,8 +1202,9 @@ function describeStep({ name, input }: Step): string {
       return 'Edited a file of My files'
     case 'copy_to_my_files':
       return `Copied document ${input.document_id} into My files`
+    // A tool the page has no words for, such as an older answer's step of one the agent no longer has.
     default:
-      return name
+      return 'Took a step'
   }
 }
 

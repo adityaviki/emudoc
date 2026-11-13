@@ -95,15 +95,16 @@ def test_the_activity_names_reviews_automations_and_what_brought_a_document(
     row("folder_deleted", {"name": "Old", "documents": 3}, room.bob.user.id, ("folder", 1))
     row("question_set_run", {"name": "Daily", "questions": 2}, None, ("question_report", 999))
     row("cross_checks_run", {"names": ["Totals"], "report": False}, None, ("workflow_run", 998))
+    # What the activity leaves out: the owners' and admins' affairs, a draft written before the
+    # drafts went, and another project's.
     row("draft_created", {"kind": "report", "documents": 1}, 1, ("draft", 997))
-    # What the activity leaves out: the owners' and admins' affairs, and another project's.
     row("settings_changed", {"chat_days": 30}, 1, None)
     audit_event(session, "comment_added", org_id=room.org_id, project_id=None, detail=named)
     session.commit()
 
     events = {event["id"]: event for event in activity(client, room.project, limit=200)["events"]}
     by_action = [(e["action"], e["actor"]) for e in sorted(events.values(), key=lambda e: e["id"])]
-    assert by_action[-10:] == [
+    assert by_action[-9:] == [
         ("document_review_changed", "Ann"),
         ("document_assigned", "Ann"),
         ("document_assigned", "Ann"),
@@ -113,23 +114,17 @@ def test_the_activity_names_reviews_automations_and_what_brought_a_document(
         ("folder_deleted", "Bob"),
         ("question_set_run", None),
         ("cross_checks_run", None),
-        ("draft_created", "Owner"),
     ]
-    picked = sorted(events.values(), key=lambda e: e["id"])[-10:]
-    disputed, assigned, unassigned, automated, mailed, synced, folder, asked, run, draft = picked
+    picked = sorted(events.values(), key=lambda e: e["id"])[-9:]
+    disputed, assigned, unassigned, automated, mailed, synced, folder, asked, run = picked
     assert disputed["review"] == "disputed"
     assert (assigned["assignee"], unassigned["assignee"]) == ("Bob", None)
     assert (automated["automation"], automated["review"]) == ("New", "to_review")
     assert (mailed["via"], synced["via"]) == ("email", "google")
     assert (folder["folder"], folder["documents"], folder["filename"]) == ("Old", 3, None)
-    assert (asked["name"], asked["questions"], run["names"], draft["kind"]) == (
-        "Daily",
-        2,
-        ["Totals"],
-        "report",
-    )
-    # A run, a report or a draft no longer there leads nowhere.
-    assert (asked["target_id"], run["target_id"], draft["target_id"]) == (None, None, None)
+    assert (asked["name"], asked["questions"], run["names"]) == ("Daily", 2, ["Totals"])
+    # A run or a report no longer there leads nowhere.
+    assert (asked["target_id"], run["target_id"]) == (None, None)
 
     # An account gone is nobody's name, and the one assigned is no one's.
     session.execute(delete(User).where(User.id == room.bob.user.id))

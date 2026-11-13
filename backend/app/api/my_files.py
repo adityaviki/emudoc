@@ -3,6 +3,12 @@ look at as they look, download, give new versions, rename, delete and copy into 
 library. A member reaches their own files alone (`MyFileDep`): another member's, an owner's or an
 admin's included, are not found.
 
+A member also asks the agent to write a document of a kind into their My files (app/writings.py):
+a disputed document's review asks for its dispute letter. The writing is listed with their files
+while the worker writes it, and once failed, until they try it again or dismiss it; written, it is
+a file like the others. It is a run of the agent, so asking is held to what holds a question, the
+agent's runs in flight and the day's spending, and counts as one of the workspace's questions.
+
 Every route takes a session alone, never an API key, since a program has no files of its own here.
 Whoever sees the project keeps files there, a viewer too; copying one into the library adds a
 document, so it is held to what holds an upload (`EditorDep`, the sample project's refusal). Each
@@ -30,10 +36,12 @@ from sqlalchemy.orm import Session
 
 from app.accounts import Account
 from app.api.auth import app_url
+from app.api.check_runs import count_question, refuse_agent_run
 from app.api.deps import (
     AccountDep,
     EditorDep,
     MyFileDep,
+    MyFileWritingDep,
     ProjectDep,
     ServicesDep,
     SessionDep,
@@ -43,10 +51,11 @@ from app.api.deps import (
 from app.api.documents import _draw_page, _drawn
 from app.api.folders import resolve_folder
 from app.audit import audit
-from app.models import Document, MyFile, MyFileVersion, Project
+from app.models import Document, MyFile, MyFileVersion, MyFileWriting, Project
 from app.my_files import (
     MAX_FILES,
     MEDIA_TYPES,
+    TOO_MANY,
     Refused,
     add_file,
     add_version,
@@ -58,7 +67,7 @@ from app.my_files import (
     versions_of,
 )
 from app.notices import record_upload, settle_upload
-from app.ratelimit import EXPORTS, UPLOADS
+from app.ratelimit import EXPORTS, QUESTIONS, UPLOADS
 from app.sample import SAMPLE_UPLOADS
 from app.schemas import (
     DocumentOut,
@@ -68,10 +77,13 @@ from app.schemas import (
     MyFileRenameIn,
     MyFilesOut,
     MyFileVersionOut,
+    MyFileWritingIn,
+    MyFileWritingOut,
 )
 from app.uploads import Incoming, take_files
 from app.usage import RENDER, record
 from app.versions import VersionRefused, take_version
+from app.writings import queue_writing, start_writing, writings_of
 
 router = APIRouter(tags=["my files"])
 
@@ -86,6 +98,7 @@ NO_ORIGIN = (
     "The document this file was copied from is no longer in the project's library. Copy it in as "
     "a new document instead."
 )
+WRITING_NOW = "The agent is writing this document now. It will be in your My files shortly."
 # What a refusal of the copy's upload is answered with, by its label, as an upload's is.
 REFUSED = {"too_large": 413, "duplicate": 409, "indexing": 409}
 
@@ -94,7 +107,76 @@ REFUSED = {"too_large": 413, "duplicate": 409, "indexing": 409}
 def list_files(project: ProjectDep, session: SessionDep, account: AccountDep):
     """The member's files in the project, the one changed last first."""
     files = files_of(session, project.id, account.user.id)
-    return MyFilesOut(files=_summaries(session, files), limit=MAX_FILES)
+    return MyFilesOut(
+        files=_summaries(session, files),
+        limit=MAX_FILES,
+        writings=[
+            MyFileWritingOut.model_validate(writing)
+            for writing in writings_of(session, project.id, account.user.id)
+        ],
+    )
+
+
+@router.post(
+    "/projects/{project_id}/my-files/writings",
+    response_model=MyFileWritingOut,
+    status_code=201,
+    dependencies=[Depends(limited(QUESTIONS))],
+)
+def ask_writing(
+    project: ProjectDep, body: MyFileWritingIn, session: SessionDep, account: AccountDep
+):
+    """Have the agent write a document of the kind about the documents named into the member's
+    My files, to the project's template of the kind; the worker writes it, which their My files
+    follow."""
+    asked = list(dict.fromkeys(body.document_ids))
+    found = {
+        document.id: document
+        for document in session.scalars(
+            select(Document).where(
+                Document.id.in_(asked),
+                Document.project_id == project.id,
+                Document.deleted_at.is_(None),
+            )
+        )
+    }
+    if len(found) < len(asked):
+        raise HTTPException(404, "Document not found")
+    _refuse_writing(session, account, project.id)
+    writing = start_writing(
+        session, project, account.user.id, body.kind, [found[each] for each in asked]
+    )
+    count_question(session, account, project.id)
+    session.commit()
+    return MyFileWritingOut.model_validate(writing)
+
+
+@router.post(
+    "/my-file-writings/{writing_id}/retry",
+    response_model=MyFileWritingOut,
+    dependencies=[Depends(limited(QUESTIONS))],
+)
+def retry_writing(writing: MyFileWritingDep, session: SessionDep, account: AccountDep):
+    """Have the agent write a failed writing again, from the documents and the template as they
+    are now."""
+    # Held against a second press at once and the worker settling it.
+    session.refresh(writing, with_for_update=True)
+    if writing.status != "failed":
+        raise HTTPException(409, WRITING_NOW)
+    _refuse_writing(session, account, writing.project_id)
+    queue_writing(session, writing)
+    count_question(session, account, writing.project_id)
+    session.commit()
+    return MyFileWritingOut.model_validate(writing)
+
+
+@router.delete("/my-file-writings/{writing_id}", status_code=204)
+def dismiss_writing(writing: MyFileWritingDep, session: SessionDep):
+    """Forget a writing: a failed one leaves the member's list, and one under way keeps nothing
+    the worker writes (app/writings.py)."""
+    session.delete(writing)
+    session.commit()
+    return Response(status_code=204)
 
 
 @router.post(
@@ -512,6 +594,26 @@ def _served(version: MyFileVersion) -> MyFileVersion:
 
 def _refusal(refused: Refused) -> Exception:
     return HTTPException(refused.status, refused.reason)
+
+
+def _refuse_writing(session: Session, account: Account, project_id: int) -> None:
+    """Refuse a writing that could not be kept, My files being full, or that the agent may not run
+    now, as a question is refused, before anything is spent on it."""
+    held = session.scalar(
+        select(func.count(MyFile.id)).where(
+            MyFile.project_id == project_id, MyFile.user_id == account.user.id
+        )
+    )
+    under_way = session.scalar(
+        select(func.count(MyFileWriting.id)).where(
+            MyFileWriting.project_id == project_id,
+            MyFileWriting.user_id == account.user.id,
+            MyFileWriting.status != "failed",
+        )
+    )
+    if held + under_way >= MAX_FILES:
+        raise HTTPException(409, TOO_MANY)
+    refuse_agent_run(session, account, f"A document written into My files in project {project_id}")
 
 
 def _charge_render(session: Session, org_id: int, project_id: int, user_id: int) -> None:

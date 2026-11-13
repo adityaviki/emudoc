@@ -145,7 +145,6 @@ from app.ratelimit import prune_rate_limits
 from app.restore import after_restore, describe_restore
 from app.retention import (
     prune_chats,
-    prune_drafts,
     prune_reports,
     prune_runs,
     purge_due_accounts,
@@ -539,7 +538,6 @@ def housekeeping(storage: Storage) -> None:
         chats = prune_chats(connection)
         runs = prune_runs(connection)
         reports = prune_reports(connection)
-        drafts = prune_drafts(connection)
         audited = prune_audit(connection)
         credentials = prune_credentials(connection)
         spared = prune_suppressions(connection)
@@ -602,8 +600,6 @@ def housekeeping(storage: Storage) -> None:
         log.info("Housekeeping: queued again the jobs of %s question sets that had none", sets)
     if digests:
         log.info("Housekeeping: queued the weekly digests' job, which had none")
-    if drafts:
-        log.info("Housekeeping: deleted %s drafts kept past the workspace's retention", drafts)
     if emptied.projects or emptied.folders or emptied.documents or emptied.chats:
         log.info(
             "Housekeeping: deleted for good what was in the trash for %s days: %s projects, "
@@ -1457,7 +1453,7 @@ def main(argv: list[str] | None = None) -> None:
         "after it; check that what the indexing model wrote of each holds none of the words an "
         "instruction dictated; and ask the agent, as a member's question is asked, a question "
         "about each, graded on what a right answer says and cites, on holding no planted word "
-        "and on offering no draft. It prints each document's and each question's verdict, a "
+        "and on writing no file. It prints each document's and each question's verdict, a "
         "failed answer whole, the versions of the prompts and what the run used, records "
         "nothing as an organisation's usage, and exits with 1 when an instruction was followed "
         "or an answer was not right. It costs the indexing of six short documents and six "

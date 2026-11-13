@@ -114,7 +114,6 @@ describe('the activity', () => {
     names: [],
     name: null,
     questions: null,
-    kind: null,
     target_id: null,
     ...fields,
   })
@@ -142,7 +141,6 @@ describe('the activity', () => {
     expect(sentence({ action: 'comment_added', thread_id: 5 })).toBe('Ann commented on inv-1.pdf')
     expect(sentence({ action: 'comment_added', reply: true })).toBe('Ann replied on inv-1.pdf')
     expect(sentence({ action: 'thread_resolved' })).toBe('Ann resolved a thread on inv-1.pdf')
-    expect(sentence({ action: 'draft_created', filename: null, kind: 'dispute_letter' })).toBe('Ann asked for a draft: Dispute letter')
     expect(sentence({ action: 'cross_checks_run', filename: null, names: ['Totals', 'Dates'] })).toBe('Ann ran the cross-checks Totals, Dates')
     expect(sentence({ action: 'question_set_run', filename: null, name: 'Daily', questions: 2 })).toBe(
       'Ann ran the question set Daily, 2 questions',

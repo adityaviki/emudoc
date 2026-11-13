@@ -9,6 +9,7 @@ import { Button, Checkbox, Chip, FIELD, IconButton, InputField, Loading, Notice 
 import {
   GUIDANCE_CHARS,
   HEADING_CHARS,
+  KIND_LABELS,
   MAX_SECTIONS,
   NEW_SECTION,
   SECTION_CHARS,
@@ -21,13 +22,13 @@ import {
   templateInputOf,
   templateProblem,
 } from '../draftTemplates.ts'
-import { KIND_LABELS } from '../drafts.ts'
 import { useWorkspace } from './state.ts'
 
 /**
- * How the project's drafts of each kind read, in the library's place: the template in force for each of the five kinds,
- * the built-in one or the project's own in its place, its tone, its parts and what else it asks. Whoever may change
- * the project customises a built-in one, changes its own and gives a kind its built-in one back; a viewer reads them.
+ * The project's writing templates, in the library's place, opened from My files: how the agent writes each of the five
+ * kinds of document into a member's My files, the template in force for each, the built-in one or the project's own in
+ * its place, its tone, its parts and what else it asks. Whoever may change the project customises a built-in one,
+ * changes its own and gives a kind its built-in one back; a viewer reads them.
  */
 export function DraftTemplatesView() {
   const workspace = useWorkspace()
@@ -65,11 +66,11 @@ export function DraftTemplatesView() {
   return (
     <div className="flex h-full min-h-0 flex-col bg-page">
       <div className="flex h-11 shrink-0 items-center gap-1.5 border-b border-line bg-surface px-2">
-        <IconButton label="Back to the drafts" onClick={workspace.showDrafts}>
+        <IconButton label="Back to My files" onClick={workspace.showMyFiles}>
           <ArrowLeft className="size-4" />
         </IconButton>
         <h2 ref={heading} tabIndex={-1} className="flex-1 truncate text-[13px] font-semibold">
-          Draft templates
+          Writing templates
         </h2>
       </div>
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
@@ -79,9 +80,10 @@ export function DraftTemplatesView() {
         ) : (
           <>
             <p className="text-xs text-muted">
-              How the project’s drafts of each kind read: their tone, their parts in order and what else every draft of the kind
-              should do. A built-in template applies until the project has its own for the kind. Whatever a template says, the
-              model cites each figure where it is written and leaves what no document states for you to fill in.
+              How the agent writes each kind of document into My files, asked for in a chat or by a disputed document’s “Write a
+              dispute letter”: its tone, its parts in order and what else every document of the kind should do, the same for
+              everyone in the project. A built-in template applies until the project has its own for the kind. Whatever a template
+              says, the agent cites each figure where it is written and leaves what no document states for you to fill in.
             </p>
             {said && (
               <Notice tone="info">
@@ -102,7 +104,7 @@ export function DraftTemplatesView() {
             )}
             {templates.isPending && <Loading />}
             {templates.isError && <Notice tone="bad">Could not load the templates: {templates.error.message}</Notice>}
-            <ul aria-label="Draft templates" className="space-y-2">
+            <ul aria-label="Writing templates" className="space-y-2">
               {templates.data?.templates.map((template) => (
                 <TemplateRow
                   key={template.kind}
@@ -257,6 +259,7 @@ function TemplateForm({ template, onClose }: { template: DraftTemplate; onClose:
           key={row.key}
           row={row}
           number={index + 1}
+          name={name}
           focused={row.key === added}
           onChange={(patch) => change(row.key, patch)}
           onRemove={() => {
@@ -313,12 +316,15 @@ function TemplateForm({ template, onClose }: { template: DraftTemplate; onClose:
 function SectionEditor({
   row,
   number,
+  name,
   focused,
   onChange,
   onRemove,
 }: {
   row: Row
   number: number
+  /** The kind, lower-cased: "dispute letter". */
+  name: string
   focused: boolean
   onChange: (patch: Partial<DraftSection>) => void
   onRemove: () => void
@@ -329,7 +335,7 @@ function SectionEditor({
       <InputField label="Name" value={row.heading} maxLength={HEADING_CHARS} autoFocus={focused} onChange={(event) => onChange({ heading: event.target.value })} />
       <InputField label="What goes in it" value={row.description} maxLength={SECTION_CHARS} onChange={(event) => onChange({ description: event.target.value })} />
       <div className="flex items-center justify-between gap-2">
-        <Checkbox label="Every draft has it" checked={row.required} onChange={(event) => onChange({ required: event.target.checked })} />
+        <Checkbox label={`Every ${name} has it`} checked={row.required} onChange={(event) => onChange({ required: event.target.checked })} />
         <IconButton label={`Remove part ${number}`} danger onClick={onRemove}>
           <X className="size-4" />
         </IconButton>

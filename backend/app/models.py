@@ -92,13 +92,13 @@ AUTOMATION_REVIEWS = ("differs", "arrived")
 QUESTION_SET_SCHEDULES = ("daily", "weekly")
 REPORT_TRIGGERS = ("schedule", "arrivals", "member")
 QUESTION_REPORT_STATUSES = ("queued", "running", "done", "failed")
-# What a draft is (app/drafts.py), each kind with its own instructions to the agent: a reply to
-# an email, a letter disputing a document, a memo summing documents up, a table setting them side
-# by side, and a report.
+# The kinds of document the agent writes into a member's My files to a template of the project's
+# (app/draft_templates.py), each with its own layout: a reply to an email, a letter disputing a
+# document, a memo summing documents up, a table setting them side by side, and a report.
 DRAFT_KINDS = ("reply_email", "dispute_letter", "summary_memo", "comparison_table", "report")
-# How far the agent's writing of a draft is: waiting for the worker, being written, kept as the
-# draft's newest version, or failed, the versions before it staying as they were.
-DRAFT_STATUSES = ("queued", "writing", "done", "failed")
+# How far a writing of one outside a chat is (app/writings.py): waiting for the worker, being
+# written, or failed; one written is gone, its file being in My files.
+WRITING_STATUSES = ("queued", "writing", "failed")
 # From most to least permitted: each role may do everything the roles after it may.
 ROLES = ("owner", "admin", "member", "viewer")
 # A chat is private to the member who started it until they share it with the project.
@@ -149,11 +149,13 @@ EXPORT_STATUSES = ("queued", "ready", "failed")
 # user, or failed. A question is always `done`.
 MESSAGE_STATUSES = ("streaming", "done", "stopped", "failed")
 # What an organisation is metered for (app/usage.py): the activity a row counts, and what the
-# count is in. The stored `usage` of a document, a message, a run of cross-checks or a draft
-# (`Document.usage`, `ChatMessage.usage`, `WorkflowRun.usage`, `Draft.usage`) is keyed by the same
-# kinds; a report of a question set's answers (`QuestionReport.usage`) is kept under `answer`,
-# since each of its answers is the agent's as a chat's is. Nothing records `suggestions` since
-# 2026-11-11 (the model wrote a project's suggested questions), whose rows stay.
+# count is in. The stored `usage` of a document, a message or a run of cross-checks
+# (`Document.usage`, `ChatMessage.usage`, `WorkflowRun.usage`) is keyed by the same kinds; a
+# report of a question set's answers (`QuestionReport.usage`) is kept under `answer`, since each
+# of its answers is the agent's as a chat's is. Nothing records `suggestions` since
+# 2026-11-11 (the model wrote a project's suggested questions), whose rows stay; `draft` is the
+# writing of a document into My files outside a chat (app/writings.py), the drafts' until they
+# went on 2026-11-13.
 USAGE_KINDS = (
     "answer",
     "upload",
@@ -220,10 +222,9 @@ NATURAL_ORDER = "natural_order"
 # are its question sets, each run by a member or by the app, and their reports deleted for good
 # (app/question_sets.py); its filing rules were made, changed and deleted until they were removed
 # on 2026-11-05, and their actions stay so that those entries still read. A document's review
-# moves from state to state and is assigned to a member (app/reviews.py). A draft is asked of the
-# agent, changed by a member's version or the agent's writing it again, and deleted for good
-# (app/drafts.py), and a version of it downloaded as a file (app/draft_export.py),
-# which is what documents say leaving the app; a project's own template of a kind of draft is
+# moves from state to state and is assigned to a member (app/reviews.py). Until 2026-11-13 a
+# draft was asked of the agent, changed and deleted, and a version of it downloaded, whose actions
+# stay so that those entries still read; a project's own template of a kind the agent writes is
 # made, changed and deleted for good (app/draft_templates.py). A project's address is made, its
 # senders, folder or address changed, and taken away (app/inbound.py); a document that arrived
 # by it is uploaded by its member, or by nobody for a sender outside the organisation. A webhook
@@ -2205,104 +2206,10 @@ class QuestionReport(Base):
     finished_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
 
 
-class Draft(Base):
-    """A document the agent wrote from a project's documents for its members to edit and send
-    (app/drafts.py): a reply email, a dispute letter, a summary memo, a comparison table or a
-    report, with what was asked of it, the documents it is about, and its versions.
-
-    The agent writes a version whole as a worker's `write_draft` job, which the page follows by
-    `status`; each member's save and each writing again adds another (`DraftVersion`), the older
-    ones kept. A draft is the project's: everyone who sees the project reads it, and whoever may
-    change the project changes it.
-    """
-
-    __tablename__ = "drafts"
-    __table_args__ = (
-        _one_of("kind", DRAFT_KINDS, "drafts"),
-        _one_of("status", DRAFT_STATUSES, "drafts"),
-        # The project's drafts, newest first, as its list pages them.
-        Index("ix_drafts_project", "project_id", "id"),
-        # What the agent's runs in flight count (app/answers.py): the few drafts being written.
-        Index(
-            "ix_drafts_writing", "org_id", postgresql_where=text("status IN ('queued', 'writing')")
-        ),
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    # The tenant, as for every row a member reaches by its id.
-    org_id: Mapped[int] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
-    )
-    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
-    # Who asked for it first; null once their account is gone. Indexed for the account purge.
-    created_by: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), index=True
-    )
-    # One of DRAFT_KINDS.
-    kind: Mapped[str] = mapped_column(String(30))
-    # Its name in the project's list, made from its kind and what it is about when it was asked.
-    title: Mapped[str] = mapped_column(String(300))
-    # What the member asked of it in their own words, which a writing again may change.
-    instructions: Mapped[str] = mapped_column(Text, default="", server_default="")
-    # The documents it is about, as `{"id", "title"}` when it was asked: their ids, which may be
-    # gone since, and their names as they were.
-    documents: Mapped[list] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
-    # The run of the project's cross-checks whose findings about those documents its last
-    # writing was given, the newest that had any; null for none, and once the run is deleted.
-    run_id: Mapped[int | None] = mapped_column(
-        ForeignKey("workflow_runs.id", ondelete="SET NULL"), index=True
-    )
-    # One of DRAFT_STATUSES: the agent's writing, the first or the last asked for.
-    status: Mapped[str] = mapped_column(String(20), default="queued", server_default="queued")
-    # Why the last writing failed, and how it ended when not as it should (cut off), in the
-    # sentences its members read.
-    error: Mapped[str | None] = mapped_column(Text)
-    notice: Mapped[str | None] = mapped_column(Text)
-    # What its writings used, by kind (`draft`: the model's calls, tokens and cost), as
-    # app/usage.py keeps it.
-    usage: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
-    created_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-    # When it was last asked for, written or saved, which its retention counts from
-    # (app/retention.py).
-    updated_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-
-
-class DraftVersion(Base):
-    """A version of a draft, as the agent wrote it or a member saved it, never changed after.
-
-    Its text cites passages as [P<id>], as an answer does, and keeps the passages it cites as
-    they were (`sources`): a document's passages are written anew at every reading, so a version
-    reads the same after its documents are read again or deleted.
-    """
-
-    __tablename__ = "draft_versions"
-
-    draft_id: Mapped[int] = mapped_column(
-        ForeignKey("drafts.id", ondelete="CASCADE"), primary_key=True
-    )
-    # 1 for the first, each next one more.
-    number: Mapped[int] = mapped_column(Integer, primary_key=True)
-    # Before `text`, whose column would hide SQLAlchemy's `text` in the class body.
-    sources: Mapped[list] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
-    text: Mapped[str] = mapped_column(Text)
-    # True for the agent's writing, which `user_id` asked for; false for a member's save.
-    by_model: Mapped[bool] = mapped_column(Boolean)
-    # Who asked for it or saved it; null once their account is gone. Indexed for the purge.
-    user_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), index=True
-    )
-    created_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-
-
 class DraftTemplate(Base):
-    """How a project's drafts of one kind read (app/draft_templates.py): their tone, their parts
-    in order and what else every draft of the kind should do. A project's template replaces the
+    """How the documents of one kind the agent writes for a project's members read
+    (app/draft_templates.py): their tone, their parts in order and what else every one of the kind
+    should do. A project's template replaces the
     built-in one of its kind, which applies while the project has none of its own."""
 
     __tablename__ = "draft_templates"
@@ -2321,7 +2228,7 @@ class DraftTemplate(Base):
     # One of DRAFT_KINDS.
     kind: Mapped[str] = mapped_column(String(30))
     tone: Mapped[str] = mapped_column(Text, default="", server_default="")
-    # [{"heading", "description", "required"}], in the order a draft has them.
+    # [{"heading", "description", "required"}], in the order a document of the kind has them.
     sections: Mapped[list] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
     guidance: Mapped[str] = mapped_column(Text, default="", server_default="")
     # Who made it; null once their account is gone. Indexed for the account purge.
@@ -2441,6 +2348,60 @@ class MyFileVersion(Base):
 
     def page_image_key(self, page: int) -> str:
         return f"{self.files_prefix}pages/{page}.png"
+
+
+class MyFileWriting(Base):
+    """A document a member asked the agent to write into their My files outside a chat
+    (app/writings.py): a disputed document's dispute letter, written to the kind's template of
+    the project by a worker's `write_draft` job.
+
+    It is kept while it waits for the worker and is written, which the member's My files show,
+    and once failed, until they try it again or dismiss it. Written, it goes in the transaction
+    that keeps its Word file, the file being what the member then has.
+    """
+
+    __tablename__ = "my_file_writings"
+    __table_args__ = (
+        _one_of("kind", DRAFT_KINDS, "my_file_writings"),
+        _one_of("status", WRITING_STATUSES, "my_file_writings"),
+        # A member's writings in a project, which their My files list.
+        Index("ix_my_file_writings_owner", "project_id", "user_id"),
+        # What the agent's runs in flight count (app/answers.py): the few being written.
+        Index(
+            "ix_my_file_writings_writing",
+            "org_id",
+            postgresql_where=text("status IN ('queued', 'writing')"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # The tenant, as for every row a member reaches by its id.
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    # Who asked, whose My files it is written into and whose usage it is. Indexed for an account
+    # purged, with which it goes.
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    # One of DRAFT_KINDS.
+    kind: Mapped[str] = mapped_column(String(30))
+    # Its name in My files while it is written, and its file's once it is: its kind and what it
+    # is about when it was asked.
+    title: Mapped[str] = mapped_column(String(300))
+    # The documents it is about, as `{"id", "title"}` when it was asked: their ids, which may be
+    # gone since, and their names as they were.
+    documents: Mapped[list] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
+    # One of WRITING_STATUSES.
+    status: Mapped[str] = mapped_column(String(20), default="queued", server_default="queued")
+    # Why it failed, in the sentence its member reads.
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    # When it was last asked for or settled.
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
 
 class Chat(Base):
@@ -2577,12 +2538,6 @@ class ChatMessage(Base):
             "chat_id",
             postgresql_where=text("status = 'streaming'"),
         ),
-        # What deleting a draft looks up to forget it: the few answers it was written from.
-        Index(
-            "ix_chat_messages_draft",
-            "draft_id",
-            postgresql_where=text("draft_id IS NOT NULL"),
-        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -2608,29 +2563,11 @@ class ChatMessage(Base):
     # stopped or failed answer again. Its job carries the number, and a run of an earlier try,
     # still waiting on the model or queued, writes nothing into a later one (app/answers.py).
     attempt: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
-    # The draft the answer offers the member (`create_draft`, app/agent/tools.py): {kind,
-    # instructions, documents: [{id, title}]}, and `written` once the member had it written
-    # (app/api/drafts.py), which an offer is once; None for an answer that offers none.
-    draft_offer: Mapped[dict | None] = mapped_column(JSONB)
-    # The draft written from the offer, until it is deleted.
-    draft_id: Mapped[int | None] = mapped_column(ForeignKey("drafts.id", ondelete="SET NULL"))
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
 
     chat: Mapped[Chat] = relationship(back_populates="messages")
-
-    @property
-    def draft(self) -> dict | None:
-        """The offer as the members' pages show it: with whether it was written, and the draft
-        written from it while that is kept."""
-        if self.draft_offer is None:
-            return None
-        return {
-            **self.draft_offer,
-            "written": bool(self.draft_offer.get("written")),
-            "draft_id": self.draft_id,
-        }
 
 
 class ChatEvent(Base):

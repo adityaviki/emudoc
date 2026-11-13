@@ -246,7 +246,7 @@ def test_a_viewer_reads_a_shared_chat_and_downloads_it_within_the_rate(
     monkeypatch.setattr(get_settings(), "rate_exports", 1)
     refused = export(client, chat, chat["first"], format="md")
     assert refused.status_code == 429
-    assert "downloads of a facts table, a draft or a chat" in refused.json()["detail"]
+    assert "downloads of a facts table, a chat or a file of My files" in refused.json()["detail"]
 
 
 def test_a_chat_with_nothing_asked_has_nothing_to_download(client, session, chat):

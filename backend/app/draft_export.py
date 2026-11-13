@@ -1,28 +1,30 @@
-"""A draft's version as a file to save (app/drafts.py; the route is in app/api/drafts.py): the
-Markdown it is written in, a Word document or a PDF, for a member to edit, send or file outside
-the app.
+"""What the agent writes in Markdown as a file: the Word document it writes into a member's My
+files (`create_document` in app/agent/writing.py, and a writing outside a chat, app/writings.py),
+and the layout an answer or a chat downloaded as Word, a PDF or Markdown is made with
+(app/chat_export.py). It was a draft's version saved as a file until the drafts became files of
+My files on 2026-11-13, which keeps the module's name.
 
-A version cites passages as [P<id>], which mean nothing outside the app: each file numbers its
+The text cites passages as [P<id>], which mean nothing outside the app: each file numbers its
 citations in the order the text first makes them, as the page does (CitedText.tsx), and lists
-them at its end as notes naming the document, section and pages of each passage as the version
-kept it (`source_label`, as `sourceLabel` in api.ts). A reference to a passage the version does
-not keep stays as it is written, as on the page, and so does a placeholder such as [Your name],
-which is the member's to fill in.
+them at its end as notes naming the document, section and pages of each passage as the agent read
+it (`source_label`, as `sourceLabel` in api.ts). A reference to a passage it was not shown stays
+as it is written, and so does a placeholder such as [Your name], which is the member's to fill
+in.
 
 The Markdown is the version's own text, its citations as footnotes ([^1]) and whatever could
 start HTML escaped, so that no viewer of the file runs what a document steered the model into
 writing. The Word document and the PDF are laid out from the text as the page's reader reads it
 (CommonMark with tables and strikethrough, by markdown-it, any HTML read as text): headings,
 paragraphs, lists, quotes, code, tables, bold, italic and struck text, a link as its text and
-address rather than one to follow, and an image as its description, since a draft holds none.
-A line break is kept where it is written, as the draft's page keeps it (CitedText's `lines`):
-a letter's address and its closing are written a line each.
+address rather than one to follow, and an image as its description, since the agent writes none.
+A line break is kept where it is written: a letter's address and its closing are written a line
+each.
 The PDF is set in Noto Sans, which the app carries (app/fonts, under the SIL Open Font License),
-for the Latin, Greek and Cyrillic alphabets: a draft in another script is better saved as a Word
+for the Latin, Greek and Cyrillic alphabets: a text in another script is better saved as a Word
 document, which takes the reader's own fonts.
 
-What a draft says is what documents say: the file is made in memory for the request and kept
-nowhere.
+What the agent writes is what documents say: a file is made in memory, and kept only as the
+member's own in My files.
 """
 
 import datetime as dt
@@ -63,7 +65,7 @@ from reportlab.platypus import (
 )
 from reportlab.platypus.doctemplate import LayoutError
 
-# A passage the agent cites, as it writes the reference in an answer, a draft or a file.
+# A passage the agent cites, as it writes the reference in an answer or a file.
 CITATION = re.compile(r"\[P(\d+)\]")
 
 ExportFormat = Literal["md", "docx", "pdf"]
@@ -74,7 +76,7 @@ MEDIA_TYPES: dict[str, str] = {
 }
 
 NOT_LAID_OUT = (
-    "This version could not be laid out as a PDF: something in it is too large for a page. "
+    "This text could not be laid out as a PDF: something in it is too large for a page. "
     "Download it as a Word document instead."
 )
 
@@ -172,8 +174,8 @@ def draft_file(
     title: str,
     written_at: dt.datetime,
 ) -> bytes:
-    """The version's text as the file asked for, its citations numbered notes naming the passages
-    of `sources` they cite. Raises ExportRefused for a PDF that cannot be laid out."""
+    """The text as the file asked for, its citations numbered notes naming the passages of
+    `sources` they cite. Raises ExportRefused for a PDF that cannot be laid out."""
     text = writable(text)
     notes = notes_of(text, sources)
     if written_as == "md":
@@ -182,11 +184,6 @@ def draft_file(
     if written_as == "docx":
         return docx_file(blocks, notes, title, written_at)
     return pdf_file(blocks, notes, title)
-
-
-def file_name(title: str, number: int, written_as: ExportFormat) -> str:
-    """What the browser saves the file as: the draft's name and the version's number."""
-    return f"{file_stem(title, 'Draft')} (version {number}).{written_as}"
 
 
 def file_stem(title: str, otherwise: str) -> str:

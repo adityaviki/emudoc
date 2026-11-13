@@ -201,18 +201,6 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
         setMobilePane('library')
         go({ library: { folderId: null, activity: true } })
       },
-      showDrafts() {
-        setMobilePane('library')
-        go({ library: { folderId: null, drafts: true } })
-      },
-      showDraft(draftId) {
-        setMobilePane('library')
-        go({ library: { folderId: null, draft: draftId } })
-      },
-      showDraftTemplates() {
-        setMobilePane('library')
-        go({ library: { folderId: null, draftTemplates: true } })
-      },
       showMailbox() {
         setMobilePane('library')
         go({ library: { folderId: null, mail: true } })
@@ -228,6 +216,10 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
       showMyFile(fileId) {
         setMobilePane('library')
         go({ library: { folderId: null, myFile: fileId } })
+      },
+      showWritingTemplates() {
+        setMobilePane('library')
+        go({ library: { folderId: null, writingTemplates: true } })
       },
       showPlace(place) {
         setMobilePane('library')

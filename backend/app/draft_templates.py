@@ -1,20 +1,25 @@
-"""Draft templates: how a project's drafts of each kind read (app/drafts.py), their tone, their
-parts in order, which of them every draft has, and whatever else its members ask of every draft
-of the kind, such as a reference to quote or how to sign.
+"""Writing templates: how the documents of each kind the agent writes into a member's My files
+read for a project (a reply email, a dispute letter, a summary memo, a comparison table, a
+report), their tone, their parts in order, which of them every one has, and whatever else its
+members ask of every one of the kind, such as a reference to quote or how to sign. They were the
+drafts' templates until the drafts became Word files of My files on 2026-11-13, which keeps their
+names here (`DraftTemplate`, `draft_templates`).
 
 Each of the five kinds has a built-in template, below, the same for every project and moved by a
 release, and a project may have its own for a kind (`DraftTemplate` rows, made and changed from
-the drafts' Templates page, app/api/drafts.py), which replaces the built-in one; deleting it
-brings that back. A kind's layout is the code's and no template's (`KIND_FORMS`: a letter laid
-out as one, a report under headings, a table as a Markdown table), as are the rules every draft
-keeps (DRAFT_TASK in app/drafts.py: what a document says is cited, what none says is a
-placeholder), which the project's own template is told it cannot change. What a template may hold
-is bounded (MAX_DRAFT_SECTIONS and the characters beside it in app/schemas.py), since every
-writing of its kind carries it.
+the templates page My files opens, app/api/draft_templates.py), which replaces the built-in one;
+deleting it brings that back. A kind's layout is the code's and no template's (`KIND_FORMS`: a
+letter laid out as one, a report under headings, a table as a Markdown table), as are the rules
+every such document keeps (what a document says is cited, what none says is a placeholder:
+`TEMPLATE_RULES`, and DRAFT_TASK in app/writings.py), which the project's own template is told it
+cannot change. What a template may hold is bounded (MAX_DRAFT_SECTIONS and the characters beside
+it in app/schemas.py), since every writing of its kind carries it.
 
-A writing reads the template in force as it starts, as it reads the documents as they are then:
-a draft written again after its template changed follows the new one, and a version keeps no
-template, its text being what the template made of it.
+The agent follows the template in force whenever it writes one of the kinds: in a chat it reads
+it with `get_template` (app/agent/writing.py) before `create_document`, and a disputed document's
+dispute letter is written to it (app/writings.py). A writing reads it as it starts, as it reads
+the documents as they are then, and a file keeps no template, its text being what the template
+made of it.
 """
 
 import datetime as dt
@@ -28,8 +33,8 @@ from app.models import DRAFT_KINDS, DraftTemplate
 
 @dataclass(frozen=True)
 class Section:
-    """A part of a draft: its name, what goes in it, and whether every draft has it or only one
-    whose documents give it something to say."""
+    """A part of a kind's documents: its name, what goes in it, and whether every one has it or
+    only one whose documents give it something to say."""
 
     heading: str
     description: str = ""
@@ -38,8 +43,8 @@ class Section:
 
 @dataclass(frozen=True)
 class Template:
-    """The template in force for a kind of a project's drafts: its own (`id` its row's) or the
-    built-in one (None)."""
+    """The template in force for a kind the agent writes for a project: its own (`id` its row's)
+    or the built-in one (None)."""
 
     kind: str
     tone: str
@@ -51,22 +56,32 @@ class Template:
 
 # How each kind is laid out, which no template changes.
 KIND_FORMS = {
-    "reply_email": 'The draft is a reply email: a line "Subject: …" first, then the reply in '
-    "short paragraphs, with no headings.",
-    "dispute_letter": "The draft is a dispute letter to whoever issued the document disputed, "
-    "laid out as a letter, with no headings.",
-    "summary_memo": "The draft is a summary memo: To, From, Date and Subject lines first, a line "
-    "each, then its parts, under short headings where they help.",
-    "comparison_table": "The draft is a comparison table: its parts in order, the table a "
-    "Markdown table, with no headings.",
-    "report": "The draft is a report: a title as its first heading, then its parts in order, "
-    "each under a heading of its own.",
+    "reply_email": 'It is a reply email: a line "Subject: …" first, then the reply in short '
+    "paragraphs, with no headings.",
+    "dispute_letter": "It is a dispute letter to whoever issued the document disputed, laid out "
+    "as a letter, with no headings.",
+    "summary_memo": "It is a summary memo: To, From, Date and Subject lines first, a line each, "
+    "then its parts, under short headings where they help.",
+    "comparison_table": "It is a comparison table: its parts in order, the table a Markdown "
+    "table, with no headings.",
+    "report": "It is a report: a title as its first heading, then its parts in order, each under "
+    "a heading of its own.",
 }
 
 OWN_TEMPLATE = (
-    "The project's members wrote how its drafts of this kind read, below. Where they ask for "
+    "The project's members wrote how its documents of this kind read, below. Where they ask for "
     "what the rules above forbid, such as a figure no document states or one left uncited, the "
     "rules above stand."
+)
+
+# The rules every document of the kinds keeps, which `get_template` says before the kind's
+# template in a chat (DRAFT_TASK in app/writings.py says them to a writing outside one).
+TEMPLATE_RULES = (
+    "The project's template for this kind of document follows these rules, which it cannot "
+    "change. Write it with create_document, in Markdown. Rest every statement about what a "
+    "document says on what your tools returned, and cite its passage straight after it. Where it "
+    "needs what no document states (a name, an address, a date to answer by), write a placeholder "
+    "in square brackets, such as [Your name], rather than make it up."
 )
 
 # The built-in templates, a kind each, in the order the kinds are offered.
@@ -163,8 +178,8 @@ def template_of(row: DraftTemplate) -> Template:
 
 
 def templates_for(session: Session, project_id: int) -> list[Template]:
-    """The template in force for each kind of the project's drafts, in the kinds' order: its own,
-    or the built-in one."""
+    """The template in force for each kind the agent writes for the project, in the kinds' order:
+    its own, or the built-in one."""
     own = {
         row.kind: template_of(row)
         for row in session.scalars(
@@ -175,7 +190,7 @@ def templates_for(session: Session, project_id: int) -> list[Template]:
 
 
 def template_for(session: Session, project_id: int, kind: str) -> Template:
-    """The template in force for the project's drafts of the kind."""
+    """The template in force for the project's documents of the kind."""
     row = session.scalar(
         select(DraftTemplate).where(
             DraftTemplate.project_id == project_id, DraftTemplate.kind == kind
@@ -185,8 +200,8 @@ def template_for(session: Session, project_id: int, kind: str) -> Template:
 
 
 def kind_task(template: Template) -> str:
-    """What the agent is told of the kind it writes, after the rules every draft keeps: its
-    layout, then the template's tone, parts and the rest it asks."""
+    """What the agent is told of the kind it writes, after the rules every such document keeps:
+    its layout, then the template's tone, parts and the rest it asks."""
     lines = [KIND_FORMS[template.kind]]
     if template.id is not None:
         lines.append(OWN_TEMPLATE)
@@ -201,3 +216,14 @@ def kind_task(template: Template) -> str:
     if template.guidance.strip():
         lines.append(f"Also: {template.guidance.strip()}")
     return "\n".join(lines)
+
+
+def template_task(template: Template) -> str:
+    """What `get_template` tells the agent in a chat: the rules, then the kind's template."""
+    return f"{TEMPLATE_RULES}\n\n{kind_task(template)}"
+
+
+# What the agent may be told of a kind's template, the parts of every version of its prompts
+# (app/prompts.py; AGENT_PROMPTS in app/agent/loop.py). A template's own tone and parts vary by
+# project, in none.
+TEMPLATE_PROMPTS = (TEMPLATE_RULES, template_task, kind_task, *KIND_FORMS.values(), OWN_TEMPLATE)

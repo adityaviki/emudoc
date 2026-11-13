@@ -118,9 +118,7 @@ describe('buildWorkspaceUrl', () => {
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, reviews: 'mine' } })).toBe('/projects/3?reviews=mine')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, activity: true } })).toBe('/projects/3?activity=')
     expect(buildWorkspaceUrl({ ...home, document: { id: 41, focus: { thread: 5 } } })).toBe('/projects/3/documents/41?thread=5')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, drafts: true } })).toBe('/projects/3?drafts=')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, draft: 9 } })).toBe('/projects/3?draft=9')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, draftTemplates: true } })).toBe('/projects/3?draft-templates=')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, writingTemplates: true } })).toBe('/projects/3?writing-templates=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, mail: true } })).toBe('/projects/3?mail=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, connectors: true } })).toBe('/projects/3?connectors=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, favorites: true } })).toBe('/projects/3?favorites=')
@@ -153,9 +151,7 @@ describe('buildWorkspaceUrl', () => {
       { ...home, library: { folderId: null, reviews: 'all' }, chatId: 12 },
       { ...home, library: { folderId: null, reviews: 'mine' }, document: { id: 41, focus: null } },
       { ...home, library: { folderId: null, activity: true }, document: { id: 41, focus: { thread: 5 } } },
-      { ...home, library: { folderId: null, drafts: true }, chatId: 12 },
-      { ...home, library: { folderId: null, draft: 9 }, document: { id: 41, focus: { passage: 812 } } },
-      { ...home, library: { folderId: null, draftTemplates: true } },
+      { ...home, library: { folderId: null, writingTemplates: true }, chatId: 12 },
       { ...home, library: { folderId: null, mail: true }, chatId: 12 },
       { ...home, library: { folderId: null, connectors: true } },
       { ...home, library: { folderId: null, recent: true }, document: { id: 41, focus: null } },

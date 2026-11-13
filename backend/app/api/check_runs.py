@@ -250,15 +250,15 @@ def delete_run(run: EditableRunDep, session: SessionDep, account: AccountDep, re
 
 
 def refuse_agent_run(session: Session, account: Account, what: str) -> None:
-    """Refuse a run of the agent asked for without a question, a report or a draft
-    (app/api/drafts.py), past what holds a question: the agent's runs in flight and the day's
+    """Refuse a run of the agent asked for without a question, a report or a writing into My files
+    (app/api/my_files.py), past what holds a question: the agent's runs in flight and the day's
     spending; `what` names it for the log."""
     refuse_past_answers_in_flight(session, account, what)
     refuse_past_spending(session, what)
 
 
 def count_question(session: Session, account: Account, project_id: int) -> None:
-    """Count a report or a draft as a question asked, as asking does (app/api/chats.py)."""
+    """Count a report or a writing as a question asked, as asking does (app/api/chats.py)."""
     record(
         session,
         org_id=account.organization.id,

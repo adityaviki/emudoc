@@ -49,9 +49,9 @@ from app.word_files import Change, EditRefused, edited, reading
 from tests.conftest import FakeTurn, data_of
 from tests.test_api import create_project
 from tests.test_audit import actions
+from tests.test_chats import ask, new_chat
 from tests.test_conversion import FakeConverter
 from tests.test_my_files import kept, shown, view, word, workbook
-from tests.test_offered_drafts import asked, the_answer
 from tests.test_regenerate import regenerate
 from tests.test_sheet_files import worked_out
 
@@ -59,6 +59,22 @@ from tests.test_sheet_files import worked_out
 @pytest.fixture
 def project(client) -> dict:
     return create_project(client)
+
+
+def asked(client, services, project_id: int, question: str, *turns: FakeTurn) -> tuple[int, int]:
+    """A chat asked `question`, answered by the turns as the worker would: its id and the
+    answer's."""
+    services.llm.agent_turns.extend(turns)
+    chat = new_chat(client, project_id)
+    message_id = ask(client, chat["id"], question)["answer"]["id"]
+    answer(message_id, services)
+    return chat["id"], message_id
+
+
+def the_answer(client, chat_id: int) -> dict:
+    response = client.get(f"/api/chats/{chat_id}")
+    assert response.status_code == 200, response.text
+    return response.json()["messages"][-1]
 
 
 def letter() -> bytes:

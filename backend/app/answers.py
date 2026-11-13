@@ -24,11 +24,6 @@ appends `restart` as a lost run's does. The tries are numbered (`chat_messages.a
 job carries its try's: the run of an earlier try, still waiting on the model when the member tried
 again, or its job still queued, writes no event into the later try and settles nothing.
 
-An answer to a member who may have a draft written can offer one (`offers_drafts`; the agent's
-`create_draft`, app/agent/tools.py): the offer is an event like the rest and part of the row once
-it is settled, and the member's press has it written (app/api/drafts.py), never the run itself,
-so a run that starts over or is tried again writes no draft twice.
-
 An answer to a member who may keep files in My files can write them (`offers_my_files`; the agent's
 file tools, app/agent/writing.py): the run writes into the asker's own files as it goes, each
 write a version they can go back on, and a run that starts over or is tried again writes the
@@ -63,12 +58,11 @@ from app.jobs import ANSWER_QUESTION, LIVE, Lease, LeaseLost, enqueue, renew
 from app.logs import about
 from app.metrics import ANSWER_FIRST_TEXT, POOL_TIMEOUTS
 from app.models import (
-    ROLES,
     Chat,
     ChatMessage,
-    Draft,
     Job,
     Membership,
+    MyFileWriting,
     Organization,
     Project,
     QuestionReport,
@@ -114,15 +108,13 @@ _APPEND = text(
 _SETTLE = text(
     """
     UPDATE chat_messages
-    SET content = :content, steps = :steps, sources = :sources, draft_offer = :draft_offer,
-        notice = :notice, error = :error, status = :status
+    SET content = :content, steps = :steps, sources = :sources, notice = :notice,
+        error = :error, status = :status
     WHERE id = :id AND status = 'streaming' AND attempt = :attempt
     """
 ).bindparams(
     bindparam("steps", type_=JSONB),
     bindparam("sources", type_=JSONB),
-    # No offer is no value, not JSON's null.
-    bindparam("draft_offer", type_=JSONB(none_as_null=True)),
 )
 _EVENTS = text(
     "SELECT seq, event FROM chat_events WHERE message_id = :id AND seq > :after ORDER BY seq"
@@ -145,8 +137,6 @@ class Reply:
     content: str = ""
     steps: list[dict[str, Any]] = field(default_factory=list)
     sources: dict[int, dict[str, Any]] = field(default_factory=dict)
-    # The draft the answer offers the member: its kind, instructions and documents.
-    draft: dict[str, Any] | None = None
     notice: str | None = None
     error: str | None = None
     # Length of `content` when the current model turn began, to discard a turn that is retried
@@ -162,7 +152,7 @@ class Reply:
             case "restart":
                 # The run that wrote the events so far was lost; this one starts over.
                 self.content, self.steps, self.sources = "", [], {}
-                self.draft = self.notice = self.error = None
+                self.notice = self.error = None
                 self.turn_start = 0
             case "tool_call":
                 # What the model wrote beside a step was its note to itself, never the answer,
@@ -186,8 +176,6 @@ class Reply:
                             step["file"] = event["file"]
             case "sources":
                 self.sources.update((source["id"], source) for source in event["sources"])
-            case "draft":
-                self.draft = {key: event[key] for key in ("kind", "instructions", "documents")}
             case "notice":
                 self.notice = event["message"]
             case "error":
@@ -199,7 +187,6 @@ class Reply:
             "content": self.content,
             "steps": self.steps,
             "sources": list(self.sources.values()),
-            "draft_offer": self.draft,
             "notice": self.notice,
             "error": self.error,
             "status": status,
@@ -230,10 +217,7 @@ def retry_answer(session: Session, chat: Chat, message: ChatMessage) -> int | No
     last = session.scalar(_NEXT_SEQ, {"id": message.id}) - 1
     for column, value in Reply().columns("streaming").items():
         setattr(message, column, value)
-    # The usage stays: it sums every run the organisation paid for, this one's to come. A draft
-    # written from the earlier try's offer stays in the project's drafts, no longer this
-    # answer's.
-    message.draft_id = None
+    # The usage stays: it sums every run the organisation paid for, this one's to come.
     message.attempt += 1
     _queue(session, session.get(Project, chat.project_id), message)
     return last if last >= 0 else None
@@ -251,19 +235,6 @@ def _queue(session: Session, project: Project, answer: ChatMessage) -> None:
     )
 
 
-def offers_drafts(session: Session, organization: Organization, user_id: int) -> bool:
-    """Whether an answer to the member may offer a draft: the member could have one written there
-    now, as the route that writes it holds them to (`get_editor` in app/api/deps.py): a role that
-    changes what the organisation holds. The route checks again when the member presses the
-    offer."""
-    role = session.scalar(
-        select(Membership.role).where(
-            Membership.org_id == organization.id, Membership.user_id == user_id
-        )
-    )
-    return role is not None and ROLES.index(role) <= ROLES.index("member")
-
-
 def offers_my_files(session: Session, organization: Organization, user_id: int) -> bool:
     """Whether an answer to the member may write their My files: the member is one there now: any
     role, a viewer's too, since My files change nothing the members share."""
@@ -277,9 +248,10 @@ def offers_my_files(session: Session, organization: Organization, user_id: int) 
 
 def answers_in_flight(session: Session, org_id: int) -> int:
     """How many runs of the agent the organisation has queued or under way: its answers, the
-    discrepancy reports of its runs of cross-checks (app/check_runs.py), its drafts being
-    written (app/drafts.py) and the reports of its question sets being answered
-    (app/question_reports.py), each of which asks one question at a time."""
+    discrepancy reports of its runs of cross-checks (app/check_runs.py), the documents being
+    written into its members' My files outside a chat (app/writings.py) and the reports of its
+    question sets being answered (app/question_reports.py), each of which asks one question at a
+    time."""
     answers = session.scalar(
         select(func.count())
         .select_from(ChatMessage)
@@ -292,17 +264,17 @@ def answers_in_flight(session: Session, org_id: int) -> int:
         .select_from(WorkflowRun)
         .where(WorkflowRun.org_id == org_id, WorkflowRun.report_status.in_(("queued", "writing")))
     )
-    drafts = session.scalar(
+    writings = session.scalar(
         select(func.count())
-        .select_from(Draft)
-        .where(Draft.org_id == org_id, Draft.status.in_(("queued", "writing")))
+        .select_from(MyFileWriting)
+        .where(MyFileWriting.org_id == org_id, MyFileWriting.status.in_(("queued", "writing")))
     )
     asking = session.scalar(
         select(func.count())
         .select_from(QuestionReport)
         .where(QuestionReport.org_id == org_id, QuestionReport.status.in_(("queued", "running")))
     )
-    return answers + reports + drafts + asking
+    return answers + reports + writings + asking
 
 
 def events_after(session: Session, message_id: int, after: int) -> list[tuple[int, dict]]:
@@ -419,7 +391,6 @@ def answer(
         payer = {"org_id": project.org_id, "project_id": project_id, "user_id": chat.user_id}
         about(user_id=chat.user_id)
         over = check_spend(session)
-        drafting = offers_drafts(session, project.organization, chat.user_id)
         writing = (
             Writing(services, chat.user_id, chat.id, message_id, attempt)
             if offers_my_files(session, project.organization, chat.user_id)
@@ -447,7 +418,6 @@ def answer(
                 project_id,
                 history,
                 usage,
-                drafting=drafting,
                 writing=writing,
                 scope=scope,
             )

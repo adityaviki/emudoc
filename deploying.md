@@ -1164,19 +1164,21 @@ theirs that a document writes reaches the model as none. `python -m app.maintena
 tries that against the models the deployment names: it indexes, as uploads, a supplier's
 documents that each tell whoever reads them what to do (`backend/app/injection/`: an invoice that
 says it is approved and gives a code to repeat and a passage to cite that does not exist, an
-agreement that asks for a draft and the organisation's other projects, a delivery note and an
+agreement that asks for a letter to be written and the organisation's other projects, a delivery note and an
 email that close the prompts' tags and dictate a summary or the end of every answer, and a rate
 card whose summary the run replaces with one that says to refuse every question), beside another
 project's payroll, in an organisation of its own that it deletes after. It checks what
 `INDEX_MODEL` wrote of each document (title, kind, summary, sections, facts) for the words only an
 instruction followed would put there, then asks the agent a question about each as a member's
-question is asked, offered a draft: an answer must say what a right one says and cite the documents it should, and fails for a planted word, a reference no tool
-showed, or a draft nobody asked for. It prints each document's and each question's verdict, a
+question is asked, offered the tools that write the member's files: an answer must say what a
+right one says and cite the documents it should, and fails for a planted word, a reference no tool
+showed, or a file nobody asked for. It prints each document's and each question's verdict, a
 failed answer whole, the versions of the prompts and what the run cost, and exits with 1 when an
 instruction was followed or an answer was not right. Run it after a change to the agent's or the
 indexing model's prompts and after changing either model.
 
-**The prompts' versions.** Each kind of model work (an answer, a question set's answer, a draft,
+**The prompts' versions.** Each kind of model work (an answer, a question set's answer, a document
+written into My files from a review,
 a discrepancy report, reading a scan, finding a document's sections, enriching it, the golden
 questions' judge) asks with prompts whose version is the first
 eight hex digits of a hash of what the model is told for it (`backend/app/prompts.py`): its
@@ -2119,9 +2121,6 @@ every six hours), and so what a team can tell its members is kept, and for how l
   `backend/app/question_reports.py`) go as a chat would, counted from when the report was made
   (`prune_reports`), never one the worker is still answering. A member deletes one for good; the
   question sets themselves stay until a member deletes them or their project goes.
-- **Drafts** (`drafts`, with their versions, `backend/app/drafts.py`) go as a chat would,
-  counted from when one was last asked for, written or saved (`prune_drafts`), never one the
-  worker is writing. A member deletes one for good; drafts have no trash.
 - **The trash**: a project, folder, document or chat a member deleted goes for good, rows and
   files, 30 days after it was deleted (`TRASH_DAYS` in `backend/app/trash.py`, `purge_trash` in
   the housekeeping round), unless a member restores it or deletes it for good there first. Its
@@ -2651,7 +2650,7 @@ with that backup's folder. What the members did between the backup and going bac
 back soon or not at all, and tell them.
 
 Nothing waits on a timer of the host's but the backup: the worker's housekeeping empties the
-trash after `TRASH_DAYS`, applies the retention of chats, runs, drafts and audit rows, purges the
+trash after `TRASH_DAYS`, applies the retention of chats, runs, reports and audit rows, purges the
 accounts due, and sweeps the rendered pages and the files nothing names, every six hours
 ("Retention and deletion").
 
@@ -3628,7 +3627,7 @@ budget alert:
 
 The app holds each caller to a rate of its own (the `RATE_*` settings in `.env.example`): so
 many upload requests, questions and searches a minute per user, and downloads of a facts table,
-a draft, an answer or a chat (`RATE_EXPORTS`, 10), each of which reads every row the table keeps
+an answer, a chat or a file of My files (`RATE_EXPORTS`, 10), each of which reads every row the table keeps
 or lays the text out whole, and on the sign-in routes so many requests per email address and, with more room, per
 client address, the one uvicorn read from `X-Forwarded-For`. The request past a rate is refused with 429, a sentence and a
 `Retry-After` of the seconds until the minute turns, and the counts live in the database, so
@@ -3925,7 +3924,7 @@ and the like), named on its models' pages.
 | `RATE_FAILED_SIGN_INS` | `20` | | Wrong passwords and codes an hour, past which those sign-ins pause ("Rates") |
 | `RATE_PAGE_ERRORS` | `10` | | The page's error reports a minute, per client address |
 | `RATE_FEEDBACK` | `10` | | Messages from the help menu an hour, per member ("Support") |
-| `RATE_EXPORTS` | `10` | | Facts tables, drafts, answers and chats downloaded a minute, per member, each every row its conditions keep or the text laid out whole |
+| `RATE_EXPORTS` | `10` | | Facts tables, answers, chats and files of My files downloaded a minute, per member, each every row its conditions keep or the text laid out whole |
 | `RATE_SHARED_LINKS` | `30` | | Share links opened a minute, per client address ("Rates") |
 | `RATE_SHARED_PASSWORDS` | `10` | | Wrong passwords an hour per share link, from every address and from each, past which it opens with none ("Rates") |
 | `RATE_API_REQUESTS` | `300` | | Requests a minute, per API key, on top of its member's rates ("Rates") |

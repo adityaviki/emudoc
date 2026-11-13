@@ -27,7 +27,6 @@ import {
   MessageSquare,
   MoreHorizontal,
   Pencil,
-  PenLine,
   RefreshCw,
   ScrollText,
   Star,
@@ -88,7 +87,6 @@ import { photoName } from './uploads.ts'
 import { RunView } from './CheckRuns.tsx'
 import { CrossChecksView, FindingsView } from './CrossChecks.tsx'
 import { DraftTemplatesView } from './DraftTemplates.tsx'
-import { DraftView, DraftsView } from './Drafts.tsx'
 import { MyFileView, MyFilesView } from './MyFiles.tsx'
 import { ActivityView } from './Activity.tsx'
 import { ConnectorsView } from './Connectors.tsx'
@@ -263,13 +261,11 @@ export function Library() {
   if (workspace.url.library.report != null) return <ReportView reportId={workspace.url.library.report} />
   if (workspace.url.library.reviews) return <ReviewsView whose={workspace.url.library.reviews} />
   if (workspace.url.library.activity) return <ActivityView />
-  if (workspace.url.library.drafts) return <DraftsView />
-  if (workspace.url.library.draft != null) return <DraftView draftId={workspace.url.library.draft} />
-  if (workspace.url.library.draftTemplates) return <DraftTemplatesView />
   if (workspace.url.library.mail && mail) return <MailboxView />
   if (workspace.url.library.connectors && connectors) return <ConnectorsView />
   if (workspace.url.library.myFiles) return <MyFilesView />
   if (workspace.url.library.myFile != null) return <MyFileView fileId={workspace.url.library.myFile} />
+  if (workspace.url.library.writingTemplates) return <DraftTemplatesView />
   // The files of the whole project a search finds are no place of their own: "All files", pressed, says where they are.
   const placeLabel = flat && !allNamed(place) ? placeName(place) : null
   const searchResults = search && (
@@ -346,13 +342,6 @@ export function Library() {
             onClick={workspace.showMyFiles}
             title="My files: your own Word and Excel files in this project, which only you see"
             aria-label="My files"
-            className="px-2"
-          />
-          <Button
-            icon={<PenLine className="size-4" />}
-            onClick={workspace.showDrafts}
-            title="Drafts: letters, emails, memos, tables and reports the model writes from the documents"
-            aria-label="Drafts"
             className="px-2"
           />
           <Button

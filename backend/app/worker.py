@@ -86,7 +86,6 @@ from app.conversion import abandon_view, check_converter, convert_document
 from app.db import SessionLocal, connection_lost
 from app.deadletters import alert_failed_jobs
 from app.digests import send_digests
-from app.drafts import abandon_draft, write_draft
 from app.errors import summary
 from app.export import abandon_export, make_export
 from app.indexing.pipeline import (
@@ -167,6 +166,7 @@ from app.webhooks import (
     announce_run,
     run_delivery,
 )
+from app.writings import abandon_writing, write_document
 
 # By its name rather than `__name__`, which is "__main__" when the module runs as a command.
 log = logging.getLogger("app.worker")
@@ -407,13 +407,15 @@ def _run_automation(job: Job, services: Services) -> str | None:
 
 
 def _write_draft(job: Job, services: Services) -> str | None:
-    return write_draft(
-        job.payload["draft_id"], job.payload["user_id"], services, Lease(job.id, job.worker_id)
-    )
+    if "writing_id" not in job.payload:
+        # A draft's, from before the drafts became files of My files: there is nothing to write.
+        return None
+    return write_document(job.payload["writing_id"], services, Lease(job.id, job.worker_id))
 
 
 def _abandon_draft(job: Job, services: Services) -> None:
-    abandon_draft(job.payload["draft_id"], job.max_attempts)
+    if "writing_id" in job.payload:
+        abandon_writing(job.payload["writing_id"], job.max_attempts)
 
 
 def _run_receive(job: Job, services: Services) -> str | None:
@@ -480,12 +482,13 @@ def _abandon_language(job: Job, services: Services) -> None:
 # The kinds this worker runs. A kind in JOB_KINDS that is missing here is left in the queue for
 # a worker that has it. The answers and the mail have a lane of threads each (`LANE_KINDS`),
 # the runs of cross-checks and the automations that make them the answers', since a member
-# waits for them and their reports are the agent's, and so the drafts and the question sets'
-# reports, with the jobs that make those on a schedule or as documents arrive; every other kind
-# shares the indexers, a message sent to a project's address among them (app/receiving.py),
-# which is an upload, and so is a connected folder's sync (app/connectors/sync.py), the
-# deliveries of the webhooks (app/webhooks.py), whose answers come within seconds, and the hour's
-# weekly digests (app/digests.py), a few statements a member.
+# waits for them and their reports are the agent's, and so the documents written into My files
+# outside a chat (app/writings.py) and the question sets' reports, with the jobs that make those
+# on a schedule or as documents arrive; every other kind shares the indexers, a message sent to a
+# project's address among them (app/receiving.py), which is an upload, and so is a connected
+# folder's sync (app/connectors/sync.py), the deliveries of the webhooks (app/webhooks.py), whose
+# answers come within seconds, and the hour's weekly digests (app/digests.py), a few statements a
+# member.
 HANDLERS: dict[str, Handler] = {
     INDEX_DOCUMENT: Handler(_run_index, _abandon_index, _after_index),
     ANSWER_QUESTION: Handler(run_answer, abandon_answer),
