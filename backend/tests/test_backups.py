@@ -8,19 +8,32 @@ A restore is played by hand: the rows of what was done after the restore point a
 they were or removed, and the documents' sequence is set back to where it stood.
 """
 
+import json
 import logging
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from alembic.script import ScriptDirectory
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select, text, update
+from sqlalchemy.engine import make_url
 
 from app.auth import issue_link_token, new_token, token_hash
+from app.backup import (
+    _holds_tables,
+    _tool,
+    describe_backup,
+    describe_brought,
+    read_manifest,
+    restore_backup,
+    take_backup,
+)
 from app.config import get_settings
+from app.db import alembic_config
 from app.encrypted import TOTP_SECRETS
 from app.indexing.pipeline import Services
 from app.keyring import keyring
@@ -648,3 +661,312 @@ def test_the_command_needs_the_restore_point_with_its_zone(capsys):
     with pytest.raises(SystemExit):
         main(["after-restore", later])
     assert "TIME is in the future" in capsys.readouterr().err
+
+
+# A backup a team takes, and its restore
+
+
+@dataclass
+class Tools:
+    """pg_dump and pg_restore as the suite runs them: neither is installed where it runs, so each
+    call is recorded and the dump is a few bytes. The image's run in check-image.sh, against the
+    compose file's Postgres."""
+
+    calls: list[list[str]] = field(default_factory=list)
+    environs: list[dict[str, str]] = field(default_factory=list)
+
+
+@pytest.fixture
+def tools(monkeypatch, backup_days):
+    recorded = Tools()
+
+    def run(argv: list[str], environ: dict[str, str]) -> None:
+        recorded.calls.append(argv)
+        recorded.environs.append(environ)
+        for argument in argv:
+            if argument.startswith("--file="):
+                Path(argument.removeprefix("--file=")).write_bytes(b"PGDMP stand-in")
+
+    monkeypatch.setattr("app.backup._tool", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr("app.backup._run", run)
+    backup_days(14)
+    return recorded
+
+
+def head_revision() -> str:
+    return ScriptDirectory.from_config(alembic_config()).get_current_head()
+
+
+def test_a_backup_holds_the_database_the_originals_and_its_version(
+    client, session, sample_pdf, tools, tmp_path, capsys
+):
+    project = create_project(client)
+    (document,) = upload(client, project["id"], sample_pdf)["documents"]
+    row = session.get(Document, document["id"])
+    storage = LocalStorage(STORAGE_ROOT)
+    # A rendered page, drawn again from the original, and an account's purge record.
+    storage.put(f"{row.storage_prefix}pages/1.png", b"png")
+    storage.put(erasure_key(7, datetime(2026, 10, 1, tzinfo=UTC)), b"{}")
+
+    main(["backup", str(tmp_path)])
+    (folder,) = tmp_path.iterdir()
+    assert re.fullmatch(r"emudoc-\d{4}-\d\d-\d\dT\d{6}Z", folder.name)
+    assert folder.stat().st_mode & 0o077 == 0
+    manifest = json.loads((folder / "backup.json").read_text())
+    assert manifest | {"taken_at": None} == {
+        "format": 1,
+        "emudoc": "development",
+        "revision": head_revision(),
+        "taken_at": None,
+        "database": {"file": "database.dump", "bytes": 14},
+        "files": {"kept": "backup", "count": 2, "bytes": sample_pdf.stat().st_size + 2},
+    }
+    assert (folder / "database.dump").read_bytes() == b"PGDMP stand-in"
+    files = folder / "files"
+    kept = sorted(path.relative_to(files).as_posix() for path in files.rglob("*") if path.is_file())
+    assert kept == [erasure_key(7, datetime(2026, 10, 1, tzinfo=UTC)), row.storage_key]
+    assert (folder / "files" / row.storage_key).read_bytes() == sample_pdf.read_bytes()
+
+    # The password reaches pg_dump in its environment, never among its arguments.
+    url = make_url(get_settings().database_url)
+    ((program, *arguments),) = tools.calls
+    assert program == "/usr/bin/pg_dump"
+    assert arguments == [
+        "--format=custom",
+        "--no-password",
+        # Written under a hidden name, which becomes the folder's once the backup is whole.
+        f"--file={tmp_path}/.{folder.name}.partial/database.dump",
+        f"--dbname=postgresql://{url.username}@{url.host}:{url.port}/{url.database}",
+    ]
+    assert tools.environs[0]["PGPASSWORD"] == url.password
+    assert tools.environs[0]["PGAPPNAME"] == "emudoc-backup"
+
+    out = capsys.readouterr().out.splitlines()
+    assert out[0].startswith(f"Wrote the backup {folder}: the database as it was at 20")
+    assert out[0].endswith(
+        f"(Emudoc development, schema revision {head_revision()}), 0.0 MB dumped."
+    )
+    assert out[1:] == [
+        "The files: 2 files (0.0 MB). Rendered pages are left out: they are drawn again.",
+        "Took 0 s. Keep a copy off this machine, and .env apart from it: without its "
+        'ENCRYPTION_KEYS a backup\'s secrets cannot be read (deploying.md, "Backups").',
+    ]
+
+
+def test_the_next_backup_links_what_did_not_change_and_the_old_ones_go(
+    client, session, sample_pdf, sample_docx, tools, tmp_path, backup_days
+):
+    project = create_project(client)
+    (first,) = upload(client, project["id"], sample_pdf)["documents"]
+    storage = LocalStorage(STORAGE_ROOT)
+    now = datetime.now(UTC).replace(microsecond=0)
+    left = tmp_path / f".emudoc-{now - timedelta(days=3):%Y-%m-%dT%H%M%SZ}.partial"
+    left.mkdir()
+    (tmp_path / "notes").mkdir()
+    settings = get_settings()
+
+    oldest = take_backup(settings, storage, tmp_path, now - timedelta(days=20))
+    (second,) = upload(client, project["id"], sample_docx)["documents"]
+    middle = take_backup(settings, storage, tmp_path, now - timedelta(days=1))
+    first_key = session.get(Document, first["id"]).storage_key
+    second_key = session.get(Document, second["id"]).storage_key
+    # The first original had not changed, so it is the oldest backup's copy; that backup, 19
+    # days older than this one, goes, and with it what an earlier run left half written.
+    assert (middle.files, middle.linked, middle.removed) == (2, 1, [oldest.folder.name])
+    assert not oldest.folder.exists() and not left.exists()
+    assert (middle.folder / "files" / first_key).read_bytes() == sample_pdf.read_bytes()
+
+    newest = take_backup(settings, storage, tmp_path, now)
+    assert (newest.linked, newest.removed) == (2, [])
+    for key in (first_key, second_key):
+        assert (newest.folder / "files" / key).stat().st_ino == (
+            middle.folder / "files" / key
+        ).stat().st_ino
+    assert sorted(entry.name for entry in tmp_path.iterdir()) == [
+        middle.folder.name,
+        newest.folder.name,
+        "notes",
+    ]
+    assert describe_backup(newest, tmp_path, 14)[1] == (
+        "The files: 2 files (0.0 MB), 2 files unchanged since the previous backup and linked to "
+        "its copy, so they take no more space. Rendered pages are left out: they are drawn again."
+    )
+
+    # Without BACKUP_DAYS every backup stays, and the command says so.
+    backup_days(None)
+    later = take_backup(settings, storage, tmp_path, now + timedelta(days=30))
+    assert later.removed == []
+    assert describe_backup(later, tmp_path, None)[2] == (
+        f"BACKUP_DAYS is not set, so every earlier backup in {tmp_path} is kept."
+    )
+    backup_days(14)
+    removed = take_backup(settings, storage, tmp_path, now + timedelta(days=31))
+    assert describe_backup(removed, tmp_path, 14)[2] == (
+        f"Removed 2 backups older than BACKUP_DAYS (14 days): {middle.folder.name}, "
+        f"{newest.folder.name}."
+    )
+
+
+def test_a_restore_puts_the_files_back_and_sets_the_rest_right(
+    client, session, account, sample_pdf, tools, tmp_path, monkeypatch, capsys
+):
+    project = create_project(client)
+    (document,) = upload(client, project["id"], sample_pdf)["documents"]
+    row = session.get(Document, document["id"])
+    main(["backup", str(tmp_path)])
+    (folder,) = tmp_path.iterdir()
+    taken_at = json.loads((folder / "backup.json").read_text())["taken_at"]
+    capsys.readouterr()
+
+    # The server is lost with its disk; the stand-in pg_restore restores this database.
+    LocalStorage(STORAGE_ROOT).delete_prefix(row.storage_prefix)
+    monkeypatch.setattr("app.backup._holds_tables", lambda: False)
+    main(["restore", str(folder)])
+    url = make_url(get_settings().database_url)
+    assert tools.calls[-1] == [
+        "/usr/bin/pg_restore",
+        "--single-transaction",
+        "--no-owner",
+        "--no-privileges",
+        "--no-password",
+        f"--dbname=postgresql://{url.username}@{url.host}:{url.port}/{url.database}",
+        f"{folder}/database.dump",
+    ]
+    assert tools.environs[-1]["PGPASSWORD"] == url.password
+    assert LocalStorage(STORAGE_ROOT).get(row.storage_key) == sample_pdf.read_bytes()
+    session.expire_all()
+    (audited,) = session.scalars(select(AuditEvent).where(AuditEvent.action == "database_restored"))
+    assert audited.detail == {"restored_to": taken_at}
+    out = capsys.readouterr().out.splitlines()
+    moment = f"{datetime.fromisoformat(taken_at):%Y-%m-%d %H:%M:%S} UTC"
+    assert out[:2] == [
+        f"Restored the backup taken at {moment} by Emudoc development: the database (0.0 MB "
+        "dumped).",
+        f"Put back 1 file ({round(sample_pdf.stat().st_size / 1024 / 1024, 1)} MB) into the "
+        "storage; it held 0 of the backup's already.",
+    ]
+    assert out[-1] == "Start the app."
+    assert not any("without an original" in line for line in out)
+
+    # A database that holds tables, as this one does, is refused before anything is touched.
+    monkeypatch.setattr("app.backup._holds_tables", _holds_tables)
+    LocalStorage(STORAGE_ROOT).delete_prefix(row.storage_prefix)
+    calls = len(tools.calls)
+    with pytest.raises(SystemExit, match="The database holds tables already"):
+        main(["restore", str(folder)])
+    assert len(tools.calls) == calls
+    assert not LocalStorage(STORAGE_ROOT).exists(row.storage_key)
+
+
+def test_a_restore_upgrades_an_earlier_version_s_backup_and_refuses_a_later_one(
+    session, account, tools, tmp_path, monkeypatch
+):
+    storage = LocalStorage(STORAGE_ROOT)
+    taken = take_backup(get_settings(), storage, tmp_path)
+    manifest = taken.folder / "backup.json"
+    written = json.loads(manifest.read_text())
+    script = ScriptDirectory.from_config(alembic_config())
+    earlier = script.get_revision(head_revision()).down_revision
+    manifest.write_text(json.dumps(written | {"emudoc": "0.0.9", "revision": earlier}))
+    upgraded = []
+    monkeypatch.setattr("app.backup._holds_tables", lambda: False)
+    monkeypatch.setattr("app.backup._upgrade", lambda: upgraded.append(True))
+    brought = restore_backup(get_settings(), storage, taken.folder)
+    assert upgraded == [True] and brought.upgraded_to == head_revision()
+    assert describe_brought(brought)[0].endswith(
+        f"by Emudoc 0.0.9: the database (0.0 MB dumped), upgraded from schema revision {earlier} "
+        f"to {head_revision()}."
+    )
+
+    manifest.write_text(json.dumps(written | {"emudoc": "9.9.9", "revision": "ffffffffffff"}))
+    with pytest.raises(RuntimeError) as refused:
+        restore_backup(get_settings(), storage, taken.folder)
+    assert str(refused.value) == (
+        "The backup was taken by Emudoc 9.9.9, whose database schema (revision ffffffffffff) "
+        "this version does not know: restore it with Emudoc 9.9.9 or later."
+    )
+
+
+def test_a_bucket_s_files_are_listed_and_checked_rather_than_copied(
+    session, account, tools, tmp_path, monkeypatch
+):
+    storage = bucket(versioning="")
+    kept, gone = (
+        "orgs/1/projects/1/documents/1/original.pdf",
+        "orgs/1/projects/1/documents/2/original.pdf",
+    )
+    for key in (kept, gone, "orgs/1/projects/1/documents/1/thumbnail.png"):
+        storage.put(key, b"%PDF")
+    taken = take_backup(get_settings(), storage, tmp_path)
+    assert (taken.in_bucket, taken.files) == (True, 2)
+    assert not (taken.folder / "files").exists()
+    assert (taken.folder / "keys.txt").read_text() == f"{kept}\t4\n{gone}\t4\n"
+    assert describe_backup(taken, tmp_path, 14)[1] == (
+        "The files stay in the bucket, which keeps them by its own versions: 2 files (0.0 MB) "
+        "listed in keys.txt, which the restore checks the bucket against."
+    )
+
+    # A bucket without versions keeps nothing deleted since, and the restore says what it lacks.
+    storage.delete([gone])
+    monkeypatch.setattr("app.backup._holds_tables", lambda: False)
+    brought = restore_backup(get_settings(), storage, taken.folder)
+    assert (brought.listed, brought.absent) == (2, [gone])
+    assert describe_brought(brought)[1] == (
+        f"The files are the bucket's, which lacks 1 of the 2 files the backup lists: {gone}. A "
+        "bucket keeps a deleted file only as long as its versions are kept."
+    )
+
+
+def test_restore_names_the_backups_of_a_folder_that_holds_several(tools, tmp_path):
+    storage = LocalStorage(STORAGE_ROOT)
+    now = datetime.now(UTC).replace(microsecond=0)
+    names = [
+        take_backup(get_settings(), storage, tmp_path, now - timedelta(hours=hours)).folder.name
+        for hours in (2, 1)
+    ]
+    with pytest.raises(RuntimeError) as refused:
+        read_manifest(tmp_path)
+    assert str(refused.value) == (
+        f"{tmp_path} holds 2 backups, not one: name the one to restore, the newest first: "
+        f"{names[1]}, {names[0]}."
+    )
+    with pytest.raises(RuntimeError, match="holds no backup: a backup is a folder with"):
+        read_manifest(tmp_path / names[0] / "files")
+
+
+def test_a_backup_needs_its_tools_a_direct_connection_and_days_to_keep(
+    session, tools, tmp_path, monkeypatch, backup_days
+):
+    settings = get_settings()
+    STORAGE_ROOT.mkdir(exist_ok=True)
+    monkeypatch.setattr("app.backup._tool", _tool)
+    monkeypatch.setattr("app.backup.shutil.which", lambda name: None)
+    with pytest.raises(SystemExit, match="pg_dump is not installed here. Run this from the image"):
+        main(["backup", str(tmp_path)])
+
+    monkeypatch.setattr("app.backup._tool", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(settings, "database_pooler", "transaction")
+    with pytest.raises(SystemExit, match="goes through a pooler in transaction mode"):
+        main(["backup", str(tmp_path)])
+    monkeypatch.setattr(settings, "database_pooler", "")
+
+    backup_days(0)
+    with pytest.raises(SystemExit, match="BACKUP_DAYS is 0, which tells the members"):
+        main(["backup", str(tmp_path)])
+    backup_days(14)
+
+    # A pg_dump that fails leaves nothing half written behind.
+    def failing(argv: list[str], environ: dict[str, str]) -> None:
+        raise RuntimeError("pg_dump failed: server version mismatch")
+
+    monkeypatch.setattr("app.backup._run", failing)
+    with pytest.raises(SystemExit, match="pg_dump failed: server version mismatch"):
+        main(["backup", str(tmp_path)])
+    assert list(tmp_path.iterdir()) == []
+
+    closed = tmp_path / "closed"
+    closed.mkdir(mode=0o500)
+    if os.access(closed, os.W_OK):
+        pytest.skip("this user writes in any directory")
+    with pytest.raises(SystemExit, match="closed cannot be written by this process"):
+        main(["backup", str(closed)])

@@ -43,6 +43,9 @@ services:
   migrate: *aws
   api: *aws
   worker: *aws
+  # RDS keeps the database's backups and the bucket the files' versions; `run --rm backup`
+  # would list the bucket's keys with the app role's credentials, as the worker reaches them.
+  backup: *aws
   converter:
     logging: *logging
   clamav:

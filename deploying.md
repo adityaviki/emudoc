@@ -215,9 +215,10 @@ docker run --rm -v "$PWD:/src:ro" -w /src aquasec/trivy:0.73.0 image --image-src
 it: Postgres 17 with pgvector, the release step, the API, a worker, and llama.cpp's server for
 the embeddings, from the image GHCR holds (`EMUDOC_TAG`, `latest` by default, or `EMUDOC_IMAGE`
 for one built here), with three more behind profiles: ClamAV (`scan`), the converter
-(`office`) and Caddy in front (`tls`). Its settings are the `.env` beside it, made from
+(`office`) and Caddy in front (`tls`), and the backups, which `run` starts alone (`backup`,
+"Backups"). Its settings are the `.env` beside it, made from
 `deploy/.env.example`: Compose fills the file's `${…}` from it (`POSTGRES_PASSWORD`, `APP_URL`
-for Caddy, `EMUDOC_TAG`, `COMPOSE_PROFILES`), and the app's containers take every line of it as
+for Caddy, `EMUDOC_TAG`, `EMUDOC_BACKUPS`, `COMPOSE_PROFILES`), and the app's containers take every line of it as
 their environment (`EMUDOC_ENV` names another file for that). Compose expands `$` in its values
 unless they are in single quotes. The example sets what the file runs, `DATABASE_URL` made of
 the password, `STORAGE_URL=file:///var/lib/emudoc` and `EMBEDDING_BASE_URL=http://embeddings:8080/v1`,
@@ -231,6 +232,7 @@ docker compose up -d --wait                       # in the folder of compose.yml
 docker compose up -d --scale worker=3             # more workers
 docker compose run --rm --no-deps worker python -m app.maintenance failed-jobs
 docker compose logs -f api worker                 # what they log
+docker compose run --rm backup                    # a backup of the database and the files
 ```
 
 From a checkout, the same commands take `-f deploy/compose.yml`, with the `.env` in `deploy/`.
@@ -240,10 +242,12 @@ answers its health check and the worker keeps its alive file. It replaces the ru
 worker before it runs the migrations, though, so a migration that fails there leaves neither
 running. An update, a new `EMUDOC_TAG` in `.env` (or the same `latest` pulled again), runs them
 alone first and stops there if they fail, and so does the embeddings server, whose download and
-start the API and the worker wait for in the same way:
+start the API and the worker wait for in the same way, after a backup to go back to
+("Upgrades"):
 
 ```bash
-docker compose pull && \
+docker compose run --rm backup && \
+  docker compose pull && \
   docker compose run --rm migrate && \
   docker compose up -d --wait embeddings && \
   docker compose up -d --wait
@@ -2060,12 +2064,109 @@ happen: an API without one purges nothing.
 
 ## Backups
 
-The app makes no backups itself. A deployment keeps two: the database, restorable to any moment
-within the window (point-in-time recovery), and the files, through the bucket's versioning or
-the disk's snapshots. Both hold every document, so both are encrypted, and both expire within
-`BACKUP_DAYS`, the latest a deleted account is gone from them.
-The two must restore to the same moment: a database row whose file is gone is a document that
-cannot be opened or indexed again, and a file whose row is gone is an upload nobody can reach.
+A deployment keeps two backups, of the database and of the files. Both hold every document, so
+both are kept off the server and encrypted there, and both expire within `BACKUP_DAYS`, the
+latest a deleted account is gone from them. The two must restore to the same moment: a database
+row whose file is gone is a document that cannot be opened or indexed again, and a file whose
+row is gone is an upload nobody can reach.
+
+A team on one server takes both at once with the compose file's `backup` service, every night
+("With the compose file"). A deployment that must lose minutes at most keeps point-in-time
+backups instead: the database restorable to any moment within the window, and the files through
+the bucket's versioning or the disk's snapshots (the rest of this section).
+
+### With the compose file
+
+```bash
+docker compose run --rm backup     # in the folder of compose.yml and .env, while the app runs
+```
+
+Each run writes a folder of its own, named by the moment (`emudoc-2026-11-13T033000Z`), into
+the `backups` volume, or into the directory `EMUDOC_BACKUPS` names in `.env`
+(`backend/app/backup.py`):
+
+- `database.dump`, the database as `pg_dump` saw it, in its custom format;
+- `files/`, when `STORAGE_URL` is a directory: the originals, the views converted from them
+  and the records of the accounts purged, without the rendered pages and thumbnails, which are
+  drawn again. A file unchanged since the previous backup is a hard link to that backup's copy,
+  so each night takes the space of what changed;
+- `keys.txt` instead, for a bucket: its files are not copied, since it keeps them by its own
+  versions ("The files", below), and the restore checks the bucket against the list;
+- `backup.json`: the version of Emudoc that took it, the database's schema revision and the
+  moment.
+
+The database is dumped first and the files copied after, so the files hold at least what the
+database names. Once the backup is whole, those in the directory older than `BACKUP_DAYS` (14 in
+the example) are removed; a run that fails removes none, and leaves nothing half written. The
+service reaches the database and the files as the worker does. Its `pg_dump` is PostgreSQL 17's,
+which dumps a server of 17 or earlier; behind a pooler in transaction mode it uses
+`DATABASE_LISTEN_URL`. Every night, from a systemd timer:
+
+```ini
+# /etc/systemd/system/emudoc-backup.service
+[Unit]
+Description=Emudoc's backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/srv/emudoc
+ExecStart=/usr/bin/docker compose run --rm backup
+```
+
+```ini
+# /etc/systemd/system/emudoc-backup.timer
+[Unit]
+Description=Emudoc's backup, every night
+
+[Timer]
+OnCalendar=*-*-* 03:30:00 UTC
+RandomizedDelaySec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+`systemctl enable --now emudoc-backup.timer`, with the folder of `compose.yml` and `.env` as
+`WorkingDirectory`; `systemctl status emudoc-backup` says how the last run went and `journalctl
+-u emudoc-backup` shows its lines. Or a line of root's crontab: `30 3 * * * cd /srv/emudoc &&
+docker compose run --rm backup >>/var/log/emudoc-backup.log 2>&1`.
+
+A backup on the server's own disk is lost with it. Copy the folders to another machine or a
+bucket (restic, which encrypts its repository, or rsync to a disk that is), or set
+`EMUDOC_BACKUPS` to a directory on another disk that the image's user may write in (`install -d
+-o 10001 -g 10001 -m 700 /mnt/backups/emudoc`); the volume's folders are under `docker volume
+inspect -f '{{.Mountpoint}}' emudoc-deploy_backups`. A copy kept longer than `BACKUP_DAYS` keeps
+a deleted account longer than the members are told. Keep `.env` apart from the backups: a
+restore needs its `ENCRYPTION_KEYS`, and with them a stolen backup's secrets can be read ("The
+encryption keys"). A backup every night loses at most a day: that is the recovery point, where
+"Recovery targets" below is the point-in-time way's.
+
+To restore, with the app stopped and the database emptied:
+
+```bash
+docker compose stop api worker
+docker compose exec postgres sh -c 'dropdb -U emudoc --force emudoc && createdb -U emudoc emudoc'
+docker compose run --rm backup python -m app.maintenance restore /backups/emudoc-2026-11-13T033000Z
+docker compose up -d --wait
+```
+
+On a new machine, `compose.yml` and the `.env` that was kept apart, with `EMUDOC_BACKUPS` naming
+the directory the backup was copied into (readable by uid 10001); its database starts empty, so
+the first two lines are left out. The restore refuses a database that holds tables, and a backup
+from a later version than the image's. It puts the files back into the storage, restores the
+database in one transaction, so that a restore that fails leaves it empty to run again, and
+upgrades it when the backup is from an earlier version. Then it does what `after-restore` does
+after any restore to an earlier point ("Restoring", step 5), from the backup's moment: every
+session and unused link ends, the audit logs record the restore, the accounts deleted since are
+purged again, and it names any document whose original is missing and any secret whose key
+`ENCRYPTION_KEYS` no longer holds. Tell the members that what they did since the backup is
+undone (step 6). Restore one on another machine once before relying on them; CI's image check
+backs up and restores the compose file at every change ("The image").
+
+The rest of this section is the point-in-time way.
 
 ### The database
 
@@ -2408,6 +2509,33 @@ set". Its times are a few seconds each for a database of 30 MB and are no measur
 production's; the drill on staging gives the first. versitygw, the compose file's bucket, stamps
 a delete marker with the time of the file it deletes rather than the time of the delete, so no
 listing of it can say what was deleted after a moment; MinIO and AWS stamp the delete.
+
+## Upgrades
+
+An upgrade is a new image: a version in `EMUDOC_TAG` (`0.2.0`; `0.2` takes that line's fixes
+alone, and `latest` every release), whose changelog entry says what it changes. Take a backup to
+go back to, then pull, run the release step alone, which stops there if a migration fails, and
+start the rest ("The image"):
+
+```bash
+docker compose run --rm backup
+sed -i 's/^EMUDOC_TAG=.*/EMUDOC_TAG=0.2.0/' .env
+docker compose pull && \
+  docker compose run --rm migrate && \
+  docker compose up -d --wait embeddings && \
+  docker compose up -d --wait
+```
+
+Migrations only go forward, and the app refuses to start on a database whose schema is not its
+own, so an earlier image does not start on an upgraded database. Going back is the backup taken
+before: `EMUDOC_TAG` set back to the version before, then the restore of "With the compose file"
+with that backup's folder. What the members did between the backup and going back is lost, so go
+back soon or not at all, and tell them.
+
+Nothing waits on a timer of the host's but the backup: the worker's housekeeping empties the
+trash after `TRASH_DAYS`, applies the retention of chats, runs, drafts and audit rows, purges the
+accounts due, and sweeps the rendered pages and the files nothing names, every six hours
+("Retention and deletion").
 
 ## Logs
 
@@ -3756,7 +3884,9 @@ When the database or the files are lost or damaged, or a mistake must be undone:
    targets").
 2. Tell the members the app is down for a restore: the app cannot, being stopped.
 3. Follow "Restoring": stop the app, restore the database, run the migrations if the code is
-   newer, `after-restore --dry-run` and then `after-restore` with the moment, and start it.
+   newer, `after-restore --dry-run` and then `after-restore` with the moment, and start it. With
+   the compose file's nightly backups, the moment is the last backup's, and "With the compose
+   file" restores it.
 4. Tell the members what is undone since the moment, and that everyone signs in again.
 5. Write each step's time down beside the drill's, against the recovery time.
 
@@ -4569,12 +4699,13 @@ and the like), named on its models' pages.
 | --- | --- | --- | --- |
 | `SUPPORT_EMAIL` | none | | Where members write for help, from the app's help menu, in place of the workspace's owners and admins ("Support"); the mail to an address an account left names it |
 | `STATUS_PAGE_URL` | none | | The status page outside the deployment that the help menu links to ("The status page") |
-| `BACKUP_DAYS` | none | | How long the backups are kept, which the bucket's earlier versions are held to ("Backups") |
+| `BACKUP_DAYS` | none | | How long the backups are kept: `backup` removes its older ones, and the bucket's earlier versions are held to it ("Backups") |
 
 The compose files read a few of their own: `POSTGRES_PASSWORD` (the database's, which
 `DATABASE_URL` repeats), `EMUDOC_TAG` (the image's tag on GHCR, `latest` by default),
 `EMUDOC_IMAGE` (another image to run, such as one built here), `EMUDOC_ENV` (the app's settings'
-file, `.env` beside the compose file by default), `COMPOSE_PROFILES` (Compose's own: `scan`,
+file, `.env` beside the compose file by default), `EMUDOC_BACKUPS` (where `backup` writes, the
+`backups` volume by default), `COMPOSE_PROFILES` (Compose's own: `scan`,
 `office`, `tls`) and `APP_URL` for Caddy, in `deploy/compose.yml`, with `EMBEDDING_WEIGHTS_URL`
 and `EMBEDDING_WEIGHTS_SHA256` for the embeddings server's weights;
 `EMUDOC_DOMAIN`, `EMUDOC_ENVIRONMENT`, `EMUDOC_ALERTS`, `EMUDOC_PAGES` and `EMUDOC_HEARTBEAT`

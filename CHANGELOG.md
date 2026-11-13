@@ -52,6 +52,16 @@ Members:
 
 Operators:
 
+- Backups a team takes by itself: `docker compose run --rm backup` writes the database (a
+  `pg_dump`) and the files into a folder of its own in the new `backups` volume, or the directory
+  `EMUDOC_BACKUPS` names, while the app runs. Files unchanged since the previous backup are
+  hard links to its copy, rendered pages are left out, and a bucket's keys are listed rather
+  than copied. Backups older than `BACKUP_DAYS` (14 in `deploy/.env.example`) are removed after
+  each one. `python -m app.maintenance restore <folder>` restores one into an empty database,
+  puts the files back, upgrades a backup of an earlier version and then does what
+  `after-restore` does. The image now carries PostgreSQL 17's `pg_dump` and `pg_restore`.
+  `deploying.md` gives a nightly systemd timer, the restore, and a new "Upgrades": back up, pull
+  the new tag, migrate, start, and go back by restoring the backup taken before.
 - `deploy/compose.yml` runs everything on a team's server, as the README's new "Quick start"
   does: Postgres 17 with pgvector, the release step, the API, a worker and the embeddings
   server, and behind profiles ClamAV (`scan`, now ClamAV's Debian image, built for arm64 as
