@@ -35,7 +35,7 @@ services:
   #   AWS_ACCESS_KEY_ID=emudoc  AWS_SECRET_ACCESS_KEY=emudoc-secret
   # The tests never need it: they run the bucket storage against a fake.
   s3:
-    image: versity/versitygw:v1.9.0@sha256:eb7f786fcd91e72194e48fcf1ac16302d686bf8e3a71434bdbc067a6efd3fdc7
+    image: versity/versitygw:v1.11.0@sha256:8319a530d08d537426e2f855bae5280709795dc73a3f0c347973ef915d6343c5
     profiles: ["s3"]
     entrypoint: ["sh", "-c", "mkdir -p /data/emudoc && exec versitygw posix /data"]
     environment:
@@ -104,7 +104,7 @@ services:
   # The suite runs through it too, with TEST_DATABASE_SERVER=emudoc:emudoc@127.0.0.1:6438 and
   # the same two settings, the listener's naming emudoc_test.
   pgbouncer:
-    image: edoburu/pgbouncer:v1.26.0-p0@sha256:b17551c776ef7e5769ef80b956d20f85e2fd25dd8912d31d58f782aad495b711
+    image: edoburu/pgbouncer:v1.26.1-p0@sha256:488422e38cff912895d0d65d8963fcd306e6ac589a724398b6eb8e294e94d624
     profiles: ["pgbouncer"]
     environment:
       DB_HOST: db
