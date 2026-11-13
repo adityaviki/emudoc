@@ -22,12 +22,10 @@ export function AuthLayout() {
         <ThemeToggle />
       </div>
       <main className="flex flex-1 flex-col items-center px-4 pt-6 pb-10 sm:pt-12">
-        {/* A page load, not the router's: / is the public site's home page to a visitor and the
-            projects to a member, as the backend decides by the session (backend/app/site.py). */}
-        <a href="/" className="mb-6 flex items-center gap-2 rounded-md text-lg font-semibold tracking-tight">
+        <Link to="/" className="mb-6 flex items-center gap-2 rounded-md text-lg font-semibold tracking-tight">
           <img src="/favicon.svg" alt="" className="size-7" />
           Emudoc
-        </a>
+        </Link>
         <Outlet />
       </main>
       <LegalLinks />

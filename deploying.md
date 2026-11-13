@@ -1129,28 +1129,19 @@ older code's outline, which is not wrong. The index first committed holds the en
 replies written by hand (`built.models` says `hand:`), each fact's quote checked against its
 block by the stage as a model's is; the next build with a model replaces them.
 
-## The public site
+## The way in
 
-A visitor without a session finds the home page at `/`; a browser that carries the session
-cookie gets the members' page at `/` as before, as does development's `LOCAL_ACCOUNT`. It is
-plain HTML of the frontend's build (`frontend/home.html`, `vite build --mode site`, which `pnpm
-build` runs), with no script, so that a search engine reads it whole, and the app fills it in as
-it serves it (`backend/app/site.py`): the file types the parsers take, the operator's name
-(`OPERATOR_NAME`), the region, the scanner and the sample project. A part of the page about a
-feature that needs an outside service (email in, connected folders) is shown only once the
-deployment has that service, so that the site offers nothing a new workspace would not find.
-
-The page offers no sign-up of its own. Its way in is "Book a demo", which opens `BOOKING_URL`, a
-booking page of Cal.com, Calendly or the like; unset, "Request access" mails the support address
-(`SUPPORT_EMAIL`, else `OPERATOR_EMAIL`). The pricing page went with the plans (2026-11-13),
-and the help pages and the API reference are put away for now (2026-11-11): `/pricing`, `/help`, `/help/…` and `/api-reference` send a
-visitor to `/`, and no search engine is told of them. The versioned API itself, and its contract
-at `/api/v1/openapi.json`, stay.
+`/` is the app: a member finds their projects there, and a visitor without a session is sent to
+the sign-in, which returns them to the page they wanted. An install is a team's own server, which
+no search engine should list: `/robots.txt` turns every crawler away, and every page says
+`X-Robots-Tag: noindex` besides, for a crawler that came by a link. The public site and its
+booking link went on 2026-11-13. The versioned API and its contract at `/api/v1/openapi.json`
+stay.
 
 ### The first run, and who signs up
 
 An install starts with no account (`backend/app/signups.py`). Until one exists every page sends
-to `/setup`, the home page too, where whoever runs the install types the admin's name, address
+to `/setup`, where whoever runs the install types the admin's name, address
 and password and the team's name. The page makes the account, its address confirmed, an owner of
 the workspace named so, which starts with the sample project ("The sample project"), and signs
 it in. It is refused once any account exists, under a lock, so that two browsers at once make
@@ -1181,19 +1172,11 @@ their address brings them back.
 
 `SIGNUP_OPEN` is off by default: the sign-up form refuses every address alike, with a sentence
 that says to ask the team's admin, and a first sign-in through Google or Microsoft makes no
-account. The site's home page says "Private beta" beside its way in ("The public site"), until
-the site is taken out. Set to `true`, anyone who reaches the install signs up by the link mailed
+account; the sign-in page offers no account either, and says to ask the team's admin for an
+invitation. Set to `true`, anyone who reaches the install signs up by the link mailed
 to their address, or through a provider, and joins the workspace as a member; a sign-up link
 stops working once the sign-up is closed again. Either change
 takes effect at once, with no release.
-
-`SEARCH_ENGINES=true` asks search engines to list the public pages: robots.txt keeps them from
-`/api/` alone and names `/sitemap.xml` (the home page, the terms, the privacy policy, the
-subprocessors), and
-every other page, a member's or a share link's, says `X-Robots-Tag: noindex`. Left off, as in
-development and on staging (the AWS module sets it on production alone), robots.txt turns every
-crawler away, there is no sitemap, and every page says `noindex`. The home page's link preview
-names `APP_URL` and shows `/brand/og-image.png`, the logo kit's.
 
 ## TLS at a reverse proxy
 
@@ -4579,9 +4562,7 @@ the roots' `settings` the others ("The settings").
 | `SENTRY_ENVIRONMENT` | `ENVIRONMENT` | | What the tracker files the reports under |
 | `LOCAL_ACCOUNT` | `false` | refused when true | Requests without a session act as a local owner, for development |
 | `APP_URL` | the request's origin | required | Where members reach the app: the links in mail, the OAuth redirect |
-| `SEARCH_ENGINES` | `false` | `true` on the deployment the public reaches, never staging | Whether search engines are asked to list the public pages ("The public site") |
 | `SIGNUP_OPEN` | `false` | | Whether anyone who reaches the install may make an account, which joins the workspace ("The first run, and who signs up") |
-| `BOOKING_URL` | none | | The `https://` page the home page's "Book a demo" opens, and the sign-up page's while sign-up is closed; none mails the support address ("The public site") |
 | `SESSION_DAYS` | `30` | | How long a sign-in lasts; an organisation may sign its members in again sooner |
 | `OPERATOR_NETWORKS` | `127.0.0.1/32,::1/128` in development, none in production | the operators' addresses | Where the operator's area answers from ("The operator's area") |
 | `SAMPLE_PROJECT` | `true` | | Whether the workspace the setup makes starts with the sample project ("The sample project") |
@@ -4723,7 +4704,7 @@ and the like), named on its models' pages.
 | `HOSTING_PROVIDER` | none | required | Who runs the servers, first on `/subprocessors` |
 | `OPERATOR_NAME` | none | required | Who runs the deployment, as the terms name them |
 | `OPERATOR_EMAIL` | none | required | Where people write about their account and data |
-| `SUPPORT_EMAIL` | none | | Where members write for help, from the app's help menu, in place of the workspace's owners and admins ("Support"); the closed sign-up's "Request access" and the mail to an address an account left name it, else `OPERATOR_EMAIL` |
+| `SUPPORT_EMAIL` | none | | Where members write for help, from the app's help menu, in place of the workspace's owners and admins ("Support"); the mail to an address an account left names it, else `OPERATOR_EMAIL` |
 | `STATUS_PAGE_URL` | none | | The status page outside the deployment that the help menu links to ("The status page") |
 | `BACKUP_DAYS` | none | required | How long the backups are kept ("Backups") |
 | `SERVER_LOG_DAYS` | none | required | How long the server logs are kept ("How long they are kept") |

@@ -57,7 +57,7 @@ function PasswordStep({ next, onCode }: { next: string; onCode: () => void }) {
   const [params] = useSearchParams()
   const notice = (useLocation().state as LoginState | null)?.notice
   const options = useAuthOptions().data
-  const closed = options && !options.signup_open ? options : null
+  const closed = options?.signup_open === false
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const login = useMutation({
@@ -84,10 +84,8 @@ function PasswordStep({ next, onCode }: { next: string; onCode: () => void }) {
         <>
           New to Emudoc?{' '}
           {closed ? (
-            // While sign-up is closed, the way to ask for an account (backend/app/signups.py).
-            <a href={closed.book_url} className="font-medium text-accent hover:underline">
-              {closed.book_label}
-            </a>
+            // While sign-up is closed, accounts come by invitation alone (backend/app/signups.py).
+            "Ask your team's admin for an invitation."
           ) : (
             <Link to={`/signup${params.has('next') ? `?${params}` : ''}`} className="font-medium text-accent hover:underline">
               Create an account

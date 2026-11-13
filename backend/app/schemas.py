@@ -2544,15 +2544,13 @@ class NotificationsReadIn(BaseModel):
 
 
 class AuthOptions(BaseModel):
-    """What the sign-in pages can offer besides a password, and whether anyone may sign up:
-    while nobody may, `book_url` is where a visitor asks for an account, under the button's
-    words `book_label`; and `setup_needed` while the install has no account yet, which every
-    page then sends to the setup (app/signups.py)."""
+    """What the sign-in pages can offer besides a password, whether anyone may sign up (while
+    nobody may, the pages say to ask the team's admin for an invitation), and `setup_needed`
+    while the install has no account yet, which every page then sends to the setup
+    (app/signups.py)."""
 
     providers: list[OAuthProviderOut]
     signup_open: bool
-    book_url: str
-    book_label: str
     setup_needed: bool
 
 

@@ -10,7 +10,7 @@ import httpx
 from anyio import CapacityLimiter, to_thread
 from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, OperationalError
@@ -100,19 +100,6 @@ from app.schemas import (
     WorkerStatus,
 )
 from app.shutdown import Stop, heard_stop
-from app.signups import needs_setup
-from app.site import (
-    HOME_PAGE,
-    NOT_LISTED,
-    PAGES,
-    fill,
-    html_response,
-    listed_by_search_engines,
-    moved,
-    page_at,
-    robots,
-    sitemap,
-)
 from app.startup import prepare
 from app.status import KEYWORDS_ONLY, MODELS_UNAVAILABLE, WORK_STOPPED, upload_limits
 from app.storage import StorageError
@@ -146,8 +133,11 @@ register_url_convertor("page", PagePath())
 # taken too, so that the file is reached by no other way.
 OPERATOR_PAGE = "operator.html"
 _OPERATOR_PATH = re.compile(r"operator(?:/.*)?|operator\.html")
-# The public site's pages (app/site.py), served filled in at their paths alone.
-SITE_FILES = frozenset(PAGES.values())
+# An install is a team's own server, which no search engine should list (2026-11-13: the public
+# site went, S.3): robots.txt turns every crawler away, and every page asks not to be listed
+# besides, for a crawler that reached it by a link.
+ROBOTS = "User-agent: *\nDisallow: /\n"
+NOT_LISTED = "noindex"
 
 
 class BuiltFiles(StaticFiles):
@@ -417,12 +407,6 @@ async def unexpected_error(request: Request, error: Exception) -> JSONResponse:
     return response
 
 
-def _set_up_first() -> bool:
-    """Whether the install has no account yet, so that its home page sends to the setup."""
-    with SessionLocal() as session:
-        return needs_setup(session)
-
-
 def _from_operator(request: Request) -> bool:
     """Whether the operator's page may be sent: to an operator, from an operator's network. One
     whom the area still refuses, for want of two-factor sign-in, is sent it, and told why by
@@ -583,23 +567,11 @@ def create_app(
     # a refusal tells nobody else that a route is there (app/api/operator.py).
     app.include_router(operator.router, prefix="/api")
 
-    # What search engines are told of the public pages (app/site.py), before the page's
-    # catch-all, which would answer the members' page.
+    # What search engines are told, before the page's catch-all, which would answer the
+    # members' page.
     @app.api_route("/robots.txt", methods=["GET", "HEAD"], include_in_schema=False)
-    async def robots_txt(request: Request):
-        return PlainTextResponse(
-            robots(settings, auth.app_url(request)), headers={"Cache-Control": PAGE_KEPT}
-        )
-
-    @app.api_route("/sitemap.xml", methods=["GET", "HEAD"], include_in_schema=False)
-    async def sitemap_xml(request: Request):
-        if not settings.search_engines:
-            return Response(status_code=404, headers={"X-Robots-Tag": NOT_LISTED})
-        return Response(
-            sitemap(auth.app_url(request)),
-            media_type="application/xml",
-            headers={"Cache-Control": PAGE_KEPT},
-        )
+    async def robots_txt():
+        return PlainTextResponse(ROBOTS, headers={"Cache-Control": PAGE_KEPT})
 
     if FRONTEND_DIST.is_dir():
         # Serve the built frontend; unknown paths fall back to index.html for client routing.
@@ -610,31 +582,14 @@ def create_app(
         @app.api_route("/{path:page}", methods=["GET", "HEAD"], include_in_schema=False)
         async def spa(path: str, request: Request):
             response = await _page(path, request)
-            if not listed_by_search_engines(path, settings):
-                response.headers["X-Robots-Tag"] = NOT_LISTED
-            if path.strip("/") == "":
-                # / is the site's home page or the members' page by the session cookie.
-                response.headers["Vary"] = "Cookie"
+            response.headers["X-Robots-Tag"] = NOT_LISTED
             return response
 
         async def _page(path: str, request: Request) -> Response:
-            if (elsewhere := moved(path)) is not None:
-                # A page put away: the plans, the help, the API reference, what's new (app/site.py).
-                return RedirectResponse(elsewhere, status_code=302)
-            if (site_page := page_at(path, request, settings)) is not None:
-                # An install with no account yet is entered through its setup (app/signups.py),
-                # which the members' page shows at once.
-                if site_page == HOME_PAGE and await to_thread.run_sync(_set_up_first):
-                    return RedirectResponse(auth.SETUP_PAGE, status_code=302)
-                if served := await to_thread.run_sync(_site_page, site_page, request):
-                    return served
             if _OPERATOR_PATH.fullmatch(path):
                 # Anyone but an operator gets the members' page, as for a path nobody serves.
                 if await to_thread.run_sync(_from_operator, request):
                     return await page.get_response(OPERATOR_PAGE, request.scope)
-                return await page.get_response("index.html", request.scope)
-            if path in SITE_FILES:
-                # The site's pages as written, their placeholders unfilled, by no other way.
                 return await page.get_response("index.html", request.scope)
             try:
                 return await page.get_response(path, request.scope)
@@ -642,15 +597,6 @@ def create_app(
                 if missing.status_code != 404:
                     raise
             return await page.get_response("index.html", request.scope)
-
-        def _site_page(name: str, request: Request) -> Response | None:
-            """The site's page filled in, or None for a build without it, which leaves the
-            path to the members' page."""
-            try:
-                html = (FRONTEND_DIST / name).read_text()
-            except FileNotFoundError:
-                return None
-            return html_response(request, fill(html, settings, auth.app_url(request)))
 
     return app
 

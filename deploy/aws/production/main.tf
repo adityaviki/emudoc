@@ -79,8 +79,6 @@ module "emudoc" {
   data_region     = module.shared.data_region
   settings = merge(module.shared.settings, {
     DAILY_SPEND_CAP = "50"
-    # The public site's pages listed by search engines, here alone: staging's say not to be.
-    SEARCH_ENGINES = "true"
   })
   mail = {
     domain = "emudoc.example.com"

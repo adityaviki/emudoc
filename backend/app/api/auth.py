@@ -164,7 +164,6 @@ from app.signups import (
     SIGNUP_CLOSED,
     NotSetUp,
     SetUpAlready,
-    booking,
     join_workspace,
     needs_setup,
     set_up,
@@ -177,7 +176,6 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 # Pages of the frontend (frontend/src/account/): the links in emails and the redirects after an
 # OAuth sign-in point at them.
 LOGIN_PAGE = "/login"
-SETUP_PAGE = "/setup"
 SIGNUP_PAGE = "/finish-signup"
 VERIFY_PAGE = "/verify"
 FORGOT_PAGE = "/forgot-password"
@@ -284,17 +282,14 @@ class SignInRefused(Exception):
 @router.get("/options", response_model=AuthOptions)
 def options(session: SessionDep):
     """What the sign-in pages can offer: the identity providers that are set up, whether
-    anyone may sign up, with the way to ask for an account while nobody may, and whether the
-    install has no account yet, so that every page sends to the setup (app/signups.py)."""
+    anyone may sign up, and whether the install has no account yet, so that every page sends to
+    the setup (app/signups.py)."""
     settings = get_settings()
-    book_url, book_label = booking(settings)
     return AuthOptions(
         providers=[
             OAuthProviderOut(name=p.name, label=p.label) for p in providers(settings).values()
         ],
         signup_open=settings.signup_open,
-        book_url=book_url,
-        book_label=book_label,
         setup_needed=needs_setup(session),
     )
 

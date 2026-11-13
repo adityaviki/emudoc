@@ -16,6 +16,9 @@ newest entry first.
 
 Members:
 
+- Emudoc opens at its sign-in for anyone not signed in: the public home page is gone. While
+  sign-up is closed, the sign-in and sign-up pages say to ask your team's admin for an invitation,
+  with no button to request access or book a demo.
 - The help menu now writes to your workspace's owners and admins, or to the address whoever runs
   Emudoc set for help, rather than to Emudoc's support. Its answer says where your message went,
   and replies come to your address as before.
@@ -37,6 +40,13 @@ Members:
 
 Operators:
 
+- The public site is gone: the home page at `/` (`frontend/home.html`, the build's `--mode site`,
+  `app/site.py`), its fonts and logos in `frontend/public/brand/`, the sitemap, `SEARCH_ENGINES`
+  and `BOOKING_URL` (left in `.env`, they are ignored), and `book_url` and `book_label` of `GET
+  /api/auth/options`. `/` is the app for everyone, which sends a visitor to `/login`;
+  `/robots.txt` turns every crawler away and every page carries `X-Robots-Tag: noindex`, as before
+  where search engines were not asked in. `/pricing`, `/help` and the other addresses put away no
+  longer lead to `/`. `pnpm build` makes two pages, the members' and the operator's.
 - Support's view of an account is gone: the account page's consent, the operator's area's "View
   as" and its banner, `PUT|DELETE /api/auth/support-access`, `POST
   /api/operator/organizations/{id}/members/{id}/support`, `DELETE /api/operator/support`, the
