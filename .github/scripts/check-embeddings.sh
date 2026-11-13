@@ -13,7 +13,9 @@
 #                                                  other weights chosen on purpose
 #
 # It needs the network for the image and the weights (Hugging Face), and runs in a Compose
-# project of its own, removed with its volume at the end.
+# project of its own, removed at the end but for the weights' volume, which check-image.sh
+# shares and the CI runners keep (ci-runner/clean.sh): the weights are checked by their SHA-256
+# as they are downloaded and named by it.
 
 set -euo pipefail
 
@@ -22,12 +24,16 @@ if (($# > 1)) || [[ ${1:---write} != --write ]]; then
   exit 2
 fi
 root=$(cd "$(dirname "$0")/../.." && pwd)
-export EMUDOC_IMAGE=emudoc:unused EMUDOC_ENV=/dev/null
+# The compose file reads these whatever it starts.
+export EMUDOC_IMAGE=emudoc:unused EMUDOC_ENV=/dev/null POSTGRES_PASSWORD=unused
+weights=emudoc-embeddings-check_embedding-model
 # A network of Docker's choosing in place of the deployment's fixed subnet, so that the check
-# also runs on a machine where the deployment does.
+# also runs on a machine where the deployment does, and the weights in a volume kept.
 override=$(mktemp)
-printf 'networks:\n  default:\n    ipam: !reset {}\n' >"$override"
+printf 'networks:\n  default:\n    ipam: !reset {}\nvolumes:\n  embedding-model:\n    name: %s\n    external: true\n' \
+  "$weights" >"$override"
 compose=(docker compose -f "$root/deploy/compose.yml" -f "$override" -p emudoc-embeddings-check)
+docker volume create "$weights" >/dev/null
 trap '"${compose[@]}" down --volumes >/dev/null 2>&1; rm -f "$override"' EXIT
 
 "${compose[@]}" up --detach --wait --wait-timeout 300 embeddings

@@ -26,6 +26,7 @@ from pathlib import Path
 
 import pytest
 import uvicorn
+import yaml
 from fastapi.testclient import TestClient
 from sqlalchemy import select, update
 
@@ -567,7 +568,7 @@ def rules(text: str, pattern: str) -> list[str]:
 
 
 def test_the_proxies_take_a_large_body_on_the_routes_the_clients_upload_to(client, tmp_path):
-    """deploying.md's Caddy and nginx and the AWS instance's Caddyfile let a large body through
+    """deploying.md's Caddy and nginx and the compose file's Caddy let a large body through
     to the upload routes alone: the versioned API's, which the client sends to, and the page's,
     which the copies from before send to; every other request is held to a small one."""
     project = create_project(client)
@@ -588,7 +589,9 @@ def test_the_proxies_take_a_large_body_on_the_routes_the_clients_upload_to(clien
         f"/api/projects/{project['id']}/documents/upload",
         f"/api/v2/projects/{project['id']}/documents",
     ]
-    caddyfile = (REPOSITORY / "deploy" / "aws" / "Caddyfile").read_text()
+    # The compose file writes a $ as $$, which Compose reads as one.
+    compose = yaml.safe_load((REPOSITORY / "deploy" / "compose.yml").read_text())
+    caddyfile = compose["x-caddyfile"].replace("$$", "$")
     guide = (REPOSITORY / "deploying.md").read_text()
     for text in (caddyfile, guide):
         large = rules(text, r"^\s*@uploads path_regexp (\S+)$")

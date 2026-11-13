@@ -12,7 +12,7 @@ cd "$(dirname "$0")/../.."
 found=$(
   sed -nE \
     -e 's/^FROM python:([0-9.]+)-.*/python \1 Dockerfile/p' \
-    -e 's/^FROM node:([0-9]+)-.*/node \1 Dockerfile/p' \
+    -e 's/^FROM (--platform=[^ ]+ )?node:([0-9]+)-.*/node \2 Dockerfile/p' \
     -e 's/.* pnpm@([0-9.]+).*/pnpm \1 Dockerfile/p' \
     -e 's/^COPY --from=ghcr\.io\/astral-sh\/uv:([0-9.]+)[@ ].*/uv \1 Dockerfile/p' \
     Dockerfile

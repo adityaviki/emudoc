@@ -128,13 +128,41 @@ def test_each_check_runs_once_for_a_change():
     # Pooler runs on no schedule, the same tree being checked once; Audit once a week, for news.
     assert "schedule" not in triggers("pooler.yml")
     assert [entry["cron"].split()[-1] for entry in triggers("audit.yml")["schedule"]] == ["1"]
+    # A release's image is published on a version tag alone, and by hand only checked.
+    publish = triggers("publish.yml")
+    assert set(publish) == {"push", "workflow_dispatch"}
+    assert publish["push"] == {"tags": ["v[0-9]+.[0-9]+.[0-9]+"]}
     # No job of another workflow shares a name with one of CI's, which would make it ambiguous.
     others = {
         job["name"]
-        for name in ("audit.yml", "models.yml", "pooler.yml", "release.yml")
+        for name in ("audit.yml", "models.yml", "pooler.yml", "release.yml", "publish.yml")
         for job in workflow(name)["jobs"].values()
     }
     assert not others & {job["name"] for job in jobs.values()}
+
+
+def test_a_release_s_image_is_pushed_only_once_both_platforms_ran():
+    # Each platform's image runs the compose file (check-image.sh) and the scan passes before
+    # the one step that pushes, which a run by hand skips; nothing else holds the token.
+    (job,) = workflow("publish.yml")["jobs"].values()
+    assert job["runs-on"] == "ubuntu-24.04"
+    assert job["permissions"] == {"contents": "read", "packages": "write"}
+    names = [step.get("name") for step in job["steps"]]
+    assert names.index("Push") == len(names) - 1
+    runs = [step.get("run", "") for step in job["steps"][: names.index("Push")]]
+    for platform in ("amd64", "arm64"):
+        assert f".github/scripts/check-image.sh emudoc:{platform}" in runs
+    assert any("--exit-code 1" in run for run in runs)
+    push = job["steps"][-1]
+    assert push["if"] == "env.PUSH == 'true'"
+    assert job["env"]["PUSH"] == (
+        "${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}"
+    )
+    assert all("secrets." not in str(step) for step in job["steps"][:-1])
+    # The image's name is the one the compose file runs by default.
+    compose = (ROOT_DIR / "deploy" / "compose.yml").read_text()
+    assert "ghcr.io/emudocai/emudoc:${EMUDOC_TAG:-latest}" in compose
+    assert "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/emudoc" in str(job["steps"])
 
 
 def test_a_production_release_is_a_job_of_the_environment_its_role_trusts():

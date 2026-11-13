@@ -148,8 +148,9 @@ jobs:
           path: ${{ runner.temp }}/trivy/fanal
           key: trivy-layers-${{ hashFiles('deploy/compose.yml', 'deploy/aws/compose.yml', '.github/workflows/audit.yml') }}
           restore-keys: trivy-layers-
-      # The compose files name the images; to be read they need a settings file, the app's
-      # image (left out of the list), Caddy's domain and what Alertmanager is told. trivy runs as the runner's user, so
+      # The compose files name the images, those behind a profile too; to be read they need a
+      # settings file, the app's image (left out of the list), the database's password, Caddy's
+      # domain and what Alertmanager is told. trivy runs as the runner's user, so
       # that the cache can save what it wrote, and is given 20 minutes: an image of gigabytes
       # (Ollama's, until October 2026) outlasted its five-minute default on a slower line than a
       # runner's.
@@ -158,6 +159,7 @@ jobs:
         env:
           EMUDOC_ENV: /dev/null
           EMUDOC_IMAGE: emudoc:app
+          POSTGRES_PASSWORD: unused
           EMUDOC_DOMAIN: example.org
           EMUDOC_ENVIRONMENT: audit
           EMUDOC_ALERTS: arn:aws:sns:eu-central-1:123456789012:alerts
@@ -165,7 +167,7 @@ jobs:
           EMUDOC_HEARTBEAT: arn:aws:sns:eu-central-1:123456789012:heartbeat
         run: |
           images=$(
-            docker compose -f deploy/compose.yml -f deploy/aws/compose.yml config --images |
+            docker compose -f deploy/compose.yml -f deploy/aws/compose.yml --profile '*' config --images |
               grep -vxF "$EMUDOC_IMAGE" | sort -u
           )
           mkdir -p "$RUNNER_TEMP/trivy"

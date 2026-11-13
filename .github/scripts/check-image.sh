@@ -1,17 +1,25 @@
 #!/usr/bin/env bash
-# The image's smoke test (CI, "Image"): the release step, the API and the worker start from the
-# image as a deployment runs them, on a read-only filesystem with a tmpfs at /tmp and the files
-# on a volume, and the API answers its probes with the commit the image was built from and
-# serves the page and the files it names; and the converter, with no network at all, turns a Word file into a PDF with the image's LibreOffice. The
-# suite builds no image, so this is what finds a file the image lacks (.dockerignore is an
-# allowlist), a path that moved or something written outside /tmp. Development's settings,
-# since production's want a mail relay, a scanner, a model key and the rest: what is checked is
-# the image, not a configuration (deploying.md, "The image", for the whole deployment).
+# The image's smoke test (CI, "Image"; publish.yml before a release goes out): deploy/compose.yml
+# run as a team runs it, from the image, with a .env made from deploy/.env.example as the README's
+# quick start makes one, so in production with its checks. The database starts, the release step
+# migrates it, the API and the worker start once the embeddings server answers, the API answers
+# its probes with the version the image was built as and serves the page and the files it names,
+# both serve their metrics, and the converter turns a Word file into a PDF with the image's
+# LibreOffice on the network only the worker shares. The suite builds no image, so this is what
+# finds a file the image lacks (.dockerignore is an allowlist), a path that moved, something
+# written outside /tmp, or a compose file and an example that no longer start together. The
+# models are a name and an address nothing answers at, since production builds them at start
+# without asking them; ClamAV and Caddy are left out (Caddy's configuration is checked by
+# Caddy).
 #
 #   .github/scripts/check-image.sh emudoc:<sha>
 #
-# It needs the database of docker-compose.yml up (docker compose up -d --wait db), in which it
-# makes a scratch database of its own and drops it at the end, as it does its containers.
+# It runs in a Compose project of its own, on a network and a port Docker picks, so beside a
+# deployment or development on the same machine, and removes it at the end with its volumes but
+# the embedding model's weights, which it downloads the first time into the volume
+# check-embeddings.sh keeps them in, and the CI runners keep from one job to the next.
+# An image of another platform than the machine's (arm64 on amd64) runs under emulation, given
+# binfmt's handlers.
 
 set -euo pipefail
 
@@ -21,79 +29,85 @@ if (($# != 1)); then
 fi
 image=$1
 root=$(cd "$(dirname "$0")/../.." && pwd)
-compose=(docker compose -f "$root/docker-compose.yml")
-name=emudoc-image-check-$$
-database=emudoc_image_check
+work=$(mktemp -d)
+project=emudoc-image-check-$$
+weights=emudoc-embeddings-check_embedding-model
 
-db=$("${compose[@]}" ps -q db)
-if [[ -z $db ]]; then
-  echo "The database of docker-compose.yml is not running: docker compose up -d --wait db." >&2
-  exit 2
-fi
-# The containers join the database's network and reach it by its service name, so nothing but
-# the API's port is published, and that on a port Docker picks.
-network=$(docker inspect -f '{{range $net, $_ := .NetworkSettings.Networks}}{{$net}}{{end}}' "$db")
-sql() {
-  "${compose[@]}" exec -T -e PGOPTIONS=--client-min-messages=warning db \
-    psql -q -U emudoc -d emudoc -c "$1"
-}
+# The quick start's .env: the example with its four values set, and the profile and address of
+# the converter.
+password=$(openssl rand -hex 24)
+key=$(openssl rand -base64 32)
+sed -e "s|^APP_URL=.*|APP_URL=http://localhost|" \
+  -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$password|" \
+  -e "s|^ENCRYPTION_KEYS=.*|ENCRYPTION_KEYS=$key|" \
+  -e "s|^AGENT_MODEL=.*|AGENT_MODEL=ollama:standin|" \
+  -e "s|^INDEX_MODEL=.*|INDEX_MODEL=ollama:standin|" \
+  -e "s|^# COMPOSE_PROFILES=.*|COMPOSE_PROFILES=office|" \
+  -e "s|^# CONVERTER_URL=|CONVERTER_URL=|" \
+  "$root/deploy/.env.example" >"$work/.env"
+printf '%s\n' "OLLAMA_BASE_URL=http://ollama:11434/v1" "EMUDOC_IMAGE=$image" >>"$work/.env"
+for line in "POSTGRES_PASSWORD=$password" COMPOSE_PROFILES=office CONVERTER_URL=http://converter:8080; do
+  grep -qxF "$line" "$work/.env" || {
+    echo "deploy/.env.example no longer has the line this check sets for $line." >&2
+    exit 1
+  }
+done
+# A network of Docker's choosing in place of the deployment's fixed subnet, the API on a port
+# Docker picks, and the weights in a volume kept from one run to the next.
+cat >"$work/override.yml" <<EOF
+networks:
+  default:
+    ipam: !reset {}
+services:
+  api:
+    ports: !override
+      - 127.0.0.1::8000
+volumes:
+  embedding-model:
+    name: $weights
+    external: true
+EOF
+cp "$root/deploy/compose.yml" "$work/compose.yml"
+compose=(docker compose --project-directory "$work" -f "$work/compose.yml" -f "$work/override.yml" -p "$project")
+docker volume create "$weights" >/dev/null
 
 passed=false
 cleanup() {
   if ! $passed; then
-    for part in api worker converter; do
+    "${compose[@]}" ps --all >&2 || true
+    for part in migrate api worker converter embeddings; do
       echo "--- the $part's log" >&2
-      docker logs "$name-$part" 2>&1 | tail -n 40 >&2 || true
+      "${compose[@]}" logs --no-log-prefix "$part" 2>&1 | tail -n 40 >&2 || true
     done
   fi
-  docker rm -f "$name-api" "$name-worker" "$name-converter" >/dev/null 2>&1 || true
-  docker volume rm "$name-files" >/dev/null 2>&1 || true
-  sql "DROP DATABASE IF EXISTS $database WITH (FORCE)" || true
+  # Every profile's, or the volumes of Caddy, run alone below, would stay.
+  "${compose[@]}" --profile '*' down --volumes --remove-orphans >/dev/null 2>&1 || true
+  rm -rf "$work"
 }
 trap cleanup EXIT
 
-sql "DROP DATABASE IF EXISTS $database WITH (FORCE)"
-sql "CREATE DATABASE $database"
+# As the README's update does: the release step alone first, then the rest.
+"${compose[@]}" run --rm migrate
+"${compose[@]}" up --detach --wait --wait-timeout 600
+address=http://$("${compose[@]}" port api 8000)
 
-app=(
-  --network "$network" --read-only --tmpfs /tmp
-  --mount "type=volume,src=$name-files,dst=/var/lib/emudoc"
-  -e ENVIRONMENT=development -e RUN_WORKER=false
-  -e "DATABASE_URL=postgresql+psycopg://emudoc:emudoc@db:5432/$database"
-  -e STORAGE_URL=file:///var/lib/emudoc
-)
-docker run --rm "${app[@]}" "$image" alembic upgrade head
-docker run -d --name "$name-api" -p 127.0.0.1::8000 "${app[@]}" "$image" >/dev/null
-docker run -d --name "$name-worker" "${app[@]}" "$image" \
-  python -m app.worker --alive-file /tmp/worker.alive >/dev/null
-address=http://$(docker port "$name-api" 8000/tcp | head -n 1)
-# The converter as deploy/compose.yml runs it, but with no network at all: it is asked from inside.
-docker run -d --name "$name-converter" --network none --read-only --tmpfs /tmp --cap-drop ALL \
-  --security-opt no-new-privileges:true "$image" python -m app.converter >/dev/null
-
-running() {
-  [[ $(docker inspect -f '{{.State.Running}}' "$name-$1") == true ]] || {
-    echo "The $1 stopped." >&2
-    exit 1
-  }
-}
-for ((tries = 60; ; tries--)); do
-  running api
-  curl -fsS "$address/api/health" >/dev/null 2>&1 && break
-  ((tries > 1)) || {
-    echo "The API was not ready within a minute." >&2
-    exit 1
-  }
-  sleep 1
-done
 curl -fsS "$address/api/livez" >/dev/null
-# The version the build was given (the Dockerfile's VERSION, also its revision label), which
+curl -fsS "$address/api/health" >/dev/null
+# The version the build was given (the Dockerfile's VERSION, also its version label), which
 # deploy/aws/release.sh waits for after a release.
-revision=$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")
-if [[ $(curl -fsS "$address/api/health") != *"\"version\":\"$revision\""* ]]; then
-  echo "The API does not name the version the image was built with, $revision." >&2
+version=$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.version"}}' "$image")
+if [[ $(curl -fsS "$address/api/health") != *"\"version\":\"$version\""* ]]; then
+  echo "The API does not name the version the image was built as, $version." >&2
   exit 1
 fi
+# Started in production, with the embeddings server beside it answering.
+logs=$("${compose[@]}" logs --no-log-prefix api)
+for line in "Starting Emudoc $version" "Passages are embedded by"; do
+  grep -qF "$line" <<<"$logs" || {
+    echo "The API's log has no \"$line\"." >&2
+    exit 1
+  }
+done
 if ! page=$(curl -fsS "$address/projects") || ! grep -q '<div id="root">' <<<"$page"; then
   echo "The API does not serve the page." >&2
   exit 1
@@ -107,49 +121,33 @@ mapfile -t files < <(grep -oE '(src|href)="/[^/"][^"]*"' <<<"$page" | cut -d'"' 
 for file in "${files[@]}"; do
   curl -fsS -o /dev/null "$address$file"
 done
-for ((tries = 30; ; tries--)); do
-  running worker
-  docker exec "$name-worker" test -f /tmp/worker.alive && break
-  ((tries > 1)) || {
-    echo "The worker did not say it was alive within 30 seconds." >&2
-    exit 1
-  }
-  sleep 1
-done
-running api
-for ((tries = 60; ; tries--)); do
-  running converter
-  docker exec "$name-converter" python -c "import urllib.request
-urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=4)" >/dev/null 2>&1 && break
-  ((tries > 1)) || {
-    echo "The converter was not ready within a minute." >&2
-    exit 1
-  }
-  sleep 1
-done
-# A Word file made in the container and converted there: LibreOffice and its fonts are in the
-# image, and run with nothing to write to but /tmp.
-docker exec "$name-converter" python -c '
-import io, urllib.request
+# A Word file made in the converter's container and sent to it there: LibreOffice and its fonts
+# are in the image, and run with nothing to write to but /tmp. Then the same from the worker,
+# over the network they alone share, as the worker sends every upload of those types.
+convert='
+import io, sys, urllib.request
 from docx import Document
 document = Document()
 document.add_heading("The image check", 0)
 document.add_paragraph("Converted by the image'"'"'s LibreOffice.")
 body = io.BytesIO()
 document.save(body)
-request = urllib.request.Request(
-    "http://127.0.0.1:8080/convert?type=docx", data=body.getvalue(), method="POST"
-)
-answer = urllib.request.urlopen(request, timeout=120).read()
+request = urllib.request.Request(sys.argv[1] + "/convert?type=docx", data=body.getvalue(), method="POST")
+answer = urllib.request.urlopen(request, timeout=300).read()
 assert answer.startswith(b"%PDF-"), answer[:200]
-' || {
+'
+"${compose[@]}" exec -T converter python -c "$convert" http://127.0.0.1:8080 || {
   echo "The converter did not turn a Word file into a PDF." >&2
+  exit 1
+}
+"${compose[@]}" exec -T worker python -c "$convert" http://converter:8080 || {
+  echo "The worker did not reach the converter at CONVERTER_URL." >&2
   exit 1
 }
 # The metrics, on the port of their own the image listens on (METRICS_ADDRESS), which nothing
 # publishes: the API's requests, and the worker's figures of the database.
 metrics() {
-  docker exec "$name-$1" python -c "import urllib.request
+  "${compose[@]}" exec -T "$1" python -c "import urllib.request
 print(urllib.request.urlopen('http://127.0.0.1:9464/metrics', timeout=5).read().decode())"
 }
 grep -q '^emudoc_http_requests_total{' <<<"$(metrics api)" || {
@@ -160,6 +158,18 @@ grep -q '^emudoc_documents{' <<<"$(metrics worker)" || {
   echo "The worker serves none of the database's figures on 9464." >&2
   exit 1
 }
+# Caddy's configuration as compose.yml gives it, written as the service writes it, with an
+# address for its name.
+# shellcheck disable=SC2016 # the container's shell expands it, from the service's environment
+validate=(
+  "${compose[@]}" --profile tls run --rm --no-deps caddy
+  'printf "%s" "$CADDYFILE" >/tmp/Caddyfile && caddy validate --config /tmp/Caddyfile --adapter caddyfile'
+)
+"${validate[@]}" >/dev/null 2>&1 || {
+  echo "Caddy refuses the configuration in compose.yml:" >&2
+  "${validate[@]}" >&2 || true
+  exit 1
+}
 
 passed=true
-echo "The image $image ($revision) migrates, serves the page, its ${#files[@]} files and the probes, and runs the worker, and both serve their metrics; its converter turns a Word file into a PDF."
+echo "The image $image ($version) runs deploy/compose.yml in production: it migrates, serves the page, its ${#files[@]} files and the probes beside the embeddings server, runs the worker, both serve their metrics, and its converter turns a Word file into a PDF for the worker."

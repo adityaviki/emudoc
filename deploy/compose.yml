@@ -1,31 +1,34 @@
-# Emudoc on one machine from its image (deploying.md, "The image"): the release step, the API,
-# a worker, the converter, and ClamAV and llama.cpp's server for them. The database, the mail relay, the bucket
-# if there is one, and the reverse proxy that ends TLS in front of the API are the deployment's
-# ("The pieces").
+# Emudoc on a team's server, from the image published to GHCR (deploying.md, "The image"): the
+# database, the release step, the API, a worker and llama.cpp's server for the embeddings, and
+# behind a profile each, ClamAV, the converter and Caddy in front. The settings are .env beside
+# this file, made from .env.example beside it; the README's "Quick start" is the whole install:
 #
-#   export EMUDOC_IMAGE=emudoc:$(git rev-parse HEAD)
-#   docker compose -f deploy/compose.yml up -d --wait
+#   docker compose up -d --wait
 #
-# `up` runs the release step, `alembic upgrade head`, and starts the API and the worker only
-# once it has succeeded: the app refuses a database behind its migrations and never upgrades
-# one itself. It replaces the running ones before the release step, though, so an update with
-# the new image's tag runs the release step alone first and stops if it fails, and so does the
-# embeddings server with the download of its weights:
+# `up` starts the database, runs the release step, `alembic upgrade head`, and starts the API
+# and the worker only once it has succeeded: the app refuses a database behind its migrations
+# and never upgrades one itself. It replaces the running ones before the release step, though,
+# so an update to a new EMUDOC_TAG runs the release step alone first and stops if it fails,
+# and so does the embeddings server with the download of its weights:
 #
-#   docker compose -f deploy/compose.yml run --rm --no-deps migrate && \
-#     docker compose -f deploy/compose.yml up -d --wait embeddings && \
-#     docker compose -f deploy/compose.yml up -d --wait
+#   docker compose pull && docker compose run --rm migrate && \
+#     docker compose up -d --wait embeddings && docker compose up -d --wait
 #
 # The operator's commands run beside them with `run --rm --no-deps worker python -m
 # app.maintenance …`; without --no-deps, `run` runs the release step first.
 #
-# The settings are the file EMUDOC_ENV names, /etc/emudoc/emudoc.env unless set: the variables
-# of .env.example, readable by root only, and outside the checkout. Compose reads it, not the
-# app; it expands $ in a value unless the value is in single quotes.
-#   STORAGE_URL=file:///var/lib/emudoc   for the files volume below, or s3://… for a bucket
-#   SCANNER_URL=clamd://clamav:3310      the daemon below
-#   EMBEDDING_BASE_URL=http://embeddings:8080/v1   the embeddings endpoint below
-#   CONVERTER_URL=http://converter:8080  the converter below
+# .env is read twice: Compose fills this file's ${…} from it (POSTGRES_PASSWORD, APP_URL,
+# EMUDOC_TAG, COMPOSE_PROFILES), and the app's containers take every line of it as their
+# environment (EMUDOC_ENV names another file for that). Compose expands $ in a value unless the
+# value is in single quotes.
+#
+# The profiles, named in COMPOSE_PROFILES in .env or with --profile:
+#   scan     ClamAV, which scans every upload; with SCANNER_URL=clamd://clamav:3310 in .env
+#            (never without the profile: a scanner named and not running holds every upload)
+#   office   the converter, which shows Word, PowerPoint, Excel, RTF and HTML files as they look;
+#            with CONVERTER_URL=http://converter:8080
+#   tls      Caddy, which answers on 80 and 443 for APP_URL's name with a certificate from Let's
+#            Encrypt; without it, a proxy of the server's own forwards to 127.0.0.1:8000
 #
 # The API and the worker serve their metrics on 9464 of their containers (the image's
 # METRICS_ADDRESS), which nothing below publishes: a scraper on this network asks api:9464 and
@@ -35,9 +38,11 @@
 # Apart from the development file's project (emudoc), so that one machine can run both.
 name: emudoc-deploy
 
+x-image: &image ${EMUDOC_IMAGE:-ghcr.io/emudocai/emudoc:${EMUDOC_TAG:-latest}}
+
 x-app: &app
-  image: ${EMUDOC_IMAGE:?set EMUDOC_IMAGE to the image to run, such as emudoc:<commit>}
-  env_file: ${EMUDOC_ENV:-/etc/emudoc/emudoc.env}
+  image: *image
+  env_file: ${EMUDOC_ENV:-.env}
   # Nothing in the image is written to. Uploads pass through /tmp, and a worker copies an
   # original there to scan, parse and render it, so the tmpfs holds as much as the API takes in
   # at once (MAX_UPLOAD_REQUEST_MB and MAX_UPLOAD_MB again, per concurrent upload, and from a
@@ -55,22 +60,102 @@ x-app: &app
     - files:/var/lib/emudoc
   restart: unless-stopped
 
+# The database first, then the release step, and the embeddings server downloaded and started,
+# before the API or a worker. The database's need is not required, so that a deployment with a
+# database of its own may leave the service out (deploy/aws/compose.yml does).
+x-ready: &ready
+  postgres:
+    condition: service_healthy
+    required: false
+  migrate:
+    condition: service_completed_successfully
+  embeddings:
+    condition: service_healthy
+
+# Caddy's configuration, as deploying.md's "Caddy" gives it, with APP_URL for the name: the
+# query cut from the access log, the body limits, and the page's files compressed. A $ is
+# written $$ here, where Compose would read it. It reaches Caddy as a variable, which the
+# container writes to its tmpfs: Compose's own configs cannot enter a read-only container.
+x-caddyfile: &caddyfile |
+  {$$APP_URL} {
+  	# Caddy keeps no access log without this block; with it, the query is cut from each
+  	# address, since it carries a search's words ("Logs" in deploying.md).
+  	log {
+  		format filter {
+  			wrap json
+  			fields {
+  				request>uri regexp \?.*$$ ?…
+  			}
+  		}
+  	}
+  	# The upload routes alone, the page's and the versioned API's, take a large body,
+  	# MAX_UPLOAD_REQUEST_MB (500 by default); the proxy refuses a larger one before the app
+  	# has read it. Every other request is small.
+  	@uploads path_regexp ^/api/(v1/)?projects/[0-9]+/documents$$
+  	request_body @uploads {
+  		max_size 500MB
+  	}
+  	@others not path_regexp ^/api/(v1/)?projects/[0-9]+/documents$$
+  	request_body @others {
+  		max_size 1MB
+  	}
+  	# The page's own files compressed, the script to a third of its size; the API's answers
+  	# as the app sends them, an answer's events among them.
+  	@page not path /api /api/*
+  	encode @page gzip
+  	# Each request's id, which Caddy's access log names `uuid` and the app's lines
+  	# `request_id`; one the browser sent is replaced ("Logs" in deploying.md).
+  	reverse_proxy 127.0.0.1:8000 {
+  		header_up X-Request-ID {http.request.uuid}
+  	}
+  }
+
 services:
+  # Postgres 17 with pgvector, as the app needs it (deploying.md, "The database"), on this
+  # network alone: the app reaches it as postgres, which counts as the deployment's own network,
+  # so without TLS (DATABASE_URL in .env). The role's two limits are the server's, so that a
+  # query that runs away or a transaction left open ends ("The role's timeouts"); the
+  # migrations and the long housekeeping lift them for their own transactions. The backups are
+  # "Backups" in deploying.md.
+  postgres:
+    image: pgvector/pgvector:0.8.7-pg17-trixie@sha256:89947206f52eac3a9df9b663df7e76987cbdc623be6576b3a524953d568700d7
+    environment:
+      POSTGRES_USER: emudoc
+      POSTGRES_DB: emudoc
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env, as openssl rand -hex 24 makes one}
+    command:
+      - postgres
+      - -c
+      - statement_timeout=30s
+      - -c
+      - idle_in_transaction_session_timeout=5min
+    volumes:
+      - database:/var/lib/postgresql/data
+    # A stop lets it finish writing; it then starts without recovering.
+    stop_grace_period: 1m
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U emudoc -d emudoc]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+    restart: unless-stopped
+
   migrate:
     <<: *app
     command: [alembic, upgrade, head]
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
     restart: "no"
 
   api:
     <<: *app
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-      embeddings:
-        condition: service_healthy
-    # For a proxy on this machine (deploying.md, "TLS at a reverse proxy"). Its requests reach
-    # the API from the network's gateway, the only address whose X-Forwarded-For and
-    # X-Forwarded-Proto the API believes.
+    depends_on: *ready
+    # For a proxy on this machine, Caddy below or the server's own (deploying.md, "TLS at a
+    # reverse proxy"). Its requests reach the API from the network's gateway, the only address
+    # whose X-Forwarded-For and X-Forwarded-Proto the API believes.
     ports:
       - 127.0.0.1:8000:8000
     environment:
@@ -101,11 +186,7 @@ services:
     # A stop gives the running jobs 8 seconds (--grace) within these 10 and hands the rest
     # back to the queue, for the next worker to start over; raise both together.
     stop_grace_period: 10s
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-      embeddings:
-        condition: service_healthy
+    depends_on: *ready
     # It serves nothing to ask: it touches the file every 10 seconds while all its threads run,
     # and exits, to be restarted, when one has ended. Stuck is a file a minute old, or none.
     healthcheck:
@@ -119,16 +200,17 @@ services:
       start_period: 30s
       retries: 3
 
-  # The converter (deploying.md, "The converter"): the image run as a container of its own
-  # with LibreOffice, which turns a Word, PowerPoint, Excel, RTF or HTML upload into the PDF the
-  # document pane shows it by. LibreOffice reads every such upload, and a document can name
-  # files and addresses for it to fetch, so it is given no settings (no env_file), no volume and
-  # no network but `converter`, which the worker alone shares and which leads nowhere else. Its
-  # limits: --timeout seconds a file, --concurrency at once, --max-mb as large as MAX_UPLOAD_MB
-  # (raise them together), and the memory below, past which the kernel ends the conversion
-  # and the worker gives the file up after its tries.
+  # The converter (deploying.md, "The converter"), with the office profile: the image run as a
+  # container of its own with LibreOffice, which turns a Word, PowerPoint, Excel, RTF or HTML
+  # upload into the PDF the document pane shows it by. LibreOffice reads every such upload, and
+  # a document can name files and addresses for it to fetch, so it is given no settings (no
+  # env_file), no volume and no network but `converter`, which the worker alone shares and which
+  # leads nowhere else. Its limits: --timeout seconds a file, --concurrency at once, --max-mb as
+  # large as MAX_UPLOAD_MB (raise them together), and the memory below, past which the kernel
+  # ends the conversion and the worker gives the file up after its tries.
   converter:
-    image: ${EMUDOC_IMAGE:?set EMUDOC_IMAGE to the image to run, such as emudoc:<commit>}
+    image: *image
+    profiles: [office]
     command: [python, -m, app.converter, --concurrency, "2", --timeout, "120", --max-mb, "100"]
     networks: [converter]
     read_only: true
@@ -149,11 +231,13 @@ services:
       retries: 3
     restart: unless-stopped
 
+  # ClamAV, with the scan profile: Debian's build, which ClamAV publishes for arm64 as well as
+  # amd64. Its limits let it scan a file as large as MAX_UPLOAD_MB; raise them together. It
+  # needs about a gigabyte of memory, and a minute at start to load the signatures, during which
+  # the worker holds uploads in the queue.
   clamav:
-    image: clamav/clamav:1.5@sha256:45fe5149fbee5a46509c9848ef20d0c354b7b2323c9369f285939a37cf33422a
-    # Its limits let it scan a file as large as MAX_UPLOAD_MB; raise them together. It needs
-    # about a gigabyte of memory, and a minute at start to load the signatures, during which
-    # the worker holds uploads in the queue.
+    image: clamav/clamav-debian:1.5@sha256:76a9c3b63764b78178dc68fa7efcceca0cde2c8c9d4f925a8e697cb4511f8fdc
+    profiles: [scan]
     environment:
       CLAMD_CONF_StreamMaxLength: 100M
       CLAMD_CONF_MaxFileSize: 100M
@@ -167,9 +251,9 @@ services:
   # another file, and the server is started again with them. The default is Google's
   # EmbeddingGemma 300M at 8 bits as llama.cpp's own organisation published it, at a fixed
   # commit, under the Gemma Terms of Use (deploying.md, "Beside the app": its vectors are
-  # those of Ollama's embeddinggemma); another model is named with
-  # `export EMBEDDING_WEIGHTS_URL=… EMBEDDING_WEIGHTS_SHA256=…` beside EMUDOC_IMAGE, as well as
-  # EMBEDDING_MODEL and the rest in the env file. The image is the server's, which has curl.
+  # those of Ollama's embeddinggemma); another model is named with EMBEDDING_WEIGHTS_URL and
+  # EMBEDDING_WEIGHTS_SHA256 in .env, as well as EMBEDDING_MODEL and the rest. The image is the
+  # server's, which has curl.
   embedding-model:
     image: ghcr.io/ggml-org/llama.cpp:server@sha256:2103d1f4f2e2e223ad80587dcb39fc15a9f912f29ae1fa9fc1193fe8c1aea82f
     environment:
@@ -236,6 +320,35 @@ services:
       retries: 3
     restart: unless-stopped
 
+  # Caddy, with the tls profile (deploying.md, "Caddy"): on the host's network, so that it
+  # answers on 80 and 443 and reaches the API where any proxy on the machine would,
+  # 127.0.0.1:8000, whose requests come from the gateway FORWARDED_ALLOW_IPS names. It serves
+  # APP_URL's name, and fetches and renews its certificate from Let's Encrypt once the name
+  # leads to this machine and 80 and 443 reach it.
+  caddy:
+    image: caddy:2.11.9@sha256:e40b94d0a43b5ff69cb20568d73f10c70703df7b0ffc2298eb3d723cdc9d0bd1
+    profiles: [tls]
+    network_mode: host
+    environment:
+      APP_URL: ${APP_URL:-}
+      CADDYFILE: *caddyfile
+    entrypoint: [/bin/sh, -c]
+    command:
+      - >-
+        printf '%s' "$$CADDYFILE" >/tmp/Caddyfile &&
+        exec caddy run --config /tmp/Caddyfile --adapter caddyfile
+    volumes:
+      # The certificates and the ACME account, kept across updates.
+      - caddy-data:/data
+      - caddy-config:/config
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+
 # A subnet of its own, so that the gateway the proxy's requests come from is known; change both
 # addresses if it collides with a network this machine already reaches.
 networks:
@@ -250,6 +363,9 @@ networks:
     internal: true
 
 volumes:
+  database:
   files:
   clamdb:
   embedding-model:
+  caddy-data:
+  caddy-config:

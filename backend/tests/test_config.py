@@ -856,6 +856,36 @@ def test_the_example_env_file_names_every_setting():
     assert {name.upper() for name in Settings.model_fields} <= named
 
 
+# What compose.yml itself reads from the .env beside it (Compose's ${…}), and the variables the
+# image sets for the app, which a line of that .env would replace in every container.
+READ_BY_THE_COMPOSE_FILE = {"POSTGRES_PASSWORD", "EMUDOC_TAG", "COMPOSE_PROFILES"}
+SET_BY_THE_IMAGE = {"ENVIRONMENT", "EMUDOC_VERSION", "METRICS_ADDRESS", "SSL_CERT_FILE", "PATH"}
+
+
+def test_the_quick_start_s_env_file_passes_production_s_checks(deployment, tmp_path):
+    # deploy/.env.example with its four values set, as the README's quick start sets them, is a
+    # production configuration as the image runs it; check-image.sh starts the compose file with
+    # it. Every line is a setting the guide lists or one the compose file reads, and none
+    # replaces what the image sets: EMUDOC_VERSION, as the image's tag, once did.
+    example = (ROOT_DIR / "deploy" / ".env.example").read_text()
+    named = set(re.findall(r"^#?\s*([A-Z][A-Z0-9_]*)=", example, re.M))
+    assert not named & SET_BY_THE_IMAGE
+    assert named <= listed().keys() | READ_BY_THE_COMPOSE_FILE, named - listed().keys()
+    assert READ_BY_THE_COMPOSE_FILE <= named
+    filled = (
+        example.replace("POSTGRES_PASSWORD=\n", f"POSTGRES_PASSWORD={secrets.token_hex(24)}\n")
+        .replace("ENCRYPTION_KEYS=\n", f"ENCRYPTION_KEYS={new_key()}\n")
+        .replace("GOOGLE_API_KEY=\n", "GOOGLE_API_KEY=a-key\n")
+    )
+    assert not re.search(r"^[A-Z_]+=$", filled, re.M)
+    (tmp_path / ".env").write_text(filled)
+    settings = load_settings(_env_file=tmp_path / ".env", environment="production")
+    assert settings.production_problems() == []
+    # The database is the compose file's, by its service's name, with the password set above.
+    password = re.search(r"^POSTGRES_PASSWORD=(\w+)$", filled, re.M)[1]
+    assert settings.database_url == f"postgresql+psycopg://emudoc:{password}@postgres:5432/emudoc"
+
+
 def test_the_guide_lists_every_setting_with_its_default():
     rows = listed()
     for name, field in Settings.model_fields.items():

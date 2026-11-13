@@ -91,8 +91,9 @@ updates:
       - dependency-name: ubuntu
         update-types: ["version-update:semver-minor"]
 
-  # docker-compose.yml (the development database, the profiles), deploy/compose.yml (ClamAV and
-  # llama.cpp's server beside the app), deploy/aws/compose.yml (Caddy) and
+  # docker-compose.yml (the development database, the profiles), deploy/compose.yml (Postgres,
+  # ClamAV, llama.cpp's server and Caddy beside the app), deploy/aws/compose.yml (Prometheus and
+  # Alertmanager) and
   # ci-runner/compose.yml (the CI runners' Docker daemons). llama.cpp's `server` tag is its
   # daily build: each Monday proposes that morning's digest, as the cooldown reads push dates from
   # Docker Hub alone, and CI's Embeddings job checks it.

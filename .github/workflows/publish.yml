@@ -1,0 +1,94 @@
+# The image of a release, for amd64 and arm64, published to GHCR on a version tag (v0.1.0) as
+# deploy/compose.yml names it, ghcr.io/<owner>/emudoc, tagged 0.1.0, 0.1, latest and the
+# commit's full SHA (deploying.md, "The image"). Each platform's image is built and run first as a
+# team runs it, deploy/compose.yml with the quick start's .env (check-image.sh), arm64 under
+# QEMU's emulation, and scanned as CI scans it; nothing is pushed unless all of it passes. By hand
+# (Actions, Publish, Run workflow) it builds, runs and scans the branch's commit and pushes
+# nothing. `latest` is the last version tagged, so a fix to an older line moves it back: tag such
+# a fix only on its own line's newest commit, and the newest line's again after.
+#
+# On GitHub's runners alone: the tag's push holds the token that writes the repository's
+# packages, and the emulation is installed on the runner's kernel, a new machine each job.
+name: Publish
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TRIVY: aquasec/trivy:0.73.0@sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c
+  # QEMU's arm64 emulation, registered with the runner's kernel, and the builder that builds for
+  # both platforms at once (Docker's own builds for one).
+  BINFMT: tonistiigi/binfmt:qemu-v10.2.3@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
+  BUILDKIT: moby/buildkit:v0.34.2@sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe
+
+jobs:
+  publish:
+    name: Publish the image
+    runs-on: ubuntu-24.04
+    # The arm64 image's build and its check run emulated, several times slower than amd64's.
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: write
+    env:
+      PUSH: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The version the image reports (/api/health, the user menu): the tag's number, or by hand
+      # the commit's SHA, as CI's image does. GHCR's names are lower case.
+      - name: Version
+        run: |
+          if [[ $PUSH == true ]]; then version=${GITHUB_REF_NAME#v}; else version=$GITHUB_SHA; fi
+          {
+            echo "VERSION=$version"
+            echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/emudoc"
+            echo "SOURCE=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          } >>"$GITHUB_ENV"
+      - name: Builder
+        run: |
+          docker run --rm --privileged "$BINFMT" --install arm64
+          docker buildx create --name publish --driver docker-container \
+            --driver-opt "image=$BUILDKIT" --use --bootstrap
+      # Each platform's image into the runner's Docker, for its check; the push below builds them
+      # again from the builder's cache, with the same arguments and label.
+      - name: Build
+        run: |
+          for platform in amd64 arm64; do
+            docker buildx build --platform "linux/$platform" --load -t "emudoc:$platform" \
+              --build-arg "VERSION=$VERSION" --build-arg "REVISION=$GITHUB_SHA" \
+              --label "org.opencontainers.image.source=$SOURCE" .
+          done
+      - name: Run (amd64)
+        run: .github/scripts/check-image.sh emudoc:amd64
+      - name: Run (arm64)
+        run: .github/scripts/check-image.sh emudoc:arm64
+      # A high or critical vulnerability with a fix stops the release, as it fails CI's image and
+      # Audit's morning run (the same command).
+      - name: Vulnerabilities
+        run: >-
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/src:ro" -w /src
+          "$TRIVY" image --quiet --skip-version-check --scanners vuln,secret --severity
+          HIGH,CRITICAL --ignore-unfixed --table-mode detailed --exit-code 1
+          --ignorefile .trivyignore.yaml emudoc:amd64
+      - name: Push
+        if: env.PUSH == 'true'
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker buildx build --platform linux/amd64,linux/arm64 --push \
+            --build-arg "VERSION=$VERSION" --build-arg "REVISION=$GITHUB_SHA" \
+            --label "org.opencontainers.image.source=$SOURCE" \
+            -t "$IMAGE:$VERSION" -t "$IMAGE:${VERSION%.*}" -t "$IMAGE:latest" -t "$IMAGE:$GITHUB_SHA" .
+          docker buildx imagetools inspect "$IMAGE:$VERSION"

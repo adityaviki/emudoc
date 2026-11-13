@@ -1,10 +1,12 @@
 # syntax=docker/dockerfile:1
 # Emudoc's image: the API, the worker, the release step and the maintenance commands, one image
-# with a command each (deploying.md, "The image"). Build it here, tagged with the commit and
-# naming it:
+# with a command each (deploying.md, "The image"), for amd64 and arm64. Build it here, tagged
+# with the commit and naming it:
 #
 #   commit=$(git rev-parse HEAD)
 #   docker build -t emudoc:$commit --build-arg VERSION=$commit .
+#
+# A release's is built for both platforms and published to GHCR by .github/workflows/publish.yml.
 #
 # It keeps the checkout's layout under /app, so the backend finds the frontend's build and its
 # migrations where it would in a checkout. It holds no settings: a deployment passes them in
@@ -16,7 +18,9 @@
 # Python for the two stages below, since the environment one builds runs on the other's.
 FROM python:3.13-slim-trixie@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf1070bc106ee9ed90 AS base
 
-FROM node:24-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9 AS frontend
+# The frontend's build is the same files on every platform, so it runs on the builder's own
+# (BUILDPLATFORM), never emulated, when the image is built for amd64 and arm64 together.
+FROM --platform=$BUILDPLATFORM node:24-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9 AS frontend
 RUN npm install --global pnpm@11.2.2
 WORKDIR /app/frontend
 COPY frontend/package.json frontend/pnpm-lock.yaml ./
@@ -80,12 +84,16 @@ COPY --from=frontend /app/frontend/dist /app/frontend/dist
 # emudoc-release): the compose files, Caddy's, the drill's scripts and the host's own, so that
 # a tag carries the deployment it was tested with. The app reads none of it.
 COPY deploy /app/deploy
-# The commit the image is built from, the full SHA its tag repeats, which /api/health and the
-# user menu show (app/version.py) and deploy/aws/release.sh waits for; "unknown" when the build
-# was not told. Declared after the last RUN and COPY: it differs with every commit, and a layer
-# after it would be built again each time.
+# The version the image is, which /api/health and the user menu show (app/version.py): a
+# release's number for an image published on a version tag (.github/workflows/publish.yml),
+# else the commit's full SHA its tag repeats, which deploy/aws/release.sh waits for; "unknown"
+# when the build was not told. REVISION is the commit, the SHA again unless told. Declared
+# after the last RUN and COPY: they differ with every commit, and a layer after them would be
+# built again each time.
 ARG VERSION=unknown
-LABEL org.opencontainers.image.revision=$VERSION
+ARG REVISION=$VERSION
+LABEL org.opencontainers.image.version=$VERSION \
+      org.opencontainers.image.revision=$REVISION
 # Production unless told otherwise: a container started without its settings refuses to run
 # with development's, rather than running with them. psycopg's binary package brings an OpenSSL
 # that looks for the system's certificates where it was built, so a database reached with
