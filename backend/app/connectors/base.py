@@ -23,7 +23,7 @@ import httpx
 from app.errors import AppError
 
 # The cookie that holds the handshake while the browser is at the service for the member's
-# consent, and how long it may take there; the privacy policy names both (app/legal/).
+# consent, and how long it may take there.
 CONNECT_COOKIE = "emudoc_connect"
 CONNECT_WINDOW_SECONDS = 600
 # How long a request to a service may take; a download gets longer, since a file may be the

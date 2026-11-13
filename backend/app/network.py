@@ -13,9 +13,7 @@ embeddings endpoint and the scanner, and `check_transport` (app/startup.py) for 
 environment shows, a model's address and the bucket's.
 
 The rules live here, apart from both, because app/config.py needs them before anything else of
-the app can be imported; this module imports nothing of the app. Residency (app/residency.py)
-and the subprocessor list (app/subprocessors.py) draw the same line between the deployment and
-the companies it sends data to.
+the app can be imported; this module imports nothing of the app.
 """
 
 import ipaddress

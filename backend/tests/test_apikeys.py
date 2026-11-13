@@ -12,8 +12,7 @@ from app.apikeys import ELSEWHERE, KEY_UNKNOWN, READ_ONLY_KEY, ROLL_YOUR_OWN
 from app.auth import prune_credentials
 from app.config import get_settings
 from app.db import engine
-from app.legal import TERMS_VERSION
-from app.models import ApiKey, Membership, Organization, Project, User
+from app.models import ApiKey, Membership, Organization, Project
 from tests.test_api import create_project
 from tests.test_audit import actions
 
@@ -207,22 +206,14 @@ def test_a_key_does_no_more_than_its_member(client, session, account, make_accou
 
 
 def test_a_key_is_held_with_its_member(client, session, account, make_account, act_as):
-    """A key whose member has yet to accept the current terms, or is held by the
-    organisation's two-factor requirement, is refused what they would be."""
+    """A key whose member is held by the organisation's two-factor requirement is refused
+    what they would be."""
     create_project(client)
     al = make_account("al@example.com", account.organization, role="admin")
     act_as(al)
     api = program(client, make_key(client)["key"])
     client.app.dependency_overrides.pop(get_person)
     assert api.get("/api/projects").status_code == 200
-    user = session.get(User, al.user.id)
-    user.terms_version = "2020-01-01"
-    session.commit()
-    held = api.get("/api/projects")
-    assert held.status_code == 403
-    assert held.json()["detail"].startswith("Accept the terms of service")
-
-    user.terms_version = TERMS_VERSION
     session.get(Organization, account.organization.id).mfa_required = True
     session.commit()
     held = api.get("/api/projects")

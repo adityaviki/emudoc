@@ -379,4 +379,4 @@ def test_the_workspace_logs_its_members_sign_ins(client, session, team):
     bob_client.post("/api/auth/logout")
     login(bob_client, "bob@example.com")
     bobs = [row.action for row in rows(session, org_id) if row.user_id == bob["id"]]
-    assert bobs == ["sign_up", "terms_accepted", "sign_out", "sign_in"]
+    assert bobs == ["sign_up", "sign_out", "sign_in"]

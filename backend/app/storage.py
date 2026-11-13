@@ -47,12 +47,12 @@ object, so the bucket's setting is the one place to choose the keys. A directory
 encrypted as the disk under it, which only the operator can say (deploying.md, "Encryption").
 
 A bucket with versioning is its own backup: a delete leaves a marker over the file's last
-version, which a lifecycle rule removes for good after so many days. The privacy policy names
-BACKUP_DAYS as the outer bound of a deletion, so at start the app asks the bucket how long it
-keeps those versions (`versions`) and refuses, in production, one that keeps them longer
-(`check_versions`). After the database is restored to an earlier point, `deletions` and
-`undelete` bring back what was deleted since, so that the two agree again (app/restore.py).
-A directory keeps no versions; its backups are the disk's.
+version, which a lifecycle rule removes for good after so many days. BACKUP_DAYS names the
+outer bound of a deletion, so at start the app asks the bucket how long it keeps those versions
+(`versions`) and refuses, in production, one that keeps them longer (`check_versions`). After
+the database is restored to an earlier point, `deletions` and `undelete` bring back what was
+deleted since, so that the two agree again (app/restore.py). A directory keeps no versions; its
+backups are the disk's.
 """
 
 import logging
@@ -290,13 +290,6 @@ class Storage(ABC):
         return None
 
     @property
-    def region(self) -> str | None:
-        """The region the objects are kept in, as the bucket's service names it, for the
-        residency checks (app/residency.py); None for a directory, which is wherever the app
-        runs, and for a bucket that would not say."""
-        return None
-
-    @property
     def encryption(self) -> str | None:
         """How the bucket encrypts every object it keeps by default, as its service names the
         algorithm (`AES256`, `aws:kms` and its key), for `report_encryption`; empty when the
@@ -529,8 +522,6 @@ class S3Client(Protocol):
     """The calls the bucket storage makes on boto3's S3 client; the tests stand in for it."""
 
     def head_bucket(self, *, Bucket: str) -> Any: ...
-
-    def get_bucket_location(self, *, Bucket: str) -> Any: ...
 
     def get_bucket_encryption(self, *, Bucket: str) -> Any: ...
 
@@ -950,24 +941,6 @@ class S3Storage(Storage):
         parts = urlsplit(self.presigned_url("origin", content_type="application/octet-stream"))
         return f"{parts.scheme}://{parts.netloc}"
 
-    @cached_property
-    def region(self) -> str | None:
-        # Asked of the bucket itself: the client's region is only where it signs first, and
-        # boto3 follows a bucket elsewhere without saying so.
-        try:
-            answer = self.client.get_bucket_location(Bucket=self.bucket)
-        except (ClientError, BotoCoreError) as error:
-            log.warning(
-                "The bucket %r did not say which region it is in (%s).",
-                self.bucket,
-                _describe(error),
-            )
-            return None
-        # AWS answers nothing for its first region, and EU for a bucket made in Ireland before
-        # regions had the names they have now.
-        location = answer.get("LocationConstraint") or "us-east-1"
-        return "eu-west-1" if location == "EU" else location
-
     def _unsaid(self, question: str, permission: str, otherwise: str, error: Exception) -> None:
         """Warn that the bucket would not answer `question`, with what would make it.
 
@@ -1198,12 +1171,12 @@ def report_encryption(storage: Storage) -> None:
 
 def check_versions(settings: Settings, storage: Storage) -> None:
     """Say at start how long the bucket keeps a deleted file, and in production refuse one that
-    keeps it longer than the privacy policy says a deleted account stays in the backups.
+    keeps it longer than BACKUP_DAYS says a deleted file stays in the backups.
 
     A versioned bucket keeps a deleted file's last version until a lifecycle rule removes it,
-    so it is a backup of the files, and the policy's promise (BACKUP_DAYS, app/legal/) holds
-    for it only with such a rule. A bucket without versions loses a deleted file at once,
-    which keeps the promise but leaves the files with no backup of their own while
+    so it is a backup of the files, and BACKUP_DAYS holds for it only with such a rule. A
+    bucket without versions loses a deleted file at once, which keeps within BACKUP_DAYS but
+    leaves the files with no backup of their own while
     BACKUP_DAYS says there are backups: a warning, since they may be kept another way
     (deploying.md, "Backups"). A directory, and a bucket that would not say, are not judged.
     """
@@ -1239,13 +1212,12 @@ def _kept_too_long(versions: Versions, days: int) -> str:
         kept = "for good" if versions.days is None else f"for {versions.days} days"
         return (
             f"The bucket keeps a deleted or replaced file {kept} (versioning), but BACKUP_DAYS "
-            "is 0, which the privacy policy words as keeping no backups: set BACKUP_DAYS to "
+            "is 0, which says the deployment keeps no backups: set BACKUP_DAYS to "
             "the days the backups are kept, or suspend the bucket's versioning and remove the "
             "earlier versions."
         )
     promise = (
-        "the privacy policy says a deleted account is gone from the backups "
-        f"{days} days after its deletion (BACKUP_DAYS)"
+        f"BACKUP_DAYS says a deleted file is gone from the backups {days} days after its deletion"
     )
     if versions.days is None:
         return (

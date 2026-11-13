@@ -1,6 +1,5 @@
-// The account page: who you are and your address, how you are told notices, the terms you
-// accepted, how you sign in, where you are signed in, whether Emudoc's support may see your
-// account, a copy of your data, and deleting the account.
+// The account page: who you are and your address, how you are told notices, how you sign in,
+// where you are signed in, a copy of your data, and deleting the account.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Download, LogOut, X } from 'lucide-react'
@@ -31,7 +30,7 @@ import {
   SelectField,
 } from '../components/ui.tsx'
 import { NoticeChoices } from '../components/NoticeChoices.tsx'
-import { formatDate, formatDateTime } from '../format.ts'
+import { formatDateTime } from '../format.ts'
 import { useLocalStorage } from '../hooks.ts'
 import { browserNoticesKey } from '../notifications.ts'
 import { browserTimeZone, timeZoneChoices, zoneLabel } from '../timeZones.ts'
@@ -84,20 +83,6 @@ function ProfileSection({ me }: { me: Me }) {
           </Link>
           <Chip>{ROLE_LABELS[me.role]}</Chip>
         </Row>
-        {me.terms_accepted_at && (
-          <Row label="Terms">
-            <span>
-              Accepted on {formatDate(me.terms_accepted_at)}:{' '}
-              <Link to="/terms" className="font-medium text-accent hover:underline">
-                terms of service
-              </Link>
-              ,{' '}
-              <Link to="/privacy" className="font-medium text-accent hover:underline">
-                privacy policy
-              </Link>
-            </span>
-          </Row>
-        )}
         {me.identities.length > 0 && (
           <Row label="Signs in with">
             {me.identities.map((provider) => (

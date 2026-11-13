@@ -94,9 +94,6 @@ DEFAULT_MODEL = "google:gemini-3.5-flash-lite"
 # OpenAI's `chatgpt-4o-latest`, Anthropic's former `-latest` aliases, a `:latest` tag, and
 # OpenRouter's router, which picks a model per request.
 MOVING_ALIAS = re.compile(r"(?:^|[-_.:/])latest$|^openrouter/auto$", re.IGNORECASE)
-# The regions a deployment can keep its documents in (DATA_REGION), by the code the setting and
-# `organizations.region` hold, with the name the app says them by (app/residency.py).
-REGIONS = {"eu": "the European Union", "us": "the United States"}
 
 
 def parse_metrics_address(value: str) -> tuple[str, int] | None:
@@ -239,8 +236,7 @@ class Settings(BaseSettings):
     # Sentry DSN, https://<key>@<host>/<project>, which GlitchTip and a Sentry of the operator's
     # own take too. Empty reports nothing; the log has every error either way. A report holds
     # what the log would show of the error, never a document's text, a question, an answer, a
-    # key or an email address, and the subprocessor list names the tracker's company unless it
-    # runs on the deployment's own network.
+    # key or an email address.
     sentry_dsn: str = ""
     # The environment the tracker files the reports under, such as staging; empty takes
     # ENVIRONMENT, which is production on staging too.
@@ -354,8 +350,8 @@ class Settings(BaseSettings):
     # overloaded or out of reach, or refuses the key, the account or the model itself, as it
     # does once the model is retired (app/llm.py). Empty, there is none. Best from another
     # provider, which an outage or a revoked key of the first does not reach. A fallback is
-    # sent what its primary is, so it is a subprocessor too, held to the same region, terms
-    # and transport, and needs its price in MODEL_PRICES.
+    # sent what its primary is, so it is held to the same transport, and needs its price in
+    # MODEL_PRICES.
     agent_fallback_model: str = ""
     index_fallback_model: str = ""
     # How hard the model thinks. Empty leaves the model's own default; models that cannot
@@ -393,52 +389,21 @@ class Settings(BaseSettings):
     # until this says so. Vertex AI (google-cloud: models) runs under a Cloud project's own
     # terms and needs no such word.
     google_paid_tier: bool = False
-    # Who runs the deployment's servers and its database, as the subprocessor list names it
-    # (app/subprocessors.py): the one subprocessor the settings cannot name themselves.
-    # Production refuses it empty, since the published list would leave it out.
-    hosting_provider: str = ""
-    # Who runs the deployment, as its terms of service and privacy policy name them
-    # (app/legal/): the company or person with their postal address, and the address people
-    # write to about their account, their data and the terms. Production refuses either empty,
-    # since the privacy policy must say who answers for the data and how to reach them.
-    operator_name: str = ""
-    operator_email: str = ""
     # Where members' messages to support go: what they write from the app's help menu, with
     # the page and the request it was about (app/api/help.py), and the address the mail about an
-    # account's address names for help. Empty is OPERATOR_EMAIL's, for a deployment whose one
-    # address answers both.
+    # account's address names for help. Empty sends the messages to the workspace's other
+    # owners and admins, and the mail names no address.
     support_email: str = ""
     # The public status page that says whether the service is up, run outside the deployment
     # it reports on (deploying.md, "The status page"): the help menu and the page that cannot
     # reach its server link to it. Empty links to none.
     status_page_url: str = ""
     # How many days the deployment keeps the backups of its database and bucket, zero for
-    # none. The app makes none itself; the privacy policy names this as the outer bound of a
-    # deletion, since a purged account stays in a backup until it expires (app/retention.py
-    # purges it again after a restore). Production refuses it unset, as the policy could not.
+    # none, unset for not said. The app makes none itself; at start it holds the bucket's
+    # earlier versions to this (app/storage.py, `check_versions`), and `encrypt-secrets` says
+    # how long a retired key must stay for a restore, since a purged account stays in a backup
+    # until it expires (app/retention.py purges it again after a restore).
     backup_days: int | None = Field(default=None, ge=0)
-    # How many days the deployment's infrastructure keeps its records of connections: the
-    # network's flow logs, and the access logs of a bucket that members' browsers fetch page
-    # images and downloads from, which hold their IP addresses and browsers and, in a signed
-    # address, a download's name. The privacy policy names them and this period when it is
-    # set; unset says the deployment keeps none. The AWS module writes it beside the bucket
-    # rule that holds to it (deploying.md, "The account's records").
-    access_log_days: int | None = Field(default=None, ge=1)
-    # How many days the deployment keeps its server logs: the app's own lines (uvicorn's access
-    # log among them, with each request's client address), the reverse proxy's access log and
-    # the database server's log. The privacy policy names this period beside the logs; the app
-    # cannot hold its log to it, since what collects standard error keeps it, so it is the
-    # operator's word, and production refuses it unset as for BACKUP_DAYS. The AWS module writes
-    # it and the instance's journal deletes by it (deploying.md, "Logs").
-    server_log_days: int | None = Field(default=None, ge=1)
-    # The region the deployment keeps its documents in, and everything read from them, as a
-    # code of REGIONS: eu or us (app/residency.py). Set, the app holds to the region what it
-    # can choose itself (Claude's US-only inference, OpenRouter's regional address), checks
-    # at start that the models, the bucket and the embeddings endpoint are in it, and in
-    # production refuses to start when one is not or the settings cannot tell; each
-    # organisation records it as it is created. Where the servers and the database run is
-    # the operator's word: setting it says they are in the region too. Empty promises nothing.
-    data_region: str = ""
 
     # Embeddings: any OpenAI-compatible /embeddings endpoint (app/embeddings.py), sent every
     # passage as it is indexed and every search. The default is an Ollama on this machine,
@@ -737,12 +702,6 @@ class Settings(BaseSettings):
         return ""
 
     @property
-    def support_address(self) -> str:
-        """Where members write to for help: SUPPORT_EMAIL, else OPERATOR_EMAIL; empty for
-        none, which only development runs with."""
-        return self.support_email or self.operator_email
-
-    @property
     def prices(self) -> dict[str, ModelPrice]:
         """What each model costs per million tokens, by name (MODEL_PRICES)."""
         return parse_model_prices(self.model_prices)
@@ -781,16 +740,6 @@ class Settings(BaseSettings):
         """The providers DISABLED_PROVIDERS switches off, by name."""
         return frozenset(_listed(self.disabled_providers))
 
-    @field_validator("data_region", mode="before")
-    @classmethod
-    def _names_a_region(cls, value: object) -> object:
-        if isinstance(value, str):
-            value = value.strip().lower()
-            if value and value not in REGIONS:
-                codes = " or ".join(REGIONS)
-                raise ValueError(f"DATA_REGION is {codes}, or empty for no region; not {value!r}")
-        return value
-
     @field_validator("status_page_url")
     @classmethod
     def _a_page(cls, value: str) -> str:
@@ -810,7 +759,7 @@ class Settings(BaseSettings):
             raise ValueError("fts_language must be a Postgres text search configuration name")
         return value
 
-    @field_validator("operator_email", "support_email")
+    @field_validator("support_email")
     @classmethod
     def _an_address(cls, value: str, info: ValidationInfo) -> str:
         value = value.strip()
@@ -824,8 +773,6 @@ class Settings(BaseSettings):
     @field_validator(
         "run_worker",
         "backup_days",
-        "access_log_days",
-        "server_log_days",
         "log_format",
         "operator_networks",
         mode="before",
@@ -895,8 +842,8 @@ class Settings(BaseSettings):
     @property
     def models(self) -> list[ModelSetting]:
         """Every model these settings name, the primaries first, with the variable that names
-        each. Whatever reads a model name for anything but a request (the region, the
-        subprocessors, the terms, the transport, the start's checks) reads them all, since a
+        each. Whatever reads a model name for anything but a request (the transport, the
+        start's checks) reads them all, since a
         fallback is sent what its primary is. A fallback left empty is none; a primary is
         always there, and an empty one says so when it is used."""
         fallbacks = [
@@ -1050,9 +997,9 @@ class Settings(BaseSettings):
             if moving_alias(model.name):
                 problems.append(
                     f"{model.variable} is {model.name}, an alias its provider moves to a newer "
-                    "model when it likes, so the prices, the region and the answers could "
-                    "change under the deployment without a release; name the version the alias "
-                    "points to now, from the provider's list of models."
+                    "model when it likes, so the prices and the answers could change under "
+                    "the deployment without a release; name the version the alias points to "
+                    "now, from the provider's list of models."
                 )
         gemini = [model.variable for model in self.models if model_provider(model.name) == "google"]
         if gemini and not self.google_paid_tier:
@@ -1063,35 +1010,6 @@ class Settings(BaseSettings):
                 "cannot tell a free key from a paid one; once billing is on for the key's "
                 "Google Cloud project, set GOOGLE_PAID_TIER=true, or use Vertex AI as "
                 "google-cloud:<model>."
-            )
-        if not self.hosting_provider.strip():
-            problems.append(
-                "HOSTING_PROVIDER is not set, so the subprocessor list the app publishes at "
-                "/subprocessors would leave out who runs its servers and database; name them, "
-                'such as "Hetzner Online GmbH, Germany".'
-            )
-        for variable, value, example in (
-            ("OPERATOR_NAME", self.operator_name, '"Emudoc GmbH, Example Street 1, Berlin"'),
-            ("OPERATOR_EMAIL", self.operator_email, "privacy@example.com"),
-        ):
-            if not value.strip():
-                problems.append(
-                    f"{variable} is not set, so the terms of service and the privacy policy at "
-                    "/terms and /privacy would not say who runs the deployment and how to "
-                    f"reach them; set it, such as {example}."
-                )
-        if self.backup_days is None:
-            problems.append(
-                "BACKUP_DAYS is not set, so the privacy policy at /privacy cannot say how long "
-                "a deleted account stays in the backups; set it to the days the deployment "
-                "keeps backups of its database and bucket, or 0 for none."
-            )
-        if self.server_log_days is None:
-            problems.append(
-                "SERVER_LOG_DAYS is not set, so the privacy policy at /privacy cannot say how "
-                "long the server logs, which hold every request's IP address, are kept; set it "
-                "to the days the deployment keeps the app's, the proxy's and the database's "
-                'logs, and have them deleted after it (deploying.md, "Logs").'
             )
         if self.daily_spend_cap and not self.model_prices:
             problems.append(

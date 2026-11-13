@@ -11,10 +11,7 @@ import type { InputFieldProps } from '../components/ui.tsx'
 import { browserTimeZone } from '../timeZones.ts'
 import { useAuthOptions } from './authOptions.ts'
 
-/**
- * The frame of every page outside the signed-in shell: the logo above a centred card, and below
- * it the pages anyone may read before signing up.
- */
+/** The frame of every page outside the signed-in shell: the logo above a centred card. */
 export function AuthLayout() {
   return (
     <div className="flex min-h-dvh flex-col">
@@ -28,26 +25,7 @@ export function AuthLayout() {
         </Link>
         <Outlet />
       </main>
-      <LegalLinks />
     </div>
-  )
-}
-
-/** The terms, the privacy policy and the subprocessor list, at the foot of a page. */
-export function LegalLinks() {
-  const links = [
-    { to: '/terms', label: 'Terms of service' },
-    { to: '/privacy', label: 'Privacy policy' },
-    { to: '/subprocessors', label: 'Subprocessors' },
-  ]
-  return (
-    <nav className="flex flex-wrap justify-center gap-x-4 gap-y-1 px-4 pb-6 text-xs text-muted">
-      {links.map((link) => (
-        <Link key={link.to} to={link.to} className="hover:text-ink hover:underline">
-          {link.label}
-        </Link>
-      ))}
-    </nav>
   )
 }
 

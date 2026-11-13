@@ -7,10 +7,8 @@ local owner. A signed-in user who belongs to no workspace, since an admin remove
 refused everything with 403 (`NoWorkspace`) but the two routes that take `PersonDep`: showing who
 is signed in, which says so, and accepting an invitation, which brings them back. An account
 set to be deleted (app/retention.py) is refused too, except by the three routes that take
-`AnyAccountDep`: the ones that show it, keep it and export its data. So is an account whose
-user has not accepted the current terms of service (app/legal/), except by those three and the
-two that take `LiveAccountDep`: accepting them, and asking for the account to be deleted
-instead. Signing out needs no account.
+`AnyAccountDep`: the ones that show it, keep it and export its data. Signing out needs no
+account.
 
 The workspace's security settings (app/security.py) are held here too. A session that signed
 in longer ago than it allows ends at its next request, as an expired one; and where it requires
@@ -75,7 +73,6 @@ from app.costs import show_costs
 from app.db import get_session
 from app.fact_checks import CHECK_GONE, FACT_GONE
 from app.indexing.pipeline import Services
-from app.legal import terms_due, terms_pending
 from app.logs import about
 from app.models import (
     Automation,
@@ -255,18 +252,7 @@ def get_live_account(account: AnyAccountDep) -> Account:
 LiveAccountDep = Annotated[Account, Depends(get_live_account)]
 
 
-def get_usable_account(account: LiveAccountDep) -> Account:
-    """The account, provided its user has also accepted the current terms of service: nobody
-    uses the service on terms they have not seen. Leaving it needs no acceptance."""
-    if terms_due(account):
-        raise HTTPException(403, terms_pending())
-    return account
-
-
-UsableAccountDep = Annotated[Account, Depends(get_usable_account)]
-
-
-def get_secured_account(account: UsableAccountDep) -> Account:
+def get_secured_account(account: LiveAccountDep) -> Account:
     """The account, provided it signs in as its organisation requires: with two-factor, where
     the organisation asks for it. What the request answers shows what work cost to an owner or
     an admin alone (app/costs.py)."""
@@ -305,8 +291,8 @@ def refuse_past(session: Session, *hits: tuple[Limit, Key]) -> None:
 def limited(limit: Limit) -> Callable[..., None]:
     """The dependency that holds a route to `limit` per user. It goes in the route's
     `dependencies`, which run before the route's own parameters are resolved, so the request
-    is counted before anything else is read or checked, the terms included: the route's own
-    account parameter refuses an account that has not accepted them."""
+    is counted before anything else is read or checked, the workspace's two-factor included:
+    the route's own account parameter refuses an account that does not sign in as it requires."""
 
     def dependency(session: SessionDep, account: LiveAccountDep) -> None:
         refuse_past(session, (limit, by_user(account.user)))

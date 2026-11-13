@@ -1233,22 +1233,6 @@ export interface FeedbackSent {
   to: string | null
 }
 
-/** A company the deployment sends data to, as the server reads it from its settings. */
-export interface Subprocessor {
-  name: string
-  purpose: string
-  /** What it receives. */
-  data: string
-  /** Where it handles what it receives, when the settings show it, as "The European Union (eu-central-1)". */
-  location: string | null
-}
-
-/** The /subprocessors page: the region the documents are kept in, and who receives what. */
-export interface Subprocessors {
-  region: Region | null
-  subprocessors: Subprocessor[]
-}
-
 /** A passage the agent was shown, which its answer may cite as [P<id>]. */
 export interface Source {
   id: number
@@ -1387,16 +1371,10 @@ export type ChatEvent =
   // Sent by the events route itself, last, once the answer is settled.
   | { type: 'end'; status: MessageStatus }
 
-/** The regions a deployment can keep its documents in (DATA_REGION, backend/app/residency.py). */
-export type Region = 'eu' | 'us'
-export const REGION_NAMES: Record<Region, string> = { eu: 'the European Union', us: 'the United States' }
-
 export interface Organization {
   id: number
   name: string
   slug: string
-  /** The region its data is kept in, null when the deployment promised none as it was created. */
-  region: Region | null
   /** Its settings, as its owners and admins chose them: the language its documents are searched in, null for the deployment's (backend/app/languages.py); the days it keeps a chat after its last question (backend/app/retention.py) and an audit log entry, null until they are deleted; how its members are told each kind of notice until they choose. */
   language: string | null
   chat_days: number | null
@@ -1585,11 +1563,6 @@ export interface Me {
   has_password: boolean
   /** When the account will be deleted, if its user asked; until then the app offers only to keep it. */
   deletion_due_at: string | null
-  /** The edition of the terms of service and privacy policy the user accepted, and when. */
-  terms_version: string | null
-  terms_accepted_at: string | null
-  /** Whether the current edition waits to be accepted; until then the app offers only that, a copy of the data, and leaving. */
-  terms_due: boolean
   /** Whether the user hid the projects page's list of first steps, ended the workspace's tour, and hid the chat's suggestion to invite their team, for every organisation. */
   checklist_hidden: boolean
   tour_seen: boolean
@@ -1614,17 +1587,6 @@ export interface OnboardingStep {
 /** The first steps the member's role is offered: none for a viewer. */
 export interface Onboarding {
   steps: OnboardingStep[]
-}
-
-/** The /terms and /privacy pages (backend/app/legal/), filled in from the deployment's settings. */
-export interface Legal {
-  /** The current edition, which the sign-up form and the acceptance page send back. */
-  version: string
-  /** Its date in words, "15 October 2026". */
-  published: string
-  /** The two documents, as Markdown. */
-  terms: string
-  privacy: string
 }
 
 export interface OAuthProvider {
@@ -2063,7 +2025,7 @@ export function handleUnauthorized(handler: (() => void) | null) {
 /**
  * What happens when the server refused a request as not the account's to make (403): the
  * account may have changed since the page asked who is signed in, a role lowered by an admin,
- * terms to accept or a deletion asked for elsewhere, so the app registers a handler that asks
+ * two-factor required or a deletion asked for elsewhere, so the app registers a handler that asks
  * again, and the page stops offering what the server refuses. Sign-in's own routes are left
  * out, as for a 401.
  */
@@ -2178,7 +2140,6 @@ export const auth = {
     name: string
     password: string
     workspace: string
-    terms_version: string
     time_zone: string
   }) => request<Me>('/auth/setup', json('POST', body)),
   /**
@@ -2189,25 +2150,17 @@ export const auth = {
   /** The address a sign-up link was sent to; the link stays unused. */
   signupLink: (token: string) => request<{ email: string }>('/auth/signup/link', json('POST', { token })),
   /**
-   * Makes the account a sign-up link was sent for and signs it in. `terms_version` is the edition the
-   * page showed and its user accepted; `time_zone` the browser's.
+   * Makes the account a sign-up link was sent for and signs it in; `time_zone` is the browser's.
    */
-  finishSignup: (body: {
-    token: string
-    name: string
-    password: string
-    terms_version: string
-    time_zone: string
-  }) => request<Me>('/auth/signup/finish', json('POST', body)),
+  finishSignup: (body: { token: string; name: string; password: string; time_zone: string }) =>
+    request<Me>('/auth/signup/finish', json('POST', body)),
   /** What an invitation's link is for; an expired one too, a gone one is a 400. */
   invitation: (token: string) => request<InvitationLink>('/auth/invitation', json('POST', { token })),
   /** Joins the workspace an invitation to the signed-in account's address is to, a member removed from it too. */
   acceptInvitation: (token: string) => request<Me>('/auth/invitation/accept', json('POST', { token })),
   /** Makes an account for an invitation's address, a member of that organisation alone, and signs it in. */
-  signUpInvited: (body: { token: string; name: string; password: string; terms_version: string; time_zone: string }) =>
+  signUpInvited: (body: { token: string; name: string; password: string; time_zone: string }) =>
     request<Me>('/auth/invitation/signup', json('POST', body)),
-  /** Accept the edition the page showed; a 409 says it changed meanwhile. */
-  acceptTerms: (version: string) => request<Me>('/auth/terms', json('POST', { version })),
   /** With two-factor on, the session grants nothing until `verifyMfa` succeeds. */
   login: (body: { email: string; password: string }) =>
     request<{ mfa_required: boolean }>('/auth/login', json('POST', body)),
@@ -2352,10 +2305,6 @@ export const api = {
   status: () => request<SystemStatus>('/status'),
   /** Public: the readiness probe, which also names the version that answered. */
   health: () => request<Health>('/health'),
-  /** Public: answers without a session. */
-  subprocessors: () => request<Subprocessors>('/subprocessors'),
-  /** Public: the terms of service and privacy policy. */
-  legal: () => request<Legal>('/legal'),
   /** Public, since a sign-in page can fail too: the reference is the id the app logged the report under. */
   reportPageError: (report: PageError) =>
     request<{ reference: string | null }>('/page-errors', json('POST', report)),

@@ -24,7 +24,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, REGCONFIG, TSVECTOR
 from sqlalchemy.orm import Mapped, column_property, mapped_column, relationship
 
-from app.config import REGIONS, get_settings
+from app.config import get_settings
 from app.db import Base
 from app.storage import files_prefix
 
@@ -236,7 +236,8 @@ NATURAL_ORDER = "natural_order"
 # nothing was sold (S.2, 2026-11-13), an organisation's plan, seats and agreed figures changed, it
 # bought a plan or a pack and its subscription changed; and until the hosted service's support went
 # (S.3, 2026-11-13), a member let Emudoc's support see their account, or withdrew that, and support
-# opened and closed a view of it. Those actions stay so that their entries still read.
+# opened and closed a view of it; and until the terms of service went (S.3, 2026-11-13), a user
+# accepted them. Those actions stay so that their entries still read.
 AUDIT_ACTIONS = (
     "sign_up",
     "sign_in",
@@ -440,12 +441,6 @@ class User(Base):
     # its user asks for it to be deleted, cleared if they keep it before then. While it is
     # set, the account can do nothing but keep itself, export its data and sign out.
     deletion_due_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
-    # The version of the terms of service and privacy policy the user accepted, and when
-    # (app/legal/). Null until they accept; a version other than TERMS_VERSION, after the
-    # terms changed, is asked again, and until then the account can do nothing but accept,
-    # export its data, delete itself and sign out.
-    terms_version: Mapped[str | None] = mapped_column(String(40))
-    terms_accepted_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     # How the user is told each kind of notice, the news they may do without (app/notices.py):
     # NOTICE_KINDS by NOTICE_CHANNELS as they chose them, such as {"checks_run": {"email": false}}.
     # A kind or a way not named is on, so that a kind added later reaches everyone until they
@@ -570,7 +565,6 @@ class Organization(Base):
 
     __tablename__ = "organizations"
     __table_args__ = (
-        _one_of("region", tuple(REGIONS), "organizations"),
         CheckConstraint("chat_days > 0", name="ck_organizations_chat_days"),
         CheckConstraint("audit_days > 0", name="ck_organizations_audit_days"),
         CheckConstraint("jsonb_typeof(notices) = 'object'", name="ck_organizations_notices"),
@@ -581,10 +575,6 @@ class Organization(Base):
     name: Mapped[str] = mapped_column(String(200))
     # Appears in URLs and API responses, so it is unique across all tenants.
     slug: Mapped[str] = mapped_column(String(100), unique=True)
-    # The region its data is kept in (DATA_REGION, app/residency.py), recorded as it is created
-    # so that a deployment in another region refuses to serve it; null while the deployment
-    # names none. One deployment is one region; several are 4.3's.
-    region: Mapped[str | None] = mapped_column(String(20))
     # Its settings, chosen by its owners and admins (app/api/organizations.py). The language its
     # documents are searched in, a text search configuration of the database, which its new
     # passages are indexed with and its old ones are moved to (app/languages.py), and which

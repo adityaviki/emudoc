@@ -854,51 +854,21 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   instead; the backend then copies nothing from `.env`, and a missing key is reported as one to
   set in the environment. Production also refuses to start, listing what to change, when the
   settings are development's: the `docker compose` database's password, `LOCAL_ACCOUNT=true`,
-  no `STORAGE_URL`, no `APP_URL`, no `SMTP_URL`, no `SCANNER_URL`, no `EMBEDDING_BASE_URL`, no
-  `HOSTING_PROVIDER`, no `OPERATOR_NAME`, `OPERATOR_EMAIL`, `BACKUP_DAYS` or `SERVER_LOG_DAYS`, a
+  no `STORAGE_URL`, no `APP_URL`, no `SMTP_URL`, no `SCANNER_URL`, no `EMBEDDING_BASE_URL`, a
   `google:` model without `GOOGLE_PAID_TIER`, a `DAILY_SPEND_CAP` without `MODEL_PRICES`, no
-  key for the model, an embeddings endpoint that turns its requests down, with `DATA_REGION` a
-  model, a bucket or an embeddings endpoint outside
-  the region, or a connection that would carry the documents unencrypted off the deployment's
-  own network: a database there without `sslmode=verify-full`, a scanner there, or an
+  key for the model, an embeddings endpoint that turns its requests down, or a connection that
+  would carry the documents unencrypted off the deployment's own network: a database there without `sslmode=verify-full`, a scanner there, or an
   embeddings endpoint, a model's address or a bucket there over plain `http://`
   (`deploying.md`, "Encryption"). It does not serve the interactive API docs at `/docs`, and it marks
   the session cookie `Secure` and sends `Strict-Transport-Security` whatever the request's
   scheme, since a deployment is behind TLS; a request that still reaches it as plain HTTP is
   logged with what the proxy should send.
-- `HOSTING_PROVIDER` names who runs the deployment's servers and database, such as
-  `Hetzner Online GmbH, Germany`, for the subprocessor list (Accounts, below): the one entry
-  the other settings cannot supply. Production refuses to start without it.
-- `OPERATOR_NAME` and `OPERATOR_EMAIL` say who runs the deployment (the company with its postal
-  address) and where people write about their data, and `BACKUP_DAYS` how long its backups of
-  the database and bucket are kept (0 for none): the terms of service and the privacy policy at
-  `/terms` and `/privacy` name them (Accounts, below). Production refuses to start without them,
-  and with a versioned bucket that keeps a deleted file's earlier versions longer than
-  `BACKUP_DAYS` (`deploying.md`, "Backups").
+- `BACKUP_DAYS` says how long the deployment's backups of the database and bucket are kept (0
+  for none). Production refuses to start with a versioned bucket that keeps a deleted file's
+  earlier versions longer than it says (`deploying.md`, "Backups").
 - `SUPPORT_EMAIL` is where members write for help, from the app's help menu (Accounts, below);
   unset, the help menu writes to the workspace's owners and admins. `STATUS_PAGE_URL` names the status page outside the deployment that the help menu links to
   (`deploying.md`, "The status page").
-- `ACCESS_LOG_DAYS` says how long the infrastructure keeps its records of connections, which
-  hold members' addresses: a network's flow logs, and the access logs of the bucket their
-  browsers fetch page images and downloads from. Set, the privacy policy names them and the
-  period; unset, it names none. The AWS deployment sets it and expires the logs by it
-  (`deploying.md`, "The account's records").
-- `SERVER_LOG_DAYS` says how long the deployment keeps its server logs: the app's own, with
-  each request's client address, the reverse proxy's access log and the database server's log.
-  The privacy policy names the period, and production refuses to start without it. The app
-  cannot delete what collects its log, so the deployment keeps to it (journald's
-  `MaxRetentionSec`, a collector's retention); the AWS deployment does (`deploying.md`, "Logs").
-- `DATA_REGION` is the region the deployment keeps its documents in: `eu` (the European Union)
-  or `us` (the United States), empty for none. The backend holds to it what it can choose (an
-  `openrouter:` model is reached at the region's own address, an `anthropic:` model is told to
-  run in the US) and checks at start what it can read: Vertex AI's `GOOGLE_CLOUD_LOCATION`, a
-  Bedrock profile or `AWS_DEFAULT_REGION`, OpenAI's European address, the bucket's region and
-  the embeddings endpoint. In production it refuses to start while one is outside the region or
-  cannot be placed, the Gemini Developer API (`google:`) always among them; in development it
-  warns. Where the servers and the database run is the operator's word. Each organisation
-  records the region as it is created, the account page shows it, and a deployment that finds
-  organisations promised another region refuses to serve them. `deploying.md`, "Keeping the
-  data in one region", says where each provider stands.
 - `FORWARDED_ALLOW_IPS` is uvicorn's, not the app's: the addresses whose `X-Forwarded-Proto`
   and `X-Forwarded-For` headers it believes, which tell the app the request's scheme and the
   browser's address behind a reverse proxy. `127.0.0.1,::1` by default, right for a proxy on
@@ -1005,7 +975,7 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   provider refused or a reply that took too long. The process logs each time it falls back and
   asks the fallback first for the next minute; what the fallback answered is counted under its
   own name and price. Best one of another provider, with its key: it is sent what the first is,
-  so it is a subprocessor held to the same region, terms and prices, and a production start
+  so it is held to the same terms and prices, and a production start
   refuses one it cannot set up and warns about a kind of work without one.
   `uv run python -m app.maintenance models` (in `backend/`) asks every model named, fallbacks
   included, what the app asks of it (two facts of a note, the number on a drawn scan, a call
@@ -1124,8 +1094,8 @@ A key acts as the member who made it, in the organisation it was made in: it rea
 in the organisation's projects (their folders, documents, search, facts, extraction templates
 and cross-checks, chats and trash), and with the write scope changes it as their role allows,
 never more. It does less as soon as they
-may, goes when they leave or are removed, and is refused whenever they would be (terms not
-accepted, two-factor required and not set up, the account set to be deleted). It reaches nothing
+may, goes when they leave or are removed, and is refused whenever they would be (two-factor
+required and not set up, the account set to be deleted). It reaches nothing
 of the accounts or of the organisation itself, so no key signs in, makes another key, invites
 anyone or changes its settings. A key is shown once, as it is made or rolled (only its own member
 rolls it, and the secret before stops at once), runs 30, 90 or 365 days or until it is revoked,
@@ -1259,19 +1229,10 @@ it deletes it, and an expired one goes a month after (`backend/app/invitations.p
 `backend/app/api/invitations.py`, the link's routes in `backend/app/api/auth.py`). A member
 removed from the workspace accepts one the same way, signed in.
 
-Making the account takes a ticked box, on the page the link opens, that accepts the terms of
-service and the privacy policy, which anyone can read at `/terms` and `/privacy` (the sign-in
-pages and the user menu link to them).
-The backend fills both in from its settings and constants (`backend/app/legal/`, `GET
-/api/legal`): who runs the deployment, where the documents are kept, how long each thing is
-kept, the two cookies, whether a model provider may learn from what it is sent,
-whether uploads are scanned, how long the infrastructure's records of connections are kept.
-The account records the edition it accepted (`TERMS_VERSION`) and
-when, and the audit log records the acceptance. An account made through Google or Microsoft,
-or one that accepted an older edition, sees only a page that asks for the current one, with a
-copy of its data and its deletion as the other ways out; the API refuses it everything else
-with 403. The app sets no analytics or advertising cookies and loads nothing from other sites,
-so it shows no cookie banner. The chat pane says that answers are written by an AI model and
+The app publishes no terms of service or privacy policy of its own: the team that runs it is
+the one that tells its members what it keeps and for how long, and `deploying.md` ("What leaves
+the deployment", "Retention and deletion") says what that is. The app sets no analytics or
+advertising cookies and loads nothing from other sites, so it shows no cookie banner. The chat pane says that answers are written by an AI model and
 can be wrong, and a link in an answer shows its address without leading anywhere, since a
 document can steer what the model writes.
 
@@ -1354,8 +1315,7 @@ it can be: the header stays while the page below it shows the error, and in a pr
 library, the open document and the chat each break alone, offering to try again, and start
 afresh once another folder, document or chat is opened
 (`frontend/src/components/ErrorBoundary.tsx`, `frontend/src/failures.ts`). A 500 answers with
-a sentence that ends with the request's id as the reference to quote. The subprocessor list
-and the privacy policy name the tracker when it is a company's. `deploying.md` ("Error
+a sentence that ends with the request's id as the reference to quote. `deploying.md` ("Error
 tracking") has the details.
 
 The question mark in the header is the help menu, where a member writes for help: a problem, a
@@ -1410,17 +1370,6 @@ download what they picked as a CSV file, which the log records too (`GET /api/au
 /api/audit/export`). A row is kept a year, or as many days as its owners and admins choose on the organisation
 page, or for good. A purged account's rows stay with an organisation that keeps other members,
 without their addresses, and the account export includes the rows that name its user.
-
-`/subprocessors` lists the companies the deployment sends data to, what for and what each
-receives, for anyone to read before signing up (the sign-up page and the user menu link to it).
-The backend reads it from its settings (`backend/app/subprocessors.py`, `GET
-/api/subprocessors`), so it changes when a provider does: `HOSTING_PROVIDER`, the bucket, the
-companies behind the two models, a hosted embeddings endpoint, the mail relay, and Google and
-Microsoft when sign-in with them is set up. A service on the deployment's own network is not a
-subprocessor and is left out; a host the backend does not recognise is listed by its name.
-Each entry says where the company handles what it receives when the settings show it
-(`backend/app/residency.py`), and with `DATA_REGION` the page opens with the region the
-documents are kept in.
 
 Every response carries the headers that tell the browser what a page of the app may do
 (`backend/app/headers.py`): a `Content-Security-Policy` that allows scripts, styles and requests

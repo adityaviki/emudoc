@@ -137,7 +137,6 @@ function Organization({ detail, currency }: { detail: OrganizationDetail; curren
     <>
       <Heading title={organization.name} command={`usage ${organization.slug}`}>
         {organization.slug} · id {organization.id}
-        {organization.region && ` · data kept in ${organization.region.toUpperCase()}`}
       </Heading>
       <div className="space-y-4">
         <Section title="This month" description={`What it holds now, and what it used from ${formatDate(usage.month)}.`}>

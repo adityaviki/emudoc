@@ -1,6 +1,5 @@
 // Asking for the account to be deleted, confirmed by its password or, for an account that signs
-// in only through a provider, by its address typed out. The account page offers it, and so does
-// the page that asks for the terms, since leaving needs no acceptance.
+// in only through a provider, by its address typed out. The account page offers it.
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'

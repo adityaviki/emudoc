@@ -1,20 +1,16 @@
 # The settings staging and production share, so that staging runs what production will: the
-# operator's word, the models and their prices, the backups' window, how long the access logs
-# are kept and the region, and the repository whose CI releases them, which the account root
-# reads as well, with the address its alarms go to. Each root adds what is its own (its spending cap, its alert address) with
+# models and their prices, the backups' window and how long the logs are kept, and the
+# repository whose CI releases them, which the account root reads as well, with the address its
+# alarms go to. Each root adds what is its own (its spending cap, its alert address) with
 # merge(); keys and secrets go into each environment's secrets path by hand, never here
-# (deploying.md, "On AWS"). An empty value is no setting; the plan refuses OPERATOR_NAME,
-# OPERATOR_EMAIL, AGENT_MODEL and INDEX_MODEL empty.
+# (deploying.md, "On AWS"). An empty value is no setting; the plan refuses AGENT_MODEL and
+# INDEX_MODEL empty.
 
 output "settings" {
   description = "Settings by their names in .env.example."
   value = {
-    # Who runs the deployment, as the terms of service and the privacy policy name them: the
-    # company or person with a postal address, and the address people write to; where members
-    # write for help from the app, empty for OPERATOR_EMAIL; and the status page outside AWS
-    # that the app links to (deploying.md, "The status page").
-    OPERATOR_NAME   = ""
-    OPERATOR_EMAIL  = ""
+    # Where members write for help from the app, empty for the workspace's admins; and the
+    # status page outside AWS that the app links to (deploying.md, "The status page").
     SUPPORT_EMAIL   = ""
     STATUS_PAGE_URL = ""
 
@@ -36,23 +32,18 @@ output "settings" {
 }
 
 output "backup_days" {
-  description = "BACKUP_DAYS, which the privacy policy names: RDS's retention and the bucket's rule."
+  description = "BACKUP_DAYS: RDS's retention and the bucket's rule."
   value       = 35
 }
 
 output "access_log_days" {
-  description = "ACCESS_LOG_DAYS, which the privacy policy names: how long the access logs of the documents bucket and the VPC's flow logs are kept (deploying.md, \"The account's records\")."
+  description = "How long the access logs of the documents bucket and the VPC's flow logs are kept (deploying.md, \"The account's records\")."
   value       = 30
 }
 
 output "server_log_days" {
-  description = "SERVER_LOG_DAYS, which the privacy policy names: how long the instance's journal keeps the containers' logs and RDS Postgres's (deploying.md, \"Logs\")."
+  description = "SERVER_LOG_DAYS: how long the instance's journal keeps the containers' logs and RDS Postgres's (deploying.md, \"Logs\")."
   value       = 30
-}
-
-output "data_region" {
-  description = "DATA_REGION: eu, us, or empty for no promise (deploying.md, \"Keeping the data in one region\")."
-  value       = ""
 }
 
 output "github_repository" {

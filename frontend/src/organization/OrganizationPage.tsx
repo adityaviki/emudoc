@@ -1,4 +1,4 @@
-// The workspace: its name and region, its settings and security settings (its audit log is AuditPage.tsx), the API
+// The workspace: its name, its settings and security settings (its audit log is AuditPage.tsx), the API
 // keys its owners and admins make for its programs and the webhooks its programs hear of its work at, its share links
 // (ShareLinksSection.tsx), the way to what it holds and used (UsagePage.tsx), its members, their roles and removing
 // them, handing it over to another of them, and the invitations its owners and admins send.
@@ -8,7 +8,7 @@ import { Check, Copy, History, KeyRound, UserMinus, UserPlus } from 'lucide-reac
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useLocation } from 'react-router'
-import { REGION_NAMES, ROLES, ROLE_LABELS, isWithin, organizations } from '../api.ts'
+import { ROLES, ROLE_LABELS, isWithin, organizations } from '../api.ts'
 import type {
   ApiKey,
   ApiKeyMade,
@@ -51,8 +51,6 @@ const INVITATIONS_KEY = ['organization', 'invitations'] as const
 const KEYS_KEY = ['organization', 'keys'] as const
 const WEBHOOKS_KEY = ['organization', 'webhooks'] as const
 const WEBHOOK_URL = 'webhook-url'
-
-const capitalised = (text: string) => text[0].toUpperCase() + text.slice(1)
 
 export function OrganizationPage() {
   const me = useMe()
@@ -125,11 +123,6 @@ function NameSection({ me }: { me: Me }) {
         <Row label="Your role">
           <Chip>{ROLE_LABELS[me.role]}</Chip>
         </Row>
-        {me.organization.region && (
-          <Row label="Data kept in">
-            <span>{capitalised(REGION_NAMES[me.organization.region])}</span>
-          </Row>
-        )}
         <Row label="Identifier">
           <code className="font-mono text-xs">{me.organization.slug}</code>
         </Row>

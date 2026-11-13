@@ -22,8 +22,7 @@ them name --home, where the release moves them once it succeeded:
                   and with the storage reader's credentials in place of the app's
   drill.env       the drill's own settings (a systemd EnvironmentFile)
   journald.conf   how long the journal keeps the containers' logs and the host's own,
-                  SERVER_LOG_DAYS, which the privacy policy names (a drop-in of journald's,
-                  which the release installs)
+                  SERVER_LOG_DAYS (a drop-in of journald's, which the release installs)
 
 Python 3.9, the instance's own; nothing outside the standard library.
 """
@@ -118,8 +117,7 @@ def journald(days: str) -> str:
             f"{FEWEST_LOG_DAYS}: set server_log_days in the OpenTofu root and apply it."
         )
     return (
-        "# Written by each release from SERVER_LOG_DAYS, which the privacy policy names\n"
-        "# (deploy/aws/host/settings).\n"
+        "# Written by each release from SERVER_LOG_DAYS (deploy/aws/host/settings).\n"
         "[Journal]\n"
         "Storage=persistent\n"
         "MaxFileSec=1day\n"

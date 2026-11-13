@@ -29,7 +29,6 @@ from sqlalchemy import case, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.config import get_settings
 from app.models import ROLES, ApiKey, Membership, Organization, User, UserSession
 
 LOCAL_ORG_SLUG = "local"
@@ -98,14 +97,9 @@ def account_for_user(
 def create_organization(
     session: Session, user: User, name: str, slug_stem: str | None = None
 ) -> Account:
-    """A new organisation the user owns, with its data kept
-    where the deployment keeps it (DATA_REGION), and a slug of its own from `slug_stem` or the
-    name. The caller commits."""
-    organization = Organization(
-        name=name,
-        slug=_unique_slug(session, slug_stem or name),
-        region=get_settings().data_region or None,
-    )
+    """A new organisation the user owns, with a slug of its own from `slug_stem` or the name.
+    The caller commits."""
+    organization = Organization(name=name, slug=_unique_slug(session, slug_stem or name))
     session.add(organization)
     session.flush()
     session.add(Membership(org_id=organization.id, user_id=user.id, role="owner"))
@@ -200,11 +194,7 @@ def local_account(session: Session) -> Account:
     if account is None:
         try:
             with session.begin_nested():
-                organization = Organization(
-                    name="Local",
-                    slug=LOCAL_ORG_SLUG,
-                    region=get_settings().data_region or None,
-                )
+                organization = Organization(name="Local", slug=LOCAL_ORG_SLUG)
                 user = User(email=LOCAL_OWNER_EMAIL, name="Owner")
                 session.add_all([organization, user])
                 session.flush()

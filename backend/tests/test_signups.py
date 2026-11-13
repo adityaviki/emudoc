@@ -10,7 +10,6 @@ from sqlalchemy import func, select, text
 
 from app.config import get_settings
 from app.db import engine
-from app.legal import TERMS_VERSION
 from app.maintenance import main
 from app.models import AuditEvent, Organization, User
 from app.signups import NOT_SET_UP, SET_UP_ALREADY, SETUP_LOCK, SIGNUP_CLOSED
@@ -33,15 +32,8 @@ def opened(monkeypatch, signed_in_only):
 
 
 def set_up(client, email="ada@example.com", workspace="Acme", **fields):
-    """Fill in the setup page as the install's admin does, with the box ticked."""
-    body = {
-        "email": email,
-        "name": "Ada",
-        "password": PASSWORD,
-        "workspace": workspace,
-        "terms_version": TERMS_VERSION,
-        **fields,
-    }
+    """Fill in the setup page as the install's admin does."""
+    body = {"email": email, "name": "Ada", "password": PASSWORD, "workspace": workspace, **fields}
     return client.post("/api/auth/setup", json=body)
 
 
@@ -67,26 +59,21 @@ def test_a_new_install_is_set_up_by_its_admin(client, session, signed_in_only, m
     assert made.status_code == 201, made.text
     account = made.json()
     # The workspace is named as typed, and its slug follows; the admin owns it, signed in, the
-    # address confirmed and the terms accepted.
+    # address confirmed.
     assert account["email"] == "ada@example.com" and account["name"] == "Ada"
     assert account["role"] == "owner"
     assert (account["organization"]["name"], account["organization"]["slug"]) == (
         "Acme Legal",
         "acme-legal",
     )
-    assert account["email_verified"] is True and account["terms_due"] is False
+    assert account["email_verified"] is True
     assert me(client).json()["id"] == account["id"]
     assert session.scalars(select(User.time_zone)).one() == "Europe/Berlin"
     # With the sample project, whose copy is the app's act in the log.
     projects = client.get("/api/projects").json()
     assert [project["sample"] for project in projects] == [True]
     rows = session.scalars(select(AuditEvent).order_by(AuditEvent.id)).all()
-    assert [row.action for row in rows] == [
-        "sign_up",
-        "organization_created",
-        "terms_accepted",
-        "sample_added",
-    ]
+    assert [row.action for row in rows] == ["sign_up", "organization_created", "sample_added"]
     assert rows[1].detail == {"name": "Acme Legal"} and rows[1].user_id == account["id"]
 
     # Nothing sends to the setup now, and the admin signs in with the password.
@@ -129,13 +116,9 @@ def test_two_setups_at_once_make_one_admin(client, session, signed_in_only):
     assert session.scalar(select(func.count()).select_from(User)) == 1
 
 
-def test_the_setup_needs_a_workspace_name_and_the_terms(client, signed_in_only):
+def test_the_setup_needs_a_workspace_name_and_a_password(client, signed_in_only):
     blank = set_up(client, workspace="   ")
     assert blank.status_code == 400 and "Give the workspace a name" in blank.json()["detail"]
-    unticked = set_up(client, terms_version=None)
-    assert unticked.status_code == 400
-    stale = set_up(client, terms_version="2000-01-01")
-    assert stale.status_code == 409
     short = set_up(client, password="short")
     assert short.status_code == 422
     # Nothing was made by any of them.
@@ -232,7 +215,7 @@ def test_an_open_sign_up_joins_the_workspace_as_a_member(client, session, opened
     events = session.scalars(
         select(AuditEvent.action).where(AuditEvent.user_id == account["id"])
     ).all()
-    assert events == ["sign_up", "terms_accepted"]
+    assert events == ["sign_up"]
 
 
 def test_an_open_sign_up_waits_for_the_setup(client, mailer, opened):

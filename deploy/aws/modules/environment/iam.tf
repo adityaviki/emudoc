@@ -121,7 +121,7 @@ locals {
 
   # What app/storage.py asks of the bucket, and no more: the objects, their versions (a
   # restore removes the delete markers newer than its moment), and the bucket's versioning,
-  # lifecycle, encryption and region, which the app reads at start; with mail, the queue of
+  # lifecycle and encryption, which the app reads at start; with mail, the queue of
   # SES's events, and with mail in, its notices and the messages.
   app_policy = {
     Version = "2012-10-17"
@@ -131,7 +131,6 @@ locals {
         Action = [
           "s3:ListBucket",
           "s3:ListBucketVersions",
-          "s3:GetBucketLocation",
           "s3:GetBucketVersioning",
           "s3:GetLifecycleConfiguration",
           "s3:GetEncryptionConfiguration",

@@ -8,7 +8,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useContext } from 'react'
 import type { ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { ApiError, ROLE_LABELS, auth } from '../api.ts'
+import { ROLE_LABELS, auth } from '../api.ts'
 import type { InvitationLink, SignedIn } from '../api.ts'
 import { MeContext, forgetUser, loginPath, setSignedIn, signOut, startAgainInOrganization } from '../auth.ts'
 import { Button, Notice } from '../components/ui.tsx'
@@ -167,10 +167,6 @@ function SignUp({ token, invitation }: { token: string; invitation: InvitationLi
       forgetUser(queryClient)
       setSignedIn(queryClient, account)
       navigate('/', { replace: true })
-    },
-    // The terms may have changed while the page was open; fetching them again unticks the box.
-    onError: (error) => {
-      if (error instanceof ApiError && error.status === 409) void queryClient.invalidateQueries({ queryKey: ['legal'] })
     },
   })
   return (

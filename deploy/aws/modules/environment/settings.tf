@@ -6,11 +6,9 @@
 # only, and the release refuses one set twice.
 
 locals {
-  hosting_provider = var.hosting_provider != "" ? var.hosting_provider : "Amazon Web Services, ${local.region}"
-
   # Everything here is what Settings.production_problems (backend/app/config.py) asks of a
-  # deployment and the infrastructure decides; the operator's part (OPERATOR_NAME,
-  # OPERATOR_EMAIL, the models) comes in var.settings.
+  # deployment and the infrastructure decides, and what the infrastructure knows that the app
+  # and the host read; the operator's part (the models) comes in var.settings.
   managed_settings = merge(
     {
       APP_URL            = "https://${var.domain}"
@@ -19,16 +17,13 @@ locals {
       SCANNER_URL        = "clamd://clamav:3310"
       EMBEDDING_BASE_URL = "http://embeddings:8080/v1"
       CONVERTER_URL      = "http://converter:8080"
-      HOSTING_PROVIDER   = local.hosting_provider
       BACKUP_DAYS        = tostring(var.backup_days)
-      ACCESS_LOG_DAYS    = tostring(var.access_log_days)
       SERVER_LOG_DAYS    = tostring(var.server_log_days)
       # What the error tracker files the reports under, should the operator give it a
       # SENTRY_DSN (a secret, since it carries the project's key): staging and production
       # are both ENVIRONMENT=production.
       SENTRY_ENVIRONMENT = var.environment
     },
-    var.data_region == "" ? {} : { DATA_REGION = var.data_region },
     var.mail == null ? {} : {
       MAIL_FROM         = var.mail.from
       MAIL_EVENTS_QUEUE = aws_sqs_queue.mail_events[0].url
@@ -67,7 +62,7 @@ resource "aws_ssm_parameter" "setting" {
         keys(local.operator_settings),
         concat(keys(local.managed_settings), keys(local.secret_settings)),
       )) == 0
-      error_message = "settings names one the module sets itself (APP_URL, STORAGE_URL, AWS_DEFAULT_REGION, SCANNER_URL, EMBEDDING_BASE_URL, CONVERTER_URL, HOSTING_PROVIDER, BACKUP_DAYS, ACCESS_LOG_DAYS, SERVER_LOG_DAYS, SENTRY_ENVIRONMENT, DATA_REGION, MAIL_FROM, MAIL_EVENTS_QUEUE, INBOUND_DOMAIN, INBOUND_MAIL_QUEUE, ALERT_EMAIL, DATABASE_URL, SMTP_URL): use the module's own variable for it."
+      error_message = "settings names one the module sets itself (APP_URL, STORAGE_URL, AWS_DEFAULT_REGION, SCANNER_URL, EMBEDDING_BASE_URL, CONVERTER_URL, BACKUP_DAYS, SERVER_LOG_DAYS, SENTRY_ENVIRONMENT, MAIL_FROM, MAIL_EVENTS_QUEUE, INBOUND_DOMAIN, INBOUND_MAIL_QUEUE, ALERT_EMAIL, DATABASE_URL, SMTP_URL): use the module's own variable for it."
     }
   }
 }

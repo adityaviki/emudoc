@@ -82,7 +82,6 @@ from app.headers import (
 )
 from app.indexing.pipeline import Services
 from app.jobs import Work, work_running
-from app.legal import TERMS_VERSION, privacy_policy, published, terms_of_service
 from app.logs import REQUEST_ID_HEADER, RequestIds, configure_logging, current_context
 from app.mail import Mailer, mailer_from_settings
 from app.metrics import POOL_TIMEOUTS, HttpMetrics, export_metrics
@@ -91,19 +90,16 @@ from app.ratelimit import PAGE_ERRORS, by_address
 from app.schemas import (
     EmbeddingStatus,
     HealthOut,
-    LegalOut,
     LLMStatus,
     PageErrorIn,
     PageErrorOut,
     StatusOut,
-    SubprocessorsOut,
     WorkerStatus,
 )
 from app.shutdown import Stop, heard_stop
 from app.startup import prepare
 from app.status import KEYWORDS_ONLY, MODELS_UNAVAILABLE, WORK_STOPPED, upload_limits
 from app.storage import StorageError
-from app.subprocessors import subprocessors
 from app.tracking import report_page_error, start_tracking
 from app.version import VERSION
 from app.worker import Worker
@@ -268,22 +264,6 @@ def no_worker(work: Work) -> str:
     )
 
 
-@system.get("/subprocessors", response_model=SubprocessorsOut)
-def list_subprocessors(services: ServicesDep):
-    """The companies this deployment hands its users' data to, for the /subprocessors page,
-    and the region it keeps their documents in.
-
-    Public on purpose, unlike the status above: a subprocessor list is published to the people
-    deciding whether to upload. It names companies, and the host of a service it does not
-    know, never a model, a key or an address on the deployment's own network.
-    """
-    settings = get_settings()
-    return SubprocessorsOut(
-        region=settings.data_region or None,
-        subprocessors=subprocessors(settings, services.storage),
-    )
-
-
 @cache
 def _contract() -> dict[str, Any]:
     return published_contract()
@@ -293,23 +273,9 @@ def _contract() -> dict[str, Any]:
 def api_contract(request: Request) -> JSONResponse:
     """The versioned API's published contract (app/api/v1/contract.py), for programs and the
     clients generated from it, with this deployment's address as its server, which the published
-    file cannot know. Public, like the subprocessor list: whoever
-    writes a program reads it before an owner gives them a key, and it holds no data."""
+    file cannot know. Public on purpose, unlike the status above: whoever writes a program reads
+    it before an owner gives them a key, and it holds no data."""
     return JSONResponse({**_contract(), "servers": [{"url": auth.app_url(request)}]})
-
-
-@system.get("/legal", response_model=LegalOut)
-def legal(services: ServicesDep):
-    """The terms of service and the privacy policy, for the /terms and /privacy pages and the
-    edition the sign-up form has its user accept. Public, like the subprocessor list: they are
-    read before an account exists."""
-    settings = get_settings()
-    return LegalOut(
-        version=TERMS_VERSION,
-        published=published(),
-        terms=terms_of_service(settings),
-        privacy=privacy_policy(settings, services.storage),
-    )
 
 
 @system.post("/page-errors", response_model=PageErrorOut, status_code=202)

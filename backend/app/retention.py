@@ -13,7 +13,7 @@ as long.
 An account is deleted in two steps. The request (`POST /api/auth/account/deletion`) marks the
 user due for purging DELETION_GRACE from now and signs them out everywhere else; until then the
 account can do nothing but keep itself, export what is kept about its user (app/export.py) and
-sign out, which the account dependency enforces (`get_usable_account` in app/api/deps.py).
+sign out, which the account dependency enforces (`get_live_account` in app/api/deps.py).
 Signing in during the grace period is how someone who changed their mind, or whose account
 someone else asked to delete, gets it back. When it is due, the housekeeper purges it
 (`purge_due_accounts`): every organisation the user is the only member of goes with everything

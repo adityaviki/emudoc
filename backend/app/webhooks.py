@@ -42,7 +42,7 @@ None of it goes through a proxy the environment names.
 The delivery log (`webhook_deliveries`) keeps each event a hook was sent, how its last try was
 answered and when the next is due, never what it said; the housekeeper removes an entry
 DELIVERIES_KEPT after it was made. What the address receives is the organisation's choice of a
-company, not one of Emudoc's subprocessors.
+company.
 """
 
 import hashlib
@@ -210,8 +210,8 @@ def announce_document(document_id: int, job_id: int) -> int:
     """Announce the document's settling to the organisation's webhooks that listen for it, once
     the index job `job_id` ended; returns to how many. A document still queued, or with another
     index job to run, in the trash or in a project in the trash, announces nothing."""
-    # Here rather than at the top: the API's modules import the worker's (app/legal), which
-    # import this one.
+    # Here rather than at the top: the API's modules import the worker's (app/api/deps.py),
+    # which import this one.
     from app.api.v1.library import document_of
     from app.api.v1.schemas import DocumentEvent
 

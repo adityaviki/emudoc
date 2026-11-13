@@ -23,7 +23,7 @@ from app.config import Settings
 
 SCOPES = "openid email profile"
 # The cookie that holds the handshake while the browser is at the provider, and how long it
-# may take there; the privacy policy names both (app/legal/).
+# may take there.
 OAUTH_COOKIE = "emudoc_oauth"
 OAUTH_WINDOW_SECONDS = 600
 # Microsoft's "common" endpoint signs in users of any directory, and the issuer then names the

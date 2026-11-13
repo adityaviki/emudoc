@@ -49,17 +49,11 @@ on one machine; this is what changes for a deployment. The processes below run f
   each on terms that forbid training on what it is sent, each model named by its version and
   tried with `python -m app.maintenance models`: "The models" and "What leaves the deployment",
   below.
-- **A region**, if the deployment promises one: `DATA_REGION=eu` or `us` holds the models, the
-  bucket and the embeddings to it, and every server and database must be in it too: "Keeping
-  the data in one region", below.
-- **The operator's word** for the terms of service and the privacy policy: `OPERATOR_NAME`,
-  `OPERATOR_EMAIL`, `BACKUP_DAYS` and `SERVER_LOG_DAYS`: "Terms of service and privacy policy",
-  below.
 - **Backups** of the database and of the files, encrypted and kept for `BACKUP_DAYS`, which
   restore to the same point: "Backups", below.
-- **Logs kept for `SERVER_LOG_DAYS`** and no longer: the app's, the proxy's and the database's,
-  by whatever collects them (journald deletes by age, Docker's own drivers do not): "How long
-  they are kept", below.
+- **Logs kept for a period the team chooses** and no longer: the app's, the proxy's and the
+  database's, by whatever collects them (journald deletes by age, Docker's own drivers do not):
+  "How long they are kept", below.
 - **A scraper for the metrics**, if the deployment keeps them: Prometheus or anything that reads
   its format, asking the API and every worker on a port of their own, with Alertmanager for the
   rules in `deploy/prometheus` and a dead man's switch for its watchdog: "Metrics" and
@@ -72,12 +66,10 @@ on one machine; this is what changes for a deployment. The processes below run f
 The settings arrive through the process environment or a secret manager, never a `.env` file:
 `ENVIRONMENT=production` makes the app copy nothing from one, and makes it refuse to start with
 development's conveniences (the compose database's password, `LOCAL_ACCOUNT=true`, no
-`STORAGE_URL`, `APP_URL`, `SMTP_URL`, `SCANNER_URL`, `EMBEDDING_BASE_URL`, `HOSTING_PROVIDER`,
-`OPERATOR_NAME`, `OPERATOR_EMAIL`, `BACKUP_DAYS` or `SERVER_LOG_DAYS`, no `AGENT_MODEL` or
+`STORAGE_URL`, `APP_URL`, `SMTP_URL`, `SCANNER_URL` or `EMBEDDING_BASE_URL`, no `AGENT_MODEL` or
 `INDEX_MODEL` or one its provider moves, a free-tier Gemini key, no key for a model or its
-fallback, an embeddings endpoint that turns its requests down, with `DATA_REGION` anything
-outside the region, and a connection that would carry the documents
-unencrypted off the deployment's own network), naming each.
+fallback, an embeddings endpoint that turns its requests down, and a connection that would
+carry the documents unencrypted off the deployment's own network), naming each.
 `.env.example` documents every setting; the README's "Configuration" says what the ones that
 matter do.
 
@@ -631,8 +623,8 @@ file's two services with it and fails when the vectors of `.github/scripts/embed
 it is not taken; a later one that passes is. The vectors are the ones the deployments' databases
 hold, so a build whose vectors moved would rank every stored passage against a query of another
 model, without a word in any log; other weights chosen on purpose rewrite the file with the
-script's `--write`. On the deployment's own network the server is no subprocessor and takes
-plain HTTP ("Encryption"); on another machine there, such as a GPU server for a large backlog
+script's `--write`. On the deployment's own network the server sends nothing to another company
+and takes plain HTTP ("Encryption"); on another machine there, such as a GPU server for a large backlog
 (llama.cpp's CUDA image), it listens on a private address, and across a network the deployment
 does not own it sits behind TLS, as production requires.
 
@@ -651,11 +643,9 @@ loads.
 **A hosted endpoint** is any OpenAI-compatible service with a key in `EMBEDDING_API_KEY`, such
 as OpenAI's: `EMBEDDING_BASE_URL=https://api.openai.com/v1`,
 `EMBEDDING_MODEL=text-embedding-3-small`, `EMBEDDING_DIM=1536`, and both prefixes set empty.
-It is sent every passage and every search, so it is a company like the model providers: the
-subprocessor list names it by its host, `DATA_REGION` keeps only Vertex AI's addresses and
-OpenAI's European one in a region, and its terms must forbid training on what it is sent. The
-privacy policy promises that for OpenAI's API, Azure OpenAI and Vertex AI (and for an endpoint
-on the own network), and for any other says to ask the operator. A model of more than 2,000
+It is sent every passage and every search, so it is a company like the model providers, and its
+terms must forbid training on what it is sent, as OpenAI's API's, Azure OpenAI's and Vertex AI's
+do. A model of more than 2,000
 dimensions does not fit the vector index (pgvector's HNSW), and the app sends no `dimensions`
 to shorten one: text-embedding-3-large's 3,072 do not fit. The tokens the endpoint reports
 are counted for each document's embed stage and priced like a model's, by `MODEL_PRICES` under
@@ -863,10 +853,10 @@ stopped serving Gemini 2.5 to accounts that had not used it. It refuses as well,
 four settings, an alias its provider moves to a newer model when it likes: a name ending in
 `latest` (`gemini-flash-latest`, `chatgpt-4o-latest`, a `:latest` tag) and OpenRouter's
 `openrouter/auto`. Behind an alias the model changes without a release of the deployment, and
-with it the price (`MODEL_PRICES` is keyed by the name), the place (`DATA_REGION`) and the
-answers. Name the version the provider lists, as `google:gemini-3.5-flash-lite`. Changing a
-model is then a release of its own: the setting, its key, its price in `MODEL_PRICES`, a look
-at `/subprocessors`, and `python -m app.maintenance models`, below.
+with it the price (`MODEL_PRICES` is keyed by the name) and the answers. Name the version the
+provider lists, as `google:gemini-3.5-flash-lite`. Changing a model is then a release of its
+own: the setting, its key, its price in `MODEL_PRICES`, and `python -m app.maintenance models`,
+below.
 
 **A fallback.** `INDEX_FALLBACK_MODEL` and `AGENT_FALLBACK_MODEL` name the model asked when the
 first cannot answer. It is asked when the first model's provider is down or overloaded (429,
@@ -890,8 +880,7 @@ Take the fallback from another provider: one of the same provider covers a retir
 overloaded model, but not an outage, a revoked key or an unpaid bill. The kill switch then
 keeps the app working: `DISABLED_PROVIDERS=google` with fallbacks of Anthropic's stops Google's
 bill while Claude indexes and answers. A fallback is sent what its primary is, so it is held to
-everything a primary is: the subprocessor list names its company ("when the model that usually
-does cannot"), `DATA_REGION` and the privacy policy's training promise cover it,
+everything a primary is: its provider's terms must forbid training on what it is sent,
 `GOOGLE_PAID_TIER` is needed for a `google:` one, its address may not be plain HTTP off the
 own network, and its key must be in the environment: a start refuses a fallback that cannot be
 set up, as it would its primary. It needs its price in `MODEL_PRICES`, or what it answers
@@ -1047,7 +1036,7 @@ development compose file's database (no embeddings endpoint runs there, so their
 words alone); both also run once a change to what they ask with (`llm.py`, `trial.py`,
 `golden.py`, the agent, the search, the sample) is on `main`, and by hand from Actions, Models,
 Run workflow, once the repository names the models: the variables `AGENT_MODEL` and `INDEX_MODEL`, with `AGENT_FALLBACK_MODEL`,
-`INDEX_FALLBACK_MODEL`, `DATA_REGION` and `MODEL_PRICES` as the deployment sets them, and the
+`INDEX_FALLBACK_MODEL` and `MODEL_PRICES` as the deployment sets them, and the
 keys their providers need as the secrets `GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`,
 `OPENROUTER_API_KEY` or `OPENAI_API_KEY` (Settings, Secrets and variables, Actions, or `gh
 variable set AGENT_MODEL --body google:gemini-3.5-flash-lite` and `gh secret set
@@ -1504,7 +1493,8 @@ as they were until `encrypt-secrets` runs once, and the start warns while any ar
 
 ## What leaves the deployment
 
-The documents are invoices, contracts and bank statements, and three settings decide which
+What a team needs to know to choose its providers: which settings send what, and to whom. The
+documents are invoices, contracts and bank statements, and three settings decide which
 companies read them, with the fallbacks of the first two ("The models"), which are sent the
 same:
 
@@ -1518,8 +1508,8 @@ same:
   endpoint").
 
 Each must be on terms that let it use none of this to train or improve its models, under a data
-processing addendum the operator has accepted. Where the providers stood in October 2026 (read
-their terms again before launch; they change):
+processing addendum the team has accepted. Where the providers stood in October 2026 (read
+their terms again before choosing; they change):
 
 - **The Gemini Developer API** (`google:` models, `GOOGLE_API_KEY`). Google's paid terms apply
   only while the key's Google Cloud project has an active billing account: Google then uses
@@ -1547,138 +1537,26 @@ their terms again before launch; they change):
   than reach another. OpenRouter is a company in the path itself: keep the account's prompt
   logging off, and ask its business plans for a data processing addendum.
 
-### Keeping the data in one region
+The rest receive less, and only where a setting turns them on:
 
-`DATA_REGION=eu` (or `us`) promises the organisations that their documents, and everything read
-from them, are kept and processed in the European Union (or the United States). The European
-Union means its member states: London and Zurich are in Europe but not in the Union, and the
-app counts them out. It holds the deployment to the promise in three ways.
+- **A bucket** (`STORAGE_URL=s3://…`) holds every file uploaded, its rendered pages and the
+  project exports; a directory keeps them on the deployment's own disk ("Backups").
+- **The mail relay** (`SMTP_URL` or `RESEND_API_KEY`) is sent every mail the app writes: the
+  members' names and addresses, the sign-in links, and the notices, which name projects and
+  files ("Mail"). The provider that receives the projects' own mail ("Mail in") hands the
+  messages to the app, so it holds what they say.
+- **The services folders are connected from** ("Connected folders") are read from and sent
+  nothing of the projects'.
+- **Google and Microsoft**, when sign-in with them is set up, learn who signs in, as an
+  identity provider does.
+- **The error tracker** (`SENTRY_DSN`, "Error tracking") is sent what the log would show of an
+  error nobody planned for, never a document's text, a question or an answer.
+- **Have I Been Pwned** (`PWNED_PASSWORDS_URL`) is sent the first five characters of the SHA-1
+  of each new password, never the password ("Rates").
 
-**What the app chooses itself**, on every request:
-
-- OpenRouter (`openrouter:`) is reached at the region's own address, `eu.openrouter.ai` or
-  `us.openrouter.ai`, which forwards a request only to providers in the region and fails it
-  when none of them serves the model rather than send it out. Those addresses answer only
-  accounts on OpenRouter's Business or Enterprise plans, so an account without in-region
-  routing has every request refused there; the first answer after setting `DATA_REGION` is the
-  test.
-- Claude through Anthropic's own API (`anthropic:`) is told to run in the US
-  (`inference_geo: "us"`) when the region is the US. Anthropic offers the US or anywhere,
-  nothing else, so under the EU the app refuses a Claude model reached that way. US-only
-  inference needs Claude 4.6 or later (an older model answers 400) and is priced at 1.1 times
-  the standard rate, which `MODEL_PRICES` should say; Anthropic keeps what it stores at rest in
-  the US whatever the setting.
-
-**What the app reads and checks at start**: in production a piece outside the region, or one
-whose place the settings cannot show, stops the API and the worker with a list of what to
-change; in development each is a warning.
-
-- Vertex AI (`google-cloud:`) runs where `GOOGLE_CLOUD_LOCATION` says, `us-central1` unless
-  set: the region's multi-region (`eu`, `us`) or one of its locations, such as
-  `europe-west4`. `global` runs anywhere and is refused, and so is express mode, a
-  `GOOGLE_API_KEY` without `GOOGLE_APPLICATION_CREDENTIALS`, which ignores the location.
-- The Gemini Developer API (`google:`) is refused under either region: Google's terms say what
-  it is sent "may be stored transiently or cached in any country in which Google or its agents
-  maintain facilities".
-- Bedrock (`bedrock:`) keeps a model id that starts with the region's cross-region inference
-  profile (`eu.anthropic.claude-…`, `us.…`) in the region's AWS regions, and runs one without a
-  profile in `AWS_DEFAULT_REGION`. A `global.` profile runs anywhere and is refused.
-- OpenAI (`openai:`) keeps the requests in the EU only for a project created with European
-  data residency, reached at `OPENAI_BASE_URL=https://eu.api.openai.com/v1`; OpenAI decides
-  which organisations may create one. The app knows no address that holds OpenAI to the US.
-- A model of any other provider is refused, since nothing in the settings says where it runs,
-  unless its address (`OLLAMA_BASE_URL`, `OPENAI_BASE_URL`) is on the deployment's own network.
-- The bucket: an AWS bucket is asked which region it is in, so the app's credentials must
-  allow `s3:GetBucketLocation`; a Hetzner bucket is placed by its address (`fsn1`, `nbg1`,
-  `hel1`), and a Cloudflare R2 bucket in the EU jurisdiction by its `….eu.r2.cloudflarestorage.com`
-  address. A bucket on another service cannot be placed and is refused; a directory, or a bucket
-  on the deployment's own network, is where the deployment is.
-- The embeddings endpoint: the compose file's, on the deployment's own network, is where the
-  deployment is; a hosted endpoint is placed only at Vertex AI's addresses or OpenAI's
-  European one, and any other is refused.
-- The provider that receives the mail sent to the projects' addresses ("Mail in"), which
-  becomes their documents: SES receives in the region of `INBOUND_MAIL_QUEUE`, where its rule
-  and its bucket are; Resend's receiving server is the domain's to choose in its dashboard,
-  which the settings do not show, so under a region it is refused.
-
-The places the app knows are in `backend/app/residency.py`, as the providers stood in October
-2026; a location it does not know is in no region, and adding one is adding it there.
-
-**What is the operator's word.** No setting shows where the servers and the database run.
-Setting `DATA_REGION` says they are in the region, and the subprocessor list shows
-`HOSTING_PROVIDER` there; a managed database or a server elsewhere breaks the promise without
-the app knowing. The mail relay and the sign-in providers receive members' names and addresses,
-and the alerts name organisations, projects and files, but they receive no documents and are
-not held to the region: a deployment that promises one picks a relay in it (Mailgun's EU host,
-an SES region in the EU) and says so in its privacy notice. The services folders are connected
-from ("Connected folders") hold the members' own files, which the app reads into the region;
-they receive nothing of the projects' and are not held to it either.
-
-Each organisation records the region it was promised as it is created (`organizations.region`),
-and one made before the deployment named a region is given it at the first start that is not
-refused. A deployment that finds organisations promised another region, because `DATA_REGION`
-was changed or removed under them or because it was pointed at another region's database,
-refuses to start in production and says how many and which: moving an organisation to another
-region is a migration of its data, never a setting. The account page shows each member the
-region their organisation's data is kept in.
-
-### The subprocessor list
-
-The app publishes the companies it sends data to at `/subprocessors`, a page anyone can open
-(the sign-up page and the user menu link to it; `GET /api/subprocessors` is the same as JSON).
-It is read from the settings, so it changes with them: who hosts the deployment, the bucket
-(by where its signed URLs lead), the companies behind the two models, a hosted embeddings
-endpoint, the mail relay, the error tracker ("Error tracking"), and Google and Microsoft when
-sign-in with them is set up. Each entry
-says where the company handles what it receives when the settings show it (the bucket's region,
-the Vertex AI location, "Anywhere" for the Gemini Developer API), and with `DATA_REGION` the page
-opens with the region the documents are kept in. Who hosts
-it is the one entry the settings cannot know: `HOSTING_PROVIDER`, free text such as
-`Hetzner Online GmbH, Germany` or `Fly.io (servers) and Neon (database)`, which production
-requires. A service on the deployment's own network (a private or loopback address, a compose
-service's name, a name under `.internal` or `.local`) is not a subprocessor and is not listed;
-a host the app does not recognise is listed by its name, so an operator's own server under a
-public name appears there too. A company the app sends nothing to, such as a support desk,
-belongs on the operator's own legal pages, beside a link to this one.
-
-## Terms of service and privacy policy
-
-The app publishes both at `/terms` and `/privacy`, pages anyone can open (`GET /api/legal` is
-the same as JSON), and a new account accepts them with a ticked box on the page its sign-up
-link opens. They are
-Markdown templates in `backend/app/legal/`, filled in from the settings as they are served:
-who runs the deployment (`OPERATOR_NAME`, the company with its postal address, and
-`OPERATOR_EMAIL`, where people write about their data), where the documents are kept
-(`DATA_REGION`), how long each thing is kept, the two cookies, whether uploads are
-scanned (`SCANNER_URL`), whether a model provider, the embeddings endpoint's included, may
-learn from what it is sent (a `google:` model without `GOOGLE_PAID_TIER` is said to be on
-Google's free tier, and a hosted embeddings endpoint is promised nothing unless it is OpenAI's,
-Azure OpenAI's or Vertex AI's), and how long a deleted
-account stays in the backups (`BACKUP_DAYS`, the days the deployment keeps its database and
-bucket backups, 0 for none; the app makes none itself, 1.4), and how long the server logs are
-kept (`SERVER_LOG_DAYS`, "How long they are kept" under "Logs"). Production refuses to start
-without the four. Where the infrastructure keeps records of connections that hold members'
-addresses (a bucket's access logs, a network's flow logs), `ACCESS_LOG_DAYS` says how long, and
-the policy names them with it; unset, it names none. The AWS module sets it ("The account's
-records"). The texts are a starting point: have counsel read them for the operator's
-country and customers before launch, and edit the templates rather than writing pages beside
-them, so the facts keep coming from the settings.
-
-Each account records the edition it accepted (`TERMS_VERSION` in `backend/app/legal/__init__.py`)
-and when; the audit log records the acceptance with the client's address. A change that every
-user should accept moves `TERMS_VERSION` to the day it takes effect: from the next deployment,
-every account sees only a page that asks for the new edition (or offers its data and its
-deletion), and the API refuses it everything else. `tests/test_legal.py` fails on any change to
-the templates until that decision has been made, either way. An account made through Google or
-Microsoft has accepted nothing at first and sees the same page.
-
-The terms promise the organisations two things the app cannot do by itself: their owners are
-told by email before a subprocessor is added or replaced, so mail them before changing a
-setting that changes the list at `/subprocessors` (a model provider, the bucket, the mail relay,
-the embeddings endpoint, `HOSTING_PROVIDER`); and a breach that affects their data is reported
-to them without undue delay. The app sets only the two cookies the policy names, both needed
-for it to work, and loads nothing from other sites, so it shows no cookie banner; anything that
-adds an analytics or tracking cookie needs one, and a line in the policy.
+A service on the deployment's own network (a private or loopback address, a compose service's
+name, a name under `.internal` or `.local`) sends nothing to another company. The app sets only
+the two cookies it needs to work and loads nothing from other sites.
 
 ## Mail
 
@@ -1779,7 +1657,7 @@ once its lease runs out. Through Resend that is once: the message's key goes as 
   module makes SES's, with credentials that may send from the domain and do nothing else.
 - **Resend**: `RESEND_API_KEY` (an API key with sending access, `re_…`) sends through
   `https://api.resend.com/emails`, from `MAIL_FROM`, whose domain is added and verified in
-  Resend's dashboard first. Resend is then on the subprocessor list.
+  Resend's dashboard first.
 - **Neither**: the log mailer writes each message, links and all, to the worker's log
   (development's, where the API runs the worker). Production refuses to start so.
 
@@ -1825,8 +1703,7 @@ SHA-256 of the address and whether it bounced or complained (`mail_suppressions`
 calls transient (a full mailbox, a server that kept answering "later") is not kept. The mail an
 account needs is still posted: the provider keeps a list of its own and drops what goes to an
 address on it, and the app's list is for what the app chooses to send. A member who turns a
-kind of notice on by email again on the account page has their address written to again. The privacy policy
-names the list and its year where a provider reports to the deployment.
+kind of notice on by email again on the account page has their address written to again.
 
 - **SES**: the configuration set publishes its bounces and complaints to EventBridge, whose rule
   takes this environment's (by the configuration set, since the account's bus is both
@@ -1875,8 +1752,8 @@ reaches someone who sent nothing; so is one for a project in the trash. The addr
 turned away: for want of DKIM, the sender's mail administrator can sign it, or a member can
 forward it.
 
-What became of each message is kept 30 days (`inbound_messages`, `INBOUND_DAYS`; the privacy
-policy says so) for the project's members, beside the address: its sender, its subject, the
+What became of each message is kept 30 days (`inbound_messages`, `INBOUND_DAYS`) for the
+project's members, beside the address: its sender, its subject, the
 documents kept, the files that were not and why, or why the whole message was turned away. A
 message a provider delivers twice is kept once, by the provider's id for it. Nothing of a
 message's text reaches the log, which names the project and the provider's id and what became
@@ -1907,9 +1784,7 @@ the From domain. A Resend that is out of reach or answers "later" (429, a 5xx) i
 after 1, 2, 4 and 8 minutes; a message it no longer holds, a refusal, or the fifth try ends the
 job failed, among the jobs given up (`failed-jobs`, which names it by Resend's id), and the
 message stays in Resend's dashboard, whence it can be downloaded and handed over with
-`receive-mail`. Resend is then on the subprocessor list as receiving the projects' mail too.
-Resend receives with sending (`RESEND_API_KEY`, not `SMTP_URL`), and is refused under
-`DATA_REGION` ("Keeping the data in one region").
+`receive-mail`. Resend receives with sending (`RESEND_API_KEY`, not `SMTP_URL`).
 
 ### Through Amazon SES
 
@@ -1931,10 +1806,8 @@ minutes, as for Resend. The sender is proven when DMARC passed, or, for a domain
 no DMARC policy (SES's GRAY), when DKIM passed and every DKIM signature the message carries is of
 the From domain or of a domain it is under or over, so that the signature SES passed is one of
 them. A message no job took is removed after 14 days, as the queue's notice of it is. With
-`INBOUND_MAIL_QUEUE` set, SES hands the mail over, whatever Resend's settings say, and the
-subprocessor list names Amazon Web Services as receiving it, where the queue's region says; under
-`DATA_REGION` a queue outside the region is refused. On AWS, the module's `inbound` makes all of
-it ("On AWS").
+`INBOUND_MAIL_QUEUE` set, SES hands the mail over, whatever Resend's settings say. On AWS, the
+module's `inbound` makes all of it ("On AWS").
 
 ## Connected folders
 
@@ -1978,8 +1851,7 @@ syncs and the files they read ("Metrics"), and a sync that raised is among the f
 named "the connected folder <id>".
 
 Each service needs an OAuth client of its own, registered with the one redirect URI
-`{APP_URL}/api/connectors/callback`, and is on the subprocessor list as what the folders are read
-from, receiving nothing of the projects'.
+`{APP_URL}/api/connectors/callback`; it is read from, receiving nothing of the projects'.
 
 **Google Drive.** Browsing starts at My Drive, the shared drives and what was shared with the
 member; a folder is read a request per folder below it, in its shared drive's own corpus where it
@@ -2058,12 +1930,12 @@ sends no webhooks. Development, whose receivers run beside it, takes both. The l
 delivery by its id and the event, never the address; `emudoc_webhook_deliveries_total` counts
 the tries by how they ended ("Metrics"). What the addresses receive (a document's name, title,
 summary and how far it is indexed; a run's counts and report) goes to a company the
-organisation chose, which is not a subprocessor; the privacy policy says so.
+organisation chose.
 
 ## Retention and deletion
 
 What the app removes on its own, in the worker's housekeeping round (a minute after start, then
-every six hours), and so what the privacy notice can promise:
+every six hours), and so what a team can tell its members is kept, and for how long:
 
 - **Chats** are kept until a member deletes them, unless the workspace's owners and admins
   choose a number of days on its page (`organizations.chat_days`); then they go once their last
@@ -2100,8 +1972,9 @@ every six hours), and so what the privacy notice can promise:
   expired, with the address it was sent to (`backend/app/invitations.py`).
 - **Audit log rows** go once they are older than the workspace keeps them
   (`organizations.audit_days`, `prune_audit` in `backend/app/audit.py`): a year until its owners
-  and admins choose fewer or more days, or none to keep them until the workspace goes. A row holds the client's address it was recorded from, which the privacy
-  notice names with that period; an account's purge clears it from the rows of that account.
+  and admins choose fewer or more days, or none to keep them until the workspace goes. A row
+  holds the client's address it was recorded from; an account's purge clears it from the rows
+  of that account.
 - **A deleted account** goes 14 days after its user asked (`DELETION_GRACE` in
   `backend/app/retention.py`), within six hours of the day, with every organisation it was the
   only member of: projects, documents and their files, chats, jobs and usage. In an
@@ -2120,9 +1993,8 @@ every six hours), and so what the privacy notice can promise:
   in a member's notification centre goes after `NOTIFICATION_DAYS` (90), read or not, and those
   about the workspace when they are removed from it.
 
-Backups (and a bucket's object versions) keep a purged account until they expire, so the
-privacy policy names that window, `BACKUP_DAYS`, as the outer bound of a deletion. A restore must not bring the
-account back, so each purge leaves a record in the storage, `erasures/users/<id>-<created>.json`,
+Backups (and a bucket's object versions) keep a purged account until they expire, so that window,
+`BACKUP_DAYS`, is the outer bound of a deletion. A restore must not bring the account back, so each purge leaves a record in the storage, `erasures/users/<id>-<created>.json`,
 naming the account by its id and creation time and nothing else, and `after-restore` (or, if it
 is forgotten, the first housekeeping round) purges again every account that is back (the
 worker's log says "Accounts […] were purged before and are back in the database"). A restore
@@ -2146,7 +2018,7 @@ writes every message, links included; production cannot use it, since it require
 The app makes no backups itself. A deployment keeps two: the database, restorable to any moment
 within the window (point-in-time recovery), and the files, through the bucket's versioning or
 the disk's snapshots. Both hold every document, so both are encrypted, and both expire within
-`BACKUP_DAYS`, which the privacy policy names as the latest a deleted account is gone from them.
+`BACKUP_DAYS`, the latest a deleted account is gone from them.
 The two must restore to the same moment: a database row whose file is gone is a document that
 cannot be opened or indexed again, and a file whose row is gone is an upload nobody can reach.
 
@@ -2224,8 +2096,8 @@ good. Object Lock keeps versions too, for its own retention, which must also be 
 The app asks at start (its credentials need `s3:GetBucketVersioning` and
 `s3:GetLifecycleConfiguration`) and logs the answer: "The bucket keeps a deleted or replaced file
 for 33 days (versioning, within BACKUP_DAYS (35))". Production refuses to start with a bucket
-that keeps earlier versions longer than `BACKUP_DAYS`, or for good, since the privacy policy
-would then be false; a bucket without versioning while `BACKUP_DAYS` says there are backups is
+that keeps earlier versions longer than `BACKUP_DAYS`, or for good, since a deleted account would
+then outlive what the setting says; a bucket without versioning while `BACKUP_DAYS` says there are backups is
 a warning, since its files may be copied another way (replication to a second bucket, with the
 same rule). A directory (`STORAGE_URL=file:///…`) is snapshotted with its disk (ZFS, LVM, btrfs)
 or backed up with restic, at least as often as a restore would need, and kept no longer than
@@ -2644,9 +2516,9 @@ sudo emudoc-compose logs --no-log-prefix --since 1d api worker | jq -R 'fromjson
   | jq -c 'select(.trace_id == "4bf92f3577b34da6a3ce929d0e0e4736")'
 ```
 
-There is no OpenTelemetry exporter, on purpose. The log is kept for `SERVER_LOG_DAYS` and the
-privacy policy names it, while spans sent elsewhere would be one more store of the members' ids
-to hold to that period, or one more company to list; and a global tracer provider would turn
+There is no OpenTelemetry exporter, on purpose. The log is kept for a period the team chooses,
+while spans sent elsewhere would be one more store of the members' ids to hold to that period,
+or one more company to send them to; and a global tracer provider would turn
 on FastAPI's and Anthropic's SDK's own spans, which record each request's path and query
 ("Metrics"). A collector that makes spans of log lines can take these: `trace_id` has the shape
 of a W3C trace's, and `at` and `seconds` place each span. Whatever keeps them is held to the
@@ -2656,16 +2528,16 @@ log's period ("How long they are kept"), and a company that runs it receives the
 
 The server logs are what the API, the worker and the release step write (uvicorn's access log
 among it, with each request's client address), the proxy's access log, and the database
-server's own log. The privacy policy names them and the days they are kept, `SERVER_LOG_DAYS`,
-which production refuses to start without. The app keeps nothing of its log itself, so the
-period is the deployment's to hold to: whatever collects the lines deletes those older than
+server's own log. They hold the members' addresses, so a team keeps them for a period it chooses
+and tells its members. The app keeps nothing of its log itself, so the period is the
+deployment's to hold to: whatever collects the lines deletes those older than
 it. Docker's `json-file` and `local` drivers rotate by size alone, so a quiet machine keeps
 months of them; journald deletes by age, and Docker writes to it with `{"log-driver":
 "journald"}` in `/etc/docker/daemon.json` (or `logging: {driver: journald}` on each service of
 the compose file), after which `docker compose logs` reads it as before:
 
 ```ini
-# /etc/systemd/journald.conf.d/emudoc.conf, for SERVER_LOG_DAYS=30; then
+# /etc/systemd/journald.conf.d/emudoc.conf, for 30 days; then
 # systemctl restart systemd-journald
 [Journal]
 Storage=persistent
@@ -2679,14 +2551,13 @@ a day apart, so the oldest line of a file goes a day at most after it passed `Ma
 which two days short keeps a day within the period, and the newest go with it: each line is
 kept from three days to one day short of the period (27 to 29 days for 30). A collector that
 sends the lines elsewhere (Loki, CloudWatch Logs, a hosted service) is held to the same period
-by its own retention; a company that runs it receives the members' addresses, and the
-subprocessor list, which is read from the settings, cannot name it.
+by its own retention; a company that runs it receives the members' addresses.
 
 The proxy's log goes the same way when the proxy writes it to standard error in a container,
 as `deploy/aws/compose.yml`'s Caddy does; nginx's file under logrotate keeps the period with
 `daily` and `rotate` two short of it. Postgres's own log holds an error's DETAIL by default,
 which repeats the key or the row it refused ("Key (email)=(…) already exists" on `users`),
-though the policy says the server logs hold no email address: `log_error_verbosity = terse`
+so that the server logs would hold email addresses: `log_error_verbosity = terse`
 keeps the error's first line and its statement, whose values the app binds as `$1`. A
 Postgres in a container logs to standard error, into the journal; one that writes its own
 files keeps less than a week with `log_filename = 'postgresql-%a.log'`, `log_rotation_age =
@@ -2695,7 +2566,8 @@ retention of its own, such as RDS's `rds.log_retention_period`.
 
 On AWS the module does all of it. Every container logs to the instance's journal
 (`deploy/aws/compose.yml`, each service, so that it comes with each release), which keeps
-`server_log_days` (30, in `shared/`, written as `SERVER_LOG_DAYS`) by the settings above: each
+`server_log_days` (30, in `shared/`, written as `SERVER_LOG_DAYS` for the host) by the settings
+above: each
 release writes them (`host/settings`) and applies them when they changed (`host/release`), so
 the host's own units' lines (the watch, the drill, the release) are held to it too. `sudo
 emudoc-compose logs` and `journalctl CONTAINER_NAME=emudoc-deploy-api-1` (or `-t` with a
@@ -2751,13 +2623,11 @@ id ("give the reference 0f8fad5b-… when you report it"), which the body also c
 `request_id` and the response as `X-Request-ID`, and the page's error screen shows the id of the
 request that reported it. The log's lines and the tracker's report carry the same id.
 
-The tracker is a company that receives data unless it runs on the deployment's own network, so
-the subprocessor list names it by its DSN's host (Sentry's EU region is a DSN under
-`ingest.de.sentry.io`, in Germany; every other `sentry.io` host is its US region), and the
-privacy policy says what the reports hold. `DATA_REGION` does not hold the tracker to its
-region, since the reports hold no documents; under `eu`, take Sentry's EU region or a tracker of
-your own, and the list says where the reports go either way. How long the reports are kept is
-the tracker's setting. The DSN carries the project's key: on AWS it goes into
+The tracker is a company that receives data unless it runs on the deployment's own network
+(Sentry's EU region is a DSN under `ingest.de.sentry.io`, in Germany; every other `sentry.io`
+host is its US region). The reports hold no documents; a team that keeps its data in the EU
+takes Sentry's EU region or a tracker of its own. How long the reports are kept is the
+tracker's setting. The DSN carries the project's key: on AWS it goes into
 `/emudoc/<environment>/secrets/SENTRY_DSN` by hand, like the model keys ("The settings"), and the
 plan refuses it among the roots' settings.
 
@@ -3574,8 +3444,7 @@ same over `trace_id` for the job it queued. The message goes through the mail qu
 rest of the members' mail ("Mail"), and the queue gives it up once it is sent, so the app keeps
 nothing of it: no table, no audit row, no log line holds the member's words. The help menu
 answers with the reference and where the message went; a member writes `RATE_FEEDBACK`
-messages an hour (10), past which the menu says when to try again. The privacy policy says
-what a message holds and where it goes. Until 2026-11-13 a member could also let Emudoc's
+messages an hour (10), past which the menu says when to try again. Until 2026-11-13 a member could also let Emudoc's
 support see their account from the operator's area; a team that runs its own install asks its
 members what they see instead.
 
@@ -3603,8 +3472,8 @@ address). Three things fill it:
   key in the deployment's secrets. A rule's summary names the app's parts, never a member's
   data.
 
-The service receives nothing of the members' data, so it is not on the subprocessor list; the
-link opens its site in a tab of its own, and the app's pages load nothing from it.
+The service receives nothing of the members' data: the link opens its site in a tab of its own,
+and the app's pages load nothing from it.
 
 ## The operator's area
 
@@ -3808,9 +3677,9 @@ fails over to its fallback" (or `INDEX_MODEL`), or the provider's status page:
 
 A new model is a release of its own, tried as a fallback first:
 
-1. It must keep the app's promises: terms that forbid training on what it is sent, a company
-   and a place that `/subprocessors` and `DATA_REGION` can name, `GOOGLE_PAID_TIER` for a
-   `google:` one ("What leaves the deployment"), and a version in its name, not an alias.
+1. It must keep the app's promises: terms that forbid training on what it is sent,
+   `GOOGLE_PAID_TIER` for a `google:` one ("What leaves the deployment"), and a version in its
+   name, not an alias.
 2. Name it as the fallback of its kind of work, with its key where the secrets are and its
    price in `MODEL_PRICES` (production refuses `DAILY_SPEND_CAP` with a model it cannot price),
    and release.
@@ -3960,8 +3829,7 @@ New passwords, at sign-up, from a reset link or on the account page, are refused
 have appeared in a data breach. The check asks `PWNED_PASSWORDS_URL`, Have I Been Pwned's
 range API by default, with the first five characters of the password's SHA-1, which hundreds of
 passwords share, and finds the rest in the answer; it asks for padding, so the answer's size
-tells nothing either. Have I Been Pwned is then on `/subprocessors`, and the privacy policy
-says so. A copy of the list served on the deployment's own network in the same form (the
+tells nothing either. A copy of the list served on the deployment's own network in the same form (the
 downloader Have I Been Pwned publishes, behind any static server answering `/range/<prefix>`)
 sends nothing out; production refuses one reached over plain HTTP off that network. A service
 that does not answer within 5 seconds lets the password through and logs "The
@@ -4000,8 +3868,8 @@ The directories:
   secret and stays where it is applied; its tests are `tofu test` there.
 - `modules/environment/`, an environment, with its tests (`tofu test` there, against a mocked
   AWS: what each resource is made with, and the inputs it refuses).
-- `shared/`, the settings both environments take: the operator, the models and their prices,
-  `BACKUP_DAYS` and `DATA_REGION`, and the GitHub repository CI runs in, which the account root
+- `shared/`, the settings both environments take: the models and their prices, `BACKUP_DAYS` and
+  how long the logs are kept, and the GitHub repository CI runs in, which the account root
   reads with the address its alarms go to. Staging names the
   models production does, which is what pinning them is for.
 - `staging/` and `production/`, the two roots. They differ in the domain, the sizes (a
@@ -4024,8 +3892,8 @@ The directories:
   connection sees them, and its long work lifts them for its own transaction as before. RDS
   keeps point-in-time backups for `backup_days`, at most its 35, which is `BACKUP_DAYS`. With
   deletion protection (production), deleting the database leaves a final snapshot, which outlives
-  `BACKUP_DAYS` until it is deleted by hand: do so once it is not needed, since the privacy
-  policy promises the backups end within those days. `DATABASE_URL` asks for `verify-full`
+  `BACKUP_DAYS` until it is deleted by hand: do so once it is not needed, since a deleted
+  account is meant to be gone from the backups within those days. `DATABASE_URL` asks for `verify-full`
   against RDS's own authority, which no public bundle holds: each release fetches the region's
   bundle from `truststore.pki.rds.amazonaws.com` into `/etc/emudoc/rds-ca.pem`, which the
   containers mount, and keeps the copy it has when the trust store cannot be reached. Its own log
@@ -4118,8 +3986,7 @@ Three records of what reaches the deployment, beside the app's own log ("Logs"):
   logs hold members' addresses and browsers, and the signed address's query, which names a
   download's file and carries its signature for its 15 minutes; the flow logs hold the address
   of everyone who reached the instance. Both are personal data, kept `access_log_days` (30, in
-  `shared/`), which the module writes as `ACCESS_LOG_DAYS`, from which the privacy policy names
-  them and the period. The bucket's rule removes them two days before, as the documents
+  `shared/`). The bucket's rule removes them two days before, as the documents
   bucket's does for `BACKUP_DAYS`, and the bucket keeps no versions, so a removed log is gone.
   S3 delivers access logs within a few hours, as best it can, and charges only for their
   storage, where CloudTrail's data events for the documents bucket would cost per request,
@@ -4130,9 +3997,8 @@ Three records of what reaches the deployment, beside the app's own log ("Logs"):
   binds them all, and the one host is the instance. `python -m app.maintenance database`
   remains the check of the server's settings and vacuum ("The database").
 
-Without AWS, `ACCESS_LOG_DAYS` is how long the host's own records of connections are kept (a
-firewall's log, a provider's flow logs, a bucket's access logs), and unset, the privacy policy
-names none.
+Without AWS, the host's own records of connections (a firewall's log, a provider's flow logs, a
+bucket's access logs) hold members' addresses too, and are the team's to keep for a period.
 
 The account root watches its trail (`account/alarms.tf`), after the monitoring section of CIS's
 AWS Foundations Benchmark: CloudTrail sends every event to the log group `emudoc-trail` too
@@ -4175,9 +4041,8 @@ read -rs key && printf '%s' "$key" | aws ssm put-parameter --type SecureString \
 ```
 
 Each release writes them into the env files (`deploy/aws/host/settings`): a name set in both
-places, or a value with a line break, stops it. A fresh checkout's plan refuses `OPERATOR_NAME`,
-`OPERATOR_EMAIL`, `AGENT_MODEL` and `INDEX_MODEL` left empty in `shared/main.tf`, which
-production cannot start without; an empty value there is a setting left unset. Keys never go
+places, or a value with a line break, stops it. A fresh checkout's plan refuses `AGENT_MODEL`
+and `INDEX_MODEL` left empty in `shared/main.tf`, which production cannot start without; an empty value there is a setting left unset. Keys never go
 into the roots: the plan refuses a name that ends like one, and `SENTRY_DSN`, which carries the
 tracker's key. The module writes `SENTRY_ENVIRONMENT`, the environment's name, itself,
 `ALERT_EMAIL` from `alert_email`, and `SERVER_LOG_DAYS` from `server_log_days`, by which the
@@ -4423,10 +4288,7 @@ repository's policy among them.
    moment the library shows it quarantined with the verdict `Eicar-Test-Signature`,
    "Download original file" is off, and `ALERT_EMAIL` gets "Emudoc quarantined 1 upload" at the next
    quarter of an hour. Delete it.
-8. Signed out, `https://emudoc.example.com/subprocessors` lists `HOSTING_PROVIDER` first, then
-   the companies behind the models and, with a bucket or a mail relay, theirs: what the
-   deployment's privacy notice promises, and nothing it does not.
-9. The API's and the worker's logs say at start "The bucket encrypts every file it keeps at
+8. The API's and the worker's logs say at start "The bucket encrypts every file it keeps at
    rest" (with a bucket), and no line from `app.storage` warns about it; and "Secrets in the
    database are encrypted with key …, the first of ENCRYPTION_KEYS", and no line from
    `app.encrypted` warns. Turn two-factor sign-in on and sign in again with the app's code: the
@@ -4437,30 +4299,21 @@ repository's policy among them.
    with `sslrootcert` pointed at an authority that did not sign the server's certificate it
    refuses to connect. `psql` has the system's libpq; that the app started at all is the check
    of its own connection, which outside the image needs `SSL_CERT_FILE` ("Encryption").
-10. With `DATA_REGION` set, the API's and the worker's logs have no line from `app.residency` at
-    start, `/subprocessors` opens with the region and says it under "Where" for the models and
-    the bucket, and the account page says "Data kept in" it. With an `openrouter:` model, the
-    first answer comes back from `eu.openrouter.ai` (or `us.`); a refusal there means the
-    OpenRouter account has no in-region routing.
-11. On the account page, "Download your data" saves `emudoc-account-<date>.json` with your
-    account, sessions and chats and no password hash. Invite a throwaway account, delete it
-    with its password: the notice arrives by mail, the page offers only to keep it, and signing
-    in elsewhere shows the same. Keep it, delete it again, and check after the 14 days (or move
-    `users.deletion_due_at` into the past and wait for a housekeeping round) that signing in
-    with it fails, the worker's log says "Deleted account", and the bucket or directory holds
-    its record under `erasures/users/`. Export a project from its card
-    on the projects page: the notice comes, and the ZIP file holds `project.json`, the
-    originals and `documents/<id>.json`; the bucket or directory holds it under the project's
-    `exports/`.
-12. Signed out, `/terms` and `/privacy` name `OPERATOR_NAME` and `OPERATOR_EMAIL`, and the
-    privacy policy says `BACKUP_DAYS`, `SERVER_LOG_DAYS`, the region and whether uploads are
-    scanned as the deployment has them, and whatever collects the logs deletes them by
-    `SERVER_LOG_DAYS` ("How long they are kept": on AWS, `sudo journalctl -q -o short-iso |
-    head -n 1` on an instance that has run that long shows a line no older). Invite a
-    throwaway account: the box must be ticked, and the account page says when the terms were
-    accepted. Any `/api` response carries `Cache-Control: no-store`, and signing out answers
-    with `Clear-Site-Data: "cache"`.
-13. The API's and the worker's logs say at start how long the bucket keeps a deleted file,
+9. On the account page, "Download your data" saves `emudoc-account-<date>.json` with your
+   account, sessions and chats and no password hash. Invite a throwaway account, delete it
+   with its password: the notice arrives by mail, the page offers only to keep it, and signing
+   in elsewhere shows the same. Keep it, delete it again, and check after the 14 days (or move
+   `users.deletion_due_at` into the past and wait for a housekeeping round) that signing in
+   with it fails, the worker's log says "Deleted account", and the bucket or directory holds
+   its record under `erasures/users/`. Export a project from its card
+   on the projects page: the notice comes, and the ZIP file holds `project.json`, the
+   originals and `documents/<id>.json`; the bucket or directory holds it under the project's
+   `exports/`.
+10. Whatever collects the logs deletes them after the period the team chose ("How long they
+    are kept": on AWS, `sudo journalctl -q -o short-iso | head -n 1` on an instance that has run
+    for `server_log_days` shows a line no older). Any `/api` response carries `Cache-Control:
+    no-store`, and signing out answers with `Clear-Site-Data: "cache"`.
+11. The API's and the worker's logs say at start how long the bucket keeps a deleted file,
     within `BACKUP_DAYS`, and `pgbackrest --stanza=emudoc info` says `status: ok` and `cipher:
     aes-256-cbc` with a full backup from the last week and WAL archived up to the last minutes.
     Before launch, drill a restore on staging as "The drill" says: a document deleted after the
@@ -4469,12 +4322,12 @@ repository's policy among them.
     emudoc-restore-drill.timer` shows the monthly drill's next run, and its first one, started
     by hand, ends with "The drill passed.", reaching within five minutes of its end while
     members work.
-14. Ask a question whose answer takes a while and, while it is being written, `docker compose
+12. Ask a question whose answer takes a while and, while it is being written, `docker compose
     -f deploy/compose.yml restart api` (or roll the API's pods): the answer pauses and goes on
     from where it was once the API is back, the API's log says "Shutting down" and "Finished
     server process" within a second of the stop, and has no `Cancel … running task(s)` line,
     which would mean a request outlasted the 8 seconds.
-15. The API's and the worker's logs say at start "The database is Postgres 17.… with pgvector
+13. The API's and the worker's logs say at start "The database is Postgres 17.… with pgvector
     0.8.…; the role emudoc has statement_timeout 30s and idle_in_transaction_session_timeout
     5min.", with no warning from `app.postgres`, and `python -m app.maintenance database` (from
     the image, `docker compose -f deploy/compose.yml run --rm --no-deps worker python -m
@@ -4482,25 +4335,25 @@ repository's policy among them.
     in transaction mode, the worker's log has no line saying the threads "find queued jobs by
     polling", and an answer starts within a second of the question. From a machine outside the
     deployment's network, `pg_isready -h` the database's host gets no answer.
-16. The API's and the worker's logs say at start "Passages are embedded by" the model at the
+14. The API's and the worker's logs say at start "Passages are embedded by" the model at the
     endpoint, with no warning from `app.startup` about it. Upload a document and search the
     library for something it says in other words than its own, such as "late fees" for a
     contract that speaks of a penalty for delay: the passage is found, the document's embed
     stage is done, and the API's log has no line saying a search "matched keywords only".
-17. The API's and the worker's logs say at start "Documents are indexed by" and "Questions are
+15. The API's and the worker's logs say at start "Documents are indexed by" and "Questions are
     answered by" the models, each with its fallback "when it cannot answer", and no line says a
     model "has no fallback" unless the deployment keeps to one provider on purpose. `docker
     compose -f deploy/compose.yml run --rm --no-deps worker python -m app.maintenance models`
     ends with "Every model answered as the app asks it" and exits with 0, with no line saying
     `MODEL_PRICES` has no price for a model.
-18. On AWS, `release.sh` ends with "is released on staging, and … is ready". On the instance
+16. On AWS, `release.sh` ends with "is released on staging, and … is ready". On the instance
     (`aws ssm start-session`), `sudo emudoc-compose ps` shows the API and the worker healthy
     on the tag, `systemctl list-timers 'emudoc-*'` the credentials' renewal within the quarter
     hour and the drill's next run, and `sudo docker run --rm <image> python -c 'import boto3;
     print(boto3.Session().get_credentials())'` prints `None` after a second: a container does
     not reach the instance's role. A release of a tag whose migration fails ends with "was not
     recorded", and `/api/health` answers throughout.
-19. The API's and the worker's logs say at start "Metrics are served at http://0.0.0.0:9464/metrics",
+17. The API's and the worker's logs say at start "Metrics are served at http://0.0.0.0:9464/metrics",
     the worker's "with the database's figures". From the machine, `docker compose -f
     deploy/compose.yml exec worker python -c "import urllib.request;
     print(urllib.request.urlopen('http://127.0.0.1:9464/metrics').read().decode())" | grep
@@ -4509,7 +4362,7 @@ repository's policy among them.
     Upload a document and ask a question: the scraper shows `emudoc_stage_runs_total` with
     `outcome="done"` for every stage and `emudoc_model_requests_total` with `outcome="ok"`, and
     no series names a member, an organisation or the question.
-20. With `ALERT_EMAIL` set, the worker's log has no line saying it is not, and no line from
+18. With `ALERT_EMAIL` set, the worker's log has no line saying it is not, and no line from
     `app.watch` saying it "could not check" something. Stop the scanner (`docker compose -f
     deploy/compose.yml stop clamav`): within the quarter of an hour the address gets "Emudoc
     alert: the malware scanner does not answer", and after `start clamav` and the next round
@@ -4524,17 +4377,17 @@ repository's policy among them.
     emudoc-compose stop alertmanager`) brings the watch's message and CloudWatch's alarm, and
     its start the alarm's OK; `sudo emudoc-compose stop api` brings "Emudoc staging:
     EmudocNoApi" after five minutes, to the pager too, and no `EmudocProcessDown`.
-21. On AWS, CloudWatch lists the account's ten `emudoc-account-…` alarms, none in alarm, and the
+19. On AWS, CloudWatch lists the account's ten `emudoc-account-…` alarms, none in alarm, and the
     log group `emudoc-trail` receives the trail's events. Making and deleting a security group
     no one needs (`aws ec2 create-security-group --group-name emudoc-alarm-check --description
     'An alarm check'`, then `aws ec2 delete-security-group --group-name emudoc-alarm-check`)
     brings `emudoc-account-security-groups` to `account_alert_email` within minutes.
-22. Ask a question: the worker's log has its run's line, "Job … (answer_question) ran … s
+20. Ask a question: the worker's log has its run's line, "Job … (answer_question) ran … s
     (done)", whose `timing` lists the model's turns with the configured model and the tool
     calls by name, and the second recipe of "Traces" with its `trace_id` finds the API's lines
     of the question too, the access line of its `POST` with its `seconds`. Neither holds the
     question's words or the answer's.
-23. Upload a document and ask a question about it: the scraper shows
+21. Upload a document and ask a question about it: the scraper shows
     `emudoc_document_ready_seconds_count` and `emudoc_answer_first_text_seconds_count` at 1 or
     more, and its rules page the six rules of `emudoc-service-levels`, none firing. The uptime
     service outside the deployment shows `/api/health` up. `maintenance jobs` (as "Runbooks"
@@ -4697,19 +4550,13 @@ and the like), named on its models' pages.
 | `ONEDRIVE_TENANT` | `common` | | Whose Microsoft accounts may connect their folders |
 | `CONNECTOR_BASE_URL` | none | refused | Where the connected folders' services are reached in their place: the browser test's stand-in |
 
-### The operator's word
+### Support and backups
 
 | Variable | Default | In production | What |
 | --- | --- | --- | --- |
-| `HOSTING_PROVIDER` | none | required | Who runs the servers, first on `/subprocessors` |
-| `OPERATOR_NAME` | none | required | Who runs the deployment, as the terms name them |
-| `OPERATOR_EMAIL` | none | required | Where people write about their account and data |
-| `SUPPORT_EMAIL` | none | | Where members write for help, from the app's help menu, in place of the workspace's owners and admins ("Support"); the mail to an address an account left names it, else `OPERATOR_EMAIL` |
+| `SUPPORT_EMAIL` | none | | Where members write for help, from the app's help menu, in place of the workspace's owners and admins ("Support"); the mail to an address an account left names it |
 | `STATUS_PAGE_URL` | none | | The status page outside the deployment that the help menu links to ("The status page") |
-| `BACKUP_DAYS` | none | required | How long the backups are kept ("Backups") |
-| `SERVER_LOG_DAYS` | none | required | How long the server logs are kept ("How long they are kept") |
-| `ACCESS_LOG_DAYS` | none | | How long the infrastructure's connection records are kept, when it keeps any |
-| `DATA_REGION` | none | | `eu` or `us`, the region the documents stay in ("Keeping the data in one region") |
+| `BACKUP_DAYS` | none | | How long the backups are kept, which the bucket's earlier versions are held to ("Backups") |
 
 The compose files read a few of their own: `EMUDOC_IMAGE` (the image to run) and `EMUDOC_ENV`
 (the settings' file, `/etc/emudoc/emudoc.env` by default) in `deploy/compose.yml`, with

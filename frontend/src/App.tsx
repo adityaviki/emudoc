@@ -8,7 +8,6 @@ import { DeletionPending } from './account/DeletionPending.tsx'
 import { InvitationPage } from './account/InvitationPage.tsx'
 import { NoWorkspace } from './account/NoWorkspace.tsx'
 import { NotificationBell } from './account/NotificationBell.tsx'
-import { TermsPending } from './account/TermsPending.tsx'
 import { LoginPage } from './account/LoginPage.tsx'
 import { MfaPending } from './account/MfaPending.tsx'
 import { ForgotPasswordPage, ResetPasswordPage } from './account/PasswordPages.tsx'
@@ -35,8 +34,6 @@ import { UsagePage } from './organization/UsagePage.tsx'
 import { DuplicatesPage } from './pages/DuplicatesPage.tsx'
 import { ProjectsPage } from './pages/ProjectsPage.tsx'
 import { SearchPage } from './pages/SearchPage.tsx'
-import { LegalPage } from './pages/LegalPage.tsx'
-import { SubprocessorsPage } from './pages/SubprocessorsPage.tsx'
 import { SharedPage } from './shared/SharedPage.tsx'
 import { Workspace } from './pages/Workspace.tsx'
 import { describeServices } from './status.ts'
@@ -100,9 +97,6 @@ function App() {
           <Route path="confirm-email" element={<ConfirmEmailPage />} />
           <Route path="invitation" element={<InvitationPage />} />
           <Route path="unsubscribe" element={<UnsubscribePage />} />
-          <Route path="subprocessors" element={<SubprocessorsPage />} />
-          <Route path="terms" element={<LegalPage document="terms" />} />
-          <Route path="privacy" element={<LegalPage document="privacy" />} />
         </Route>
         {/* A share link's page, for whoever holds the link, with a frame of its own. */}
         <Route path="shared" element={<SharedPage />} />
@@ -124,10 +118,9 @@ function App() {
 
 /**
  * The header and the page below it, for a signed-in member only; one an admin removed from the
- * workspace sees only that it has none, an account set to be deleted only the way to keep it, one
- * that has not accepted the current terms only the way to accept them, and one whose workspace
- * requires two-factor sign-in that it lacks only the way to set it up, since the server refuses
- * each everything else.
+ * workspace sees only that it has none, an account set to be deleted only the way to keep it, and
+ * one whose workspace requires two-factor sign-in that it lacks only the way to set it up, since
+ * the server refuses each everything else.
  */
 function Shell() {
   const me = useContext(MeContext)
@@ -135,7 +128,6 @@ function Shell() {
   if (!me) return <Navigate to={loginPath(location.pathname + location.search)} replace />
   if (me.organization === null) return <NoWorkspace me={me} />
   if (me.deletion_due_at) return <DeletionPending me={me} />
-  if (me.terms_due) return <TermsPending me={me} />
   if (me.mfa_due) return <MfaPending me={me} />
 
   return (

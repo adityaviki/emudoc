@@ -1,8 +1,7 @@
 """Sign-in: accounts with a password, sign-in through Google or Microsoft, the links that
 make an account, confirm an address or reset a password, authenticator codes, the sessions a
-user holds, and the account itself: its user's name, time zone and email address, the terms
-they accepted (app/legal/), a copy of what is kept about them, and its deletion
-(app/retention.py).
+user holds, and the account itself: its user's name, time zone and email address, a copy of
+what is kept about them, and its deletion (app/retention.py).
 
 An install starts at its setup, which makes the admin's account and the workspace while no user
 exists, and is refused once one does (app/signups.py). After that, an invitation's link
@@ -12,7 +11,7 @@ link stands for, mailed to it or handed on by the admin who made it.
 
 While sign-up is open (SIGNUP_OPEN, off by default), a sign-up asks for the address alone and
 mails it a link, and the page the link opens makes the account, a member of the workspace:
-whoever holds the address chooses its password and accepts the terms there. The answer to the
+whoever holds the address chooses its password there. The answer to the
 form is the same whether the address has an account or not, and an address that has one is
 told so in a message instead, so that nobody learns from the app who uses it.
 
@@ -69,7 +68,6 @@ from app.api.deps import (
     PersonDep,
     ServicesDep,
     SessionDep,
-    UsableAccountDep,
     WorkerDep,
     limited,
     refuse_past,
@@ -79,7 +77,6 @@ from app.bounces import forget
 from app.config import get_settings
 from app.export import account_export
 from app.invitations import find_invitation, is_open
-from app.legal import TERMS_VERSION, terms_due, terms_pending
 from app.mail import (
     account_deletion_email,
     account_exists_email,
@@ -154,7 +151,6 @@ from app.schemas import (
     SignupFinishIn,
     SignupIn,
     SignupLinkOut,
-    TermsIn,
 )
 from app.security import mfa_due
 from app.signups import (
@@ -211,7 +207,7 @@ ADDRESS_TAKEN = (
     "this account's. Sign in with it, or ask for the change again with another address."
 )
 # Whom the old address is told to write to when its account moved without its owner asking,
-# where the deployment names no support address (SUPPORT_EMAIL, OPERATOR_EMAIL).
+# where the deployment names no support address (SUPPORT_EMAIL).
 NO_CONTACT = "the people who run this Emudoc service"
 SIGNED_UP_ALREADY = (
     "An Emudoc account was made with this address after the link was sent, so the link cannot "
@@ -233,11 +229,6 @@ INVITATION_HAS_ACCOUNT = (
 LOCAL_INVITATION = (
     "The local account cannot accept an invitation: without a session there is nothing to keep "
     "the workspace it joins in. Sign in with an account to accept the invitation."
-)
-ACCEPT_TERMS = "Accept the terms of service and the privacy policy to create an account."
-TERMS_CHANGED = (
-    "The terms of service and the privacy policy changed while you were reading them. Read "
-    "the new version and accept it."
 )
 # What a guess is refused with once its guesser has used up the hour's failed sign-ins
 # (`_refuse_paused`): the browsers that have not signed in with the address together, whether
@@ -307,10 +298,9 @@ def setup(
     """Make the install's first account, its admin, an owner of the workspace named as typed,
     which starts with the sample project, and sign it in (app/signups.py). Refused once any
     user exists, so that nobody who finds the page later makes another admin. Whoever runs the
-    install types the address, so it starts confirmed; the password and the terms are checked
-    as at a sign-up."""
+    install types the address, so it starts confirmed; the password is checked as at a
+    sign-up."""
     refuse_past(session, (ADDRESSES, by_address(request)))
-    _refuse_unaccepted(body.terms_version)
     if not (name := body.workspace.strip()):
         raise HTTPException(400, NAME_THE_WORKSPACE)
     # Before the breach check's request, so that a page left open answers at once.
@@ -332,7 +322,6 @@ def setup(
     browser = auth.remember_browser(session, account.user, request)
     audit(session, account, request, "sign_up", detail={"method": "password"})
     audit(session, account, request, "organization_created", detail={"name": name})
-    _accept_terms(session, account, request)
     sampled = add_sample(session, account.organization, services.storage) is not None
     session.commit()
     if sampled and worker:
@@ -389,13 +378,12 @@ def finish_signup(
 ):
     """Make the account a sign-up link was sent for, a member of the install's workspace
     (app/signups.py), and sign it in. Opening the link proves the address, so it starts confirmed,
-    and whoever holds the address chooses the password and accepts the terms, never whoever typed it
-    into the form. The edition accepted must be the current one. Refused once sign-up has closed
-    since the link was sent. A refusal leaves the link working, since nothing is committed."""
+    and whoever holds the address chooses the password, never whoever typed it into the form.
+    Refused once sign-up has closed since the link was sent. A refusal leaves the link working,
+    since nothing is committed."""
     refuse_past(session, (ADDRESSES, by_address(request)))
     if not get_settings().signup_open:
         raise HTTPException(403, SIGNUP_CLOSED)
-    _refuse_unaccepted(body.terms_version)
     link = auth.redeem_link_token(session, body.token, "sign_up")
     if link is None:
         raise HTTPException(400, LINK_INVALID)
@@ -428,7 +416,6 @@ def finish_signup(
         raise HTTPException(409, str(refusal)) from None
     browser = auth.remember_browser(session, user, request)
     audit(session, account, request, "sign_up", detail={"method": "password"})
-    _accept_terms(session, account, request)
     session.commit()
     auth.set_session_cookie(response, request, token)
     auth.set_browser_cookie(response, request, browser)
@@ -462,16 +449,13 @@ def accept_invitation(body: LinkTokenIn, person: PersonDep, request: Request, se
     """Join the organisation an invitation to the account's address is to, with its role, and
     work in it from now on, in every tab. Opening the link proves the address, which an account
     that signed up through a provider may not have confirmed yet. A member removed from the
-    workspace comes back this way, and so may accept before the current terms, which the app
-    asks of them once they are in."""
+    workspace comes back this way."""
     user = person.user
     if user.deletion_due_at is not None:
         raise HTTPException(403, deletion_pending(user.deletion_due_at, zone_of(user.time_zone)))
     if isinstance(person, Account):
         if person.session_id is None:
             raise HTTPException(409, LOCAL_INVITATION)
-        if terms_due(person):
-            raise HTTPException(403, terms_pending())
     invitation = _open_invitation(session, body.token, lock=True)
     if invitation.email != user.email:
         raise HTTPException(
@@ -507,10 +491,9 @@ def sign_up_invited(
 ):
     """Make an account for an invitation's address, a member of the organisation that invited
     it and of none of its own, and sign it in, as `finish_signup` makes one for a sign-up link:
-    opening the link proves the address, and whoever holds it chooses the password and accepts
-    the terms. A refusal leaves the invitation open."""
+    opening the link proves the address, and whoever holds it chooses the password. A refusal
+    leaves the invitation open."""
     refuse_past(session, (ADDRESSES, by_address(request)))
-    _refuse_unaccepted(body.terms_version)
     # Held, so that one revoked meanwhile is found gone rather than accepted.
     invitation = _open_invitation(session, body.token, lock=True)
     if session.scalar(select(User.id).where(User.email == invitation.email)) is not None:
@@ -538,7 +521,6 @@ def sign_up_invited(
     joined = add_member(session, organization, user, invitation.role, user_session)
     browser = auth.remember_browser(session, user, request)
     audit(session, joined, request, "sign_up", detail={"method": "password"})
-    _accept_terms(session, joined, request)
     _accepted(session, joined, request, invitation)
     session.commit()
     auth.set_session_cookie(response, request, token)
@@ -632,18 +614,6 @@ def me(person: PersonDep, session: SessionDep):
     return me_out(session, person)
 
 
-@router.post("/terms", response_model=MeOut)
-def accept_terms(body: TermsIn, account: LiveAccountDep, request: Request, session: SessionDep):
-    """Accept the current terms of service and privacy policy: what the app asks first of an
-    account that signed up through a provider, or that accepted an older edition."""
-    if body.version != TERMS_VERSION:
-        raise HTTPException(409, TERMS_CHANGED)
-    if account.user.terms_version != TERMS_VERSION:
-        _accept_terms(session, account, request)
-        session.commit()
-    return me_out(session, account)
-
-
 # The profile and the address
 
 
@@ -730,7 +700,7 @@ def confirm_email_change(body: LinkTokenIn, request: Request, session: SessionDe
     # no longer the account's, and a second change waiting would undo this one.
     auth.void_link_tokens(session, user.id)
     audit_sign_in(session, user, request, "email_changed")
-    post(session, old, email_changed_email(user.name, get_settings().support_address or NO_CONTACT))
+    post(session, old, email_changed_email(user.name, get_settings().support_email or NO_CONTACT))
     session.commit()
 
 
@@ -901,7 +871,7 @@ def delete_account(
     """Set the account to be deleted once the grace period is over, sign it out everywhere
     else, and tell its address. The password confirms it, or the address typed out for an
     account without one, so that a browser left signed in is not enough by itself. An account
-    that has not accepted the current terms may ask too: leaving needs no new terms."""
+    held at the workspace's two-factor may ask too: leaving needs no second factor."""
     user = account.user
     if account.session_id is None:
         raise HTTPException(409, LOCAL_ACCOUNT)
@@ -958,7 +928,7 @@ def export_account(
 
 
 @router.post("/mfa/setup", response_model=MfaSetupOut)
-def setup_mfa(account: UsableAccountDep, session: SessionDep):
+def setup_mfa(account: LiveAccountDep, session: SessionDep):
     """Start adding an authenticator: a new secret, which a correct code then turns on. Open to
     an account its organisation holds until it has one (app/security.py), as is turning it on."""
     user = account.user
@@ -974,7 +944,7 @@ def setup_mfa(account: UsableAccountDep, session: SessionDep):
 
 
 @router.post("/mfa/enable", response_model=RecoveryCodesOut)
-def enable_mfa(body: CodeIn, account: UsableAccountDep, request: Request, session: SessionDep):
+def enable_mfa(body: CodeIn, account: LiveAccountDep, request: Request, session: SessionDep):
     """Turn two-factor sign-in on once the app shows the right code; returns the recovery codes."""
     user = account.user
     if user.mfa_enabled:
@@ -1197,8 +1167,6 @@ def me_out(session: Session, person: Account | Outsider) -> MeOut:
         identities=sorted(identity.provider for identity in user.identities),
         has_password=user.password_hash is not None,
         deletion_due_at=user.deletion_due_at,
-        terms_version=user.terms_version,
-        terms_accepted_at=user.terms_accepted_at,
         checklist_hidden=user.checklist_hidden_at is not None,
         tour_seen=user.tour_seen_at is not None,
         invite_hidden=user.invite_hidden_at is not None,
@@ -1210,7 +1178,6 @@ def me_out(session: Session, person: Account | Outsider) -> MeOut:
             mfa_due=False,
             organization=None,
             role=None,
-            terms_due=user.terms_version != TERMS_VERSION,
         )
     account = person
     return MeOut(
@@ -1219,7 +1186,6 @@ def me_out(session: Session, person: Account | Outsider) -> MeOut:
         mfa_due=mfa_due(account),
         organization=organization_out(account.organization),
         role=account.role,
-        terms_due=terms_due(account),
     )
 
 
@@ -1333,14 +1299,6 @@ def _clock(moment: dt.datetime, user: User) -> str:
     return f"{moment.astimezone(zone):%H:%M} ({zone})"
 
 
-def _refuse_unaccepted(terms_version: str | None) -> None:
-    """Refuse a new account whose form did not accept the current edition of the terms."""
-    if terms_version is None:
-        raise HTTPException(400, ACCEPT_TERMS)
-    if terms_version != TERMS_VERSION:
-        raise HTTPException(409, TERMS_CHANGED)
-
-
 def _open_invitation(session: Session, token: str, lock: bool = False) -> Invitation:
     """The invitation a link names, refused with 400 once it is gone or expired."""
     invitation = find_invitation(session, token, lock)
@@ -1369,14 +1327,6 @@ def _accepted(session: Session, account: Account, request: Request, invitation: 
         detail={"role": account.role},
     )
     session.delete(invitation)
-
-
-def _accept_terms(session: Session, account: Account, request: Request) -> None:
-    """Record that the user accepted the current edition, now, in the audit log as well; the
-    caller commits."""
-    account.user.terms_version = TERMS_VERSION
-    account.user.terms_accepted_at = auth.now()
-    audit(session, account, request, "terms_accepted", detail={"version": TERMS_VERSION})
 
 
 def _constraint(error: IntegrityError) -> str | None:

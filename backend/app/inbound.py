@@ -64,7 +64,7 @@ log = logging.getLogger(__name__)
 
 # The senders one address may list.
 MAX_SENDERS = 50
-# How long what became of a message is kept for the members to read; the privacy policy says so.
+# How long what became of a message is kept for the members to read.
 INBOUND_DAYS = 30
 # The messages the address's page lists, newest first.
 SHOWN = 20

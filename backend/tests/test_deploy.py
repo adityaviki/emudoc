@@ -31,17 +31,14 @@ WRITTEN = {
     "SCANNER_URL": "clamd://clamav:3310",
     "EMBEDDING_BASE_URL": "http://embeddings:8080/v1",
     "CONVERTER_URL": "http://converter:8080",
-    "HOSTING_PROVIDER": "Amazon Web Services, eu-central-1",
     "BACKUP_DAYS": "35",
-    "ACCESS_LOG_DAYS": "30",
     "SERVER_LOG_DAYS": "30",
     "SENTRY_ENVIRONMENT": "staging",
     "DATABASE_URL": DATABASE_URL,
 }
-# Written only when the root asks: a region, mail through SES with the queue of its bounces,
-# and an address for the alerts.
+# Written only when the root asks: mail through SES with the queue of its bounces, mail in, and
+# an address for the alerts.
 WRITTEN_WHEN_ASKED = {
-    "DATA_REGION",
     "MAIL_FROM",
     "SMTP_URL",
     "MAIL_EVENTS_QUEUE",
@@ -49,10 +46,8 @@ WRITTEN_WHEN_ASKED = {
     "INBOUND_MAIL_QUEUE",
     "ALERT_EMAIL",
 }
-# What the module refuses to go without (variables.tf): the operator's word.
+# What the module refuses to go without (variables.tf): the models, the operator's choice.
 OPERATOR = {
-    "OPERATOR_NAME": "Emudoc Ltd, 1 Example Street, Example Town",
-    "OPERATOR_EMAIL": "privacy@example.com",
     "AGENT_MODEL": "anthropic:claude-sonnet-5-5",
     "INDEX_MODEL": "anthropic:claude-haiku-5-5",
 }
@@ -72,10 +67,18 @@ ALERTING = {
     "EMUDOC_HEARTBEAT": "arn:aws:sns:eu-central-1:123456789012:emudoc-staging-heartbeat",
 }
 # Written for the app's sake, not production's checks: boto3 signs for the bucket's region, the
-# error tracker files the reports by the environment's name, the privacy policy names how long
-# the access and flow logs are kept, which a deployment without them need not say, and the
-# converter shows Office files as they look, which a deployment may do without.
-NOT_CHECKED = {"AWS_DEFAULT_REGION", "SENTRY_ENVIRONMENT", "ACCESS_LOG_DAYS", "CONVERTER_URL"}
+# error tracker files the reports by the environment's name, the converter shows Office files as
+# they look, which a deployment may do without, and the app holds the bucket's earlier versions
+# to how long the backups are kept, which a deployment may leave unsaid. And for the host's: its
+# journal keeps the logs as long as SERVER_LOG_DAYS (host/settings), which the app reads nothing
+# of.
+NOT_CHECKED = {
+    "AWS_DEFAULT_REGION",
+    "SENTRY_ENVIRONMENT",
+    "CONVERTER_URL",
+    "BACKUP_DAYS",
+    "SERVER_LOG_DAYS",
+}
 
 
 @pytest.fixture(autouse=True)
@@ -183,7 +186,8 @@ def compose_values(text: str) -> dict[str, str]:
 
 
 def test_the_host_writes_each_value_as_it_is(tmp_path):
-    operator = OPERATOR | {"OPERATOR_NAME": 'O\'Brien & Sons "Ltd", 1 $HOME St, ${USER} \\ #3 '}
+    # A sender's name may hold anything: quotes, dollars, a backslash, a hash, a trailing space.
+    operator = OPERATOR | {"MAIL_FROM": '"O\'Brien & Sons, 1 $HOME St, ${USER} \\ #3" <m@x.io> '}
     run = write_env_files(tmp_path, WRITTEN | operator, SECRETS)
     assert run.returncode == 0, run.stderr
     assert compose_values((tmp_path / "emudoc.env").read_text()) == WRITTEN | operator | SECRETS
@@ -244,7 +248,7 @@ def test_the_drill_gets_production_settings_without_the_providers_keys(tmp_path)
     assert problems(settings | {"DATABASE_URL": copy}) == []
 
 
-def test_the_journal_keeps_no_line_past_the_period_the_policy_names(tmp_path):
+def test_the_journal_keeps_no_line_past_the_period_the_deployment_names(tmp_path):
     # A file a day, deleted at the first rotation after its first line is two days short of
     # SERVER_LOG_DAYS; rotations come a day apart, so no line outlives the period less a day
     # (host/settings).

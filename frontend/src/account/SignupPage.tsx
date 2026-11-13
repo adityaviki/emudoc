@@ -10,7 +10,6 @@ import { browserTimeZone } from '../timeZones.ts'
 import { useLinkToken } from './linkToken.ts'
 import { AuthCard, PasswordField, ProviderButtons } from './shared.tsx'
 import { useAuthOptions } from './authOptions.ts'
-import { useTermsBox } from './termsBox.tsx'
 
 const ASK_AGAIN = (
   <Link to="/signup" className="font-medium text-accent hover:underline">
@@ -115,9 +114,8 @@ export function SignupPage() {
 
 /**
  * The page a sign-up link opens, signed in or not: whoever holds the address chooses the name and
- * the password and accepts the terms, and the account is made and signed in. The address is shown
- * first, which leaves the link unused; a refused password or a newer edition of the terms leaves it
- * working too.
+ * the password, and the account is made and signed in. The address is shown first, which leaves
+ * the link unused; a refused password leaves it working too.
  */
 export function FinishSignupPage() {
   const me = useContext(MeContext)
@@ -138,10 +136,6 @@ export function FinishSignupPage() {
       forgetUser(queryClient)
       setSignedIn(queryClient, account)
       navigate('/', { replace: true })
-    },
-    // The terms may have changed while the page was open; fetching them again unticks the box.
-    onError: (error) => {
-      if (error instanceof ApiError && error.status === 409) void queryClient.invalidateQueries({ queryKey: ['legal'] })
     },
   })
 
@@ -240,7 +234,6 @@ export function OpeningLink() {
 export interface NewAccount {
   name: string
   password: string
-  terms_version: string
 }
 
 interface NewAccountFormProps {
@@ -254,17 +247,13 @@ interface NewAccountFormProps {
   children?: ReactNode
 }
 
-/** The name, the password and the acceptance of the terms that a sign-up link's page and an invitation's page make an account with. */
+/** The name and the password that a sign-up link's page and an invitation's page make an account with. */
 export function NewAccountForm({ email, pending, onSubmit, error, children }: NewAccountFormProps) {
   const [name, setName] = useState('')
   const [password, setPassword] = useState('')
-  const terms = useTermsBox()
-
   function submit(event: FormEvent) {
     event.preventDefault()
-    if (password.length >= PASSWORD_MIN_LENGTH && terms.version) {
-      onSubmit({ name: name.trim(), password, terms_version: terms.version })
-    }
+    if (password.length >= PASSWORD_MIN_LENGTH) onSubmit({ name: name.trim(), password })
   }
 
   return (
@@ -281,9 +270,8 @@ export function NewAccountForm({ email, pending, onSubmit, error, children }: Ne
         onChange={(event) => setName(event.target.value)}
       />
       <NewPasswordField value={password} onChange={setPassword} />
-      {terms.box}
       {error}
-      <Button type="submit" variant="primary" className="w-full" disabled={pending || !terms.ready}>
+      <Button type="submit" variant="primary" className="w-full" disabled={pending}>
         Create account
       </Button>
     </form>

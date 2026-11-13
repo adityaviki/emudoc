@@ -8,7 +8,6 @@ from fastapi.testclient import TestClient
 from app.config import ROOT_DIR, get_settings
 from app.headers import HSTS, content_security_policy
 from app.indexing.pipeline import Services, process_document
-from app.legal import TERMS_VERSION
 from app.main import create_app
 from app.storage import SANDBOX, S3Storage
 from tests.conftest import APP_HEADERS, FakeEmbedder, FakeLLM, FakeS3Client
@@ -212,7 +211,6 @@ def test_no_other_origin_is_answered(client):
             "email": "ada@example.com",
             "password": "correct horse battery",
             "workspace": "Acme",
-            "terms_version": TERMS_VERSION,
         },
         headers=other,
     )

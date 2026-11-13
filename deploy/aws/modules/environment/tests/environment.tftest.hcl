@@ -68,10 +68,8 @@ variables {
   environment = "staging"
   domain      = "staging.emudoc.example.com"
   settings = {
-    OPERATOR_NAME  = "Emudoc Ltd, 1 Example Street, Example Town"
-    OPERATOR_EMAIL = "privacy@example.com"
-    AGENT_MODEL    = "anthropic:claude-sonnet-5-5"
-    INDEX_MODEL    = "anthropic:claude-haiku-5-5"
+    AGENT_MODEL = "anthropic:claude-sonnet-5-5"
+    INDEX_MODEL = "anthropic:claude-haiku-5-5"
     # Empty is unset, as deploy/aws/shared/main.tf lists the settings it leaves out.
     AGENT_FALLBACK_MODEL = ""
   }
@@ -154,7 +152,7 @@ run "staging" {
   }
   assert {
     condition     = aws_ssm_parameter.setting["SERVER_LOG_DAYS"].value == "30"
-    error_message = "The app is told how long the server logs are kept, for its privacy policy."
+    error_message = "The host is told how long the server logs are kept, for its journal."
   }
   assert {
     condition = (
@@ -252,7 +250,7 @@ run "staging" {
   }
 
   # The records: every request to the documents bucket and every connection of the network,
-  # in a bucket of their own, gone before ACCESS_LOG_DAYS, which the privacy policy names.
+  # in a bucket of their own, gone before access_log_days.
   assert {
     condition = (
       aws_s3_bucket_logging.documents.bucket == aws_s3_bucket.documents.id
@@ -274,9 +272,8 @@ run "staging" {
     condition = (
       aws_s3_bucket_lifecycle_configuration.logs.rule[0].expiration[0].days == 28
       && length(aws_s3_bucket_lifecycle_configuration.logs.rule) == 1
-      && aws_ssm_parameter.setting["ACCESS_LOG_DAYS"].value == "30"
     )
-    error_message = "The logs go two days before ACCESS_LOG_DAYS, which the app is told for its privacy policy."
+    error_message = "The logs go two days before access_log_days."
   }
   assert {
     condition = (
@@ -530,8 +527,8 @@ run "staging" {
   assert {
     condition = toset(keys(aws_ssm_parameter.setting)) == toset([
       "APP_URL", "STORAGE_URL", "AWS_DEFAULT_REGION", "SCANNER_URL", "EMBEDDING_BASE_URL",
-      "CONVERTER_URL", "HOSTING_PROVIDER", "BACKUP_DAYS", "ACCESS_LOG_DAYS", "SERVER_LOG_DAYS",
-      "SENTRY_ENVIRONMENT", "OPERATOR_NAME", "OPERATOR_EMAIL", "AGENT_MODEL", "INDEX_MODEL",
+      "CONVERTER_URL", "BACKUP_DAYS", "SERVER_LOG_DAYS", "SENTRY_ENVIRONMENT", "AGENT_MODEL",
+      "INDEX_MODEL",
     ])
     error_message = "Staging's settings are the module's and the root's, and no others."
   }
@@ -542,7 +539,6 @@ run "staging" {
       && aws_ssm_parameter.setting["SCANNER_URL"].value == "clamd://clamav:3310"
       && aws_ssm_parameter.setting["EMBEDDING_BASE_URL"].value == "http://embeddings:8080/v1"
       && aws_ssm_parameter.setting["CONVERTER_URL"].value == "http://converter:8080"
-      && aws_ssm_parameter.setting["HOSTING_PROVIDER"].value == "Amazon Web Services, eu-central-1"
       && aws_ssm_parameter.setting["BACKUP_DAYS"].value == "35"
       && aws_ssm_parameter.setting["SENTRY_ENVIRONMENT"].value == "staging"
       && aws_ssm_parameter.setting["AGENT_MODEL"].value == "anthropic:claude-sonnet-5-5"
@@ -599,7 +595,6 @@ run "production" {
     backup_days        = 14
     access_log_days    = 14
     server_log_days    = 5
-    data_region        = "eu"
     alert_email        = "operator@example.com"
     restore_drill      = false
     mail               = { domain = "mail.example.com", from = "Emudoc <no-reply@mail.example.com>" }
@@ -620,10 +615,7 @@ run "production" {
     error_message = "The bucket follows backup_days."
   }
   assert {
-    condition = (
-      aws_s3_bucket_lifecycle_configuration.logs.rule[0].expiration[0].days == 12
-      && aws_ssm_parameter.setting["ACCESS_LOG_DAYS"].value == "14"
-    )
+    condition     = aws_s3_bucket_lifecycle_configuration.logs.rule[0].expiration[0].days == 12
     error_message = "The logs follow access_log_days."
   }
   assert {
@@ -634,8 +626,8 @@ run "production" {
     error_message = "Postgres's log goes a day before server_log_days."
   }
   assert {
-    condition     = aws_ssm_parameter.setting["DATA_REGION"].value == "eu" && aws_ssm_parameter.setting["MAIL_FROM"].value == "Emudoc <no-reply@mail.example.com>"
-    error_message = "The region and the sender are settings when asked for."
+    condition     = aws_ssm_parameter.setting["MAIL_FROM"].value == "Emudoc <no-reply@mail.example.com>"
+    error_message = "The sender is a setting when asked for."
   }
   assert {
     condition = (
@@ -913,8 +905,6 @@ run "a_key_among_the_settings" {
   command = plan
   variables {
     settings = {
-      OPERATOR_NAME  = "Emudoc Ltd"
-      OPERATOR_EMAIL = "privacy@example.com"
       AGENT_MODEL    = "anthropic:claude-sonnet-5-5"
       INDEX_MODEL    = "anthropic:claude-haiku-5-5"
       GOOGLE_API_KEY = "AIza…"
@@ -927,8 +917,6 @@ run "the_encryption_keys_among_the_settings" {
   command = plan
   variables {
     settings = {
-      OPERATOR_NAME   = "Emudoc Ltd"
-      OPERATOR_EMAIL  = "privacy@example.com"
       AGENT_MODEL     = "anthropic:claude-sonnet-5-5"
       INDEX_MODEL     = "anthropic:claude-haiku-5-5"
       ENCRYPTION_KEYS = "AAAA…"
@@ -941,23 +929,19 @@ run "a_tracker_among_the_settings" {
   command = plan
   variables {
     settings = {
-      OPERATOR_NAME  = "Emudoc Ltd"
-      OPERATOR_EMAIL = "privacy@example.com"
-      AGENT_MODEL    = "anthropic:claude-sonnet-5-5"
-      INDEX_MODEL    = "anthropic:claude-haiku-5-5"
-      SENTRY_DSN     = "https://0123456789abcdef@o1.ingest.de.sentry.io/2"
+      AGENT_MODEL = "anthropic:claude-sonnet-5-5"
+      INDEX_MODEL = "anthropic:claude-haiku-5-5"
+      SENTRY_DSN  = "https://0123456789abcdef@o1.ingest.de.sentry.io/2"
     }
   }
   expect_failures = [var.settings]
 }
 
-run "the_operator_left_unsaid" {
+run "a_model_left_unsaid" {
   command = plan
   variables {
     settings = {
-      OPERATOR_NAME = "Emudoc Ltd"
-      AGENT_MODEL   = "anthropic:claude-sonnet-5-5"
-      INDEX_MODEL   = "anthropic:claude-haiku-5-5"
+      AGENT_MODEL = "anthropic:claude-sonnet-5-5"
     }
   }
   expect_failures = [var.settings]
@@ -967,11 +951,9 @@ run "a_setting_the_module_makes" {
   command = plan
   variables {
     settings = {
-      OPERATOR_NAME  = "Emudoc Ltd"
-      OPERATOR_EMAIL = "privacy@example.com"
-      AGENT_MODEL    = "anthropic:claude-sonnet-5-5"
-      INDEX_MODEL    = "anthropic:claude-haiku-5-5"
-      APP_URL        = "https://elsewhere.example.com"
+      AGENT_MODEL = "anthropic:claude-sonnet-5-5"
+      INDEX_MODEL = "anthropic:claude-haiku-5-5"
+      APP_URL     = "https://elsewhere.example.com"
     }
   }
   expect_failures = [aws_ssm_parameter.setting]

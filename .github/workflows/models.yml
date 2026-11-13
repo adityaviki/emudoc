@@ -15,8 +15,8 @@
 # Both run every morning, by hand, and once a change to what they ask with (the prompts, the
 # agent and its search, the sample) is on main. The one workflow that holds a key, so from main
 # alone, never on a pull request, whose code could read it. It waits for the repository's
-# variables AGENT_MODEL and INDEX_MODEL (and AGENT_FALLBACK_MODEL, INDEX_FALLBACK_MODEL,
-# DATA_REGION) to name what the deployment runs, and for the keys of their providers as secrets
+# variables AGENT_MODEL and INDEX_MODEL (and AGENT_FALLBACK_MODEL, INDEX_FALLBACK_MODEL) to
+# name what the deployment runs, and for the keys of their providers as secrets
 # (deploying.md, "The models", "Every morning, from GitHub"); without the two variables it is
 # skipped.
 name: Models
@@ -50,7 +50,6 @@ jobs:
       INDEX_MODEL: ${{ vars.INDEX_MODEL }}
       AGENT_FALLBACK_MODEL: ${{ vars.AGENT_FALLBACK_MODEL }}
       INDEX_FALLBACK_MODEL: ${{ vars.INDEX_FALLBACK_MODEL }}
-      DATA_REGION: ${{ vars.DATA_REGION }}
       # What the output prices the requests at, as the deployment's MODEL_PRICES.
       MODEL_PRICES: ${{ vars.MODEL_PRICES }}
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
@@ -84,7 +83,6 @@ jobs:
       INDEX_MODEL: ${{ vars.INDEX_MODEL }}
       AGENT_FALLBACK_MODEL: ${{ vars.AGENT_FALLBACK_MODEL }}
       INDEX_FALLBACK_MODEL: ${{ vars.INDEX_FALLBACK_MODEL }}
-      DATA_REGION: ${{ vars.DATA_REGION }}
       MODEL_PRICES: ${{ vars.MODEL_PRICES }}
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

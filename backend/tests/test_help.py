@@ -182,8 +182,6 @@ def test_help_names_support_email_alone(client, monkeypatch):
     assert client.get("/api/help").json() == {"support_email": SUPPORT, "status_page": None}
     settings = get_settings()
     monkeypatch.setattr(settings, "support_email", "")
-    # OPERATOR_EMAIL is the privacy policy's, not where the help menu writes.
-    monkeypatch.setattr(settings, "operator_email", "privacy@emudoc.example.com")
     assert client.get("/api/help").json()["support_email"] is None
 
 

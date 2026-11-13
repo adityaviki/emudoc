@@ -114,7 +114,6 @@ class Deployment:
             "EMBEDDING_MODEL": "standin",
             "EMBEDDING_DIM": "768",
             "DISABLED_PROVIDERS": "",
-            "DATA_REGION": "",
             "SCANNER_URL": "off",
             "SMTP_URL": "",
             "RESEND_API_KEY": "",

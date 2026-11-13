@@ -8,9 +8,9 @@
 # emudoc-compose on the instance is that command without its last words.
 
 # Every container logs to the host's journal, which deletes each line before it is
-# SERVER_LOG_DAYS old, the period the privacy policy names (host/settings writes the journal's
-# settings, host/release applies them): Docker's own drivers rotate by size alone, so a quiet
-# instance would keep months of Caddy's access log, every visitor's address in it.
+# SERVER_LOG_DAYS old (host/settings writes the journal's settings, host/release applies them):
+# Docker's own drivers rotate by size alone, so a quiet instance would keep months of Caddy's
+# access log, every visitor's address in it.
 # `emudoc-compose logs` reads it as before, and so does `journalctl
 # CONTAINER_NAME=emudoc-deploy-api-1`. A service of either file without it would log where the
 # daemon says (cloud-config.yaml); test_deploy.py refuses one.

@@ -33,7 +33,6 @@ from app.auth import (
     BROWSER_PATH,
     SESSION_COOKIE,
     hash_password,
-    now,
     remember_browser,
     start_session,
     totp_code,
@@ -41,7 +40,6 @@ from app.auth import (
 )
 from app.config import Settings, get_settings
 from app.db import SessionLocal
-from app.legal import TERMS_VERSION
 from app.mail import MailError, Message
 from app.models import Organization, User
 from app.oidc import Handshake
@@ -61,19 +59,11 @@ def sign_up_link(client, email="ada@example.com") -> str:
     return client.app.state.services.mailer.token()
 
 
-def finish_signup(
-    client, token, password=PASSWORD, name="Ada", terms_version=TERMS_VERSION, time_zone=""
-):
+def finish_signup(client, token, password=PASSWORD, name="Ada", time_zone=""):
     """Make the account on the page the link opens, as its form sends it."""
     return client.post(
         "/api/auth/signup/finish",
-        json={
-            "token": token,
-            "name": name,
-            "password": password,
-            "terms_version": terms_version,
-            "time_zone": time_zone,
-        },
+        json={"token": token, "name": name, "password": password, "time_zone": time_zone},
     )
 
 
@@ -88,13 +78,12 @@ def signup(
 ) -> dict:
     """An account with an organisation of its own, signed in on `client`, as signing up made
     one until 2026-11-12 and the setup makes an install's first (app/signups.py): the address
-    confirmed, the current terms accepted, the sample project given, the same rows in the audit
-    log, and the session and the browser started as a sign-in starts them. With `joins`, a
-    member of that organisation alone, with `role`, as one who accepted an invitation to the
-    workspace is, and no sample. Made directly, since no route makes a second organisation's
-    owner any more, so that a test may hold several organisations, as development's database
-    does; the ways in themselves are the setup's, the sign-up's and the invitations' own
-    tests."""
+    confirmed, the sample project given, the same rows in the audit log, and the session and the
+    browser started as a sign-in starts them. With `joins`, a member of that organisation alone,
+    with `role`, as one who accepted an invitation to the workspace is, and no sample. Made
+    directly, since no route makes a second organisation's owner any more, so that a test may
+    hold several organisations, as development's database does; the ways in themselves are the
+    setup's, the sign-up's and the invitations' own tests."""
     # The request a sign-up came as, for the session's and the audit log's address and browser.
     request = Request(
         {
@@ -120,13 +109,10 @@ def signup(
         )
         if joins is not None:
             account = add_member(session, session.get(Organization, joins), account, role)
-        account.user.terms_version = TERMS_VERSION
-        account.user.terms_accepted_at = now()
         user_session, token = start_session(session, account.user, request)
         browser = remember_browser(session, account.user, request)
         account = replace(account, session_id=user_session.id)
         audit(session, account, request, "sign_up", detail={"method": "password"})
-        audit(session, account, request, "terms_accepted", detail={"version": TERMS_VERSION})
         if joins is None:
             add_sample(session, account.organization, client.app.state.services.storage)
         session.commit()
