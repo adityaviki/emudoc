@@ -666,8 +666,10 @@ people will open, the models and their provider's key (Gemini's by default), and
 adding `scan` for ClamAV and `office` for Word, PowerPoint and Excel files shown as they look,
 each with the line beside it. Then open `APP_URL`: a new install opens its setup page, which
 makes the first account and the workspace. `docker compose up -d --wait` starts Postgres with
-pgvector, applies the migrations, and starts the API, a worker and the embeddings server;
-`deploying.md` ("The image") says how to update, and the rest. The image is published from the
+pgvector, applies the migrations, and starts the API, a worker and the embeddings server.
+`docker compose run --rm backup` writes a backup of the database and the files, to run every
+night from a timer and copy off the server; `deploying.md` says how ("Backups"), how to update
+and go back ("Upgrades"), and the rest. The image is published from the
 first release, v0.1.0; until then, build it from a checkout as below and name it in `.env` as
 `EMUDOC_IMAGE=emudoc:<commit>`.
 
@@ -1293,6 +1295,14 @@ documents chosen together in the library alone, with the folders they are in and
 chats, which the same panel lists. The member is told when it is ready, in the app and by email
 as they chose, downloads it from the same panel, and it is kept 7 days for them alone, then goes
 from the storage.
+`python -m app.maintenance backup <dir>` writes a backup into a folder of its own in `<dir>`: a
+`pg_dump` of the database, the storage's files (a directory's, without the rendered pages, each
+file unchanged since the previous backup a hard link to its copy; a bucket's keys alone, which
+its versions keep) and the version and schema revision it was taken at, then removes those older
+than `BACKUP_DAYS`; `restore <dir>` puts the files back, restores the database into an empty one
+in one transaction, upgrades it if it came from an earlier version, and runs what `after-restore`
+does from the backup's moment (`backend/app/backup.py`). The compose file runs both as its
+`backup` service, with PostgreSQL 17's client in the image.
 After the database is restored to an earlier point, `python -m app.maintenance after-restore
 <time>` brings back from a versioned bucket the files deleted since, moves the ids past every id
 the storage holds, signs everyone out, expires the open invitations and records the restore in

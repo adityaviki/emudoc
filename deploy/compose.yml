@@ -9,18 +9,20 @@
 # and the worker only once it has succeeded: the app refuses a database behind its migrations
 # and never upgrades one itself. It replaces the running ones before the release step, though,
 # so an update to a new EMUDOC_TAG runs the release step alone first and stops if it fails,
-# and so does the embeddings server with the download of its weights:
+# and so does the embeddings server with the download of its weights, after a backup to go back
+# to (deploying.md, "Upgrades"):
 #
-#   docker compose pull && docker compose run --rm migrate && \
+#   docker compose run --rm backup && docker compose pull && docker compose run --rm migrate && \
 #     docker compose up -d --wait embeddings && docker compose up -d --wait
 #
 # The operator's commands run beside them with `run --rm --no-deps worker python -m
-# app.maintenance …`; without --no-deps, `run` runs the release step first.
+# app.maintenance …`; without --no-deps, `run` runs the release step first. `run --rm backup`
+# writes a backup of the database and the files, every night from a timer ("Backups").
 #
 # .env is read twice: Compose fills this file's ${…} from it (POSTGRES_PASSWORD, APP_URL,
-# EMUDOC_TAG, COMPOSE_PROFILES), and the app's containers take every line of it as their
-# environment (EMUDOC_ENV names another file for that). Compose expands $ in a value unless the
-# value is in single quotes.
+# EMUDOC_TAG, EMUDOC_BACKUPS, COMPOSE_PROFILES), and the app's containers take every line of
+# it as their environment (EMUDOC_ENV names another file for that). Compose expands $ in a
+# value unless the value is in single quotes.
 #
 # The profiles, named in COMPOSE_PROFILES in .env or with --profile:
 #   scan     ClamAV, which scans every upload; with SCANNER_URL=clamd://clamav:3310 in .env
@@ -200,6 +202,25 @@ services:
       start_period: 30s
       retries: 3
 
+  # The backups (deploying.md, "Backups"), with a profile of its own, which `run` names: each
+  # run writes the database and the files into a new folder of the backups volume, or of the
+  # directory EMUDOC_BACKUPS names in .env (one uid 10001 may write in, off this disk at best),
+  # and removes those older than BACKUP_DAYS. A restore, with the app stopped and the database
+  # empty, is `run --rm backup python -m app.maintenance restore /backups/<folder>`. It reaches
+  # the database and the files as the worker does, and nothing else.
+  backup:
+    <<: *app
+    profiles: [backup]
+    command: [python, -m, app.maintenance, backup, /backups]
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+    volumes:
+      - files:/var/lib/emudoc
+      - ${EMUDOC_BACKUPS:-backups}:/backups
+    restart: "no"
+
   # The converter (deploying.md, "The converter"), with the office profile: the image run as a
   # container of its own with LibreOffice, which turns a Word, PowerPoint, Excel, RTF or HTML
   # upload into the PDF the document pane shows it by. LibreOffice reads every such upload, and
@@ -365,6 +386,7 @@ networks:
 volumes:
   database:
   files:
+  backups:
   clamdb:
   embedding-model:
   caddy-data:

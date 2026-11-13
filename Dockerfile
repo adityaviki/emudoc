@@ -47,17 +47,20 @@ FROM base
 # the image is built again, the base's own packages too: the upgrade takes those Debian fixed
 # after the base's digest was built (zlib1g's +deb13u1 of November 2026, which no python:3.13
 # digest held yet). The font packages build fontconfig's cache as they install, since the
-# running image cannot write one.
+# running image cannot write one. And PostgreSQL 17's pg_dump and pg_restore, for the backup and
+# restore commands (app/backup.py), which handle a server of 17 or earlier: Debian's, with the
+# Perl their wrapper is written in, about 40 MB.
 RUN apt-get update \
   && apt-get upgrade --yes --no-install-recommends \
   && apt-get install --yes --no-install-recommends \
       libreoffice-writer-nogui libreoffice-calc-nogui libreoffice-impress-nogui \
       fonts-liberation fonts-crosextra-carlito fonts-crosextra-caladea fonts-dejavu-core \
-      fonts-noto-core fonts-noto-cjk \
+      fonts-noto-core fonts-noto-cjk postgresql-client-17 \
   && rm -rf /var/lib/apt/lists/*
 # A user of its own with a fixed id, for volumes and for runAsNonRoot, and the directory a
 # file:// storage keeps its files in, which a named volume mounted there takes over with its
 # owner and mode: the group may list it, as the restore drill does (deploying.md, "The drill").
+# /backups likewise, for the compose file's backups volume, which nobody else reads.
 # Without the base's pip, which nothing here runs (uv built the environment) and whose own
 # copies of urllib3 and msgpack would be the image's to keep patched. Without emSign's ECC root
 # G3 in the system's bundle, which SSL_CERT_FILE names below for the mail relay and every other
@@ -72,7 +75,8 @@ RUN python -m pip uninstall --yes --quiet --root-user-action ignore pip \
   && groupadd --system --gid 10001 emudoc \
   && useradd --system --uid 10001 --gid emudoc --home-dir /nonexistent --no-create-home \
       --shell /usr/sbin/nologin emudoc \
-  && install -d -o emudoc -g emudoc -m 750 /var/lib/emudoc
+  && install -d -o emudoc -g emudoc -m 750 /var/lib/emudoc \
+  && install -d -o emudoc -g emudoc -m 700 /backups
 WORKDIR /app/backend
 COPY --from=backend /app/backend/.venv .venv
 COPY backend/alembic.ini ./

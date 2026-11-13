@@ -858,7 +858,7 @@ def test_the_example_env_file_names_every_setting():
 
 # What compose.yml itself reads from the .env beside it (Compose's ${…}), and the variables the
 # image sets for the app, which a line of that .env would replace in every container.
-READ_BY_THE_COMPOSE_FILE = {"POSTGRES_PASSWORD", "EMUDOC_TAG", "COMPOSE_PROFILES"}
+READ_BY_THE_COMPOSE_FILE = {"POSTGRES_PASSWORD", "EMUDOC_TAG", "EMUDOC_BACKUPS", "COMPOSE_PROFILES"}
 SET_BY_THE_IMAGE = {"ENVIRONMENT", "EMUDOC_VERSION", "METRICS_ADDRESS", "SSL_CERT_FILE", "PATH"}
 
 

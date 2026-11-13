@@ -29,7 +29,9 @@ the app again (app/restore.py): it brings back the files deleted since from a ve
 moves the ids past the storage's, ends every session and records the restore in the audit logs.
 With `--dry-run` it changes nothing and exits 1 when the storage lacks a document's original at
 that point, or when ENCRYPTION_KEYS lacks a key the restored secrets need, which makes it the
-check of the restore drill (deploying.md, "The drill").
+check of the restore drill (deploying.md, "The drill"). `backup <dir>` and `restore <dir>` are
+a team's own backups of the database and the files, which the compose file's `backup` service
+runs (app/backup.py); a restore ends with what `after-restore` does.
 
 `failed-jobs` lists the jobs the worker gave up on, the dead letters (app/deadletters.py), and
 with `--requeue` queues their documents again from the stage they stopped at. `jobs` shows the
@@ -98,6 +100,7 @@ from sqlalchemy.orm import Session
 from app.answers import EVENT_HISTORY, prune_events
 from app.audit import audit_event, prune_audit
 from app.auth import CREDENTIAL_HISTORY, prune_credentials
+from app.backup import describe_backup, describe_brought, restore_backup, take_backup
 from app.bounces import SUPPRESSED_FOR, prune_suppressions
 from app.config import export_env_file, get_settings
 from app.connectors.sync import prune_connectors
@@ -1266,6 +1269,27 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="change nothing; say what would be done and whether the restore is whole",
     )
+    backup = commands.add_parser(
+        "backup",
+        help="write a backup of the database and the files into a new folder in DIR",
+        description="Write a backup of the database (pg_dump) and of the storage's files into "
+        "a new folder in DIR named by the moment, while the app runs: a directory's files are "
+        "copied, those unchanged since the previous backup in DIR linked to its copy, and a "
+        "bucket's keys are listed, since the bucket keeps them by its own versions. Then the "
+        "backups in DIR older than BACKUP_DAYS are removed. The compose file's `backup` "
+        'service runs it into its backups volume (deploying.md, "Backups").',
+    )
+    backup.add_argument("into", metavar="DIR", type=Path, help="the directory of the backups")
+    restoring = commands.add_parser(
+        "restore",
+        help="restore a backup that `backup` wrote into an empty database and the storage",
+        description="Restore the backup in DIR, one folder that `backup` wrote, with the app "
+        "stopped: its files put back into the storage, then the database restored into an "
+        "empty one in one transaction and upgraded if the backup is from an earlier version, "
+        "and then everything after-restore does, from the backup's moment. A database that "
+        "holds tables already is refused, and so is a backup from a later version.",
+    )
+    restoring.add_argument("folder", metavar="DIR", type=Path, help="the backup's folder")
     failed = commands.add_parser(
         "failed-jobs",
         help="list, or with --requeue run again, the jobs the worker gave up on",
@@ -1543,6 +1567,19 @@ def main(argv: list[str] | None = None) -> None:
                 print(line)
             if restored.dry_run and not restored.whole:
                 sys.exit(1)
+        elif args.command == "backup":
+            storage = storage_from_settings(settings)
+            storage.check(writing=False)
+            taken = take_backup(settings, storage, args.into)
+            for line in describe_backup(taken, args.into, settings.backup_days):
+                print(line)
+        elif args.command == "restore":
+            storage = storage_from_settings(settings)
+            brought = restore_backup(settings, storage, args.folder)
+            for line in describe_brought(brought):
+                print(line)
+            for line in describe_restore(brought.restored, brought.manifest.taken_at):
+                print(line)
         elif args.command == "failed-jobs":
             check_schema()
             with SessionLocal() as session:

@@ -5,7 +5,8 @@
 # migrates it, the API and the worker start once the embeddings server answers, the API answers
 # its probes with the version the image was built as and serves the page and the files it names,
 # both serve their metrics, and the converter turns a Word file into a PDF with the image's
-# LibreOffice on the network only the worker shares. The suite builds no image, so this is what
+# LibreOffice on the network only the worker shares, and a backup restores into an empty database
+# with the files it holds. The suite builds no image, so this is what
 # finds a file the image lacks (.dockerignore is an allowlist), a path that moved, something
 # written outside /tmp, or a compose file and an example that no longer start together. The
 # models are a name and an address nothing answers at, since production builds them at start
@@ -158,6 +159,53 @@ grep -q '^emudoc_documents{' <<<"$(metrics worker)" || {
   echo "The worker serves none of the database's figures on 9464." >&2
   exit 1
 }
+# A backup and a restore, as a team takes them (deploying.md, "Backups"): the first account and
+# its workspace made, with the sample project's files, then a backup by the backup service, then
+# the database and the files lost, and both brought back into an empty database by the image's
+# pg_restore, every original with them.
+"${compose[@]}" run --rm --no-deps -T worker python -m app.maintenance create-admin \
+  admin@example.com --name Admin --workspace Check >/dev/null
+originals() {
+  "${compose[@]}" run --rm --no-deps -T worker \
+    sh -c 'find /var/lib/emudoc/orgs -type f -name "original.*" | wc -l'
+}
+held=$(originals)
+((held > 0)) || {
+  echo "The sample project put no original into the storage." >&2
+  exit 1
+}
+taken=$("${compose[@]}" run --rm -T backup)
+echo "$taken" >&2
+folder=$(grep -oE '/backups/emudoc-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z' <<<"$taken" | head -n 1)
+[[ -n $folder ]] || {
+  echo "The backup names no folder it wrote:" >&2
+  echo "$taken" >&2
+  exit 1
+}
+"${compose[@]}" stop api worker >/dev/null 2>&1
+"${compose[@]}" exec -T postgres sh -c 'dropdb -U emudoc --force emudoc && createdb -U emudoc emudoc'
+"${compose[@]}" run --rm --no-deps -T worker sh -c 'rm -r /var/lib/emudoc/orgs'
+restored=$("${compose[@]}" run --rm -T backup python -m app.maintenance restore "$folder") || {
+  echo "The restore of $folder failed." >&2
+  exit 1
+}
+if ! grep -qx "Start the app." <<<"$restored" || grep -q "without an original" <<<"$restored"; then
+  echo "The restore did not bring everything back:" >&2
+  echo "$restored" >&2
+  exit 1
+fi
+"${compose[@]}" up --detach --wait --wait-timeout 300
+[[ $(originals) == "$held" ]] || {
+  echo "The restore put back $(originals) of the $held originals." >&2
+  exit 1
+}
+"${compose[@]}" run --rm --no-deps -T worker \
+  python -m app.maintenance reset-password admin@example.com >/dev/null || {
+  echo "The restored database lacks the account the backup held." >&2
+  exit 1
+}
+# Started again, the API listens on another port Docker picks.
+curl -fsS "http://$("${compose[@]}" port api 8000)/api/health" >/dev/null
 # Caddy's configuration as compose.yml gives it, written as the service writes it, with an
 # address for its name.
 # shellcheck disable=SC2016 # the container's shell expands it, from the service's environment
@@ -172,4 +220,4 @@ validate=(
 }
 
 passed=true
-echo "The image $image ($version) runs deploy/compose.yml in production: it migrates, serves the page, its ${#files[@]} files and the probes beside the embeddings server, runs the worker, both serve their metrics, and its converter turns a Word file into a PDF for the worker."
+echo "The image $image ($version) runs deploy/compose.yml in production: it migrates, serves the page, its ${#files[@]} files and the probes beside the embeddings server, runs the worker, both serve their metrics, its converter turns a Word file into a PDF for the worker, and a backup restores into an empty database with its $held originals."
