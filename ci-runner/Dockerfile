@@ -11,7 +11,7 @@
 # The CLI and its plugins of the daemon each runner talks to, so that the two are one release.
 FROM docker:29.9.2-dind@sha256:9e79b879b177fbd72c34376a3dd3d91747da5db49e1f560f76aea59561471977 AS docker
 
-FROM ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac
+FROM ubuntu:24.04@sha256:2198e4c65076e9cb0b3d695219df667c0e3b0072da64ca3c2648aca17dcecaf5
 
 # The runner's release, checked against the SHA-256 its release notes give. It updates itself
 # when GitHub asks it to (into its volume), so this is the version a new runner starts from.
