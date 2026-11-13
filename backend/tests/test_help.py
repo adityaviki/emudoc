@@ -1,6 +1,7 @@
-"""Help for members (app/api/help.py): where to write for help, the status page, and a message
-from the app's help menu, mailed to SUPPORT_EMAIL or the workspace's owners and admins with
-where the member was, and nothing of it kept or logged; none where the install mails nothing.
+"""Help for members (app/api/help.py): where to write for help, the status page, the code's
+source, and a message from the app's help menu, mailed to SUPPORT_EMAIL or the workspace's
+owners and admins with where the member was, and nothing of it kept or logged; none where the
+install mails nothing.
 The install of each test but those about that names a relay."""
 
 import pytest
@@ -11,6 +12,7 @@ from app.api.help import NO_MAIL, NOBODY_ELSE
 from app.config import Settings, get_settings
 from app.models import AuditEvent, Job
 from app.ratelimit import FEEDBACK
+from app.version import REPOSITORY, source_url
 from tests.test_apikeys import make_key, program
 from tests.test_auth import another_browser, signup
 from tests.test_logs import logged  # noqa: F401 (a fixture)
@@ -200,6 +202,7 @@ def test_help_names_support_email_alone(client, monkeypatch):
         "support_email": SUPPORT,
         "status_page": None,
         "mail": True,
+        "source": REPOSITORY,
     }
     settings = get_settings()
     monkeypatch.setattr(settings, "support_email", "")
@@ -227,6 +230,24 @@ def test_the_page_that_cannot_reach_the_database_still_finds_the_status_page(
 @pytest.mark.parametrize(
     "url", ["status.example.com", "ftp://status.example.com", "https://", "https://a b"]
 )
-def test_a_status_page_is_a_web_address(url):
-    with pytest.raises(ValidationError, match="STATUS_PAGE_URL"):
-        Settings(_env_file=None, database_url="postgresql+psycopg://db/emudoc", status_page_url=url)
+@pytest.mark.parametrize("setting", ["status_page_url", "source_url"])
+def test_a_status_page_and_the_source_are_web_addresses(url, setting):
+    with pytest.raises(ValidationError, match=setting.upper()):
+        Settings(_env_file=None, database_url="postgresql+psycopg://db/emudoc", **{setting: url})
+
+
+def test_the_source_is_the_running_release_s_unless_the_team_names_its_own(client, monkeypatch):
+    # The AGPL's section 13: whoever uses the deployment is offered the source of what it runs.
+    assert source_url(version="0.1.0") == f"{REPOSITORY}/tree/v0.1.0"
+    commit = "0123456789abcdef0123456789abcdef01234567"
+    assert source_url(version=commit) == f"{REPOSITORY}/tree/{commit}"
+    for version in ("development", "unknown", "0.1", "abc123"):
+        assert source_url(version=version) == REPOSITORY
+    own = "https://git.example.com/team/emudoc"
+    assert source_url(own, version="0.1.0") == own
+    monkeypatch.setattr(
+        "app.api.help.source_url", lambda configured: source_url(configured, "0.2.0")
+    )
+    assert client.get("/api/help").json()["source"] == f"{REPOSITORY}/tree/v0.2.0"
+    monkeypatch.setattr(get_settings(), "source_url", own)
+    assert client.get("/api/help").json()["source"] == own

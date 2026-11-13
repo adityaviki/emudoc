@@ -1,9 +1,8 @@
 """The golden questions: questions about the sample project's documents whose answers are known,
 asked of the agent as a member's question is and graded on what each answer must say and the
-documents it must cite (`python -m app.maintenance golden`). The Models workflow
-(.github/workflows/models.yml) asks them every morning and once a change to the prompts or the
-agent is on main, so that a prompt, a model or a provider that answers worse shows here before a
-member reads it.
+documents it must cite (`python -m app.maintenance golden`), run by hand after a change to the
+prompts, the agent or the models, so that a prompt, a model or a provider that answers worse
+shows here before a member reads it.
 
 The documents are the sample's (app/sample), the canonical scenario of an invoice checked against
 the contract, the price list and the delivery log: its index is copied into an organisation made

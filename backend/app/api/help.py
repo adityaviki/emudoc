@@ -1,7 +1,8 @@
-"""Help for members: where to write for help and the status page (`GET /api/help`, public, since
-the page that cannot reach its server asks it too), the upload client the organisation's API keys
-offer (`GET /api/help/emudoc_upload.py`, app/client/), and a member's message from the app's help
-menu (`POST /api/feedback`), mailed with what its reader needs to find what they met.
+"""Help for members: where to write for help, the status page and the code's source (`GET
+/api/help`, public, since the page that cannot reach its server asks it too), the upload client
+the organisation's API keys offer (`GET /api/help/emudoc_upload.py`, app/client/), and a member's
+message from the app's help menu (`POST /api/feedback`), mailed with what its reader needs to
+find what they met.
 
 The message goes to SUPPORT_EMAIL where the server names one, a team's helpdesk; otherwise to the
 workspace's owners and admins, who run it, each by a mail of their own, the member who wrote
@@ -37,7 +38,7 @@ from app.models import Membership, User
 from app.postbox import post
 from app.ratelimit import FEEDBACK
 from app.schemas import FeedbackIn, FeedbackOut, HelpOut
-from app.version import VERSION
+from app.version import VERSION, source_url
 
 router = APIRouter(tags=["help"])
 
@@ -58,14 +59,16 @@ BROWSER_CHARS = 300
 
 @router.get("/help", response_model=HelpOut)
 def help_offered():
-    """Where members write for help, where the server names an address, the status page, and
-    whether a message can be sent. It reads no database, so that the page that cannot reach its
-    server, a database being down, still learns where the status page is."""
+    """Where members write for help, where the server names an address, the status page,
+    whether a message can be sent, and where the running code's source is. It reads no
+    database, so that the page that cannot reach its server, a database being down, still
+    learns where the status page is."""
     settings = get_settings()
     return HelpOut(
         support_email=settings.support_email or None,
         status_page=settings.status_page_url or None,
         mail=relay_set(settings),
+        source=source_url(settings.source_url),
     )
 
 

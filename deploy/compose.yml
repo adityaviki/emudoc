@@ -64,7 +64,7 @@ x-app: &app
 
 # The database first, then the release step, and the embeddings server downloaded and started,
 # before the API or a worker. The database's need is not required, so that a deployment with a
-# database of its own may leave the service out (deploy/aws/compose.yml does).
+# database of its own, such as a managed one, may leave the service out by an override.
 x-ready: &ready
   postgres:
     condition: service_healthy

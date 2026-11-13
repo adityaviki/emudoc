@@ -70,6 +70,7 @@ export GOOGLE_DRIVE_CLIENT_SECRET=standin
 export CONNECTOR_BASE_URL=$connectors
 export SUPPORT_EMAIL=
 export STATUS_PAGE_URL=https://status.example.com
+export SOURCE_URL=
 export SAMPLE_PROJECT=true
 export MODEL_PRICES=
 export DAILY_SPEND_CAP=0

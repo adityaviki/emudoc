@@ -7,9 +7,9 @@
 [extend]
 useDefault = true
 
-# A machine's own settings, whatever they hold: a .env names the keys of the machine it is on,
-# and OpenTofu's state every secret the infrastructure made. .gitignore leaves both out; this
-# is for the one added with `git add -f`, or under a name .gitignore does not know.
+# A machine's own settings, whatever they hold: a .env names the keys of the machine it is on.
+# .gitignore leaves it out; this is for the one added with `git add -f`, or under a name
+# .gitignore does not know.
 [[rules]]
 id = "env-file"
 description = "A .env file, which holds a machine's settings and keys and stays on it"
@@ -18,11 +18,6 @@ path = '''(^|/)\.env(\.[^/]+)?$'''
   [[rules.allowlists]]
   description = "The documented settings with their defaults and no key (.env.example)."
   paths = ['''(^|/)\.env\.example$''']
-
-[[rules]]
-id = "opentofu-state"
-description = "OpenTofu's state, which holds every secret the infrastructure made"
-path = '''\.tfstate(\.[^/]+)?$'''
 
 [[allowlists]]
 description = """

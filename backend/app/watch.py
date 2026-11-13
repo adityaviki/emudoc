@@ -2,8 +2,8 @@
 mailed to ALERT_EMAIL once when it begins and once when it ends.
 
 A deployment with a scraper and Alertmanager has rules on the metrics for all of this and more
-(deploy/prometheus/alerts.yml), but one without, a single machine or AWS as `deploy/aws` builds
-it, would hear of nothing: a revoked key behind a fallback is a line in the worker's log, and
+(deploy/prometheus/alerts.yml), but one without, such as a single machine running the compose
+file, would hear of nothing: a revoked key behind a fallback is a line in the worker's log, and
 the members notice nothing until the fallback fails too. So the worker's alerter thread
 (app/worker.py) runs `watch` every ALERT_INTERVAL beside the dead letters, the spending and the
 quarantines. Each check (`CHECKS`) returns the concerns it sees now, keyed by what each is
@@ -14,7 +14,7 @@ It sees what any worker sees alike: the queue, the documents and answers that se
 last WINDOW, the usage events, the database server's own state (app/postgres.py) and whether
 the embeddings endpoint, the scanner and the storage answer. What one process alone knows (its
 pool, its threads, its listener) and what needs a view from outside (a worker that is gone, an
-API that is down) is the metrics' and the rules', and on AWS the host's (deploy/aws/host/watch).
+API that is down) is the metrics' and the rules'.
 
 A check that fails, say a database statement the role may not run, is logged and keeps the
 alerts it raised before: a concern that cannot be seen is not over.

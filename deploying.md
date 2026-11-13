@@ -60,11 +60,9 @@ on one machine; this is what changes for a deployment. The processes below run f
 - **A scraper for the metrics**, if the deployment keeps them: Prometheus or anything that reads
   its format, asking the API and every worker on a port of their own, with Alertmanager for the
   rules in `deploy/prometheus` and a dead man's switch for its watchdog: "Metrics" and
-  "Alerts", below. On AWS the instance runs both.
+  "Alerts", below.
 - **An address for the alerts**, `ALERT_EMAIL`, where the worker reports what it gave up on and
   what it sees go wrong, through the same relay: "Alerts", below.
-
-`deploy/aws` builds all of it on AWS, staging and production alike: "On AWS", below.
 
 The settings arrive through the process environment, from the orchestrator (the compose file
 passes its `.env` to the containers as Compose's `env_file`) or a secret manager: the app reads
@@ -203,9 +201,8 @@ vulnerabilities Go had fixed, which any scanner of the deployment would report. 
 list and one image:
 
 ```bash
-EMUDOC_ENV=/dev/null EMUDOC_IMAGE=emudoc:app POSTGRES_PASSWORD=unused EMUDOC_DOMAIN=example.org \
-  EMUDOC_ENVIRONMENT=x EMUDOC_ALERTS=x EMUDOC_PAGES=x EMUDOC_HEARTBEAT=x \
-  docker compose -f deploy/compose.yml -f deploy/aws/compose.yml --profile '*' config --images
+EMUDOC_ENV=/dev/null EMUDOC_IMAGE=emudoc:app POSTGRES_PASSWORD=unused \
+  docker compose -f deploy/compose.yml --profile '*' config --images
 docker run --rm -v "$PWD:/src:ro" -w /src aquasec/trivy:0.73.0 image --image-src remote \
   --platform linux/amd64 --timeout 20m --scanners vuln,secret --severity HIGH,CRITICAL \
   --ignore-unfixed --ignorefile deploy/.trivyignore.yaml caddy:2.11.9@sha256:…
@@ -257,8 +254,8 @@ Postgres runs on the compose network alone, which the app counts as its own, so 
 in the `database` volume, with the role's two limits set as the server's ("The role's
 timeouts"); its backups are "Backups". A deployment with a database of its own names it in
 `DATABASE_URL` and leaves the service out with a file over this one that gives it a profile
-nobody starts (`postgres: {profiles: [external]}`), which `deploy/aws/compose.yml` does for
-RDS: the app's services wait for it only where it runs. The file gives its network a subnet of
+nobody starts (`postgres: {profiles: [external]}`), as for RDS or another managed database: the
+app's services wait for it only where it runs. The file gives its network a subnet of
 its own, `10.73.0.0/24`, so that `FORWARDED_ALLOW_IPS` can name the gateway (change both if the
 subnet collides with one the machine reaches), and its project another name than the
 development file's, so one machine can run both. Caddy runs on the host's network, answers on 80
@@ -607,7 +604,7 @@ emudoc-deploy_models`, `docker image rm ollama/ollama:0.40.5`). Other weights ar
 file named in `.env`,
 `EMBEDDING_WEIGHTS_URL=https://huggingface.co/<repository>/resolve/<commit>/<file>.gguf` and
 `EMBEDDING_WEIGHTS_SHA256=<the SHA-256 Hugging Face shows for the file>`, with a new
-`EMBEDDING_MODEL`, its `EMBEDDING_DIM` and prefixes ("Changing the model", below); on AWS the two are settings like the others. A file that does not match the hash stops
+`EMBEDDING_MODEL`, its `EMBEDDING_DIM` and prefixes ("Changing the model", below). A file that does not match the hash stops
 `up` with "The file at EMBEDDING_WEIGHTS_URL is not the one EMBEDDING_WEIGHTS_SHA256 names."
 
 **The model and its terms.** EmbeddingGemma reads more than a hundred languages into one
@@ -1065,29 +1062,6 @@ runs with the same versions differ by the model alone. The usage rows of each ki
 carry its version, which `costs` splits each kind's cost by ("What each organisation costs",
 below); the rows recorded before 2026-11-01 carry none.
 
-**Every morning, from GitHub.** The Models workflow (`.github/workflows/models.yml`) runs the
-same command at 05:47 UTC, and the golden questions beside it in a job of their own against the
-development compose file's database (no embeddings endpoint runs there, so their search matches
-words alone); both also run once a change to what they ask with (`llm.py`, `trial.py`,
-`golden.py`, the agent, the search, the sample) is on `main`, and by hand from Actions, Models,
-Run workflow, once the repository names the models: the variables `AGENT_MODEL` and `INDEX_MODEL`, with `AGENT_FALLBACK_MODEL`,
-`INDEX_FALLBACK_MODEL` and `MODEL_PRICES` as the deployment sets them, and the
-keys their providers need as the secrets `GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`,
-`OPENROUTER_API_KEY` or `OPENAI_API_KEY` (Settings, Secrets and variables, Actions, or `gh
-variable set AGENT_MODEL --body google:gemini-3.5-flash-lite` and `gh secret set
-GOOGLE_API_KEY`). Without the two variables it is skipped. GitHub mails a failed scheduled run
-to whoever last changed the schedule. It is the one workflow that holds a key, so it runs from
-`main` alone and never on a pull request. Give it keys of its own, made for it at each provider
-with a low spending limit, rather than production's: one that leaks from GitHub is then revoked
-without touching the deployment, and production's stay in its secret manager. Set the limit
-with the golden questions in mind: about a dozen answers of `AGENT_MODEL` a morning and as many
-calls of `INDEX_MODEL` judging them, and as many again for each change to the agent that
-reaches `main`. The variables
-follow production's settings by hand: change them with the model, or the workflow goes on
-asking the one production stopped using. A model the deployment reaches on its own network
-(`ollama:`, an `OPENAI_BASE_URL` there) or through a service account (`google-cloud:`) cannot be
-asked from GitHub; run the command on the deployment for it, as above.
-
 **Retirements.** Every provider retires models on a schedule of its own, and says so first in
 these places (October 2026):
 
@@ -1504,7 +1478,7 @@ hashes and need no key.
 Make a key with `python -m app.keyring` (in the image, `docker compose run --rm api python -m
 app.keyring`; `openssl rand -base64 32` makes one as good), which reads no settings and so runs
 where they lack one, and put it where the other secrets are kept: on one machine in the
-settings' file, on AWS under the secrets path ("The settings"). Production refuses to start
+settings' file, or in the secret manager the deployment reads. Production refuses to start
 without one, and with development's, which is in the code. Keep it apart from
 the database's backups, or encrypting gains nothing; and keep it as surely as the backups, since
 a lost key loses every authenticator it encrypted. A member whose secret no key decrypts is told
@@ -1694,8 +1668,8 @@ once its lease runs out. Through Resend that is once: the message's key goes as 
 ### The providers
 
 - **SMTP**: any relay, `smtp://user:password@host:587` (STARTTLS) or `smtps://…:465` (TLS), its
-  certificate checked against this machine's authorities and for the relay's name. On AWS the
-  module makes SES's, with credentials that may send from the domain and do nothing else.
+  certificate checked against this machine's authorities and for the relay's name; on AWS,
+  SES's, with SMTP credentials that may send from the domain and do nothing else.
 - **Resend**: `RESEND_API_KEY` (an API key with sending access, `re_…`) sends through
   `https://api.resend.com/emails`, from `MAIL_FROM`, whose domain is added and verified in
   Resend's dashboard first.
@@ -1729,12 +1703,9 @@ provider that is not believed lands in spam. Three records in the domain's DNS s
   with the From domain, what to do with a message that fails (`p=none`, `quarantine` or
   `reject`), and where to send reports of it (`rua=mailto:…`).
 
-On AWS the module makes all three for the `mail` domain: Easy DKIM's three CNAMEs, the envelope
-from `bounce.<domain>`, whose MX is SES's feedback address and whose TXT is `v=spf1
-include:amazonses.com ~all`, and `_dmarc.<domain>` with `v=DMARC1; p=quarantine`, the policy
-from `mail.dmarc_policy` and the reports' address from `mail.dmarc_reports`; `dmarc_policy = ""`
-makes none, for a zone that has its own already. With `dns_zone_id` they are made in Route 53,
-and otherwise `tofu output dns_records` lists them. Until the MX is found SES sends from its own
+With SES, Easy DKIM's three CNAMEs, a custom MAIL FROM domain such as `bounce.<domain>`, whose
+MX is SES's feedback address and whose TXT is `v=spf1 include:amazonses.com ~all`, and
+`_dmarc.<domain>` with `v=DMARC1; p=quarantine`; until the MX is found SES sends from its own
 envelope domain, and DMARC rests on DKIM alone. With Resend, its dashboard lists the domain's
 DKIM record and the SPF and MX of its envelope domain; the `_dmarc` record is the
 deployment's to add. Elsewhere, the relay's documentation says what to publish.
@@ -1842,11 +1813,10 @@ message stays in Resend's dashboard, whence it can be downloaded and handed over
 
 SES receives the domain's mail where its MX is SES's receiving endpoint in the region (`10
 inbound-smtp.<region>.amazonaws.com`; Frankfurt receives since 2023, and not every region does)
-and SES has verified the domain, through a receipt rule of the account's one active rule set: SES
-keeps one active a region, so staging and production, in one account and region, share the
-account root's (`emudoc`, `deploy/aws/account/inbound.tf`) and each adds a rule of its own for
-its domain. The rule writes each message as it was sent into a bucket of the environment's
-(under `inbound/`) and tells an SNS topic, encrypted with a key of its own, whose notice, with
+and SES has verified the domain, through a receipt rule of the account's one active rule set
+(SES keeps one active a region, so two deployments in one account and region share it, each
+with a rule of its own for its domain). The rule writes each message as it was sent into a
+bucket of the deployment's (under `inbound/`) and tells an SNS topic, whose notice, with
 the object's key and SES's SPF, DKIM and DMARC verdicts, reaches an SQS queue
 (`INBOUND_MAIL_QUEUE`) without SNS's envelope. A thread of the worker's waits on the queue (SQS's
 long poll, 20 seconds, so a message is taken within seconds) with the app role's credentials and
@@ -1858,8 +1828,7 @@ minutes, as for Resend. The sender is proven when DMARC passed, or, for a domain
 no DMARC policy (SES's GRAY), when DKIM passed and every DKIM signature the message carries is of
 the From domain or of a domain it is under or over, so that the signature SES passed is one of
 them. A message no job took is removed after 14 days, as the queue's notice of it is. With
-`INBOUND_MAIL_QUEUE` set, SES hands the mail over, whatever Resend's settings say. On AWS, the
-module's `inbound` makes all of it ("On AWS").
+`INBOUND_MAIL_QUEUE` set, SES hands the mail over, whatever Resend's settings say.
 
 ## Connected folders
 
@@ -2325,7 +2294,7 @@ usage of that time, which then goes unbilled. Everyone signs in again.
 A backup that was never restored is not known to restore. The deployment drills a restore before
 it opens to anyone, then every month on its own, and keeps what each drill measured.
 
-**Before launch, by hand, on staging**, with a bucket of its own: upload a few documents, write
+**Before launch, by hand, on a copy of the deployment**, with a bucket of its own: upload a few documents, write
 down the moment (`date -u '+%Y-%m-%d %H:%M:%S+00'`), upload one more and delete one, and restore
 to the moment as "Restoring" says, timing each step; then check as step 13 of "Checking it"
 says. Next, a minute after a last upload, stop the database's server hard (`kill -9` on the
@@ -2454,8 +2423,7 @@ so its part is two commands the deployment names, each given the copy's name:
   restored to, each on a line of its own;
 - `DRILL_DISCARD NAME` deletes the instance and its backups, and succeeds when there is none.
 
-`deploy/rds-drill.sh` is RDS's, configured by the variables its header lists (on AWS the
-environment's instance runs it, set up by `deploy/aws`: "The drill on AWS", below):
+`deploy/rds-drill.sh` is RDS's, configured by the variables its header lists:
 
 ```ini
 # /etc/emudoc/drill.env, for a drill machine in production's VPC
@@ -2497,7 +2465,7 @@ the first real drill is the check of the provider's part.
 The monthly drill leaves out a bucket lost as a whole (its deletion, or its service's failure),
 which only replication to a second bucket elsewhere survives (point `STORAGE_URL` at the replica
 to drill it); a directory's snapshots, since it reads the live directory; and the app's start
-and what the members see, which the yearly drill on staging covers.
+and what the members see, which a yearly drill on a copy of the deployment covers.
 
 The first drill ran on 2026-10-15, with pgBackRest 2.59 on Postgres 17 and pgvector, the
 encrypted repository above, and MinIO with versioning and the rule above: two uploads, the
@@ -2510,7 +2478,7 @@ downloaded with the bytes it was uploaded with, and the one uploaded after the m
 With every version of that file removed from the bucket, the drill failed and named the
 document; a moment older than the oldest backup ends it with pgBackRest's "unable to find backup
 set". Its times are a few seconds each for a database of 30 MB and are no measure of
-production's; the drill on staging gives the first. versitygw, the compose file's bucket, stamps
+production's; a drill on a copy of the deployment gives the first. versitygw, the compose file's bucket, stamps
 a delete marker with the time of the file it deletes rather than the time of the delete, so no
 listing of it can say what was deleted after a moment; MinIO and AWS stamp the delete.
 
@@ -2624,8 +2592,9 @@ key (`backend/app/logs.py`), whatever collects it and however long it is kept:
 The proxy keeps a log of its own, and both nginx's default format and Caddy's write whole
 addresses, queries included. The examples above give each one without the query: nginx logs
 `GET /api/projects/3/search`, Caddy `/api/projects/3/search?…`. A load balancer or CDN in
-front needs the same; most log the query unless told not to. On AWS, the documents bucket and
-the network keep records of their own, with members' addresses ("The account's records"). The parse child prints the same
+front needs the same; most log the query unless told not to. A cloud's records of the bucket's
+and the network's requests (S3's access logs, VPC flow logs) hold members' addresses too. The
+parse child prints the same
 traceback as the app when a parser crashes, which the worker logs.
 
 ### Traces
@@ -2681,15 +2650,15 @@ Each run of a job ends with one line at INFO that says where its time went, here
 A span holds the app's own words: a model's configured name, a stage, a tool among the agent's
 own (one the model made up is `unknown`), how it ended, tokens and seconds; never what was
 searched for, read or answered. The slowest answers of the last hour, then one's whole way,
-with `jq` (on the AWS instance `sudo dnf install jq` if it is missing; `sudo emudoc-compose`
-there is `docker compose -f deploy/compose.yml` on one machine), the lines that are not JSON
-skipped:
+with `jq`, the lines that are not JSON skipped:
 
 ```bash
-sudo emudoc-compose logs --no-log-prefix --since 1h worker | jq -R 'fromjson? // empty' \
+docker compose -f deploy/compose.yml logs --no-log-prefix --since 1h worker \
+  | jq -R 'fromjson? // empty' \
   | jq -s 'map(select(.job_kind == "answer_question" and .timing))
            | sort_by(-.timing.seconds) | .[:10][] | {message_id, trace_id, message}'
-sudo emudoc-compose logs --no-log-prefix --since 1d api worker | jq -R 'fromjson? // empty' \
+docker compose -f deploy/compose.yml logs --no-log-prefix --since 1d api worker \
+  | jq -R 'fromjson? // empty' \
   | jq -c 'select(.trace_id == "4bf92f3577b34da6a3ce929d0e0e4736")'
 ```
 
@@ -2731,7 +2700,7 @@ sends the lines elsewhere (Loki, CloudWatch Logs, a hosted service) is held to t
 by its own retention; a company that runs it receives the members' addresses.
 
 The proxy's log goes the same way when the proxy writes it to standard error in a container,
-as `deploy/aws/compose.yml`'s Caddy does; nginx's file under logrotate keeps the period with
+as the compose file's Caddy does; nginx's file under logrotate keeps the period with
 `daily` and `rotate` two short of it. Postgres's own log holds an error's DETAIL by default,
 which repeats the key or the row it refused ("Key (email)=(…) already exists" on `users`),
 so that the server logs would hold email addresses: `log_error_verbosity = terse`
@@ -2741,26 +2710,14 @@ files keeps less than a week with `log_filename = 'postgresql-%a.log'`, `log_rot
 1d` and `log_truncate_on_rotation = on` (for a period of 7 days or more); a managed one has a
 retention of its own, such as RDS's `rds.log_retention_period`.
 
-On AWS the module does all of it. Every container logs to the instance's journal
-(`deploy/aws/compose.yml`, each service, so that it comes with each release), which keeps
-`server_log_days` (30, in `shared/`, written as `SERVER_LOG_DAYS` for the host) by the settings
-above: each
-release writes them (`host/settings`) and applies them when they changed (`host/release`), so
-the host's own units' lines (the watch, the drill, the release) are held to it too. `sudo
-emudoc-compose logs` and `journalctl CONTAINER_NAME=emudoc-deploy-api-1` (or `-t` with a
-container's name) read them. RDS deletes Postgres's log a day short of `server_log_days`, at
-most 7 days, the longest it keeps, and logs terse errors (`database.tf`). Prometheus keeps its
-metrics 15 days and Alertmanager its silences, neither with a member's data.
-
 ## Error tracking
 
 The log has every error. With `SENTRY_DSN` set, the API and the worker also report each error
 nobody planned for to a tracker, which groups them, counts them and tells someone: Sentry, or a
 server that takes its protocol, GlitchTip or a Sentry of the operator's own. One project can
 serve every environment: `SENTRY_ENVIRONMENT` files the reports under `staging` or
-`production` (the AWS module sets it to the environment's name; unset, it is `ENVIRONMENT`,
-which is `production` on staging too), and each report names its release, the commit's full
-SHA. A DSN that is not one stops the process at start with what to do.
+`production` (unset, it is `ENVIRONMENT`, which is `production` on a staging deployment too),
+and each report names its release, the commit's full SHA. A DSN that is not one stops the process at start with what to do.
 
 An error is an exception no route or stage handled, which the member gets as a 500; a line
 logged at ERROR, such as a job the worker gave up on or a stage that crashed; and an exception
@@ -2804,9 +2761,7 @@ The tracker is a company that receives data unless it runs on the deployment's o
 (Sentry's EU region is a DSN under `ingest.de.sentry.io`, in Germany; every other `sentry.io`
 host is its US region). The reports hold no documents; a team that keeps its data in the EU
 takes Sentry's EU region or a tracker of its own. How long the reports are kept is the
-tracker's setting. The DSN carries the project's key: on AWS it goes into
-`/emudoc/<environment>/secrets/SENTRY_DSN` by hand, like the model keys ("The settings"), and the
-plan refuses it among the roots' settings.
+tracker's setting. The DSN carries the project's key: it is kept where the model keys are.
 
 ## Metrics
 
@@ -2990,11 +2945,9 @@ name, never a member's address. `costs --days 1` is today's, which the spending 
 
 ## Alerts
 
-Three watchers, since none of them sees everything: the worker, which sees the database and
-what it reaches and mails `ALERT_EMAIL`; rules on the metrics, which see every process from
-outside and need a scraper; and on AWS the host, which sees the containers. On AWS the
-instance runs the scraper with the rules, and CloudWatch watches the instance from outside and
-hears when the rules fall silent ("On AWS", below).
+Two watchers, since neither sees everything: the worker, which sees the database and what it
+reaches and mails `ALERT_EMAIL`; and rules on the metrics, which see every process from outside
+and need a scraper.
 
 ### What the worker mails
 
@@ -3094,70 +3047,13 @@ configuration with `amtool check-config` of Alertmanager 0.35.0). Alertmanager a
 when Prometheus is down, and nothing on the machine reports the machine gone: the watchdog,
 `EmudocWatchdog`, is for a dead man's switch, a service that calls when it stops hearing it
 (a monitoring service's heartbeat check takes the webhook), whose address `deadman-url`
-holds. On AWS the alarms of CloudWatch are that service ("On AWS", below).
+holds.
 
 ### The host's and the timers'
 
 Docker starts again a container that exits, never one whose health check fails, and the
-compose file's checks only mark it. On AWS the host looks every five minutes
-(`emudoc-watch.timer`, `deploy/aws/host/watch`) and reports to the alerts topic, and to the
-pages topic ("On call"), a container that is missing, stopped, restarting or unhealthy, or a
-one-shot that failed, once it was so at two looks in a row, and again when every container is
-well; a release holds the watch off.
-The drill and the credentials' renewal report their own failure (`OnFailure=`, "The drill on
-AWS"). On one machine, a timer the deployment runs for its drill ("The drill") mails its
-failure the same way, and a container's trouble is the rules' `EmudocProcessDown`.
-
-### On AWS
-
-The instance runs the rules itself. `deploy/aws/compose.yml` adds Prometheus 3.15 with
-`deploy/prometheus` as the release's image carries it, so that a release brings its rules, and
-Alertmanager 0.34 with `deploy/aws/alertmanager.yml`, which sends what fires to the alerts
-topic: a message per rule, with its sentences and what to do, again every 4 hours (critical,
-every hour) while it lasts, and once more when it is over; a `critical` one goes to the pages
-topic as well, in a few words ("On call"). Both run read-only and keep only
-their own data, in a volume of the instance's disk: Prometheus 15 days of samples, 2 GB at
-most, and Alertmanager its silences; both are gone with a replaced instance. Alertmanager
-publishes with a role of its own (`emudoc-<environment>-alertmanager`), which may publish to
-the environment's three topics and do nothing else: the host renews an hour of it every quarter
-of an hour into `/run/emudoc/aws/alertmanager`, as it does the app's, and Alertmanager reads
-the file again for every message. Prometheus holds no credentials. Neither page leaves the
-instance: Prometheus answers on its loopback at 9090 and Alertmanager at 9093, which Session
-Manager forwards:
-
-```bash
-aws ssm start-session --target <instance> --document-name AWS-StartPortForwardingSession \
-  --parameters portNumber=9090,localPortNumber=9090     # then http://localhost:9090/alerts
-# On the instance: hold a rule back for the length of a piece of work.
-sudo emudoc-compose exec alertmanager amtool --alertmanager.url=http://127.0.0.1:9093 \
-  silence add --duration 2h --comment 'Reindexing' alertname=EmudocDocumentsWaiting
-```
-
-Rules on an instance cannot report the instance gone, so CloudWatch watches it from outside
-(`deploy/aws/modules/environment/alerts.tf`), with three alarms that publish to the alerts
-topic and the pages topic when they begin and when they are over:
-
-| Alarm | When | What happens |
-| --- | --- | --- |
-| `emudoc-<environment>-alerts-silent` | No message on the heartbeat topic for three five-minute periods in a row. Alertmanager sends the watchdog there every two to three minutes, and nobody subscribes to it: the instance, its Docker, Prometheus or Alertmanager stopped, or Alertmanager's credentials were not renewed. A topic that heard nothing is in alarm too, so a new environment's is until its first release | Its description names where to look: `aws ec2 describe-instance-status`, then on the instance `sudo emudoc-compose ps prometheus alertmanager` and `systemctl status emudoc-credentials` |
-| `emudoc-<environment>-instance-system` | AWS's system status check fails for 2 minutes: the hardware or AWS's network under the instance | EC2 recovers the instance onto other hardware, with its id, address and disk, and Docker starts the containers again |
-| `emudoc-<environment>-instance-status` | The instance's own check fails for 3 minutes: out of memory, a kernel that hangs, a broken disk | EC2 reboots it, and its start runs the recorded release (`emudoc-boot`); `aws ec2 get-console-output --latest` says why |
-
-CloudWatch publishes only to a topic whose key lets it, so the three topics (alerts, pages and
-the heartbeat) are encrypted with a key of the environment's own
-(`alias/emudoc-<environment>-alerts`), which the instance's role and Alertmanager's may use
-through SNS alone and CloudWatch to encrypt its messages. The key costs a dollar a month (each
-of its first two yearly rotations adds one), the alarms ten cents each, and the heartbeat's
-15,000 messages a month are within SNS's free million; an SMS is SNS's price for its country.
-
-Some things are said twice, on purpose. A container that stops is the host's watch's ("api:
-exited with status 1", after ten minutes, with the commands to look) and the rules' ("No API
-has answered", after five): the watch publishes with the instance's own role and sees
-Prometheus and Alertmanager themselves, so it says what they cannot, and the rules see a
-process that runs for Docker but does not answer. Within the rules, Alertmanager holds
-`EmudocProcessDown` back while `EmudocNoApi` or `EmudocNoWorker` says it of the same process.
-A failed instance is its status alarm's, and the silence's once it lasts a quarter of an hour:
-the first says why, the second that nothing on the instance reports meanwhile.
+compose file's checks only mark it: a container's trouble is the rules' `EmudocProcessDown`. A
+timer the deployment runs for its drill ("The drill") mails its own failure (`OnFailure=`).
 
 ## Service levels
 
@@ -3212,9 +3108,9 @@ histogram_quantile(0.95, sum by (le) (rate(emudoc_answer_first_text_seconds_buck
 histogram_quantile(0.95, sum by (le) (rate(emudoc_document_ready_seconds_bucket[1d])))
 ```
 
-(`le="30.0"`: Prometheus 3 writes a bucket's bound as a float.) On AWS the instance's
-Prometheus keeps 15 days, so its figures are the last fortnight's, `[14d]`; a month needs a
-Prometheus elsewhere ("What it leaves out").
+(`le="30.0"`: Prometheus 3 writes a bucket's bound as a float.) A Prometheus that keeps 15 days
+of samples, its default, gives the last fortnight's figures, `[14d]`; a month needs a longer
+retention.
 
 Six rules of `deploy/prometheus/alerts.yml` keep the three the app measures, two each, after the
 multiwindow burn rates of Google's SRE workbook. A **fast burn** spends the budget 14.4 times as
@@ -3533,58 +3429,30 @@ each for its project, as every search is now ("The database"), they stayed at 10
 
 Who hears what, and how soon someone acts. Each way to the operator ends at an address or a
 pager the deployment names, and only the worker's mail depends on the machine in trouble, which
-the rules and, on AWS, CloudWatch back up:
+the rules back up:
 
 | From | What | To |
 | --- | --- | --- |
 | The worker | The jobs it gave up on, quarantines, spending at 80 % of a limit, its watch's alerts ("What the worker mails") | `ALERT_EMAIL`, through the app's mail relay |
-| Prometheus's rules | `critical` alerts every hour while they last, `warning` ones every 4 hours, and each once more when it is over | Alertmanager's receiver; on AWS the alerts topic, and the pages topic for `critical` |
-| The watchdog | Its silence | The dead man's switch; on AWS the alarm `emudoc-<environment>-alerts-silent`, on the alerts topic and the pages topic |
-| The host, on AWS | A container in trouble, a failed drill or renewal of the credentials, the instance's status checks | The alerts topic; a container in trouble and the status checks the pages topic too |
-| The account, on AWS | The trail's alarms (`root`, `iam`, `keys` and the others of "The account's records") | `account_alert_email` |
+| Prometheus's rules | `critical` alerts every hour while they last, `warning` ones every 4 hours, and each once more when it is over | Alertmanager's receivers |
+| The watchdog | Its silence | The dead man's switch |
+| The drill's timer | A failed drill | Its `OnFailure=` unit's mail ("The drill") |
 | The uptime service | `/api/health` missed from outside | Its own notifications, and its status page for the members ("The status page") |
-| GitHub | A scheduled workflow that failed: Audit's scans, the Models workflow's requests | Whoever last changed the schedule |
 | The members | A problem, a question or an idea from the app's help menu, with the page and the reference of the request that failed there; or by mail, quoting the error screen's reference ("Support") | `SUPPORT_EMAIL`, else the workspace's owners and admins |
 
 How soon:
 
-- **`critical`**, the uptime service and on AWS the pages topic (the instance's alarms and a
-  container in trouble besides the rules): a member waits now, or a backup is losing changes. The person on call acts within 30 minutes, day or night, starting from "A
+- **`critical`** and the uptime service: a member waits now, or a backup is losing changes. The person on call acts within 30 minutes, day or night, starting from "A
   first look" below, and the paging service calls a second when the first has not answered in
   15.
-- **`warning`**, the worker's mails and the account's alarms: within the working day. An
-  account alarm that nobody's own `tofu apply` explains may be someone else in the account, and
-  is looked at the same day ("The account's records").
+- **`warning`** and the worker's mails: within the working day.
 - **A member's report**: answered within a working day, with what was found.
 
-On one machine, the Alertmanager of "Rules on the metrics" gives `critical` a receiver of its
-own, a paging service's webhook or its `pagerduty_configs`, and the mail the rest. On AWS what
-cannot wait goes to a second topic beside the alerts topic, `emudoc-<environment>-pages`:
-Prometheus's `critical` alerts, a container in trouble (the host's watch) and CloudWatch's three
-alarms, each when it begins and when it is over. Its messages are a few words, since an SMS
-carries no subject: the environment, and each rule's summary or the containers in trouble; the
-alerts topic's message says where to look. A failed unit (the drill, a renewal of the
-credentials, a start) stays on the alerts topic: none has a member waiting yet, and what a
-failed renewal or start leads to, Alertmanager's silence, pages. The module subscribes nobody
-to the pages topic, since a paging service's address carries its key, which the repository, the
-plan and the state would hold: subscribe the pager by hand, once per environment.
-
-```bash
-pages=$(tofu -chdir=deploy/aws/production output -raw pages)
-# A paging service's SNS integration, which confirms the subscription itself:
-aws sns subscribe --topic-arn "$pages" --protocol https --notification-endpoint '<its url>'
-# Or a phone, by SMS (E.164, with its country code):
-aws sns subscribe --topic-arn "$pages" --protocol sms --notification-endpoint '+<number>'
-aws sns list-subscriptions-by-topic --topic-arn "$pages"   # none PendingConfirmation
-```
-
-SNS sends an SMS only to verified numbers until the account leaves SNS's SMS sandbox, and to
-some countries (the United States among them) only from an origination number registered first;
-a paging service's integration needs neither, and calls the second person when the first does
-not answer, which an SMS cannot. Each page's subject names the rule or alarm, and an
-Alertmanager page's ends "is over" when it is over, which the paging service's rules can close
-the incident by. A page repeats every hour while its rule fires: a silence ("On AWS" under
-"Alerts") holds the repeats back once someone is on it.
+The Alertmanager of "Rules on the metrics" gives `critical` a receiver of its own, a paging
+service's webhook or its `pagerduty_configs`, and the mail the rest. A paging service calls the
+second person when the first does not answer, and can close the incident by the page that says
+the rule is over. A page repeats every hour while its rule fires: a silence (`amtool silence
+add`) holds the repeats back once someone is on it.
 
 Every alert says where to look; the runbooks below say what to do for those that need more than
 a sentence. Each incident that called someone gets a short record: when it began and ended, what
@@ -3593,8 +3461,8 @@ figures for each 30 days go into the same record.
 
 ## Support
 
-The question mark in the header is the help menu, where members write for help, read what's
-new and find the status page. The versioned API's contract, which `GET /api/v1/openapi.json`
+The question mark in the header is the help menu, where members write for help and find the
+status page and the code's source ("The source code", below). The versioned API's contract, which `GET /api/v1/openapi.json`
 serves to anyone, without a key, with `APP_URL` as its server, is for whoever writes a program
 against the deployment: a tool that writes a client from it calls the deployment. It changes
 with a release, never by hand (the contract is `backend/app/api/v1/openapi.json`).
@@ -3648,12 +3516,21 @@ address). Three things fill it:
   record.
 - **The alerts**, where the service takes them: a receiver of `critical` alerts with the
   service's own webhook (`webhook_configs`) beside the pages route in Alertmanager's
-  configuration ("Rules on the metrics"; on AWS `deploy/aws/alertmanager.yml`), its address and
-  key in the deployment's secrets. A rule's summary names the app's parts, never a member's
+  configuration ("Rules on the metrics"), its address and key in the deployment's secrets. A rule's summary names the app's parts, never a member's
   data.
 
 The service receives nothing of the members' data: the link opens its site in a tab of its own,
 and the app's pages load nothing from it.
+
+### The source code
+
+Emudoc is licensed under the AGPL-3.0 (`LICENSE`), whose section 13 asks a deployment that
+people use over a network to offer them the source of the code it runs. The help menu's "Source
+code" does it for every member: unset, `SOURCE_URL` is the public repository at the running
+release's tag (`/tree/v0.1.0`; an image built from a commit, at that commit), which is right
+while the deployment runs a release unchanged. A team that changes the code and runs its change
+offers its own source: it publishes its copy where its members can reach it and points
+`SOURCE_URL` there. `GET /api/help` names the link too, and reads no database.
 
 ## The Administration page
 
@@ -3701,10 +3578,8 @@ the people who run it. A proxy rule that refused `/operator` by address may go.
 What to do, step by step, for what goes wrong most often, pointing at the sections that say
 more. `maintenance <command>` below is `python -m app.maintenance <command>` as the operator's
 other commands run ("The image"): `docker compose -f deploy/compose.yml run --rm --no-deps
-worker python -m app.maintenance …` on one machine, `sudo emudoc-compose run --rm --no-deps
-worker python -m app.maintenance …` on the AWS instance, `uv run python -m app.maintenance …`
-in a checkout's `backend/`; `compose` is `docker compose -f deploy/compose.yml` there and `sudo
-emudoc-compose` on the instance.
+worker python -m app.maintenance …` on one machine, `uv run python -m app.maintenance …` in a
+checkout's `backend/`; `compose` is `docker compose -f deploy/compose.yml`.
 
 ### A first look
 
@@ -3721,8 +3596,7 @@ When an alert or a member says something is wrong, and it is not yet clear what:
    member's reference is a `request_id`: `select(.request_id == "…")` finds its lines, and their
    `trace_id` the jobs the request queued ("Traces").
 4. `maintenance jobs` for the queue, the running jobs and the workers, `maintenance database`
-   for the server, Prometheus's alerts page for what else fires ("On AWS" under "Alerts" for
-   the way to it on the instance). The Administration page shows the queue, the dead letters,
+   for the server, Prometheus's alerts page for what else fires. The Administration page shows the queue, the dead letters,
    the workers and what the worker's watch sees in one place, from a browser ("The
    Administration page").
 
@@ -3733,16 +3607,15 @@ When an alert or a member says something is wrong, and it is not yet clear what:
 1. Which requests: `sum by (route, status) (increase(emudoc_http_requests_total{status=~"5.."}[1h]))`.
 2. A 500 is the app's own fault: the error tracker groups them, and the API's log has each one's
    traceback under its request id. If the last release brought it, release the one before
-   ("A release"), as long as no migration came between.
+   ("Upgrades"), as long as no migration came between.
 3. A 503 is named in the log, and its sentence to the member says the same:
    - `BUSY`, the pool: `EmudocPoolSaturated` too. Raise `DB_POOL_SIZE` and `DB_MAX_OVERFLOW`
      within the database's `max_connections`, or put a pooler in front ("A pooler").
    - A statement the database stopped ("… was stopped by the database"): the line names the
-     route; `maintenance database` shows vacuum and the oldest transaction, and on AWS Database
-     Insights the statements' load.
+     route; `maintenance database` shows vacuum and the oldest transaction, and a managed
+     database's insights the statements' load.
    - `STORAGE_DOWN`: the line names the bucket or directory, and the watch mails "the storage
-     cannot be used". On AWS, `systemctl status emudoc-credentials`: the containers lose the
-     bucket within the hour of a renewal that failed.
+     cannot be used": the bucket's keys, or a directory's volume.
    - The database out of reach: readiness fails on every replica. A managed database's events
      say whether it is failing over, which takes a minute or so ("The database").
 
@@ -3831,7 +3704,7 @@ A new model is a release of its own, tried as a fallback first:
    and release.
 3. `maintenance models`: every model answers as the app asks, the new one among them.
 4. Make it the primary, with the old one or another provider's model as its fallback, and
-   release. The Models workflow's repository variables follow ("Every morning, from GitHub").
+   release; `maintenance golden` says it answers the sample's questions as known.
 5. Over the next days, `maintenance costs` by model and the answers' service level say what it
    costs and how soon it begins.
 
@@ -3853,8 +3726,8 @@ Every passage is embedded again, which is the expensive part:
    queues every document's embed stage at bulk priority, behind the members' uploads. A new
    `EMBEDDING_DIM`: stop the API and the workers, `maintenance rebuild-embeddings`, then release
    ("The embeddings endpoint").
-3. The backlog is expected: silence `EmudocDocumentsWaiting` for its length ("On AWS" under
-   "Alerts"); the watch mails "Emudoc alert: documents wait for a worker" once, and again when
+3. The backlog is expected: silence `EmudocDocumentsWaiting` for its length (`amtool silence
+   add`); the watch mails "Emudoc alert: documents wait for a worker" once, and again when
    it is over. The uploads' service level stays as it was, since a document is measured once.
 4. When it is done, rebuild the vector index and vacuum `passages` ("Vacuum").
 
@@ -3862,25 +3735,20 @@ Every passage is embedded again, which is the expensive part:
 
 Make the new key, put it where the settings are kept, release the same tag, check that it works,
 then revoke the old one. A key that leaked is revoked first, and the app runs on the fallback, or
-without, meanwhile. On AWS a key is an SSM SecureString under `/emudoc/<environment>/secrets/`,
-put with the `read -rs` line of "The settings", and reaches the containers at the next release
-of the same tag (the Release workflow).
+without, meanwhile.
 
 | Key | The new one | Then |
 | --- | --- | --- |
 | A model provider's (`GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`, …) | The provider's console | `maintenance models`; for a leak, the provider switched off on the Administration page first |
 | `EMBEDDING_API_KEY` | The endpoint's provider | The start's line "Passages are embedded by …", then a search by meaning |
-| The database's password | `ALTER ROLE emudoc PASSWORD '…'` and the new `DATABASE_URL`, with `DATABASE_LISTEN_URL` and a pooler's `userlist.txt`; on AWS `tofu apply -replace=module.emudoc.random_password.database`, which writes the new URL | Release at once: the processes keep the connections they hold, and new ones fail until then; `/api/health` |
-| `SMTP_URL`'s password | The relay; on AWS `tofu apply -replace='module.emudoc.aws_iam_access_key.smtp[0]'` | A password reset's mail |
+| The database's password | `ALTER ROLE emudoc PASSWORD '…'` and the new `DATABASE_URL`, with `DATABASE_LISTEN_URL` and a pooler's `userlist.txt` | Release at once: the processes keep the connections they hold, and new ones fail until then; `/api/health` |
+| `SMTP_URL`'s password | The relay | A password reset's mail |
 | `GOOGLE_OAUTH_CLIENT_SECRET`, `MICROSOFT_OAUTH_CLIENT_SECRET` | The provider's console, which holds two secrets at once | A sign-in with each, then the old secret deleted there |
 | `GOOGLE_DRIVE_CLIENT_SECRET`, `DROPBOX_APP_SECRET`, `ONEDRIVE_CLIENT_SECRET` | The service's console | "Sync now" on a connected folder of each, then the old secret deleted there |
 | `SENTRY_DSN` | A new client key in the tracker's project | An error reaches the tracker, then the old key disabled |
 | `ENCRYPTION_KEYS` | `python -m app.keyring`, put first, the old key after it | `encrypt-secrets`; the old key removed after `BACKUP_DAYS` ("The encryption keys") |
-| The bucket's (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) | The bucket's provider; on AWS there are none, the host renews a role's session every quarter of an hour | The start's line "The bucket keeps …" |
-| The Models workflow's | The provider, with a low spending limit | `gh secret set`, then a run by hand |
+| The bucket's (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) | The bucket's provider | The start's line "The bucket keeps …" |
 | pgBackRest's `repo1-cipher-pass` | Not for a repository that holds backups: a new repository under the new passphrase, the old one kept with its own until its backups pass `BACKUP_DAYS` | `pgbackrest --stanza=emudoc info` |
-
-The KMS keys of the AWS roots rotate by themselves, every year.
 
 ### Restoring a backup
 
@@ -3915,7 +3783,7 @@ moment:
 3. A migration that the running code cannot work beside, such as one that changes the jobs
    table or what a stage writes: `compose stop worker` first, then the release, so that no old
    worker writes into the new schema.
-4. For planned work that sets off rules, a silence for its length ("On AWS" under "Alerts").
+4. For planned work that sets off rules, a silence for its length (`amtool silence add`).
 
 ### The models are spending fast
 
@@ -3984,426 +3852,6 @@ that does not answer within 5 seconds lets the password through and logs "The
 breached-password check at … failed"; nothing logs the five characters, which with a copy of
 the database would let a guesser skip most candidates at SHA-1's speed. Empty checks nothing.
 
-## On AWS
-
-`deploy/aws` is this guide on AWS as OpenTofu code (1.12 or later): an environment is a network
-of its own, Postgres on RDS, the documents' bucket, and one EC2 instance that runs
-`deploy/compose.yml` from the image with Caddy in front. Staging and production are the same
-module twice, with their own sizes, database, bucket, keys and spending cap, and run the same
-image: every release runs on staging first.
-
-```text
-                       ┌─ EC2, Amazon Linux 2023 ───────────────────────┐
-  browsers ─ 80, 443 ─▶│ Caddy ─▶ API ─┐   worker   ClamAV   llama.cpp   │
-                       └───────────────┼────────────────────────────────┘
-                                       ├─▶ RDS Postgres 17 (private subnets, TLS checked)
-                                       └─▶ S3 bucket (versioned, encrypted)
-  SSM /emudoc/<environment>/settings, /secrets, /release ─▶ each release on the instance
-  SNS alerts ◀─ the host's watch, Prometheus's rules by Alertmanager, CloudWatch's alarms
-  SNS pages  ◀─ the same, what cannot wait alone (critical rules, containers, the alarms)
-```
-
-The directories:
-
-- `account/`, once per AWS account: the bucket the environments' state is kept in
-  (`emudoc-state-<account>`), the KMS key OpenTofu encrypts that state with before it leaves the
-  operator's machine (`alias/emudoc-state`; the state holds the database's password and SES's
-  SMTP key), the image repository, `emudoc` in ECR, whose tags are immutable and scanned as
-  they are pushed, and GitHub's sign-in with the role CI pushes with, the one role the
-  repository takes images from ("Releases from CI"), and the account's trail, CloudTrail in
-  every region into a bucket of its own, with alarms on its events ("The account's records").
-  Its own state holds no
-  secret and stays where it is applied; its tests are `tofu test` there.
-- `modules/environment/`, an environment, with its tests (`tofu test` there, against a mocked
-  AWS: what each resource is made with, and the inputs it refuses).
-- `shared/`, the settings both environments take: the models and their prices, `BACKUP_DAYS` and
-  how long the logs are kept, and the GitHub repository CI runs in, which the account root
-  reads with the address its alarms go to. Staging names the
-  models production does, which is what pinning them is for.
-- `staging/` and `production/`, the two roots. They differ in the domain, the sizes (a
-  `t3a.large` and a `db.t4g.small` without a standby against a `t3a.xlarge` and a
-  `db.t4g.medium` with one), deletion protection and the spending cap.
-- `push-image.sh` and `release.sh`, which CI runs; `compose.yml` and `host/`, which the image
-  carries and each release runs on the instance: `compose.yml` over `deploy/compose.yml`, its
-  Postgres left out for RDS and its Caddy for the environment's domain, and `host/compose`
-  turning on the profiles of ClamAV, the converter and Caddy (a change of 2026-11-13 that no
-  environment has released yet).
-
-### What an environment is made of
-
-- **The network**: a VPC (`network_cidr`, a /16), one public subnet for the instance and two
-  private ones for the database, which have no route out. The internet reaches the instance on
-  80 and 443 (UDP too, for HTTP/3) and nothing else: there is no SSH, and a shell is Systems
-  Manager's (`aws ssm start-session --target <instance>`). The database takes connections from
-  the instance alone.
-- **The database**: RDS Postgres 17, whose builds bring pgvector 0.8 from 17.1, encrypted, on no
-  public address, with `rds.force_ssl` on. The app connects as the master user, which may create
-  the extension the first migration asks for. "The role's timeouts" above are the parameter
-  group's here, for the whole server, which is the app's alone: the app reads them as its
-  connection sees them, and its long work lifts them for its own transaction as before. RDS
-  keeps point-in-time backups for `backup_days`, at most its 35, which is `BACKUP_DAYS`. With
-  deletion protection (production), deleting the database leaves a final snapshot, which outlives
-  `BACKUP_DAYS` until it is deleted by hand: do so once it is not needed, since a deleted
-  account is meant to be gone from the backups within those days. `DATABASE_URL` asks for `verify-full`
-  against RDS's own authority, which no public bundle holds: each release fetches the region's
-  bundle from `truststore.pki.rds.amazonaws.com` into `/etc/emudoc/rds-ca.pem`, which the
-  containers mount, and keeps the copy it has when the trust store cannot be reached. Its own log
-  keeps an error's first line and statement alone (`log_error_verbosity = terse`) for a day
-  short of `server_log_days`, 7 days at most ("How long they are kept").
-- **The bucket**: versioned, with one rule over every key that removes an earlier version two
-  days before `BACKUP_DAYS` run out ("The files", above), encrypted (SSE-S3), never public, and
-  refusing any request without TLS.
-- **The instance**: Amazon Linux 2023 on x86_64 (the image is built and checked for it) with
-  Docker, an encrypted disk and an Elastic IP the domain leads to. Its first start
-  (`cloud-config.yaml`) installs Docker, Compose 5.5.1 (checked against its SHA-256) and ECR's
-  credentials helper, and runs the recorded release, if there is one. It holds nothing that is
-  not made again: the documents are in the bucket, the rows in RDS, the settings in SSM, so a
-  change to the boot replaces it, and so does a new Amazon Linux, which the instance does not
-  take by itself (`dnf` stays at the release the image was made from). Replace it every month,
-  beside the drill, with `tofu apply -replace=module.emudoc.aws_instance.app`: a few minutes
-  of downtime, a new certificate from Let's Encrypt, and the embedding model's weights
-  downloaded again, the same file by its SHA-256. Every container logs to its journal, which
-  deletes the lines past `server_log_days`, the host's own units' with them ("How long they are
-  kept"); a replaced instance takes its logs with it.
-- **Credentials**: the instance metadata service answers the host alone (IMDSv2, one hop), so
-  no container holds the instance's role, which reads the settings, pulls the image and runs
-  the drill. ClamAV, which opens hostile files, and llama.cpp's server hold no credentials at
-  all. The API
-  and the worker reach the bucket with the app role's, which allow the bucket and nothing else:
-  the host renews an hour's session of it every quarter of an hour into
-  `/run/emudoc/aws/app` (`emudoc-credentials.timer`), and boto3 reads the file again whenever
-  the session it holds nears its end. The drill's dry run gets the storage reader's, which
-  can only list the bucket.
-- **Mail**, when the root names a `mail` domain: SES with the domain verified by DKIM, its
-  envelope from `bounce.<domain>` for SPF, DMARC's record, and SMTP credentials that may send
-  from it and do nothing else, written into `SMTP_URL`; a configuration set every message of the
-  domain goes under, which sends only over TLS, keeps the account's list of addresses not to
-  send to, and publishes the bounces and complaints to EventBridge, whose rule puts this
-  environment's into an SQS queue the worker reads, `MAIL_EVENTS_QUEUE` ("Mail"). A new SES
-  account sends only to verified addresses until AWS grants it production access, which is
-  asked for by hand in SES's console. Without `mail`, `SMTP_URL` and `MAIL_FROM` go into the
-  secrets path for a relay of the deployment's own.
-- **Mail in**, when the root names an `inbound` domain ("Mail in"; both roots do, `in.<domain>`):
-  the domain's SES identity, verified by DKIM, and its MX at SES's receiving endpoint; a rule of
-  the environment's (`emudoc-<env>`) in the account's active receipt rule set, which the account
-  root makes since SES keeps one active a region (apply the account root first), for the domain
-  alone, writing each message into the bucket `emudoc-<env>-inbound-<account>` (under
-  `inbound/`, private, SSE-S3, over TLS only, its objects removed after 14 days) and telling the
-  topic `emudoc-<env>-inbound` (under a key of its own, `alias/emudoc-<env>-inbound`, which SES
-  may use), that SES alone may publish to and for this rule alone, whose notices reach the
-  SSE-SQS queue `emudoc-<env>-inbound` (kept 14 days) without SNS's envelope; the app role may
-  receive and delete the queue's notices and get and delete the bucket's messages, and nothing
-  else of them; the module writes `INBOUND_DOMAIN` and `INBOUND_MAIL_QUEUE`.
-- **DNS**: with `dns_zone_id`, the domain's record, the mail's DKIM, SPF and DMARC records and
-  the inbound domain's MX and DKIM are made in Route 53; otherwise `tofu output dns_records`
-  lists them for the DNS kept elsewhere. Caddy asks Let's Encrypt for the certificate once the name leads to the instance.
-- **Alerts**: an SNS topic, under a key of the environment's own, that the instance reports a
-  failed drill, a failed credentials renewal (the containers lose the bucket within the hour),
-  a failed start or a container in trouble to (`emudoc-watch.timer`), that Alertmanager on the
-  instance sends what Prometheus's rules fire to, and that CloudWatch's alarms on the alerts'
-  heartbeat and the instance's status checks publish to ("Alerts", "On AWS"); it names units,
-  rules and the instance, never a log line. `alert_email` subscribes an address, which must
-  confirm it, and is the app's `ALERT_EMAIL` too, where the worker mails what it gave up on and
-  what its watch sees, through the mail relay. A second topic, the pages, hears what cannot
-  wait (the critical rules, a container in trouble, the alarms) for a pager the operator
-  subscribes by hand ("On call").
-- **Records**: the documents bucket's access logs and the network's flow logs in a logs
-  bucket of the environment's own, kept `access_log_days`, and Database Insights on the
-  database ("The account's records").
-
-### The account's records
-
-Three records of what reaches the deployment, beside the app's own log ("Logs"):
-
-- **The trail** (`account/trail.tf`): CloudTrail's record of every call to AWS's APIs in
-  every region, the console's included, with who made it and from which address, and of every
-  request for an object of the state bucket, whose states hold the database's password. Its
-  files go into a bucket of their own (`emudoc-trail-<account>`, the root's `trail_bucket`
-  output), encrypted with a key of their own (`alias/emudoc-trail`) and signed: `aws cloudtrail
-  validate-logs --trail-arn <arn> --start-time <time>` says whether any was changed or removed
-  since. They are kept `trail_days` (365, the account root's variable). The first copy of the
-  management events costs nothing, and the state bucket's data events are a handful per `tofu
-  plan`. The console's event history shows the last 90 days of management events without the
-  files; Athena queries the files. The trail holds what the operators, CI and the instances
-  did, and nothing of a member's, whose requests reach no API it records. It goes to CloudWatch
-  Logs as well, for the alarms on it (below).
-- **The access logs and the flow logs** (`modules/environment/logs.tf`), in each environment's
-  logs bucket (`emudoc-<environment>-logs-<account>`, the `logs` output): S3's server access
-  logs of the documents bucket under `access/`, grouped by the day of the request, a line per
-  request with the requester's address and browser, the key, the operation and the answer; and
-  the VPC's flow logs under `flow/`, a line per connection to or from its subnets, accepted or
-  refused, with the addresses, ports and bytes. The page images, thumbnails and downloads a
-  member opens are fetched by their browser from the bucket by a signed address, so the access
-  logs hold members' addresses and browsers, and the signed address's query, which names a
-  download's file and carries its signature for its 15 minutes; the flow logs hold the address
-  of everyone who reached the instance. Both are personal data, kept `access_log_days` (30, in
-  `shared/`). The bucket's rule removes them two days before, as the documents
-  bucket's does for `BACKUP_DAYS`, and the bucket keeps no versions, so a removed log is gone.
-  S3 delivers access logs within a few hours, as best it can, and charges only for their
-  storage, where CloudTrail's data events for the documents bucket would cost per request,
-  every page a member opens among them. No role of the app's reaches the bucket.
-- **Database Insights**, in its standard mode on the RDS instance: the database's load by
-  wait, statement and host over the last 7 days, without charge, in CloudWatch's Database
-  Insights. A statement is shown as the app sent it, with `$1` for every value, since the app
-  binds them all, and the one host is the instance. `python -m app.maintenance database`
-  remains the check of the server's settings and vacuum ("The database").
-
-Without AWS, the host's own records of connections (a firewall's log, a provider's flow logs, a
-bucket's access logs) hold members' addresses too, and are the team's to keep for a period.
-
-The account root watches its trail (`account/alarms.tf`), after the monitoring section of CIS's
-AWS Foundations Benchmark: CloudTrail sends every event to the log group `emudoc-trail` too
-(kept `trail_log_days`, 30, and encrypted with the trail's key, which CloudWatch Logs may use
-for that group alone), with a role that may write the account's streams there and nothing
-else, and a metric filter per kind of event counts it into an alarm that publishes to the
-account's own topic, `emudoc-account-alarms` (the `alarms` output; under a key of its own that
-CloudWatch may use; `shared/`'s `account_alert_email` subscribes an address):
-
-| Alarm (`emudoc-account-…`) | Sets off at |
-| --- | --- |
-| `root` | Any call of the root user's |
-| `console-without-mfa` | An IAM user's sign-in to the console without a second factor |
-| `console-failures` | 3 failed sign-ins to the console in 5 minutes |
-| `refused` | 10 calls AWS refused for want of permission in 5 minutes |
-| `iam` | A change to a policy, a role's trust, a user, a login profile or an access key |
-| `trail` | A trail made, changed, stopped or deleted |
-| `keys` | A key turned off, set to be deleted, or given another policy |
-| `buckets` | A bucket's policy, ACL, public access, CORS, versioning, encryption, lifecycle or replication changed |
-| `security-groups`, `network` | A security group, network ACL, gateway, route, VPC or peering made, changed or deleted |
-
-Each counts events, not a state, so it says nothing when it is over. A change the operators made
-themselves sets off its alarm too, which is the point: a `tofu apply` that changes a policy is
-followed by an `iam` message within minutes, and one nobody applied is the one to look into.
-The message names the kind of event; who made it, from where and what it was are in the
-console's event history, or in CloudWatch Logs Insights over `emudoc-trail` with the alarm's
-metric filter as the query. CloudWatch Logs charges for what it takes in, a few cents a month
-for an account of this size, and each alarm ten cents.
-
-### The settings
-
-The app's settings are SSM parameters under `/emudoc/<environment>/`: what the module knows from
-the infrastructure and the roots' `settings` under `settings/` (`DATABASE_URL` and `SMTP_URL`
-as SecureStrings), and the secrets the module cannot know under `secrets/`, put there by hand so
-that no key passes through a plan or the state:
-
-```bash
-read -rs key && printf '%s' "$key" | aws ssm put-parameter --type SecureString \
-  --name /emudoc/staging/secrets/ANTHROPIC_API_KEY --value file:///dev/stdin
-```
-
-Each release writes them into the env files (`deploy/aws/host/settings`): a name set in both
-places, or a value with a line break, stops it. A fresh checkout's plan refuses `AGENT_MODEL`
-and `INDEX_MODEL` left empty in `shared/main.tf`, which production cannot start without; an empty value there is a setting left unset. Keys never go
-into the roots: the plan refuses a name that ends like one, and `SENTRY_DSN`, which carries the
-tracker's key. The module writes `SENTRY_ENVIRONMENT`, the environment's name, itself,
-`ALERT_EMAIL` from `alert_email`, and `SERVER_LOG_DAYS` from `server_log_days`, by which the
-release sets the journal's period too ("How long they are kept"). A changed setting reaches
-the containers with the next release (the same tag again does).
-
-### Setting it up
-
-1. Once per account: fill in `shared/main.tf`'s `account_alert_email`, then
-   `tofu -chdir=deploy/aws/account init` and `apply`, with credentials of the account's
-   administrator, and confirm the subscription. Keeping staging and production in accounts of their own isolates
-   them further; the module is the same, and the account root runs in each, but CI pushes to
-   one repository and the second account's instance would need leave to pull from it, which
-   the module does not give.
-2. Fill in `shared/main.tf` and each root's domain, zone, `mail` and `alert_email`, then
-   `tofu -chdir=deploy/aws/staging init -backend-config=bucket=emudoc-state-<account>` and
-   `apply`.
-3. Put the keys into the secrets path as above: `ENCRYPTION_KEYS` (`openssl rand -base64 32`,
-   kept apart from the database's backups too, "The encryption keys"), each model's provider
-   and each fallback's, the OAuth clients' secrets, and `SMTP_URL` without `mail`.
-4. Make the DNS records if the zone is not in Route 53, ask SES for production access, and
-   confirm the alerts' subscription. Its first message is the alarm
-   `emudoc-<environment>-alerts-silent`, which stays in alarm until the first release starts
-   Alertmanager, and is over a few minutes after it. Subscribe the pager to the pages topic
-   ("On call"); it hears the same alarm.
-5. Give CI the roles (the repository variables of "Releases from CI"), then run CI on `main`
-   (Actions, CI, Run workflow, or the next push): it pushes the image and releases it on
-   staging.
-6. Check staging as "Checking it" says, and drill a restore by hand on it ("The drill").
-7. The same for production, with the Release workflow and the commit staging ran.
-
-### A release
-
-`release.sh` has Systems Manager run `emudoc-release TAG` on the environment's instance, waits,
-prints what it said, records the tag in `/emudoc/<environment>/release` and waits a minute at
-most for `/api/health` over HTTPS to name the tag: a domain that leads elsewhere, or an API
-that kept its old version, fails it. Any environment but staging takes only a tag staging's
-release history holds (SSM keeps its last 100 releases), so every release runs on staging
-first. On the instance, `emudoc-release` pulls the image, takes out the
-`deploy/` directory it carries (`/opt/emudoc/releases/<tag>`), and runs its
-`aws/host/release`, so that what a release does on the host comes with the image and runs on
-staging before production. That writes the settings into `/etc/emudoc/next`, fetches RDS's
-authority, renews the containers' credentials, runs the migrations and the embedding model's
-pull each in a container of their own, then `up --wait` with `deploy/aws/compose.yml` over
-`deploy/compose.yml`; once that succeeded it moves the settings into `/etc/emudoc`, points
-`/opt/emudoc/current` at the release, and keeps the three releases before it. A migration that
-fails ends the release with the one before it still serving and still recorded. The API is
-away for a few seconds of each release, the time it takes to stop and start, during which the
-page follows answers again as on any one machine.
-
-Going back is releasing an earlier tag (the Release workflow; `release.sh` prints the one it
-replaced), as long as no migration came between: an image refuses a database whose schema is
-newer than its own.
-
-On the instance, `sudo emudoc-compose` is Compose with the running release's files and
-settings: `ps`, `logs --since 1h worker`, `run --rm --no-deps worker python -m
-app.maintenance models`. `/etc/emudoc` holds `host.env` (what the module told the instance),
-the env files and RDS's authority; the units are `emudoc-boot`, `emudoc-credentials` and its
-timer, `emudoc-restore-drill` and its timer, `emudoc-watch` and its timer, and
-`emudoc-alert@`. A release that needs what an older instance was not given (`host.env` is
-written at the first start alone) says which and stops before it changes anything: apply the
-root, which replaces the instance, then release again.
-
-### Releases from CI
-
-What an environment runs was built by CI from a commit on `main`, after every check passed;
-no one releases from their own machine, and no AWS key is kept in GitHub.
-
-```text
-  push to main ─▶ CI ─┬─ Backend ×6, Frontend, End to end, Load test, … ───────┐
-                      └─ Image: build, smoke test, scan, push to ECR <sha> ─────┴─▶ Staging:
-                                                               release.sh staging <sha>
-  by hand ─▶ Release: production <sha> ─▶ did staging run it? ─▶ release.sh production <sha>
-```
-
-- **The image** is built once, by CI's Image job, from the commit and named by its full SHA
-  (`--build-arg VERSION`, which `/api/health` reports). On a push to `main` the job smoke-tests
-  it (`check-image.sh`), scans it as the Audit workflow does (a high or critical
-  vulnerability with a fix stops the release there, and Audit's morning run reports the same),
-  and pushes it with `push-image.sh`, unless the repository holds the tag already.
-- **Staging** is released by CI's Staging job once every job of the run passed, with
-  `release.sh staging <sha>`, one release at a time.
-- **Where the jobs run**: GitHub's runners, or while the repository variable `RUNNER` names
-  them, the self-hosted runners of `ci-runner` on a developer's machine (CLAUDE.md, "CI
-  on this machine"). Either way the job is CI's, for a commit on `main`, and AWS trusts its
-  OpenID Connect token for an hour; the machine keeps no key between jobs. The Release
-  workflow runs on GitHub's alone.
-- **Production**, and staging again (a changed setting reaches the containers with a release
-  of the same tag), are the Release workflow's: Actions, Release, Run workflow, from `main`,
-  with the environment and the commit, its seven-digit SHA as GitHub shows it or the whole.
-  A release to production then waits for the reviewer of the GitHub environment `production`
-  (the run's "Review deployments", then "Approve and deploy"; "The repository's rules",
-  below). `release.sh` refuses a commit staging never ran. Going back is the same with an
-  earlier commit.
-- **Credentials**: each job that reaches AWS asks GitHub for a token naming the repository and
-  the branch, which AWS trades for an hour of a role through GitHub's OpenID Connect provider
-  (the account root makes it). The push role (`emudoc-github-push`, account root) may push to
-  the repository and nothing else; each environment's release role
-  (`emudoc-<environment>-github-release`, `modules/environment/release.tf`) may find its
-  instance, have Systems Manager run the release there, follow it, record the tag and read
-  `APP_URL`, and production's also reads staging's release history. Staging's trusts a job of
-  a workflow on `main` of `github_repository` (`shared/`) alone, and production's a job of the
-  GitHub environment `production` alone (`github_environment` in its root), whose token names
-  the environment instead of the branch: a pull request's token, another branch's, or a job of
-  `main` that skipped the environment's review, is refused.
-- **The repository takes images from CI alone**: its policy denies the pushes to every
-  principal but the push role, the account's administrators included, so an image built on
-  someone's machine cannot reach an environment. While GitHub cannot run the workflows, an
-  operator names their own role in the account root's `pushers` (`tofu apply -var
-  'pushers=["arn:aws:iam::<account>:role/<role>"]'`), pushes and releases with the two scripts
-  from a clean checkout of the commit, and applies the root again without it afterwards.
-- `tofu apply` stays the operator's: it needs rights over IAM, KMS and the state, which no
-  workflow should hold while anyone who can merge into `main` controls what the workflows run.
-
-The repository variables, from the roots' outputs once they are applied (Settings, Secrets and
-variables, Actions, Variables, or `gh`):
-
-```bash
-gh variable set AWS_PUSH_ROLE --body "$(tofu -chdir=deploy/aws/account output -raw push_role)"
-gh variable set AWS_STAGING_ROLE --body "$(tofu -chdir=deploy/aws/staging output -raw release_role)"
-gh variable set AWS_PRODUCTION_ROLE --body "$(tofu -chdir=deploy/aws/production output -raw release_role)"
-gh variable set AWS_REGION --body eu-central-1      # the roots' region, which is also the default
-```
-
-Without `AWS_PUSH_ROLE` CI checks the image and pushes nothing, and without it or
-`AWS_STAGING_ROLE` the Staging job is skipped, so CI runs before AWS is set up.
-
-### The repository's rules
-
-`main` takes a commit only through a pull request, and production takes only a release its
-reviewer approved. Both are settings GitHub keeps, which a private repository has on a paid
-plan (Team or Enterprise; the organisation is on Enterprise since 2026-10-24, though GitHub's
-rulesets API has answered 403 since the payment hold of 2026-10-26, so the ruleset holds nothing
-until it answers again):
-
-- **`main`** is held by the ruleset `main` (Settings, Rules, Rulesets), written in
-  `.github/rulesets/main.json`: nothing reaches it but a pull request's merge, rebased or
-  squashed so that the history stays one line; it is never deleted or rewritten; and nobody
-  goes past it, the organisation's owners included. A pull request needs no approval (its
-  author may not approve it, and the organisation has one member) and, while the app is in
-  development (since 2026-10-31), no check: each check runs once for a change. The developer
-  runs the backend's suite and the frontend's checks on their machine and merges at once; CI
-  runs the heavy jobs (End to end, Load test, Image, Secrets, Scripts and configuration) once
-  the change is on `main`, OpenTofu, Embeddings, Pooler (the suite through pgbouncer) and Audit
-  run once a change to what they check is there (Audit every Monday too, for advisories
-  published meanwhile), and Dependabot's pull requests run everything, on GitHub's runners, for
-  the owner to merge. A red run on `main` is fixed by the next change. Before the app has users,
-  take the conditions off CI's jobs (`if: *checked_here`, `if: *heavy` in `ci.yml`), put the
-  checks back in the file as `required_status_checks` (each by its check run's name, from GitHub
-  Actions, on the branch brought up to date with `main`), apply it, and wait for them again.
-  `tests/test_repository.py` holds the file to CI's jobs and pins where each runs, so a job
-  renamed, added or moved changes the file in the same pull request; with checks required,
-  that pull request is mergeable once its checks passed and its file was applied (the second
-  command below, from its branch), and the other open ones once brought up to date.
-- **`production`** is a GitHub environment (Settings, Environments): a job of it waits until its
-  reviewer approves, only `main` deploys to it, and administrators do not skip the review.
-  The organisation's one member is the reviewer and approves their own releases
-  (`prevent_self_review` false); with a second, make it true.
-
-```bash
-gh api -X POST repos/emudocai/emudoc/rulesets --input .github/rulesets/main.json     # once
-gh api -X PUT "repos/emudocai/emudoc/rulesets/$(gh api repos/emudocai/emudoc/rulesets --jq '.[] | select(.name == "main") | .id')" --input .github/rulesets/main.json   # after a change to the file
-gh api -X PUT repos/emudocai/emudoc/environments/production --input - <<EOF   # the environment, its reviewer by their GitHub login
-{"reviewers": [{"type": "User", "id": $(gh api users/<login> --jq .id)}], "prevent_self_review": false, "can_admins_bypass": false,
- "deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}}
-EOF
-gh api -X POST repos/emudocai/emudoc/environments/production/deployment-branch-policies -f name=main -f type=branch
-```
-
-While GitHub's checks cannot run and a fix cannot wait for them, an owner sets the ruleset's
-enforcement to Disabled, merges, and sets it back to Active; the organisation's audit log keeps
-both changes. A production root applied before 2026-10-24 trusts `main`: `tofu apply` it once,
-or the environment's jobs are refused.
-
-### The drill on AWS
-
-The instance runs the managed drill every month ("The drill", above) as root:
-`managed-restore-drill.sh` of the running release with `rds-drill.sh` as its hooks, the copy in
-the environment's subnet group, security group and parameter group, at the environment's
-database class unless `drill_instance_class` says otherwise, and the dry run in a container with
-the storage reader's credentials. The instance's role may restore only its own database, and
-tag and delete only copies called `emudoc-drill-…` that carry `purpose=restore-drill`.
-`journalctl -u emudoc-restore-drill` keeps each report; a failed one reaches the alerts topic.
-
-### What it leaves out
-
-- The app's own high availability: one instance in one zone. RDS's standby covers the database;
-  a lost instance or zone is downtime until `tofu apply` makes another, which runs the recorded
-  release by itself.
-- Throughput beyond one machine: llama.cpp embeds on the instance's CPUs, and the app gives a
-  batch of 32 passages 120 seconds. Two vCPUs are slow for long passages; embed stages that keep
-  failing on time call for a larger instance or a hosted endpoint ("The embeddings
-  endpoint").
-- The metrics' history: Prometheus keeps 15 days on the instance's disk, for the rules and a
-  look on the day, and loses them with a replaced instance; dashboards over months need a
-  Prometheus elsewhere (Amazon Managed Service for Prometheus takes `remote_write`).
-- A CDN or firewall in front, IPv6, and the bucket's replication to a second region.
-
-It was checked without an AWS account: the module and the account root by `tofu test` against
-a mocked provider and by `validate`, the instance's part on Docker 25 (Amazon Linux's) with
-Compose 5.5.1, fakes for the AWS CLI and systemd, a TLS Postgres under an RDS name and MinIO
-with the module's policies as session policies, `push-image.sh` and `release.sh` with a
-fake AWS CLI, a registry of their own and a health check that answered each version, and
-Prometheus and Alertmanager from `deploy/aws/compose.yml` against a fake SNS (the watchdog on
-the heartbeat topic every three minutes, `EmudocNoApi` and `EmudocNoWorker` on the alerts
-topic and `EmudocProcessDown` held back, each request signed with the credentials of the file
-the host renews, read again once renewed). The first
-`apply` and release on a real account are the check of the rest, GitHub's sign-in and the
-repository's policy among them.
-
 ## Checking it
 
 1. `curl -sS https://emudoc.example.com/api/health` answers `{"status":"ok","version":"…"}`
@@ -4461,13 +3909,13 @@ repository's policy among them.
    originals and `documents/<id>.json`; the bucket or directory holds it under the project's
    `exports/`.
 10. Whatever collects the logs deletes them after the period the team chose ("How long they
-    are kept": on AWS, `sudo journalctl -q -o short-iso | head -n 1` on an instance that has run
-    for `server_log_days` shows a line no older). Any `/api` response carries `Cache-Control:
+    are kept": `sudo journalctl -q -o short-iso | head -n 1` on a machine that has run for the
+    period shows a line no older). Any `/api` response carries `Cache-Control:
     no-store`, and signing out answers with `Clear-Site-Data: "cache"`.
 11. The API's and the worker's logs say at start how long the bucket keeps a deleted file,
     within `BACKUP_DAYS`, and `pgbackrest --stanza=emudoc info` says `status: ok` and `cipher:
     aes-256-cbc` with a full backup from the last week and WAL archived up to the last minutes.
-    Before launch, drill a restore on staging as "The drill" says: a document deleted after the
+    Before launch, drill a restore on a copy of the deployment as "The drill" says: a document deleted after the
     moment opens again, one uploaded after it is gone from the library, and a browser signed in
     before the restore is sent to the sign-in page. `systemctl list-timers
     emudoc-restore-drill.timer` shows the monthly drill's next run, and its first one, started
@@ -4497,14 +3945,7 @@ repository's policy among them.
     compose -f deploy/compose.yml run --rm --no-deps worker python -m app.maintenance models`
     ends with "Every model answered as the app asks it" and exits with 0, with no line saying
     `MODEL_PRICES` has no price for a model.
-16. On AWS, `release.sh` ends with "is released on staging, and … is ready". On the instance
-    (`aws ssm start-session`), `sudo emudoc-compose ps` shows the API and the worker healthy
-    on the tag, `systemctl list-timers 'emudoc-*'` the credentials' renewal within the quarter
-    hour and the drill's next run, and `sudo docker run --rm <image> python -c 'import boto3;
-    print(boto3.Session().get_credentials())'` prints `None` after a second: a container does
-    not reach the instance's role. A release of a tag whose migration fails ends with "was not
-    recorded", and `/api/health` answers throughout.
-17. The API's and the worker's logs say at start "Metrics are served at http://0.0.0.0:9464/metrics",
+16. The API's and the worker's logs say at start "Metrics are served at http://0.0.0.0:9464/metrics",
     the worker's "with the database's figures". From the machine, `docker compose -f
     deploy/compose.yml exec worker python -c "import urllib.request;
     print(urllib.request.urlopen('http://127.0.0.1:9464/metrics').read().decode())" | grep
@@ -4513,32 +3954,20 @@ repository's policy among them.
     Upload a document and ask a question: the scraper shows `emudoc_stage_runs_total` with
     `outcome="done"` for every stage and `emudoc_model_requests_total` with `outcome="ok"`, and
     no series names a member, an organisation or the question.
-18. With `ALERT_EMAIL` set, the worker's log has no line saying it is not, and no line from
+17. With `ALERT_EMAIL` set, the worker's log has no line saying it is not, and no line from
     `app.watch` saying it "could not check" something. Stop the scanner (`docker compose -f
     deploy/compose.yml stop clamav`): within the quarter of an hour the address gets "Emudoc
     alert: the malware scanner does not answer", and after `start clamav` and the next round
     "Emudoc alert over: …". With a scraper, its rules page lists the 33 rules of
     `deploy/prometheus/alerts.yml` without an error and none firing but `EmudocWatchdog`, which
-    the dead man's switch hears; with the API stopped, `EmudocNoApi` fires after 5 minutes. On
-    AWS, Prometheus's page through Session Manager ("Alerts", "On AWS") shows the same, and
-    CloudWatch shows the alarm `emudoc-<environment>-alerts-silent` OK.
-    `systemctl list-timers emudoc-watch.timer` shows the next look, and stopping a container for
-    ten minutes (`sudo emudoc-compose stop clamav`) reaches the alerts topic and the pager, and
-    its start again "the containers are well again". Stopping Alertmanager for twenty minutes (`sudo
-    emudoc-compose stop alertmanager`) brings the watch's message and CloudWatch's alarm, and
-    its start the alarm's OK; `sudo emudoc-compose stop api` brings "Emudoc staging:
-    EmudocNoApi" after five minutes, to the pager too, and no `EmudocProcessDown`.
-19. On AWS, CloudWatch lists the account's ten `emudoc-account-…` alarms, none in alarm, and the
-    log group `emudoc-trail` receives the trail's events. Making and deleting a security group
-    no one needs (`aws ec2 create-security-group --group-name emudoc-alarm-check --description
-    'An alarm check'`, then `aws ec2 delete-security-group --group-name emudoc-alarm-check`)
-    brings `emudoc-account-security-groups` to `account_alert_email` within minutes.
-20. Ask a question: the worker's log has its run's line, "Job … (answer_question) ran … s
+    the dead man's switch hears; with the API stopped, `EmudocNoApi` fires after 5 minutes,
+    reaching the pager, and `EmudocProcessDown` is held back.
+18. Ask a question: the worker's log has its run's line, "Job … (answer_question) ran … s
     (done)", whose `timing` lists the model's turns with the configured model and the tool
     calls by name, and the second recipe of "Traces" with its `trace_id` finds the API's lines
     of the question too, the access line of its `POST` with its `seconds`. Neither holds the
     question's words or the answer's.
-21. Upload a document and ask a question about it: the scraper shows
+19. Upload a document and ask a question about it: the scraper shows
     `emudoc_document_ready_seconds_count` and `emudoc_answer_first_text_seconds_count` at 1 or
     more, and its rules page the six rules of `emudoc-service-levels`, none firing. The uptime
     service outside the deployment shows `/api/health` up. `maintenance jobs` (as "Runbooks"
@@ -4551,8 +3980,7 @@ Every variable the app reads, with its default and what production asks of it. `
 says more of each, and the sections above say how they fit together. "required" is what
 production refuses to start without (`production_problems` in `backend/app/config.py`, which
 `backend/tests/test_config.py` holds this list to, as it holds the list to every setting there
-is); "needed for" is what one choice brings with it. On AWS the module writes some of them and
-the roots' `settings` the others ("The settings").
+is); "needed for" is what one choice brings with it.
 
 ### The process
 
@@ -4594,7 +4022,7 @@ the roots' `settings` the others ("The settings").
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` | none | a secret, for a bucket | boto3's credentials for the bucket |
 | `AWS_DEFAULT_REGION` | none | needed for an AWS bucket | The bucket's region, which URLs are signed for |
 | `AWS_ENDPOINT_URL` | AWS's | needed for another provider's bucket | MinIO's, R2's, Hetzner's address, over `https://` off the own network |
-| `AWS_CONFIG_FILE`, `AWS_EC2_METADATA_DISABLED` | none | | boto3's; on AWS the role's renewed session (`/run/aws/config`) and no metadata service ("What an environment is made of") |
+| `AWS_CONFIG_FILE`, `AWS_EC2_METADATA_DISABLED` | none | | boto3's: a shared configuration file, such as one that holds a role's session renewed beside the app, and no instance metadata service |
 | `PAGE_IMAGE_DAYS` | `30` | | How long a rendered page or thumbnail is kept; 0 for good |
 | `MAX_UPLOAD_MB` | `100` | | The largest file |
 | `MAX_UPLOAD_FILES` | `100` | | Files one request may carry |
@@ -4706,6 +4134,7 @@ and the like), named on its models' pages.
 | --- | --- | --- | --- |
 | `SUPPORT_EMAIL` | none | | Where members write for help, from the app's help menu, in place of the workspace's owners and admins ("Support"); the mail to an address an account left names it |
 | `STATUS_PAGE_URL` | none | | The status page outside the deployment that the help menu links to ("The status page") |
+| `SOURCE_URL` | none | | Where the source of the running code is, which the help menu's "Source code" offers every member as the AGPL asks; unset, the public repository at the running release's tag ("The source code") |
 | `BACKUP_DAYS` | none | | How long the backups are kept: `backup` removes its older ones, and the bucket's earlier versions are held to it ("Backups") |
 
 The compose files read a few of their own: `POSTGRES_PASSWORD` (the database's, which
@@ -4714,7 +4143,5 @@ The compose files read a few of their own: `POSTGRES_PASSWORD` (the database's, 
 file, `.env` beside the compose file by default), `EMUDOC_BACKUPS` (where `backup` writes, the
 `backups` volume by default), `COMPOSE_PROFILES` (Compose's own: `scan`,
 `office`, `tls`) and `APP_URL` for Caddy, in `deploy/compose.yml`, with `EMBEDDING_WEIGHTS_URL`
-and `EMBEDDING_WEIGHTS_SHA256` for the embeddings server's weights;
-`EMUDOC_DOMAIN`, `EMUDOC_ENVIRONMENT`, `EMUDOC_ALERTS`, `EMUDOC_PAGES` and `EMUDOC_HEARTBEAT`
-in `deploy/aws/compose.yml`, which each release writes. The drill's `DRILL_*` and `RDS_*` are in
+and `EMBEDDING_WEIGHTS_SHA256` for the embeddings server's weights. The drill's `DRILL_*` and `RDS_*` are in
 its scripts' headers ("The drill").

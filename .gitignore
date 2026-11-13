@@ -20,9 +20,3 @@ __pycache__/
 node_modules/
 frontend/dist/
 *.tsbuildinfo
-
-# OpenTofu (deploy/aws): providers and state stay local; the lock files are kept
-.terraform/
-*.tfstate
-*.tfstate.*
-*.tfplan

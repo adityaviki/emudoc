@@ -10,7 +10,13 @@
       "exclude": []
     }
   },
-  "bypass_actors": [],
+  "bypass_actors": [
+    {
+      "actor_id": 5,
+      "actor_type": "RepositoryRole",
+      "bypass_mode": "pull_request"
+    }
+  ],
   "rules": [
     {
       "type": "deletion"
@@ -32,6 +38,54 @@
         "allowed_merge_methods": [
           "rebase",
           "squash"
+        ]
+      }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [
+          {
+            "context": "Backend (postgres, 1 of 3)",
+            "integration_id": 15368
+          },
+          {
+            "context": "Backend (postgres, 2 of 3)",
+            "integration_id": 15368
+          },
+          {
+            "context": "Backend (postgres, 3 of 3)",
+            "integration_id": 15368
+          },
+          {
+            "context": "End to end",
+            "integration_id": 15368
+          },
+          {
+            "context": "Frontend",
+            "integration_id": 15368
+          },
+          {
+            "context": "Image",
+            "integration_id": 15368
+          },
+          {
+            "context": "Load test",
+            "integration_id": 15368
+          },
+          {
+            "context": "Scripts and configuration",
+            "integration_id": 15368
+          },
+          {
+            "context": "Secrets",
+            "integration_id": 15368
+          },
+          {
+            "context": "license/cla"
+          }
         ]
       }
     }

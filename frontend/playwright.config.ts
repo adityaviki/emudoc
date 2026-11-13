@@ -13,8 +13,8 @@ export default defineConfig({
   workers: 1,
   forbidOnly: !!process.env.CI,
   retries: 0,
-  // An assertion waits up to 15 s, not Playwright's 5: CI's runners share one machine
-  // (ci-runner/), where a commit has taken 8 s while the other jobs wrote to the same disk.
+  // An assertion waits up to 15 s, not Playwright's 5: on a runner that shares its machine, a
+  // commit has taken 8 s while the other jobs wrote to the same disk.
   expect: { timeout: 15_000 },
   reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : 'list',
   use: {
