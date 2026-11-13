@@ -1052,6 +1052,14 @@ def client(services, session, mailer, identity_provider, pwned_passwords):
 
 
 @pytest.fixture
+def relay(monkeypatch):
+    """A mail relay named, as a team's install may: the routes that answer otherwise where it
+    mails nothing (`relay_set` in app/mail.py) mail as they would, through the fake the app
+    sends with whatever the settings say."""
+    monkeypatch.setattr(get_settings(), "smtp_url", "smtp://relay.example:587")
+
+
+@pytest.fixture
 def signed_in_only(monkeypatch):
     """Require a session on every request, as production does; development falls back to the
     local account instead."""

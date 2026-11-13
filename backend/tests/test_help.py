@@ -1,12 +1,13 @@
 """Help for members (app/api/help.py): where to write for help, the status page, and a message
 from the app's help menu, mailed to SUPPORT_EMAIL or the workspace's owners and admins with
-where the member was, and nothing of it kept or logged."""
+where the member was, and nothing of it kept or logged; none where the install mails nothing.
+The install of each test but those about that names a relay."""
 
 import pytest
 from pydantic import ValidationError
 from sqlalchemy import func, select
 
-from app.api.help import NOBODY_ELSE
+from app.api.help import NO_MAIL, NOBODY_ELSE
 from app.config import Settings, get_settings
 from app.models import AuditEvent, Job
 from app.ratelimit import FEEDBACK
@@ -18,6 +19,8 @@ from tests.test_probes import database_down  # noqa: F401 (a fixture)
 SUPPORT = "support@emudoc.example.com"
 FAILED = "0123456789abcdef0123456789abcdef"
 WORDS = "The <b>invoice</b> from Acme shows twice in the library since this morning."
+
+pytestmark = pytest.mark.usefixtures("relay")
 
 
 def write(client, message: str = WORDS, kind: str = "problem", **more):
@@ -177,9 +180,27 @@ def test_a_program_does_not_write_to_support(client, mailer):
     assert mailer.sent == []
 
 
+def test_an_install_that_mails_nothing_takes_no_message(client, session, mailer, monkeypatch):
+    monkeypatch.setattr(get_settings(), "smtp_url", "")
+    assert client.get("/api/help").json()["mail"] is False
+    jobs = session.scalar(select(func.count()).select_from(Job))
+    # The message would reach the log by its subject alone, so it is refused, with or without
+    # SUPPORT_EMAIL, and the menu says whom to write to instead.
+    for support in (SUPPORT, ""):
+        monkeypatch.setattr(get_settings(), "support_email", support)
+        refused = write(client)
+        assert (refused.status_code, refused.json()["detail"]) == (409, NO_MAIL)
+    assert mailer.sent == []
+    assert session.scalar(select(func.count()).select_from(Job)) == jobs
+
+
 def test_help_names_support_email_alone(client, monkeypatch):
     # Anyone may ask, the page that cannot reach its server too.
-    assert client.get("/api/help").json() == {"support_email": SUPPORT, "status_page": None}
+    assert client.get("/api/help").json() == {
+        "support_email": SUPPORT,
+        "status_page": None,
+        "mail": True,
+    }
     settings = get_settings()
     monkeypatch.setattr(settings, "support_email", "")
     assert client.get("/api/help").json()["support_email"] is None

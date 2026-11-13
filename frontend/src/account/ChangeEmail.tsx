@@ -1,16 +1,19 @@
 // Moving the account to a new address: the account page asks for it, confirmed by the password
 // or, for an account that signs in only through a provider, by its address typed out, and the
-// link mailed to the new address opens ConfirmEmailPage, signed in or not.
+// link mailed to the new address opens ConfirmEmailPage, signed in or not. Where the install
+// mails nothing (`mailed` false), only an owner or admin is offered this, and moves at once.
 
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { auth } from '../api.ts'
 import type { Me } from '../api.ts'
+import { ME_KEY } from '../auth.ts'
 import { Button, InputField, Notice } from '../components/ui.tsx'
 import { PasswordField } from './shared.tsx'
 
-export function ChangeEmailForm({ me, onClose }: { me: Me; onClose: () => void }) {
+export function ChangeEmailForm({ me, mailed, onClose }: { me: Me; mailed: boolean; onClose: () => void }) {
+  const queryClient = useQueryClient()
   const [email, setEmail] = useState('')
   const [confirmation, setConfirmation] = useState('')
   const [sentTo, setSentTo] = useState('')
@@ -19,7 +22,14 @@ export function ChangeEmailForm({ me, onClose }: { me: Me; onClose: () => void }
       auth.requestEmailChange(
         me.has_password ? { email: email.trim(), password: confirmation } : { email: email.trim(), current_email: confirmation },
       ),
-    onSuccess: () => setSentTo(email.trim()),
+    onSuccess: (answer) => {
+      if (answer.moved) {
+        void queryClient.invalidateQueries({ queryKey: ME_KEY })
+        onClose()
+      } else {
+        setSentTo(email.trim())
+      }
+    },
   })
 
   function submit(event: FormEvent) {
@@ -71,7 +81,7 @@ export function ChangeEmailForm({ me, onClose }: { me: Me; onClose: () => void }
       {change.isError && <Notice tone="bad">{change.error.message}</Notice>}
       <div className="flex gap-2">
         <Button type="submit" variant="primary" disabled={!email.trim() || !confirmation.trim() || change.isPending}>
-          Send a confirmation link
+          {mailed ? 'Send a confirmation link' : 'Change the address'}
         </Button>
         <Button variant="ghost" onClick={onClose}>
           Cancel

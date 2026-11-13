@@ -16,6 +16,12 @@ newest entry first.
 
 Members:
 
+- Where your workspace sends no email, Emudoc no longer pretends it does. The help menu says so
+  and lists whom to write to from your own email, each a link to a message that carries the page
+  you were on. Your account page offers notices under the bell alone. To move your account to a
+  new address, ask one of the workspace's owners or admins: they make the link that moves it
+  from the members list ("Change address…"), and change their own address at once from their
+  account page.
 - Where your workspace sends no email, the forgotten-password page says to ask one of its owners
   or admins for a link to set a new password, rather than promising an email that never comes.
 - Owners and admins have an Administration page, from the account's menu or the workspace's
@@ -52,6 +58,11 @@ Members:
 
 Operators:
 
+- Where no mail relay is set, `POST /api/feedback` answers 409 rather than queuing a message
+  the log would keep by its subject alone, `GET /api/help` says `mail`, and `POST /api/auth/email`
+  moves an owner's or admin's account at once and refuses a member's. `POST
+  /api/organization/members/{id}/email-link` makes the link that moves a member's account,
+  written in the audit log as `email_link_made` (a migration).
 - Backups a team takes by itself: `docker compose run --rm backup` writes the database (a
   `pg_dump`) and the files into a folder of its own in the new `backups` volume, or the directory
   `EMUDOC_BACKUPS` names, while the app runs. Files unchanged since the previous backup are

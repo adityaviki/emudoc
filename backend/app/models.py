@@ -376,6 +376,7 @@ AUDIT_ACTIONS = (
     "my_file_copied",
     "reset_link_made",
     "provider_switched",
+    "email_link_made",
 )
 
 

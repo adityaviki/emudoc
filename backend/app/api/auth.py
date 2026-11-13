@@ -132,6 +132,7 @@ from app.schemas import (
     AuthOptions,
     CodeIn,
     EmailChangeIn,
+    EmailChangeOut,
     EmailIn,
     InvitationLinkOut,
     InvitationSignupIn,
@@ -155,6 +156,7 @@ from app.schemas import (
 )
 from app.security import mfa_due
 from app.signups import (
+    EMAIL_PAGE,
     NOT_SET_UP,
     RESET_PAGE,
     SET_UP_ALREADY,
@@ -176,7 +178,6 @@ LOGIN_PAGE = "/login"
 SIGNUP_PAGE = "/finish-signup"
 VERIFY_PAGE = "/verify"
 FORGOT_PAGE = "/forgot-password"
-EMAIL_PAGE = "/confirm-email"
 INVITATION_PAGE = "/invitation"
 ACCOUNT_PAGE = "/account"
 
@@ -207,6 +208,15 @@ ADDRESS_TAKEN = (
     "That address became another Emudoc account's after the link was sent, so it cannot be "
     "this account's. Sign in with it, or ask for the change again with another address."
 )
+# Where the install mails nothing, no link can confirm a new address, so a member is handed one
+# by an owner or admin (`make_email_link` in app/api/organizations.py), and an owner or admin,
+# with nobody above them to ask, moves at once.
+ASK_FOR_THE_LINK = (
+    "This workspace sends no email, so a new address cannot be confirmed by a link mailed to it. "
+    "Ask one of its owners or admins for the link that moves your account, which they make from "
+    "the members list on the workspace's page."
+)
+ADDRESS_HELD = "That address is another Emudoc account's already. Choose another."
 # Whom the old address is told to write to when its account moved without its owner asking,
 # where the deployment names no support address (SUPPORT_EMAIL).
 NO_CONTACT = "the people who run this Emudoc service"
@@ -653,16 +663,26 @@ def update_profile(body: ProfileIn, account: AccountDep, request: Request, sessi
     return me_out(session, account)
 
 
-@router.post("/email", status_code=202, dependencies=[Depends(limited(SIGN_INS))])
+@router.post(
+    "/email",
+    status_code=202,
+    response_model=EmailChangeOut,
+    dependencies=[Depends(limited(SIGN_INS))],
+)
 def request_email_change(
     body: EmailChangeIn, account: AccountDep, request: Request, session: SessionDep
 ):
     """Send the link that moves the account to a new address, once the password confirms it.
     An address with an account is told so instead of getting the link, by a mail posted all the
-    same, so that it answers alike."""
+    same, so that it answers alike. Where the install mails nothing, a member is told to ask an
+    owner or admin for the link, and an owner or admin is moved at once, an address with an
+    account refused, there being no mail to answer alike with."""
     user = account.user
     if account.session_id is None:
         raise HTTPException(409, LOCAL_ADDRESS)
+    mailed = relay_set(get_settings())
+    if not (mailed or account.is_at_least("admin")):
+        raise HTTPException(409, ASK_FOR_THE_LINK)
     confirm_account(session, account, request, body.password, body.current_email)
     email = body.email.strip().lower()
     if email == user.email:
@@ -670,6 +690,13 @@ def request_email_change(
     # Counted for the address as well as the account, so that no address is flooded from many.
     refuse_past(session, (SIGN_INS, by_email(email)))
     holder = session.scalar(select(User).where(User.email == email))
+    if not mailed:
+        if holder is not None:
+            raise HTTPException(409, ADDRESS_HELD)
+        audit(session, account, request, "email_change_requested")
+        _move(session, user, email, request, ADDRESS_HELD)
+        session.commit()
+        return EmailChangeOut(moved=True)
     if holder is None:
         token = auth.issue_link_token(session, user, "change_email", email, auth.VERIFY_LINK_TTL)
         content = email_change_email(user.name, mailed_link(request, EMAIL_PAGE, token))
@@ -678,32 +705,39 @@ def request_email_change(
     post(session, email, content)
     audit(session, account, request, "email_change_requested")
     session.commit()
+    return EmailChangeOut(moved=False)
 
 
 @router.post("/email/confirm", status_code=204)
 def confirm_email_change(body: LinkTokenIn, request: Request, session: SessionDep):
     """Make the address a change-of-address link was sent to the account's, confirmed, since
-    opening the link proves it is the requester's. Works without being signed in."""
+    opening the link proves it is the requester's, or, for a link an owner or admin handed on,
+    since they vouch for it. Works without being signed in."""
     link = auth.redeem_link_token(session, body.token, "change_email")
     if link is None:
         raise HTTPException(400, LINK_INVALID)
-    user = session.get(User, link.user_id)
+    _move(session, session.get(User, link.user_id), link.email, request, ADDRESS_TAKEN)
+    session.commit()
+
+
+def _move(session: Session, user: User, email: str, request: Request, taken: str) -> None:
+    """Make the address the user's, confirmed, refused with 409 `taken` where another account
+    holds it by now, and tell the old address; the caller commits."""
     old = user.email
-    user.email = link.email
+    user.email = email
     user.email_verified_at = auth.now()
     try:
-        # An account made with the address since the link was sent is the database's to see,
+        # An account made with the address since it was asked for is the database's to see,
         # however close the two came.
         session.flush()
     except IntegrityError:
         session.rollback()
-        raise HTTPException(409, ADDRESS_TAKEN) from None
+        raise HTTPException(409, taken) from None
     # A verification or reset link sent to the old address would act for an address that is
     # no longer the account's, and a second change waiting would undo this one.
     auth.void_link_tokens(session, user.id)
     audit_sign_in(session, user, request, "email_changed")
     post(session, old, email_changed_email(user.name, get_settings().support_email or NO_CONTACT))
-    session.commit()
 
 
 # Email verification

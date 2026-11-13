@@ -1,20 +1,32 @@
 // The question mark in the header: the way to the status page, and to write for help from
 // wherever the member is, to SUPPORT_EMAIL or the workspace's owners and admins, with the page
 // and the last request that failed attached (src/help/feedback.ts, backend/app/api/help.py). What they typed is kept while the panel is
-// closed, which a click elsewhere or a switch to another window does, until it is sent.
+// closed, which a click elsewhere or a switch to another window does, until it is sent. Where the install mails nothing, the
+// form gives way to whom to write to from the member's own mail.
 
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { Activity, CircleHelp } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useLocation } from 'react-router'
-import { api, lastFailedRequest } from '../api.ts'
+import { api, lastFailedRequest, organizations } from '../api.ts'
 import type { FeedbackKind } from '../api.ts'
 import { useMe } from '../auth.ts'
 import { Floating } from '../components/Menu.tsx'
-import { Button, FIELD, Notice, Segmented } from '../components/ui.tsx'
+import { Button, FIELD, Notice, Segmented, Spinner } from '../components/ui.tsx'
 import { useHelp } from '../hooks.ts'
-import { FEEDBACK_KINDS, MAX_FEEDBACK_CHARS, attachedWords, feedbackOf, sentTo, writeHeading } from './feedback.ts'
+import {
+  FEEDBACK_KINDS,
+  MAX_FEEDBACK_CHARS,
+  attachedWords,
+  byHandWords,
+  feedbackOf,
+  feedbackPage,
+  mailtoOf,
+  readersByHand,
+  sentTo,
+  writeHeading,
+} from './feedback.ts'
 
 export function HelpMenu() {
   const help = useHelp()
@@ -47,7 +59,9 @@ export function HelpMenu() {
           <div role="dialog" aria-label="Help">
             <StatusPageLink />
             <p className="px-3 pt-3 text-[13px] font-medium">{writeHeading(help.data?.support_email ?? null)}</p>
-            {send.isSuccess ? (
+            {help.data?.mail === false ? (
+              <WriteByHand supportEmail={help.data.support_email} />
+            ) : send.isSuccess ? (
               <Sent reference={send.data.reference} to={send.data.to} onAgain={() => send.reset()} />
             ) : (
               <WriteForm
@@ -144,6 +158,47 @@ function WriteForm({ kind, onKind, message, onMessage, sending, error, onSend }:
         </Button>
       </div>
     </form>
+  )
+}
+
+// The members list names the owners and admins, which every member may read; the panel's first
+// link takes the focus as it opens.
+function WriteByHand({ supportEmail }: { supportEmail: string | null }) {
+  const me = useMe()
+  const location = useLocation()
+  const members = useQuery({ queryKey: ['organization', 'members'], queryFn: organizations.members, enabled: !supportEmail })
+  if (!supportEmail && members.isPending) {
+    return (
+      <div className="flex justify-center p-3">
+        <Spinner />
+      </div>
+    )
+  }
+  if (members.isError) {
+    return (
+      <div className="p-3">
+        <Notice tone="bad">{members.error.message}</Notice>
+      </div>
+    )
+  }
+  const readers = readersByHand(supportEmail, members.data ?? [], me.id)
+  const page = feedbackPage(location.pathname, location.search)
+  const failed = lastFailedRequest()
+  return (
+    <div className="space-y-2 p-3 text-[13px] leading-relaxed">
+      <p>{byHandWords(supportEmail, readers.length)}</p>
+      {readers.length > 0 && (
+        <ul className="space-y-1">
+          {readers.map((reader) => (
+            <li key={reader.email} className="truncate">
+              <a href={mailtoOf(reader.email, window.location.origin, page, failed)} className="text-accent hover:underline">
+                {reader.name === reader.email ? reader.email : `${reader.name}, ${reader.email}`}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   )
 }
 

@@ -10,16 +10,20 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from sqlalchemy import select, update
 
-from app.api.auth import WRONG_PASSWORD
+from app.api.auth import ADDRESS_HELD, WRONG_PASSWORD
 from app.api.deps import NO_WORKSPACE, READ_ONLY
 from app.api.organizations import (
+    ADMINS_MOVE,
     ADMINS_ONLY,
     ADMINS_RESET,
     MANAGERS_ONLY,
     OWNERS_FOR_OWNERS,
+    OWNERS_MOVE_OWNERS,
     OWNERS_ONLY,
     OWNERS_RESET_OWNERS,
     REMOVE_YOURSELF,
+    THEIR_ADDRESS,
+    YOUR_OWN_ADDRESS,
     YOUR_OWN_PASSWORD,
     YOUR_OWN_ROLE,
     YOURS_ALREADY,
@@ -288,6 +292,58 @@ def test_owners_and_admins_make_a_member_a_link_that_resets_their_password(clien
     set_role(session, org_id, bob["id"], "member")
     member = bob_client.post(f"/api/organization/members/{ada['id']}/reset-link")
     assert (member.status_code, member.json()["detail"]) == (403, ADMINS_RESET)
+
+
+def test_owners_and_admins_make_a_member_a_link_that_moves_their_address(client, session, team):
+    ada, bob, bob_client = team
+    org_id = ada["organization"]["id"]
+    link_to = f"/api/organization/members/{bob['id']}/email-link"
+    first = client.post(link_to, json={"email": "bob@first.example"}).json()["link"]
+    made = client.post(link_to, json={"email": "Bob@Analytical.org"})
+    assert made.status_code == 200, made.text
+    link = made.json()["link"]
+    assert link.startswith("http://testserver/confirm-email#token=")
+    lasts = datetime.fromisoformat(made.json()["expires_at"]) - datetime.now(UTC)
+    assert HANDED_LINK_TTL - timedelta(minutes=1) < lasts <= HANDED_LINK_TTL
+    # Nothing changes until it is opened, and the later link voids the earlier.
+    assert me(bob_client).json()["email"] == "bob@example.com"
+    stale = parse_qs(urlsplit(first).fragment)["token"][0]
+    confirm = another_browser(client).post("/api/auth/email/confirm", json={"token": stale})
+    assert confirm.status_code == 400
+    # Whoever Ada hands it to moves Bob's account, signed in or not, once; the address is
+    # confirmed, Ada vouching for it, and Bob stays signed in.
+    token = parse_qs(urlsplit(link).fragment)["token"][0]
+    opened = another_browser(client).post("/api/auth/email/confirm", json={"token": token})
+    assert opened.status_code == 204
+    account = me(bob_client).json()
+    assert account["email"] == "bob@analytical.org" and account["email_verified"] is True
+    again = another_browser(client).post("/api/auth/email/confirm", json={"token": token})
+    assert again.status_code == 400
+    made_row = session.scalars(
+        select(AuditEvent).where(AuditEvent.action == "email_link_made")
+    ).all()[-1]
+    assert (made_row.org_id, made_row.user_id) == (org_id, ada["id"])
+    assert (made_row.target_type, made_row.target_id) == ("user", bob["id"])
+    assert made_row.detail == {}
+
+    # Nobody makes one for themselves, nor to the address the member has or another account's.
+    elsewhere = {"email": "someone@new.example"}
+    yours = client.post(f"/api/organization/members/{ada['id']}/email-link", json=elsewhere)
+    assert (yours.status_code, yours.json()["detail"]) == (400, YOUR_OWN_ADDRESS)
+    same = client.post(link_to, json={"email": "BOB@analytical.org"})
+    assert (same.status_code, same.json()["detail"]) == (400, THEIR_ADDRESS)
+    taken = client.post(link_to, json={"email": "ada@example.com"})
+    assert (taken.status_code, taken.json()["detail"]) == (409, ADDRESS_HELD)
+    assert client.post(link_to, json={"email": "not an address"}).status_code == 422
+    # An admin makes none for an owner, and a member none at all.
+    set_role(session, org_id, bob["id"], "admin")
+    to_ada = f"/api/organization/members/{ada['id']}/email-link"
+    for_owner = bob_client.post(to_ada, json=elsewhere)
+    assert (for_owner.status_code, for_owner.json()["detail"]) == (403, OWNERS_MOVE_OWNERS)
+    set_role(session, org_id, bob["id"], "member")
+    member = bob_client.post(to_ada, json=elsewhere)
+    assert (member.status_code, member.json()["detail"]) == (403, ADMINS_MOVE)
+    assert me(client).json()["email"] == "ada@example.com"
 
 
 def test_a_member_removed_loses_their_private_chats_and_their_place(client, session, team):

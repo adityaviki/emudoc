@@ -5,7 +5,9 @@ menu (`POST /api/feedback`), mailed with what its reader needs to find what they
 
 The message goes to SUPPORT_EMAIL where the server names one, a team's helpdesk; otherwise to the
 workspace's owners and admins, who run it, each by a mail of their own, the member who wrote
-left out. A sole owner or admin has nobody to write to there, which they are told.
+left out. A sole owner or admin has nobody to write to there, which they are told. An install
+that mails nothing (`relay_set`) takes no message, which would reach its log by the subject alone:
+`HelpOut.mail` has the menu say whom to write to from the member's own mail instead.
 
 The message is the member's words and goes nowhere but the mail: not into a log line, nor an
 `AppError`, nor the subject, which the mailer logs when a relay refuses it. What is attached is
@@ -30,7 +32,7 @@ from app.api.deps import AccountDep, SessionDep, limited
 from app.client import UPLOAD_CLIENT
 from app.config import get_settings
 from app.logs import current_context
-from app.mail import compose, support_message_email
+from app.mail import compose, relay_set, support_message_email
 from app.models import Membership, User
 from app.postbox import post
 from app.ratelimit import FEEDBACK
@@ -45,19 +47,25 @@ NOBODY_ELSE = (
     "you. To have the help menu write to someone, set SUPPORT_EMAIL on the server to their "
     "address, or make another member an admin."
 )
+# What a message sent where the install mails nothing is told, which the menu does not offer.
+NO_MAIL = (
+    "This workspace sends no email, so the help menu cannot send a message. Write from your own "
+    "email to the address the help menu names, or to one of the workspace's owners or admins."
+)
 # The longest browser description a message carries; a real one is a few hundred characters.
 BROWSER_CHARS = 300
 
 
 @router.get("/help", response_model=HelpOut)
 def help_offered():
-    """Where members write for help, where the server names an address, and the status page. It
-    reads no database, so that the page that cannot reach its server, a database being down,
-    still learns where the status page is."""
+    """Where members write for help, where the server names an address, the status page, and
+    whether a message can be sent. It reads no database, so that the page that cannot reach its
+    server, a database being down, still learns where the status page is."""
     settings = get_settings()
     return HelpOut(
         support_email=settings.support_email or None,
         status_page=settings.status_page_url or None,
+        mail=relay_set(settings),
     )
 
 
@@ -79,7 +87,10 @@ def send_feedback(body: FeedbackIn, account: AccountDep, request: Request, sessi
     """Post the member's message to SUPPORT_EMAIL, or to the workspace's other owners and admins,
     replies going to the member, and answer with the reference it was sent under for them to
     quote."""
-    support = get_settings().support_email
+    settings = get_settings()
+    if not relay_set(settings):
+        raise HTTPException(409, NO_MAIL)
+    support = settings.support_email
     readers = [support] if support else _admins(session, account)
     if not readers:
         raise HTTPException(409, NOBODY_ELSE)

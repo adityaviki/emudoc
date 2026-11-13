@@ -161,6 +161,7 @@ def test_a_chat_shared_and_deleted_is_recorded_without_its_title(client, session
 # Sign-ins and accounts
 
 
+@pytest.mark.usefixtures("relay")
 def test_sign_ins_and_changes_to_an_account_are_recorded(
     client, session, mailer, monkeypatch, signed_in_only
 ):
