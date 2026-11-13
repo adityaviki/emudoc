@@ -1,6 +1,7 @@
-"""The kill switches an operator flips from the operator's area: a model provider switched off
-in every process of the deployment within SWITCH_SECONDS, and on again, with no restart. For a
-bill that is running away or a key that leaked, when the day's spending limits are too far off.
+"""The kill switches the workspace's owners and admins flip from its Administration page
+(app/api/admin.py): a model provider switched off in every process of the install within
+SWITCH_SECONDS, and on again, with no restart. For a bill that is running away or a key that
+leaked, when the day's spending limit is too far off.
 
 DISABLED_PROVIDERS (app/config.py) is the deployment's own switch, read at start, and nothing on
 a page turns it back on: a provider is off while either names it. The table
@@ -11,12 +12,12 @@ cannot read it keeps what it read last and says so in its log, since a database 
 stops more than the models.
 
 Everything that asks whether the models can be used reads the same: `check_model` at start,
-`LLM.problem()` and so `/api/status`, the worker's watch and the area's services view. The
-`models` maintenance command connects to no database and asks every model whatever the table
-says, which is how an operator tries a provider before switching it back on.
+`LLM.problem()` and so `/api/status`, the worker's watch and the page's services. The `models`
+maintenance command connects to no database and asks every model whatever the table says, which
+is how an admin tries a provider before switching it back on.
 
-A switch belongs to no organisation, so it writes no row to an audit log: the table keeps who
-switched it off and when, and the log names the operator by id with each switch.
+The table keeps who switched a provider off and when; the route writes each switch into the
+workspace's audit log (`provider_switched`), and the log here names the user by id.
 """
 
 import logging
@@ -70,7 +71,7 @@ class Switches:
                 return frozenset(session.scalars(select(ProviderSwitch.provider)))
         except SQLAlchemyError as error:
             log.warning(
-                "The providers switched off in the operator's area could not be read, so those "
+                "The providers switched off on the Administration page could not be read, so those "
                 "read before still hold: %s",
                 summary(error),
             )
@@ -82,7 +83,7 @@ switched_off = Switches()
 
 
 def switches(session: Session) -> list[tuple[ProviderSwitch, User | None]]:
-    """Every provider switched off in the table, with the operator who did it (None once their
+    """Every provider switched off in the table, with the user who did it (None once their
     account is gone), by name."""
     rows = session.execute(
         select(ProviderSwitch, User)
@@ -92,21 +93,21 @@ def switches(session: Session) -> list[tuple[ProviderSwitch, User | None]]:
     return [(switch, user) for switch, user in rows]
 
 
-def switch_off(session: Session, provider: str, operator: User) -> bool:
+def switch_off(session: Session, provider: str, user: User) -> bool:
     """Switch `provider` off for every process; False when it was off already. The caller
     commits, then calls `switched_off.forget()`."""
     added = session.execute(
         insert(ProviderSwitch)
-        .values(provider=provider, user_id=operator.id)
+        .values(provider=provider, user_id=user.id)
         .on_conflict_do_nothing()
         .returning(ProviderSwitch.provider)
     ).first()
     if added is not None:
-        log.warning("Operator %s switched the model provider %s off", operator.id, provider)
+        log.warning("User %s switched the model provider %s off", user.id, provider)
     return added is not None
 
 
-def switch_on(session: Session, provider: str, operator: User) -> bool:
+def switch_on(session: Session, provider: str, user: User) -> bool:
     """Switch `provider` on again, unless DISABLED_PROVIDERS holds it off; False when the table
     did not hold it off. The caller commits, then calls `switched_off.forget()`."""
     removed = session.execute(
@@ -115,5 +116,5 @@ def switch_on(session: Session, provider: str, operator: User) -> bool:
         .returning(ProviderSwitch.provider)
     ).first()
     if removed is not None:
-        log.warning("Operator %s switched the model provider %s on again", operator.id, provider)
+        log.warning("User %s switched the model provider %s on again", user.id, provider)
     return removed is not None

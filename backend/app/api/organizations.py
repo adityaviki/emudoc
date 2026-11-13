@@ -6,7 +6,7 @@ An install holds one workspace (S.1, 2026-11-12), the organisation every request
 leaves, joins one by their address's domain, or deletes it, which would be the install itself.
 
 Renaming and the organisation's settings are for owners and admins. Renaming keeps the slug, which
-the operator's commands name the organisation by (`usage <slug>`). The settings are the language its
+the commands name the organisation by (`usage <slug>`). The settings are the language its
 documents are searched in (app/languages.py), which moves the passages indexed before to it by a
 job; how long it keeps a chat (app/retention.py) and an entry of its audit log (app/audit.py), until
 deleted unless they choose a number of days; how its members are told each kind of notice until they
@@ -29,12 +29,17 @@ role at once. A member removed loses their private chats in its projects, which 
 could read, and their place among its private projects' members; their shared chats stay with
 the project. They keep their account, in no workspace, until it is invited again
 (app/api/deps.py).
+
+The owners and admins also read when each member was last seen, which the operator's area showed
+until the admins' pages took its place (S.3, 2026-11-13); the rest of what it showed, the jobs,
+the services and the costs, is the Administration page's (app/api/admin.py).
 """
 
+import datetime as dt
 from dataclasses import replace
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.access import forget_projects
@@ -174,7 +179,10 @@ def list_members(account: AccountDep, session: SessionDep):
         .where(Membership.org_id == account.organization.id)
     ).all()
     managing = account.is_at_least("admin")
-    members = [_member_out(membership, user, managing) for membership, user in rows]
+    seen = last_seen(session, [user.id for _, user in rows]) if managing else {}
+    members = [
+        _member_out(membership, user, managing, seen.get(user.id)) for membership, user in rows
+    ]
     return sorted(members, key=lambda m: (ROLES.index(m.role), m.joined_at, m.user_id))
 
 
@@ -200,7 +208,9 @@ def change_role(
         )
         membership.role = body.role
         session.commit()
-    return _member_out(membership, session.get(User, user_id))
+    return _member_out(
+        membership, session.get(User, user_id), seen=last_seen(session, [user_id]).get(user_id)
+    )
 
 
 @router.delete("/organization/members/{user_id}", status_code=204)
@@ -372,9 +382,23 @@ def _part(session: Session, org_id: int, user_id: int) -> int:
     return chats
 
 
-def _member_out(membership: Membership, user: User, managing: bool = True) -> MemberOut:
-    """The member as the page shows them, with whether they sign in with two-factor to an owner
-    or admin (`managing`)."""
+def last_seen(session: Session, user_ids: list[int]) -> dict[int, dt.datetime]:
+    """When each user's sessions were last seen, the latest of them, by the user's id; a user
+    with no session kept is left out."""
+    return dict(
+        session.execute(
+            select(UserSession.user_id, func.max(UserSession.last_seen_at))
+            .where(UserSession.user_id.in_(user_ids))
+            .group_by(UserSession.user_id)
+        ).all()
+    )
+
+
+def _member_out(
+    membership: Membership, user: User, managing: bool = True, seen: dt.datetime | None = None
+) -> MemberOut:
+    """The member as the page shows them, with whether they sign in with two-factor and when
+    they were last seen (`seen`) to an owner or admin (`managing`)."""
     return MemberOut(
         user_id=user.id,
         name=user.name,
@@ -382,6 +406,7 @@ def _member_out(membership: Membership, user: User, managing: bool = True) -> Me
         role=membership.role,
         joined_at=membership.created_at,
         mfa_enabled=user.mfa_enabled if managing else None,
+        last_seen_at=seen if managing else None,
     )
 
 

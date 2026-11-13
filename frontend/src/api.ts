@@ -1502,6 +1502,8 @@ export interface Member {
   joined_at: string
   /** Whether they sign in with two-factor, shown to the owners and admins alone; null for anyone else. */
   mfa_enabled: boolean | null
+  /** When one of their sessions was last seen, shown to the owners and admins alone; null for anyone else, and for no session kept. */
+  last_seen_at: string | null
 }
 
 /** The kinds of notice (NOTICE_KINDS in backend/app/models.py, backend/app/notices.py). */
@@ -1756,6 +1758,7 @@ export type AuditAction =
   | 'my_file_downloaded'
   | 'my_file_copied'
   | 'reset_link_made'
+  | 'provider_switched'
 
 /** One row of the organisation's audit log, which its owners and admins read. */
 export interface AuditEvent {
@@ -2288,6 +2291,133 @@ export const organizations = {
   usage: () => request<UsagePage>('/organization/usage'),
   /** The organisation's first steps that the member's role is offered, and which it took. */
   onboarding: () => request<Onboarding>('/organization/onboarding'),
+}
+
+// The Administration page, the workspace's owners and admins alone: what the maintenance commands
+// print (backend/app/api/admin.py, the Admin* models in backend/app/schemas.py). Amounts are
+// millionths of the currency, as the server keeps them.
+
+/** What the workspace's work cost over a span of days, against DAILY_SPEND_CAP (null for none). */
+export interface Cost {
+  cost_micros: number | null
+  calls: number
+  input_tokens: number
+  output_tokens: number
+  answers: number
+  pages: number
+  top_day_micros: number | null
+  limit_micros: number | null
+  days_at_limit: number | null
+}
+
+export interface ModelCost {
+  kind: string
+  model: string
+  cost_micros: number | null
+  calls: number
+  input_tokens: number
+  output_tokens: number
+  unpriced_tokens: number
+}
+
+export interface Costs {
+  since: string
+  until: string
+  currency: string
+  cost: Cost
+  models: ModelCost[]
+}
+
+export interface Queue {
+  kind: string
+  due: number
+  waiting: number
+  running: number
+  failed: number
+  oldest_due_seconds: number | null
+}
+
+export interface Job {
+  id: number
+  kind: string
+  status: string
+  attempts: number
+  max_attempts: number
+  run_at: string
+  lease_until: string | null
+  finished_at: string | null
+  worker_id: string | null
+  about: string
+  last_error: string | null
+  reported: boolean
+}
+
+/** A worker seen within the last day: running, stopped by itself, or neither, which is a process that died or lost the database. */
+export interface Worker {
+  id: string
+  version: string
+  started_at: string
+  last_seen_at: string
+  stopped_at: string | null
+  running: boolean
+}
+
+export interface Jobs {
+  taken_at: string
+  queue: Queue[]
+  running: Job[]
+  failed: Job[]
+  failed_total: number
+  history_days: number
+  /** The workers seen lately, the latest first; none running leaves the queue's work waiting. */
+  workers: Worker[]
+}
+
+/** What running failed jobs again did: how many documents it queued, and a line for each job. */
+export interface Requeued {
+  queued: number
+  lines: string[]
+}
+
+/** A model provider the settings name a model of, or that the page holds switched off, and what holds it off. */
+export interface Provider {
+  name: string
+  variables: string[]
+  off: boolean
+  by_setting: boolean
+  switched_at: string | null
+  switched_by: string | null
+}
+
+export interface Concern {
+  key: string
+  title: string
+  message: string
+  raised_at: string | null
+}
+
+export interface Services {
+  models: { variable: string; name: string; role: string; fallback: boolean; disabled: boolean }[]
+  providers: Provider[]
+  model_problem: string | null
+  embedding_model: string
+  embedding_address: string
+  scanner: boolean
+  storage_origin: string | null
+  concerns: Concern[]
+  unchecked: string[]
+  database: { version: string; role: string; vector: string | null; iterative_scans: boolean; timeouts: Record<string, string> }
+}
+
+export const admin = {
+  costs: (days: number) => request<Costs>(`/organization/costs?days=${days}`),
+  jobs: () => request<Jobs>('/organization/jobs'),
+  services: () => request<Services>('/organization/services'),
+  /** Run the workspace's failed jobs again by id, or every one for null. */
+  requeue: (jobIds: number[] | null) => request<Requeued>('/organization/jobs/requeue', json('POST', { job_ids: jobIds })),
+  /** Switch a provider off for every process of the install, or on again. */
+  switchProvider: (name: string, off: boolean) =>
+    request<Provider[]>(`/organization/providers/${encodeURIComponent(name)}`, json('PUT', { off })),
 }
 
 /**

@@ -16,6 +16,12 @@ newest entry first.
 
 Members:
 
+- Owners and admins have an Administration page, from the account's menu or the workspace's
+  page: the background work with what failed and why, which they can run again, how the models
+  and services stand, with a switch that stops a model provider at once, and what the models
+  cost. The workspace's members list also tells them when each member was last seen. Running
+  failed documents again and switching a provider are written in the audit log, under their
+  name.
 - Emudoc no longer has terms of service, a privacy policy or a list of subprocessors of its own:
   the pages are gone, a new account is made without ticking a box, and nobody is asked to
   accept new terms. Your team, which runs Emudoc, tells you what it keeps and who receives it.
@@ -44,6 +50,19 @@ Members:
 
 Operators:
 
+- The operator's area is now the workspace's Administration page, at `/admin` in the members'
+  app, for its owners and admins: the jobs and the dead letters to run again (`GET
+  /api/organization/jobs`, `POST /api/organization/jobs/requeue`), the services and the
+  providers' switches (`GET /api/organization/services`, `PUT
+  /api/organization/providers/{provider}`) and the costs (`GET /api/organization/costs`), the
+  jobs and the costs the workspace's own; `GET /api/organization/members` gives owners and admins
+  `last_seen_at`. Gone: `/operator`, `frontend/operator.html` and its build (`pnpm build` makes one
+  page), every route under `/api/operator` with its organisations and users views, the
+  `operators` command, `OPERATOR_NETWORKS` (left in the environment, it is ignored; a proxy rule
+  that refused `/operator` by address may go), and the `operators` table (dropped by the
+  migration). A failed document run again is its admin's row of the audit log, no longer "by
+  Emudoc's operators", and a provider switched off or on is a row too (`provider_switched`).
+  Two-factor sign-in for the admins is the workspace's choice, "Require two-factor sign-in".
 - The terms of service, the privacy policy, the subprocessor list and the residency rules are
   gone: `/terms`, `/privacy` and `/subprocessors`, `GET /api/legal`, `GET /api/subprocessors`,
   `POST /api/auth/terms`, the page that asked for new terms, `terms_version` in the setup's, the

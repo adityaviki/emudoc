@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && vite build --mode operator",
+    "build": "tsc -b && vite build",
     "size": "node scripts/size.ts",
     "lint": "oxlint",
     "test": "vitest run",

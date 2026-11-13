@@ -3475,80 +3475,46 @@ address). Three things fill it:
 The service receives nothing of the members' data: the link opens its site in a tab of its own,
 and the app's pages load nothing from it.
 
-## The operator's area
+## The Administration page
 
-The people who run the deployment read at `/operator` what the maintenance commands print, in a
-browser and without a shell on the machine: the organisations, newest first and found by name,
-slug, id or a member's address, each with its usage page as its members read it, its members
-and what its work cost over 30 days (`usage`); the users, found by a part of their address or name, with their
-organisations and when they were last seen; the costs across organisations over 7, 30 or 90 days
-against `DAILY_SPEND_CAP` (`costs`); the job queue, the running jobs
-with their leases, the dead letters with why each failed and the workers seen in the last day,
-with a warning when none runs (`jobs`, `failed-jobs`); and the
-models and services: the models each variable names, the providers and which are switched off,
-the embeddings endpoint, the scanner, the storage, the database, and everything the worker's
-watch sees wrong now, asked afresh, with since when it has been mailing each ("What the worker
-mails"). What it shows is what the commands
-print, a member's name and address among it, never what a document, a question or an answer
-says.
+The workspace's owners and admins read on its Administration page (`/admin`, from the account's
+menu or the workspace page) what the maintenance commands print, in a browser and without a
+shell on the machine: the job queue, the running jobs with their leases, the dead letters with
+why each failed and the workers seen in the last day, with a warning when none runs (`jobs`,
+`failed-jobs`); the models and services: the models each variable names, the providers and
+which are switched off, the embeddings endpoint, the scanner, the storage, the database, and
+everything the worker's watch sees wrong now, asked afresh, with since when it has been mailing
+each ("What the worker mails"); and what the workspace's model use cost over 7, 30 or 90 days
+against `DAILY_SPEND_CAP`, by kind of work and model (`costs`). The workspace page's members
+list says when each member was last seen, to the owners and admins alone. What the page shows is
+what the commands print, never what a document, a question or an answer says. The jobs and the
+costs are the workspace's own, with the jobs of no organisation such as mail about an account;
+the workers, the models and the services are the install's.
 
-It changes two things, as the commands do:
+It changes two things, as the commands do, each a row of the workspace's audit log naming the
+admin:
 
 - **Failed documents queued again.** Under Jobs, "Run again" on a failed index job, or "Run
   every failed document again", queues each document from the stage it stopped at, as
-  `failed-jobs --requeue` does, once the cause is fixed; the jobs of other kinds are left. Each
-  document queued is a row of its organisation's log, likewise.
+  `failed-jobs --requeue` does, once the cause is fixed; the jobs of other kinds are left.
 - **A model provider switched off.** Under Services, "Switch google off" stops every process of
-  the deployment asking `google:` models within five seconds (`SWITCH_SECONDS`), API and worker
+  the install asking `google:` models within five seconds (`SWITCH_SECONDS`), API and worker
   alike, with no restart, and "Switch google on" lifts it: the app runs meanwhile as it does
   with `DISABLED_PROVIDERS` ("A fallback"), and the members' status and the watch say so. A
   provider `DISABLED_PROVIDERS` names stays off whatever the page says, since the setting is the
-  deployment's own floor; a provider the page switched off whose models the settings no longer
-  name is listed to switch on. The switches (`provider_switches`, with who and since when)
-  belong to no organisation: each is a line of the log naming the operator's id, `Operator 7
-  switched the model provider google off`. `maintenance models` asks every model whatever the
-  page says, which is how to try a provider before switching it on.
+  install's own floor; a provider the page switched off whose models the settings no longer
+  name is listed to switch on. The switches (`provider_switches`, with who and since when) are
+  also a line of the log, `User 7 switched the model provider google off`. `maintenance models`
+  asks every model whatever the page says, which is how to try a provider before switching it
+  on.
 
-An operator is an account the `operators` command made one, by its id, whatever organisations it
-is a member of; nobody becomes one from a page, and an address that changes hands grants
-nothing:
-
-```bash
-maintenance operators                       # who, since when, with or without two-factor
-maintenance operators add ops@example.com   # the account exists first
-maintenance operators remove ops@example.com
-```
-
-The area answers an operator alone: from an address `OPERATOR_NETWORKS` lists, with a session
-(never an API key, never the local account), and in production with two-factor sign-in on,
-which it asks for by name. Anyone else, a member or a stranger, a session from another address
-or an operator's stolen cookie off those networks, gets 404 for every path under `/api/operator`
-whatever the method, and the members' page at `/operator`, as for any page there is not. Unset,
-`OPERATOR_NETWORKS` is this machine in development and nobody in production: name the operators'
-own addresses or their VPN's, `OPERATOR_NETWORKS=203.0.113.7/32,2001:db8::/48`, in the settings'
-file, or on AWS in the root's `settings` ("The settings").
-
-The address is the client's as uvicorn believes the proxy ("TLS at a reverse proxy"), so it
-holds only while `FORWARDED_ALLOW_IPS` names the proxy and nothing else: a proxy that uvicorn
-does not believe makes every request come from the proxy's own address, and a network that holds
-it, such as the image network's `10.73.0.0/24` on one machine, would let every operator's
-session in from anywhere. Never list the proxy's address or its network. The proxy may refuse
-the area by address too, before the app, as Caddy does with a matcher in the site block:
-
-```caddyfile
-@operator {
-	path /operator /operator/* /operator.html /api/operator/*
-	not remote_ip 203.0.113.7/32
-}
-respond @operator 404
-```
-
-The page is a bundle of its own, `frontend/operator.html` built by `pnpm build` beside the
-members' page, sent to an operator alone; nothing of it reaches a member's browser, and its
-scripts have a budget apart (`frontend/scripts/size.ts`). Each request the area answers is an
-access line with the operator's `user_id` ("Logs"); reading writes nothing into an
-organisation's audit log, since nothing in the organisation changes. A view of a member's account
-is the members' page, under the member's `user_id` with the operator's `operator_id`.
+The page is the members' app's own, held by role: a member or a viewer is refused its routes
+(`/api/organization/jobs`, `/services`, `/costs`, `/providers/…`) with 403 and sees no link to
+it. Two-factor sign-in for the admins is the workspace's choice, "Require two-factor sign-in"
+on the workspace page, which holds everyone who works in it. Until 2026-11-13 this was the
+operator's area, a page of its own at `/operator` for the accounts an `operators` command named,
+from the addresses `OPERATOR_NETWORKS` listed: a team runs its own install, so its admins are
+the people who run it. A proxy rule that refused `/operator` by address may go.
 
 ## Runbooks
 
@@ -3576,9 +3542,9 @@ When an alert or a member says something is wrong, and it is not yet clear what:
    `trace_id` the jobs the request queued ("Traces").
 4. `maintenance jobs` for the queue, the running jobs and the workers, `maintenance database`
    for the server, Prometheus's alerts page for what else fires ("On AWS" under "Alerts" for
-   the way to it on the instance). The operator's area shows the queue, the dead letters, the
-   workers and what the worker's watch sees in one place, from a browser ("The operator's
-   area").
+   the way to it on the instance). The Administration page shows the queue, the dead letters,
+   the workers and what the worker's watch sees in one place, from a browser ("The
+   Administration page").
 
 ### Members get server errors
 
@@ -3667,7 +3633,7 @@ fails over to its fallback" (or `INDEX_MODEL`), or the provider's status page:
    variable, its key, its price), run `maintenance models` and release the same tag again
    ("The models").
 3. A provider that bills while it fails, or a key that leaked: switch it off under the
-   operator's area's Services, which every process heeds within seconds, after which the
+   Administration page's Services, which every process heeds within seconds, after which the
    fallback answers, or the app runs as it does without a key, until it is switched on; for
    good, `DISABLED_PROVIDERS=<prefix>` and a release.
 4. Once it is over, the stages that gave up meanwhile are dead letters: `maintenance failed-jobs
@@ -3722,7 +3688,7 @@ of the same tag (the Release workflow).
 
 | Key | The new one | Then |
 | --- | --- | --- |
-| A model provider's (`GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`, …) | The provider's console | `maintenance models`; for a leak, the provider switched off in the operator's area first |
+| A model provider's (`GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`, …) | The provider's console | `maintenance models`; for a leak, the provider switched off on the Administration page first |
 | `EMBEDDING_API_KEY` | The endpoint's provider | The start's line "Passages are embedded by …", then a search by meaning |
 | The database's password | `ALTER ROLE emudoc PASSWORD '…'` and the new `DATABASE_URL`, with `DATABASE_LISTEN_URL` and a pooler's `userlist.txt`; on AWS `tofu apply -replace=module.emudoc.random_password.database`, which writes the new URL | Release at once: the processes keep the connections they hold, and new ones fail until then; `/api/health` |
 | `SMTP_URL`'s password | The relay; on AWS `tofu apply -replace='module.emudoc.aws_iam_access_key.smtp[0]'` | A password reset's mail |
@@ -3778,8 +3744,8 @@ budget alert:
    `maintenance usage <slug>` breaks the workspace's down by day, kind and unit.
 2. `DAILY_SPEND_CAP` holds the workspace at the day's cap (questions refused, indexing held
    until midnight UTC); raised in the settings, it takes effect at the next start.
-3. A provider switched off in the operator's area (or `DISABLED_PROVIDERS`) stops its bill at
-   once.
+3. A provider switched off on the Administration page (or `DISABLED_PROVIDERS`) stops its bill
+   at once.
 4. A model without a price counts toward none of it: the end of `costs` lists the tokens recorded
    without one, and `MODEL_PRICES` takes the price from the next request on.
 
@@ -4417,7 +4383,6 @@ the roots' `settings` the others ("The settings").
 | `APP_URL` | the request's origin | required | Where members reach the app: the links in mail, the OAuth redirect |
 | `SIGNUP_OPEN` | `false` | | Whether anyone who reaches the install may make an account, which joins the workspace ("The first run, and who signs up") |
 | `SESSION_DAYS` | `30` | | How long a sign-in lasts; an organisation may sign its members in again sooner |
-| `OPERATOR_NETWORKS` | `127.0.0.1/32,::1/128` in development, none in production | the operators' addresses | Where the operator's area answers from ("The operator's area") |
 | `SAMPLE_PROJECT` | `true` | | Whether the workspace the setup makes starts with the sample project ("The sample project") |
 | `FORWARDED_ALLOW_IPS` | `127.0.0.1,::1` | the proxy's address | uvicorn's: whose `X-Forwarded-*` headers are believed ("TLS at a reverse proxy") |
 | `TMPDIR` | `/tmp` | | Where uploads pass through and a worker copies an original to ("The image") |

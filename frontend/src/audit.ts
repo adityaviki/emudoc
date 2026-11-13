@@ -69,6 +69,7 @@ export const ACTIONS: Record<AuditAction, [label: string, kind: AuditKind]> = {
   organization_deletion_requested: ['Asked to delete the workspace', 'organization'],
   organization_deletion_cancelled: ['Kept the workspace', 'organization'],
   settings_changed: ['Changed a setting', 'organization'],
+  provider_switched: ['Switched a model provider', 'organization'],
   flag_changed: ['Feature flag changed', 'organization'],
   audit_exported: ['Downloaded the audit log', 'organization'],
   api_key_created: ['Made an API key', 'organization'],
@@ -242,6 +243,7 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   else if (MAILBOX_ACTIONS.has(event.action) && event.action !== 'mailbox_deleted') parts.push(describeMailbox(detail))
   else if (CONNECTOR_ACTIONS.has(event.action)) parts.push(describeConnector(detail))
   else if (WEBHOOK_ACTIONS.has(event.action)) parts.push(describeWebhookChange(detail))
+  else if (event.action === 'provider_switched') parts.push(`${String(detail.provider)} ${detail.off ? 'off' : 'on again'}`)
   else if (event.action === 'document_review_changed') parts.push(`${review(detail.from)} → ${review(detail.to)}`)
   else if (event.action === 'document_assigned') parts.push(describeAssignment(detail, names))
   // A new version of another type took its extension, and its name before is a file's, as it was.
@@ -298,7 +300,7 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   // What a member did through an API key is theirs, with the key named as it was.
   const key = detail.api_key
   if (key && typeof key === 'object' && 'name' in key) parts.push(`with the API key ${key.name}`)
-  // What one of the deployment's operators did from the operator's area, by the id the deployment's records keep.
+  // What one of the deployment's operators did from the operator's area, in rows from before the admins' pages took its place (S.3).
   if (typeof detail.operator === 'number') parts.push("by Emudoc's operators")
   // What was done while Emudoc's support viewed the member's account with their leave, in rows from before S.3.
   if (typeof detail.support === 'number') parts.push("by Emudoc's support, viewing their account")

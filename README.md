@@ -452,8 +452,8 @@ warning once a day when a day's spending reaches 80 % of the cap. The cap counts
 without `MODEL_PRICES`, and it holds the next piece of work rather than the ones running, so a
 day can run past it by what was in flight: a document's summaries and facts by `ENRICH_MAX_REQUESTS` requests at
 most. The brake for a bill that cannot wait for midnight is a provider switched off: from the
-operator's area, which every process heeds within seconds, or with `DISABLED_PROVIDERS` at the
-next restart; its models are asked no more, and the app runs as it does without a key, saying
+Administration page, which every process heeds within seconds, or with `DISABLED_PROVIDERS` at
+the next restart; its models are asked no more, and the app runs as it does without a key, saying
 why. Set a budget at each provider as well (Google Cloud
 billing budgets for the Gemini key, the Anthropic console's spend limits, OpenRouter's credit
 limit): the app counts what it knows the price of, the provider counts the bill.
@@ -468,14 +468,15 @@ bounds the work is the server's own ceilings (a file's size and an upload's file
 minute, the answers written at once, a document's requests to the model), set in `.env`
 (deploying.md, "Every setting"), and the day's spending cap above.
 
-The people who run the deployment read what the maintenance commands print in a browser at
-`/operator`, the operator's area: the organisations with their usage, members and costs, the users, the costs across organisations, the job queue with its
-failed jobs, and how the models and services stand. `uv run python -m app.maintenance operators
-add <address>` (in `backend/`) lets an account in, from an address `OPERATOR_NETWORKS` lists
-(this machine alone in development) and, in production, with two-factor sign-in on; to anyone
-else the area is not there. From there an operator also queues failed documents again from the
-stage each stopped at, and switches a model provider off or on again without a restart; a
-document queued again is a row of the organisation's audit log, by Emudoc's operators.
+The workspace's owners and admins read what the maintenance commands print in a browser on its
+Administration page (`/admin`, from the account's menu or the workspace page): the job queue
+with its failed jobs and the workers, how the models and services stand, and what the models
+cost by kind of work and model against the daily cap (`backend/app/api/admin.py`). From there
+they also queue failed documents again from the stage each stopped at, and switch a model
+provider off or on again for every process without a restart; each is a row of the audit log,
+theirs. The workspace page's members list tells them when each member was last seen. Until
+2026-11-13 this was the operator's area, a page of its own at `/operator` for the accounts a
+command named.
 
 ## The workspace
 
@@ -846,8 +847,8 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   here cannot be used until the name is removed and the backend and the worker restarted;
   meanwhile the app runs as it does without a key, and says why in its log (and, in
   development, in the Ask tab). Production starts with it, unlike with a missing key. The
-  operator's area switches a provider off the same way without a restart, and on again; one
-  this setting names stays off whatever the area says.
+  Administration page switches a provider off the same way without a restart, and on again;
+  one this setting names stays off whatever the page says.
 - `ENVIRONMENT` is `development` (the default) or `production`. In development the backend
   copies the model keys from `.env` into its environment, where the model libraries read them.
   A production deployment injects every secret through the environment or a secret manager
@@ -1610,8 +1611,6 @@ CHANGELOG.md    what each day's commits changed for members and operators
 
 ## Not built yet
 
-- The operator's area views a member's account read only, with their leave; it does not act as
-  them, nor turn features on per organisation.
 - The public API: SDKs (Python, TypeScript) generated from its contract are to come.
 - Office files in the format from before 2007 (.doc, .xls, .ppt), which the upload turns away
   with how to save them as today's.

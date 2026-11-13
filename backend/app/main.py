@@ -1,5 +1,4 @@
 import logging
-import re
 from contextlib import asynccontextmanager
 from datetime import UTC
 from functools import cache
@@ -7,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from anyio import CapacityLimiter, to_thread
+from anyio import CapacityLimiter
 from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
@@ -20,6 +19,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api import (
     activity,
+    admin,
     apikeys,
     audit,
     auth,
@@ -43,7 +43,6 @@ from app.api import (
     notes,
     notifications,
     onboarding,
-    operator,
     organizations,
     projects,
     query,
@@ -71,7 +70,7 @@ from app.config import ROOT_DIR, get_settings
 from app.connectors import providers
 from app.conversion import check_converter
 from app.costs import CostsWithheld
-from app.db import BUSY, TOO_SLOW, SessionLocal, canceled, engine
+from app.db import BUSY, TOO_SLOW, canceled, engine
 from app.errors import summary
 from app.headers import (
     ASSETS_KEPT,
@@ -85,7 +84,6 @@ from app.jobs import Work, work_running
 from app.logs import REQUEST_ID_HEADER, RequestIds, configure_logging, current_context
 from app.mail import Mailer, mailer_from_settings
 from app.metrics import POOL_TIMEOUTS, HttpMetrics, export_metrics
-from app.operators import operator_of
 from app.ratelimit import PAGE_ERRORS, by_address
 from app.schemas import (
     EmbeddingStatus,
@@ -124,11 +122,6 @@ class PagePath(PathConvertor):
 register_url_convertor("page", PagePath())
 
 
-# The operator's area's page (app/operators.py): a page of its own, `frontend/operator.html`, with
-# a bundle of its own, served at /operator and below it to an operator alone. Its own name is
-# taken too, so that the file is reached by no other way.
-OPERATOR_PAGE = "operator.html"
-_OPERATOR_PATH = re.compile(r"operator(?:/.*)?|operator\.html")
 # An install is a team's own server, which no search engine should list (2026-11-13: the public
 # site went, S.3): robots.txt turns every crawler away, and every page asks not to be listed
 # besides, for a crawler that reached it by a link.
@@ -373,14 +366,6 @@ async def unexpected_error(request: Request, error: Exception) -> JSONResponse:
     return response
 
 
-def _from_operator(request: Request) -> bool:
-    """Whether the operator's page may be sent: to an operator, from an operator's network. One
-    whom the area still refuses, for want of two-factor sign-in, is sent it, and told why by
-    the routes."""
-    with SessionLocal() as session:
-        return operator_of(session, request) is not None
-
-
 def _request_id() -> str | None:
     request_id = current_context().get("request_id")
     return str(request_id) if request_id is not None else None
@@ -492,6 +477,8 @@ def create_app(
         system,
         auth.router,
         organizations.router,
+        # The Administration page's, for the workspace's owners and admins.
+        admin.router,
         invitations.router,
         apikeys.router,
         webhooks.router,
@@ -529,9 +516,6 @@ def create_app(
     # (app/api/mail.py); nor does a mail program's one-click unsubscribe, whose token says whose
     # notices stop.
     app.include_router(mail.events, prefix="/api")
-    # The operator's area asks for the app's header itself, once the operator is known, so that
-    # a refusal tells nobody else that a route is there (app/api/operator.py).
-    app.include_router(operator.router, prefix="/api")
 
     # What search engines are told, before the page's catch-all, which would answer the
     # members' page.
@@ -552,11 +536,6 @@ def create_app(
             return response
 
         async def _page(path: str, request: Request) -> Response:
-            if _OPERATOR_PATH.fullmatch(path):
-                # Anyone but an operator gets the members' page, as for a path nobody serves.
-                if await to_thread.run_sync(_from_operator, request):
-                    return await page.get_response(OPERATOR_PAGE, request.scope)
-                return await page.get_response("index.html", request.scope)
             try:
                 return await page.get_response(path, request.scope)
             except StarletteHTTPException as missing:

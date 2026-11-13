@@ -45,10 +45,6 @@ against DAILY_SPEND_CAP and the cost by kind of work and model. It reads the usa
 metrics carry no label per organisation (app/metrics.py), and prints organisations by slug and name,
 never an address.
 
-`operators` lists the users who may open the operator's area at /operator (app/operators.py),
-and `operators add|remove <address>` grants it or takes it back: the area's one way in, from a
-shell on the deployment.
-
 `create-admin <address>` makes an install's first account and its workspace, as the setup page
 does (app/signups.py), for an install set up by a script: the account has no password, and the
 command prints a link that sets one. `reset-password <address>` prints such a link for any
@@ -139,7 +135,6 @@ from app.notices import (
     prune_notifications,
     settle_uploads,
 )
-from app.operators import grant, operators, revoke
 from app.parsing import MIME_TYPES
 from app.postgres import concerns, database_report, describe_database, span
 from app.question_sets import queue_due_sets
@@ -896,63 +891,6 @@ def _address(email: str) -> str:
     return email
 
 
-def operators_report(session: Session, action: str | None = None, email: str = "") -> list[str]:
-    """The lines the `operators` command prints: every operator, after granting the area to the
-    account with the address `email` (`action` "add") or taking it back ("remove"), and where
-    the area answers from. The caller commits."""
-    settings = get_settings()
-    lines = []
-    if action is not None:
-        user = session.scalar(select(User).where(User.email == email.strip().lower()))
-        if user is None:
-            raise RuntimeError(
-                f"No account has the address {email!r}; its owner signs up first, then is made "
-                "an operator."
-            )
-        if action == "add":
-            done = grant(session, user)
-            lines.append(
-                f"{user.name or user.email} is an operator now."
-                if done
-                else f"{user.name or user.email} was an operator already."
-            )
-            if settings.environment == "production" and not user.mfa_enabled:
-                lines.append(
-                    "They turn two-factor sign-in on under their account before the area opens."
-                )
-        else:
-            done = revoke(session, user)
-            lines.append(
-                f"{user.name or user.email} is no longer an operator."
-                if done
-                else f"{user.name or user.email} was no operator."
-            )
-        session.flush()
-    listed = operators(session)
-    if listed:
-        lines.append(f"{_count(len(listed), 'operator')}, who open the area at /operator:")
-        rows = [
-            (
-                str(user.id),
-                user.name,
-                user.email,
-                f"since {granted.astimezone(UTC):%Y-%m-%d}",
-                "two-factor" if user.mfa_enabled else "no two-factor",
-            )
-            for user, granted in listed
-        ]
-        lines += _table(rows, left={1, 2, 3, 4})
-    else:
-        lines.append("Nobody is an operator; `operators add <address>` makes one.")
-    networks = ", ".join(str(network) for network in settings.operator_nets)
-    lines.append(
-        f"The area answers requests from {networks} (OPERATOR_NETWORKS)."
-        if networks
-        else "The area answers nobody until OPERATOR_NETWORKS names the operators' addresses."
-    )
-    return lines
-
-
 def jobs_report(session: Session) -> list[str]:
     """The lines the `jobs` command prints: each kind's jobs by state, how long the oldest due
     one has waited for a worker, each running job with what it is for, its attempt and its
@@ -1366,19 +1304,6 @@ def main(argv: list[str] | None = None) -> None:
     costs.add_argument(
         "--days", type=int, default=30, help="how many days back from today; 30 by default"
     )
-    granting = commands.add_parser(
-        "operators",
-        help="list the operators, or make an account one or no longer one",
-        description="List the users who may open the operator's area at /operator, where the "
-        "people who run the deployment read the organisations, users, costs, jobs and "
-        "services. With add or remove and an account's address, grant it or take it back. An "
-        "operator opens the area only from an address OPERATOR_NETWORKS lists and, in "
-        "production, with two-factor sign-in on.",
-    )
-    granting.add_argument(
-        "action", nargs="?", choices=("add", "remove"), help="grant the area, or take it back"
-    )
-    granting.add_argument("email", nargs="?", metavar="ADDRESS", help="the account's address")
     admin = commands.add_parser(
         "create-admin",
         help="make the install's first account and its workspace, as the setup page does",
@@ -1759,15 +1684,6 @@ def main(argv: list[str] | None = None) -> None:
             check_schema()
             with SessionLocal() as session:
                 lines = reset_password_report(session, args.email)
-                session.commit()
-                for line in lines:
-                    print(line)
-        elif args.command == "operators":
-            if (args.action is None) != (args.email is None):
-                parser.error("operators takes add or remove with an address, or neither")
-            check_schema()
-            with SessionLocal() as session:
-                lines = operators_report(session, args.action, args.email or "")
                 session.commit()
                 for line in lines:
                     print(line)

@@ -27,8 +27,7 @@ def organization_usage(account: AccountDep, session: SessionDep):
 
 
 def usage_page(session: Session, organization: Organization) -> UsagePageOut:
-    """The usage page of the organisation, which the operator's area shows as its members read
-    it (app/api/operator.py)."""
+    """The usage page of the organisation, as its members read it."""
     now = datetime.now(UTC)
     start, following = month_of(now)
     today = now.date()

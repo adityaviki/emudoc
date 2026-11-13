@@ -7,9 +7,9 @@ A provider named in DISABLED_PROVIDERS (app/config.py) is switched off: its mode
 `LLMUnavailable` before a request is made, as a missing key would, except that the problem is
 a passing one by design. The app then runs as it does without a key, the status route says
 why, and a production process starts regardless (app/startup.py), which is what makes the
-setting a kill switch rather than a misconfiguration. An operator switches a provider off the
-same way from the operator's area, without a restart (app/switches.py), which `LLM` asks
-before each model it builds or uses; a provider is off while either names it.
+setting a kill switch rather than a misconfiguration. The workspace's owners and admins switch a
+provider off the same way from its Administration page, without a restart (app/switches.py),
+which `LLM` asks before each model it builds or uses; a provider is off while either names it.
 
 Every request asks OpenRouter to forward it only to providers that neither store nor train on
 what they are sent (`DATA_POLICY`), so that a model reached through it keeps the terms the app
@@ -345,11 +345,11 @@ def _switched_off(name: str, provider: str) -> str:
     )
 
 
-def _switched_off_by_operator(name: str, provider: str) -> str:
-    """What stops the model `name` while an operator has its provider switched off."""
+def _switched_off_by_an_admin(name: str, provider: str) -> str:
+    """What stops the model `name` while an owner or admin has its provider switched off."""
     return (
-        f"{name} is switched off: an operator switched its provider, {provider}, off in the "
-        "operator's area. Switch it on there to use the model again."
+        f"{name} is switched off: an admin switched its provider, {provider}, off on the "
+        "Administration page. Switch it on there to use the model again."
     )
 
 
@@ -553,8 +553,8 @@ class ModelStream:
 
 class LLM:
     def __init__(self, settings: Settings, switched_off: Callable[[], Collection[str]] = frozenset):
-        """The models the settings name. `switched_off` gives the providers an operator
-        switched off from the operator's area (app/switches.py), asked before each model is;
+        """The models the settings name. `switched_off` gives the providers an admin switched
+        off from the Administration page (app/switches.py), asked before each model is;
         none by default, as for the `models` command, which connects to no database."""
         self._settings = settings
         self._switches = switched_off
@@ -597,12 +597,12 @@ class LLM:
 
     def _model(self, name: str) -> Model:
         """The adapter for a `provider:model` name, built on first use, and refused while the
-        provider is switched off (DISABLED_PROVIDERS, or an operator from the operator's area),
+        provider is switched off (DISABLED_PROVIDERS, or an admin from the Administration page),
         whether or not it was built before."""
         if (provider := model_provider(name)) in self._settings.disabled:
             raise LLMUnavailable(_switched_off(name, provider), transient=True)
         if provider in self._switches():
-            raise LLMUnavailable(_switched_off_by_operator(name, provider), transient=True)
+            raise LLMUnavailable(_switched_off_by_an_admin(name, provider), transient=True)
         with self._lock:
             if name not in self._models:
                 try:

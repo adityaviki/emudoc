@@ -9,7 +9,7 @@ const BACKEND = join(import.meta.dirname, '..', '..', 'backend')
 const STORAGE_URL = `file://${join(process.env.TMPDIR || '/tmp', 'emudoc-e2e-files')}`
 export const INBOUND_DOMAIN = 'in.emudoc.test'
 
-/** Run a maintenance command against the run's database and files, as the operator does in a shell; what it printed. */
+/** Run a maintenance command against the run's database and files, as whoever runs the server does in a shell; what it printed. */
 function maintenance(...args: string[]): string {
   return execFileSync('uv', ['--directory', BACKEND, 'run', 'python', '-m', 'app.maintenance', ...args], {
     env: { ...process.env, DATABASE_URL, STORAGE_URL, INBOUND_DOMAIN },
@@ -18,14 +18,9 @@ function maintenance(...args: string[]): string {
   })
 }
 
-/** Let the account with the address open the operator's area, as the `operators` command does. */
-export function makeOperator(address: string) {
-  maintenance('operators', 'add', address)
-}
-
 /**
  * Hand a message saved as it was sent to the projects it is addressed to, as the `receive-mail`
- * command does for the operator, its sender taken as proven; the lines that say what became of it.
+ * command does for whoever runs the server, its sender taken as proven; the lines that say what became of it.
  */
 export function receiveMail(path: string): string[] {
   return maintenance('receive-mail', path).trim().split('\n')
