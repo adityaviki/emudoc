@@ -1,8 +1,13 @@
 """Help for members: where to write for help, the status page and the code's source (`GET
-/api/help`, public, since the page that cannot reach its server asks it too), the upload client
-the organisation's API keys offer (`GET /api/help/emudoc_upload.py`, app/client/), and a member's
-message from the app's help menu (`POST /api/feedback`), mailed with what its reader needs to
-find what they met.
+/api/help`, public, since the page that cannot reach its server asks it too), the help pages
+(`GET /api/help/articles`, a member's, filled in for the deployment: app/help/), the upload
+client the help and the workspace's API keys offer (`GET /api/help/emudoc_upload.py`,
+app/client/), and a member's message from the app's help menu (`POST /api/feedback`), mailed
+with what its reader needs to find what they met.
+
+The help pages come by a route of their own rather than in `HelpOut`: the menu asks `GET
+/api/help` on every page, which would carry every article each time, and that route answers
+without a session, while the pages are the members', describing what this deployment does.
 
 The message goes to SUPPORT_EMAIL where the server names one, a team's helpdesk; otherwise to the
 workspace's owners and admins, who run it, each by a mail of their own, the member who wrote
@@ -19,6 +24,7 @@ changes nothing of the workspace's, so no audit row, and the queue's job gives t
 once it is sent (app/postbox.py), so the app keeps none of it.
 """
 
+from dataclasses import asdict
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -32,12 +38,13 @@ from app.api.auth import app_url
 from app.api.deps import AccountDep, SessionDep, limited
 from app.client import UPLOAD_CLIENT
 from app.config import get_settings
+from app.help import articles
 from app.logs import current_context
 from app.mail import compose, relay_set, support_message_email
 from app.models import Membership, User
 from app.postbox import post
 from app.ratelimit import FEEDBACK
-from app.schemas import FeedbackIn, FeedbackOut, HelpOut
+from app.schemas import FeedbackIn, FeedbackOut, HelpArticleOut, HelpOut
 from app.version import VERSION, source_url
 
 router = APIRouter(tags=["help"])
@@ -70,6 +77,12 @@ def help_offered():
         mail=relay_set(settings),
         source=source_url(settings.source_url),
     )
+
+
+@router.get("/help/articles", response_model=list[HelpArticleOut])
+def help_articles(account: AccountDep):
+    """The help pages in the contents' order, filled in from what this deployment does."""
+    return [HelpArticleOut(**asdict(article)) for article in articles(get_settings())]
 
 
 @router.get("/help/emudoc_upload.py", response_class=FileResponse)

@@ -1200,6 +1200,15 @@ export interface PageError {
   path: string
 }
 
+/** A help page (backend/app/help), filled in for the deployment: Markdown, its title the first heading. */
+export interface HelpArticle {
+  slug: string
+  title: string
+  /** The line the contents show of it. */
+  summary: string
+  text: string
+}
+
 /** Where members write for help (backend/app/api/help.py): SUPPORT_EMAIL, or none where the help menu writes to the workspace's owners and admins. */
 export interface Help {
   support_email: string | null
@@ -2452,8 +2461,10 @@ export const api = {
   /** Public, since a sign-in page can fail too: the reference is the id the app logged the report under. */
   reportPageError: (report: PageError) =>
     request<{ reference: string | null }>('/page-errors', json('POST', report)),
-  /** Public, since the sign-in pages lead to help too. */
+  /** Public and reading no database, since the page that cannot reach its server asks it too. */
   help: () => request<Help>('/help'),
+  /** The help pages, a member's, in the contents' order. */
+  helpArticles: () => request<HelpArticle[]>('/help/articles'),
   /** Public: what a share link shows, and its view's cookie; a 401 asks for its password, a 404 says it stopped. */
   openShared: (token: string, password?: string) => request<Shared>('/shared', json('POST', { token, password })),
   /** Mails the member's message to SUPPORT_EMAIL or the workspace's owners and admins; a 429 says when they may write again, a 409 that a sole admin has nobody to write to. */

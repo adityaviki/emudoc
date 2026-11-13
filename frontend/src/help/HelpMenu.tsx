@@ -1,15 +1,16 @@
-// The question mark in the header: the way to the status page and to the code's source, and to write for help from
+// The question mark in the header: the way to the help pages (src/help/HelpPage.tsx), the status page and the code's
+// source, and to write for help from
 // wherever the member is, to SUPPORT_EMAIL or the workspace's owners and admins, with the page
 // and the last request that failed attached (src/help/feedback.ts, backend/app/api/help.py). What they typed is kept while the panel is
 // closed, which a click elsewhere or a switch to another window does, until it is sent. Where the install mails nothing, the
 // form gives way to whom to write to from the member's own mail.
 
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { Activity, CircleHelp, Code } from 'lucide-react'
+import { Activity, BookOpen, CircleHelp, Code } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
-import { useLocation } from 'react-router'
+import { Link, useLocation } from 'react-router'
 import { api, lastFailedRequest, organizations } from '../api.ts'
 import type { FeedbackKind } from '../api.ts'
 import { useMe } from '../auth.ts'
@@ -58,7 +59,7 @@ export function HelpMenu() {
       {anchor && (
         <Floating anchor={anchor} alignEnd onClose={() => setAnchor(null)} ignore={button} className="w-96 max-w-[calc(100vw-16px)]">
           <div role="dialog" aria-label="Help">
-            <HelpLinks />
+            <HelpLinks onClose={() => setAnchor(null)} />
             <p className="px-3 pt-3 text-[13px] font-medium">{writeHeading(help.data?.support_email ?? null)}</p>
             {help.data?.mail === false ? (
               <WriteByHand supportEmail={help.data.support_email} />
@@ -83,34 +84,37 @@ export function HelpMenu() {
 }
 
 /**
- * The deployment's links: the status page, where it names one, which says whether Emudoc is up from outside it, and the
- * source of the code it runs, which the AGPL's section 13 has it offer whoever uses it (SOURCE_URL, deploying.md).
+ * The help pages, in the app, which the menu closes behind; then the deployment's links: the status page, where it
+ * names one, which says whether Emudoc is up from outside it, and the source of the code it runs, which the AGPL's
+ * section 13 has it offer whoever uses it (SOURCE_URL, deploying.md).
  */
-function HelpLinks() {
+function HelpLinks({ onClose }: { onClose: () => void }) {
   const help = useHelp()
-  if (!help.data) return null
   return (
     <div className="border-b border-line p-1">
-      {help.data.status_page && (
+      <Link to="/help" onClick={onClose} className={LINK}>
+        <BookOpen className="size-4 shrink-0 opacity-70" />
+        Help pages
+      </Link>
+      {help.data?.status_page && (
         <HelpLink href={help.data.status_page} icon={Activity}>
           Service status
         </HelpLink>
       )}
-      <HelpLink href={help.data.source} icon={Code}>
-        Source code
-      </HelpLink>
+      {help.data && (
+        <HelpLink href={help.data.source} icon={Code}>
+          Source code
+        </HelpLink>
+      )}
     </div>
   )
 }
 
+const LINK = 'flex h-8 items-center gap-2.5 rounded-[5px] px-2 text-[13px] outline-none hover:bg-sunken focus-visible:bg-sunken'
+
 function HelpLink({ href, icon: Icon, children }: { href: string; icon: LucideIcon; children: ReactNode }) {
   return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      className="flex h-8 items-center gap-2.5 rounded-[5px] px-2 text-[13px] outline-none hover:bg-sunken focus-visible:bg-sunken"
-    >
+    <a href={href} target="_blank" rel="noreferrer" className={LINK}>
       <Icon className="size-4 shrink-0 opacity-70" />
       {children}
     </a>

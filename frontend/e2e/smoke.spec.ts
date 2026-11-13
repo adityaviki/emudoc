@@ -21,7 +21,8 @@ import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, rele
 // keyboard, choose the workspace's settings, read them in its audit log and download it, invite a colleague as a
 // viewer from under that answer, who makes an account from the invitation's link, copied since the run mails nothing, ends her tour, finds
 // the project and is offered no change to it until made a member, then find in her help menu, the run mailing nothing,
-// the workspace's admin to write to, by a mail that carries the page, make a read key, which reads the
+// the workspace's admin to write to, by a mail that carries the page, read the help pages from the menu, filled in
+// from what the run does, and follow an article's link into the app, make a read key, which reads the
 // versioned API and its contract, add a webhook, then make the project private, which she no longer finds until chosen for it, and share the chat, which the
 // colleague then reads but does not ask in; then read when each member was last seen, and on the workspace's
 // Administration page its jobs, services and costs, and switch the model's provider off and on
@@ -736,6 +737,33 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await grace.keyboard.press('Escape')
     await expect(help).toHaveCount(0)
     await expect(grace.getByRole('button', { name: 'Help', exact: true })).toBeFocused()
+  })
+
+  await test.step('read the help pages from the help menu, find one by a word and follow its link into the app', async () => {
+    await page.getByRole('button', { name: 'Help', exact: true }).click()
+    const menu = page.getByRole('dialog', { name: 'Help' })
+    await menu.getByRole('link', { name: 'Help pages', exact: true }).click()
+    await expect(page).toHaveURL(/\/help$/)
+    await expect(menu).toHaveCount(0)
+    await expect(page.getByRole('heading', { level: 1, name: 'Help', exact: true })).toBeVisible()
+    await expectAccessible(page, 'the help pages')
+    await page.getByLabel('Search the help').fill('zip file')
+    await expect(page.getByRole('link', { name: /^Getting started/ })).toHaveCount(0)
+    await page.getByRole('link', { name: /^Your data/ }).click()
+    const article = page.getByRole('article')
+    await expect(article.getByRole('heading', { name: 'Your data: exports, the trash and deletion' })).toBeVisible()
+    // Its figures are the deployment's own (backend/app/help).
+    await expect(article).toContainText('kept 7 days for whoever asked for it')
+    await expectAccessible(page, 'a help page')
+    // What the run does not do it does not promise: it mails nothing, and has a status page.
+    await page.getByRole('link', { name: 'All help' }).click()
+    await page.getByRole('link', { name: /^Getting help/ }).click()
+    await expect(article).toContainText("This workspace sends no email, so the menu sends nothing: it names the workspace's owners and admins")
+    await expect(article.getByRole('link', { name: 'its status page' })).toHaveAttribute('href', 'https://status.example.com')
+    await page.goBack()
+    await page.getByRole('link', { name: /^Your data/ }).click()
+    await article.getByRole('link', { name: 'account page' }).click()
+    await expect(page).toHaveURL(/\/account$/)
   })
 
   await test.step('make a read key, which a program lists the projects with and changes nothing by, beside the upload client, and read the contract the API publishes', async () => {

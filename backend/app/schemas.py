@@ -2651,6 +2651,16 @@ class PageErrorOut(BaseModel):
     reference: str | None
 
 
+class HelpArticleOut(BaseModel):
+    """A help page (app/help/), filled in for the deployment: the whole article as Markdown, its
+    title the first heading, and the line the contents show of it."""
+
+    slug: str
+    title: str
+    summary: str
+    text: str
+
+
 class HelpOut(BaseModel):
     """The help menu (app/api/help.py): the address members write to for help, where the server
     names one (SUPPORT_EMAIL; without it the help menu's messages go to the workspace's owners
