@@ -3,14 +3,15 @@
 It is a view of the project's rows of the audit log (app/audit.py), of the actions that tell a
 project's members what changed in their work (FEED_ACTIONS): documents uploaded, given a new
 version, deleted and restored, folders deleted and restored, reviews moved and assigned, comments
-added and threads resolved, drafts written, cross-checks and question sets run, and chats shared
-with the project. The audit log's other rows, a member's sign-in, a download, a share link viewed or
-a setting changed, stay the owners' and admins'. An item is made from a row by names alone, a chosen
-few of its detail's for each action, never the detail as it is: a document's name as it was then,
-the member who acted and the one assigned by their names as they are now, an automation's name as it
-was. What an item leads to (a document, a thread, a run, a report, a draft, a chat) is offered while
-it is there to open: a document out of the trash, a chat still shared. It is kept as long as the
-audit log is, by the organisation's `audit_days`.
+added and threads resolved, cross-checks and question sets run, and chats shared with the project;
+a draft written was one until the drafts went on 2026-11-13. The audit log's other rows, a
+member's sign-in, a download, a share link viewed or a setting changed, stay the owners' and
+admins'. An item is made from a row by names alone, a chosen few of its detail's for each action,
+never the detail as it is: a document's name as it was then, the member who acted and the one
+assigned by their names as they are now, an automation's name as it was. What an item leads to (a
+document, a thread, a run, a report, a chat) is offered while it is there to open: a document out
+of the trash, a chat still shared. It is kept as long as the audit log is, by the organisation's
+`audit_days`.
 """
 
 from collections.abc import Iterable
@@ -24,7 +25,6 @@ from app.models import (
     Chat,
     CommentThread,
     Document,
-    Draft,
     Project,
     QuestionReport,
     User,
@@ -39,7 +39,6 @@ FEED_ACTIONS: tuple[str, ...] = get_args(ActivityAction)
 _TARGETS = {
     "workflow_run": (WorkflowRun, ()),
     "question_report": (QuestionReport, ()),
-    "draft": (Draft, ()),
     "chat": (Chat, (Chat.deleted_at.is_(None), Chat.visibility == "project")),
 }
 
@@ -118,7 +117,6 @@ def _item(
         names=detail.get("names", []) if run else [],
         name=detail.get("name") if asked else None,
         questions=detail.get("questions") if asked else None,
-        kind=detail.get("kind") if event.action == "draft_created" else None,
         target_id=event.target_id if target in targets else None,
     )
 
@@ -161,7 +159,7 @@ def _live_threads(session: Session, ids: set[int]) -> set[int]:
 def _live_targets(
     session: Session, project_id: int, events: Iterable[AuditEvent]
 ) -> set[tuple[str, int]]:
-    """The runs, reports, drafts and chats the events lead to that are still there to open."""
+    """The runs, reports and chats the events lead to that are still there to open."""
     wanted: dict[str, set[int]] = {}
     for event in events:
         if event.target_type in _TARGETS:

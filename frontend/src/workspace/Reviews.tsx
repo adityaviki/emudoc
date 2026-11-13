@@ -16,9 +16,9 @@ import {
   reviewersKey,
   reviewsKey,
 } from '../reviews.ts'
-import { WriteDisputeLetter } from './Drafts.tsx'
 import { fileKind } from './files.ts'
 import { useReviewChange } from './mutations.ts'
+import { WriteDisputeLetter } from './MyFiles.tsx'
 import { useWorkspace } from './state.ts'
 import type { Reviews } from './url.ts'
 

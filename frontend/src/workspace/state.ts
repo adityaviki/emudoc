@@ -122,18 +122,14 @@ export interface Workspace {
   showReviews(whose?: Reviews): void
   /** Shows what was done in the project lately in the library, likewise. */
   showActivity(): void
-  /** Shows the drafts the model wrote from the project's documents in the library, likewise. */
-  showDrafts(): void
-  /** Shows one of the project's drafts, with its versions, in the library, likewise. */
-  showDraft(draftId: number): void
-  /** Shows how the project's drafts of each kind read in the library, likewise. */
-  showDraftTemplates(): void
   /** Shows the project's address, whose mail becomes its documents, in the library, likewise. */
   showMailbox(): void
   /** Shows the member's own files in the project, their My files, in the library, likewise. */
   showMyFiles(): void
   /** Shows one of the member's own files, with its pages and versions, in the library, likewise. */
   showMyFile(fileId: number): void
+  /** Shows how the agent writes each kind of document into My files, the project's writing templates, in the library, likewise. */
+  showWritingTemplates(): void
   /** Shows the project's connected folders in the library, likewise. */
   showConnectors(): void
   /** Shows a place of the library that is not a folder (the member's favourites or recent ones), likewise. */

@@ -36,12 +36,9 @@ import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, rele
 // order by cross-checks, run with a discrepancy report, an automation made, which runs them
 // once a second invoice arrives, puts it in review and tells the member what they found, and last
 // the first invoice put in review, assigned to the colleague, disputed and approved in the reviews
-// view, then disputed again from its tab, whose dispute letter the model drafts, citing where each
-// figure is written, edited into a second version, downloaded as its Markdown with its citation a
-// footnote, the first still read as it was, and the project's dispute letters given a template of
-// their own, which the new draft's form names, then the built-in one again, and last a reply email
-// asked for in the chat, which the answer offers as a draft and a press writes into the drafts, and
-// last the project given an address, a supplier's domain listed, whose mail becomes documents and a
+// view, then disputed again from its tab, whose dispute letter the model writes into the member's
+// My files, which list it while it is written, and the project's dispute letters given a template
+// of their own from My files, then the built-in one again, and last the project given an address, a supplier's domain listed, whose mail becomes documents and a
 // stranger's is turned away, as the page lists them, and a folder of the member's Google Drive
 // connected and synced, and last the invoice shared by a link with a password, which someone with
 // no account opens and prints and its member revokes, and an answer about it shared, its citation leading the
@@ -1345,83 +1342,50 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('listitem').filter({ hasText: 'Assigned a document' })).toContainText('invoice.md · to Grace Hopper')
   })
 
-  await test.step('dispute the invoice from its tab, have the model draft the dispute letter, edit it into a second version, download it and read the first again', async () => {
+  await test.step('dispute the invoice from its tab and have the model write the dispute letter into My files, which lists it while it is written', async () => {
     await page.goto('/')
     await page.getByRole('link', { name: /^Supplier contracts/ }).click()
     await page.getByRole('treeitem', { name: 'invoice.md', exact: true }).click()
     const disputing = page.waitForResponse((response) => response.url().endsWith('/review') && response.request().method() === 'PUT')
     await page.getByLabel('Review', { exact: true }).selectOption('disputed')
     await disputing
+    // Held at the stand-in, so that My files list the letter while it is written.
+    await holdNextTurn(request)
     await page.getByRole('button', { name: 'Write a dispute letter' }).click()
 
-    // The draft opens in the library's place, where the model writes it from the invoice's facts.
-    await expect(page.getByRole('heading', { name: /^Dispute letter: / })).toBeFocused()
-    const first = page.getByRole('region', { name: 'Version 1' })
-    const chip = first.getByRole('button', { name: '1', exact: true })
-    await expect(chip).toBeVisible({ timeout: 30_000 })
-    await expect(first).toContainText('Written by the model from the project’s documents')
-    await expect(page.getByText('1 version', { exact: true })).toBeVisible()
-    await expectAccessible(page, 'a draft')
-    await chip.click()
-    await expect(page).toHaveURL(/\/documents\/\d+\?(.*&)?passage=\d+/)
-    await expect(page).toHaveURL(/[?&]draft=\d+/)
+    // My files open with their heading focused, the letter asked of the agent at their top.
+    await expect(page.getByRole('heading', { name: 'My files', exact: true })).toBeFocused()
+    const asked = page.getByRole('list', { name: 'Files the agent is asked to write' })
+    await expect(asked.getByRole('listitem')).toContainText(/^Dispute letter about /)
+    await expect(asked.getByRole('status')).toHaveText(/^(Waiting to be written|Being written)…$/)
+    await expect.poll(() => heldTurns(request)).toBe(1)
+    await expectAccessible(page, 'a file being written into My files')
+    await releaseTurns(request)
 
-    // Edited into a second version, its citation kept, the keyboard going on from its heading once saved.
-    await first.getByRole('button', { name: 'Edit' }).click()
-    const editor = page.getByLabel('Text of the draft')
-    await expect(editor).toBeFocused()
-    const written = await editor.inputValue()
-    await editor.fill(`Dear supplier,\n\n${written}`)
-    await page.getByRole('button', { name: 'Preview' }).click()
-    await expect(page.getByRole('region', { name: 'Editing version 1' }).getByRole('button', { name: '1', exact: true })).toBeVisible()
-    await expectAccessible(page, 'a draft being edited')
-    await page.getByRole('button', { name: 'Save as a new version' }).click()
-    await expect(page.getByRole('heading', { name: 'Version 2' })).toBeFocused()
-    const second = page.getByRole('region', { name: 'Version 2' })
-    await expect(second).toContainText('Dear supplier,')
-    await expect(second.getByRole('button', { name: '1', exact: true })).toBeVisible()
-    // Downloaded as its Markdown, its citation a footnote naming the passage, the keyboard back on the button.
-    const download = second.getByRole('button', { name: 'Download', exact: true })
-    await download.click()
-    const downloading = page.waitForEvent('download')
-    await page.getByRole('menu').getByRole('menuitem', { name: 'Markdown, as it is written' }).click()
-    await expect(download).toBeFocused()
-    const file = await downloading
-    expect(file.suggestedFilename()).toMatch(/^Dispute letter .+ \(version 2\)\.md$/)
-    const markdown = await readFile(await file.path(), 'utf8')
-    expect(markdown).toMatch(/^Dear supplier,\n\n/)
-    expect(markdown).toMatch(/\[\^1\]\n?[^]*\n\[\^1\]: \S/)
-    // The model's version reads as it was.
-    await page.getByLabel('Version', { exact: true }).selectOption({ index: 1 })
-    await expect(page.getByRole('region', { name: 'Version 1' })).not.toContainText('Dear supplier')
-    await expect(page.getByRole('region', { name: 'Version 1' })).toContainText(/written by the model for /)
-
-    // The project's drafts list it; the audit log keeps it by its kind, never what it says.
-    await page.getByRole('button', { name: 'Back to the drafts' }).click()
-    await expect(page.getByRole('heading', { name: 'Drafts', exact: true })).toBeFocused()
-    await expect(page.getByRole('list', { name: 'Drafts' }).getByRole('listitem')).toContainText('2 versions')
-    await expectAccessible(page, 'the drafts')
+    // Written from the invoice's facts, it is a Word file of the member's, by the agent.
+    const letter = page.getByRole('list', { name: 'My files' }).getByRole('button', { name: /^Dispute letter about .+\.docx/ })
+    await expect(letter).toBeVisible({ timeout: 30_000 })
+    await expect(asked).toBeHidden()
+    await letter.click()
+    await expect(page.getByRole('heading', { name: /^Dispute letter about .+\.docx$/ })).toBeFocused()
+    await expect(page.getByRole('list', { name: 'Versions' })).toContainText('Written by the agent · Dispute letter')
     await page.goto('/organization/audit')
-    await page.getByLabel('What').selectOption('draft_created')
-    await expect(page.getByRole('listitem').filter({ hasText: 'Asked for a draft' })).toContainText('Dispute letter, about 1 document')
-    await page.getByLabel('What').selectOption('draft_changed')
-    await expect(page.getByRole('listitem').filter({ hasText: 'Changed a draft' })).toContainText('Dispute letter, saved as version 2')
-    await page.getByLabel('What').selectOption('draft_exported')
-    await expect(page.getByRole('listitem').filter({ hasText: 'Downloaded a draft' })).toContainText('Dispute letter, version 2 as Markdown')
+    await page.getByLabel('What').selectOption('my_file_added')
+    await expect(page.getByRole('listitem').filter({ hasText: 'by the agent: a dispute letter' })).toContainText('a Word document, by the agent: a dispute letter')
   })
 
-  await test.step("give the project's dispute letters a template of its own, which the new draft's form names, then the built-in one again", async () => {
+  await test.step("give the project's dispute letters a template of its own from My files, then the built-in one again", async () => {
     await page.goto('/')
     await page.getByRole('link', { name: /^Supplier contracts/ }).click()
-    await page.getByRole('button', { name: 'Drafts', exact: true }).click()
+    await page.getByRole('button', { name: 'My files', exact: true }).click()
     await page.getByRole('button', { name: 'Templates', exact: true }).click()
-    const heading = page.getByRole('heading', { name: 'Draft templates' })
+    const heading = page.getByRole('heading', { name: 'Writing templates' })
     await expect(heading).toBeFocused()
-    const letters = page.getByRole('list', { name: 'Draft templates' }).getByRole('listitem').filter({ hasText: 'Dispute letter' })
+    const letters = page.getByRole('list', { name: 'Writing templates' }).getByRole('listitem').filter({ hasText: 'Dispute letter' })
     await expect(letters).toContainText('Built in')
-    await expectAccessible(page, 'the draft templates')
+    await expectAccessible(page, 'the writing templates')
 
-    // Customised: the tone first, then a part added, which a draft may leave out.
+    // Customised: the tone first, then a part added, which a letter may leave out.
     await letters.getByRole('button', { name: 'Customise Dispute letter' }).click()
     const tone = page.getByLabel('Tone')
     await expect(tone).toBeFocused()
@@ -1431,55 +1395,27 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(added.getByLabel('Name')).toBeFocused()
     await added.getByLabel('Name').fill('Our reference')
     await added.getByLabel('What goes in it').fill('The order number we gave.')
-    await added.getByLabel('Every draft has it').uncheck()
-    await expectAccessible(page, 'a draft template')
+    await added.getByLabel('Every dispute letter has it').uncheck()
+    await expectAccessible(page, 'a writing template')
     await page.getByRole('button', { name: 'Save', exact: true }).click()
     await expect(heading).toBeFocused()
     await expect(page.getByText('Saved the project’s own dispute letter template.')).toBeVisible()
     await expect(letters).toContainText('The project’s own')
     await expect(letters).toContainText('Our reference (where it applies)')
 
-    // The new draft's form says a dispute letter follows it.
-    await page.getByRole('button', { name: 'Back to the drafts' }).click()
-    await page.getByLabel('Kind', { exact: true }).selectOption('dispute_letter')
-    await expect(page.getByText('Written to the project’s own template for this kind.')).toBeVisible()
-
     // The built-in one again, after its question.
-    await page.getByRole('button', { name: 'Templates', exact: true }).click()
     await letters.getByRole('button', { name: 'Use the built-in dispute letter template' }).click()
     const question = page.getByRole('dialog', { name: 'Use the built-in dispute letter template again?' })
     await question.getByRole('button', { name: 'Use the built-in one' }).click()
     await expect(heading).toBeFocused()
     await expect(letters).toContainText('Built in')
+    await page.getByRole('button', { name: 'Back to My files' }).click()
+    await expect(page.getByRole('heading', { name: 'My files', exact: true })).toBeFocused()
     await page.goto('/organization/audit')
     await page.getByLabel('What').selectOption('draft_template_created')
-    await expect(page.getByRole('listitem').filter({ hasText: 'Made a draft template' })).toContainText('for dispute letters, 7 parts')
+    await expect(page.getByRole('listitem').filter({ hasText: 'Made a writing template' })).toContainText('for dispute letters, 7 parts')
     await page.getByLabel('What').selectOption('draft_template_deleted')
-    await expect(page.getByRole('listitem').filter({ hasText: 'Used a built-in draft template again' })).toContainText('for dispute letters')
-  })
-
-  await test.step('ask in the chat for a reply email, which the answer offers as a draft, and have it written into the drafts with a press', async () => {
-    await page.goto('/')
-    await page.getByRole('link', { name: /^Supplier contracts/ }).click()
-    await expect(page).not.toHaveURL(/[?&]chat=/)
-    const composer = page.getByPlaceholder('Ask a question about these documents')
-    await composer.fill('Draft a reply email to the supplier about the invoice.')
-    await composer.press('Enter')
-    // The answer offers it, and nothing is written until the member presses it.
-    const offer = page.getByRole('region', { name: /^Draft offered: Reply email about / })
-    await expect(offer).toBeVisible({ timeout: 30_000 })
-    await expect(offer).toContainText('Draft a reply email to the supplier about the invoice.')
-    await expect(page.getByText('Offered a draft: Reply email')).toBeVisible()
-    await expectAccessible(page, 'a draft an answer offers')
-    await offer.getByRole('button', { name: 'Write the draft' }).click()
-
-    // Written into the project's drafts, where it opens with its heading focused; the offer then leads to it.
-    await expect(page.getByRole('heading', { name: /^Reply email: / })).toBeFocused()
-    await expect(page.getByRole('region', { name: 'Version 1' })).toContainText('Written by the model from the project’s documents', { timeout: 30_000 })
-    await expect(offer.getByRole('button', { name: 'Open the draft' })).toBeVisible()
-    await page.goto('/organization/audit')
-    await page.getByLabel('What').selectOption('draft_created')
-    await expect(page.getByRole('listitem').filter({ hasText: 'from a chat' })).toContainText('Reply email, about 1 document, from a chat')
+    await expect(page.getByRole('listitem').filter({ hasText: 'Used a built-in writing template again' })).toContainText('for dispute letters')
   })
 
   await test.step('ask in a chat for a Word document, which the agent writes into My files, and open it from its step', async () => {

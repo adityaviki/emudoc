@@ -16,10 +16,6 @@ the passages. It answers as a model would that does the least the app asks:
   streamed as the app streams every turn;
 - an agent turn after a search answers with the first sentence of the best passage, cited by
   its [P...] reference;
-- an agent turn offered `create_draft`, for a question that begins "Draft ", offers after its
-  search a draft of the kind the question names (a reply email unless it says dispute, memo,
-  table or report) about the best passage's document, the question its instructions, then says
-  that it is offered;
 - an agent turn offered `create_document`, for a question that begins "Write a Word document",
   writes after its search a document, "Notes on the invoice", of the best passage's first sentence
   and its reference into the member's My files, then says that it is there;
@@ -78,15 +74,6 @@ HELD_FOR = 60.0
 WORD = re.compile(r"\w+")
 CITED = re.compile(r"^(\[P\d+\]) .*\n(.+)", re.MULTILINE)
 SENTENCE = re.compile(r"(.+?[.!?])(\s|$)")
-# The document of a search's best passage, and the kind of draft a question's word asks for.
-HIT = re.compile(r"^\[P\d+\] doc (\d+)", re.MULTILINE)
-DRAFT_WORDS = (
-    ("dispute", "dispute_letter"),
-    ("memo", "summary_memo"),
-    ("table", "comparison_table"),
-    ("report", "report"),
-)
-OFFERED = "The member is offered a"
 KEPT = "in the member's My files as file"
 
 # Google Drive's tree under /google: each item by its id, its name, its type, its parent, and a
@@ -299,9 +286,8 @@ def text_of(content: Any) -> str:
 
 
 def agent_turn(messages: list[dict[str, Any]], tools: list[str]) -> dict[str, Any]:
-    """What the model does next: a search for the question, a draft offered or a file written
-    from its results when the question asks for one and the tool is offered, or the answer from
-    them."""
+    """What the model does next: a search for the question, a file written from its results
+    when the question asks for one and the tool is offered, or the answer from them."""
     results = [text_of(m.get("content")) for m in messages if m.get("role") == "tool"]
     question = next(
         text_of(m.get("content")) for m in reversed(messages) if m.get("role") == "user"
@@ -328,14 +314,6 @@ def agent_turn(messages: list[dict[str, Any]], tools: list[str]) -> dict[str, An
             sheets = [{"name": "Lines", "rows": rows}]
             arguments = {"title": "Lines of the invoice", "sheets": sheets}
             return {"tool": "create_spreadsheet", "arguments": arguments}
-    if "create_draft" in tools and question.startswith("Draft "):
-        if OFFERED in results[-1]:
-            return {"text": "It is offered below as a draft for the project's drafts."}
-        if hit := HIT.search(results[-1]):
-            asked = question.lower()
-            kind = next((kind for word, kind in DRAFT_WORDS if word in asked), "reply_email")
-            arguments = {"kind": kind, "instructions": question, "document_ids": [int(hit[1])]}
-            return {"tool": "create_draft", "arguments": arguments}
     found = CITED.search(results[-1])
     if not found:
         return {"text": "The documents do not say."}

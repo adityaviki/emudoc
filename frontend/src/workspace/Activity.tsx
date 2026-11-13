@@ -13,7 +13,7 @@ const NAMED = 5
 
 /**
  * What was done in the project lately, in the library's place, newest first: documents arriving, given versions,
- * deleted and restored, reviews, comments, drafts, runs of the cross-checks and the question sets, chats shared;
+ * deleted and restored, reviews, comments, runs of the cross-checks and the question sets, chats shared;
  * a run of one member's uploads as one item. Each leads to what it was about while that is there to open.
  */
 export function ActivityView() {
@@ -46,7 +46,7 @@ export function ActivityView() {
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
         <p className="text-xs text-muted">
           What was done in the project lately, kept as long as the workspace’s audit log: documents arriving and
-          leaving, reviews, comments, drafts and runs.
+          leaving, reviews, comments and runs.
         </p>
         {activity.isPending && <Loading />}
         {activity.isError && <Notice tone="bad">Could not load the activity: {activity.error.message}</Notice>}
@@ -116,7 +116,6 @@ function opener(event: ActivityEvent, workspace: ReturnType<typeof useWorkspace>
   if (target == null) return null
   if (event.action === 'cross_checks_run') return () => workspace.showRun(target)
   if (event.action === 'question_set_run') return () => workspace.showReport(target)
-  if (event.action === 'draft_created') return () => workspace.showDraft(target)
   if (event.action === 'chat_shared') return () => workspace.openChat(target)
   return null
 }

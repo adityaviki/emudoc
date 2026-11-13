@@ -11,7 +11,6 @@ from pydantic_ai.messages import TextPart
 from app.answers import answer
 from app.check_runs import run_workflow
 from app.config import get_settings
-from app.drafts import write_draft
 from app.encrypted import CONNECTOR_TOKENS, encrypt
 from app.indexing.pipeline import process_document
 from app.models import Connector
@@ -43,7 +42,7 @@ def word(text: str) -> bytes:
 class World:
     """A project with a folder, an indexed document with a fact a member checked, the upload it came
     in with, an extraction template of its own, a cross-check with a run of it and an automation, a
-    draft the model wrote, a question set with a report of its answers, and a chat holding one
+    question set with a report of its answers, and a chat holding one
     answered
     question, and in its trash a folder, a document and a chat; another project in the trash; an
     invitation to the organisation and an API key of it, all made by the local owner in the local
@@ -73,7 +72,6 @@ class World:
     cross_check_id: int
     run_id: int
     automation_id: int
-    draft_id: int
     connector_id: int
     webhook_id: int
     link_id: int
@@ -82,6 +80,7 @@ class World:
     thread_id: int
     comment_id: int
     my_file_id: int
+    writing_id: int
 
 
 @pytest.fixture
@@ -129,9 +128,6 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
     checked_run = client.post(f"/api/projects/{project['id']}/check-runs", json={}).json()
     run_workflow(checked_run["id"], services)
     automation = client.post(f"/api/projects/{project['id']}/automations", json=AUTOMATION)
-    draft = client.post(f"/api/projects/{project['id']}/drafts", json={"kind": "report"}).json()
-    services.llm.agent_turns.append(FakeTurn(TextPart("A report.")))
-    write_draft(draft["id"], account.user.id, services)
     given = client.put(f"/api/projects/{project['id']}/mailbox", json={"senders": ["acme.example"]})
     assert given.status_code == 200, given.text
     connector = Connector(
@@ -157,6 +153,9 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
     letter = {"file": ("Letter.docx", word("Dear Acme,"))}
     my_file = client.post(f"/api/projects/{project['id']}/my-files", files=letter)
     assert my_file.status_code == 201, my_file.text
+    dispute = {"kind": "dispute_letter", "document_ids": [document["id"]]}
+    writing = client.post(f"/api/projects/{project['id']}/my-files/writings", json=dispute)
+    assert writing.status_code == 201, writing.text
     for path in (
         f"/api/folders/{trashed_folder['id']}",
         f"/api/documents/{note['id']}",
@@ -187,7 +186,6 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
         cross_check.json()["id"],
         checked_run["id"],
         automation.json()["id"],
-        draft["id"],
         connector.id,
         hook.json()["id"],
         link.json()["id"],
@@ -196,6 +194,7 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
         thread.json()["id"],
         thread.json()["comments"][0]["id"],
         my_file.json()["id"],
+        writing.json()["id"],
     )
 
 
@@ -233,12 +232,8 @@ def reads(w: World) -> list[Route]:
         ("GET", f"/api/reports/{w.report_id}", {}),
         ("GET", f"/api/projects/{w.project_id}/reviews", {}),
         ("GET", f"/api/projects/{w.project_id}/reviewers", {}),
-        ("GET", f"/api/projects/{w.project_id}/drafts", {}),
         ("GET", f"/api/projects/{w.project_id}/mailbox", {}),
         ("GET", f"/api/projects/{w.project_id}/connectors", {}),
-        ("GET", f"/api/drafts/{w.draft_id}", {}),
-        ("GET", f"/api/drafts/{w.draft_id}/versions/1", {}),
-        ("GET", f"/api/drafts/{w.draft_id}/versions/1/export", {}),
         ("GET", f"/api/projects/{w.project_id}/draft-templates", {}),
         ("GET", f"/api/documents/{w.document_id}", {}),
         ("GET", f"/api/documents/{w.document_id}/file", {}),
@@ -296,9 +291,6 @@ def writes(w: World) -> list[Route]:
         ("POST", f"/api/projects/{w.project_id}/question-sets", {"json": QUESTION_SET}),
         ("PUT", f"/api/question-sets/{w.question_set_id}", {"json": QUESTION_SET}),
         ("POST", f"/api/question-sets/{w.question_set_id}/run", {}),
-        ("POST", f"/api/projects/{w.project_id}/drafts", {"json": {"kind": "report"}}),
-        ("POST", f"/api/drafts/{w.draft_id}/versions", {"json": {"text": "Mine.", "base": 1}}),
-        ("POST", f"/api/drafts/{w.draft_id}/rewrite", {"json": {}}),
         (
             "PUT",
             f"/api/projects/{w.project_id}/draft-templates/report",
@@ -335,7 +327,6 @@ def writes(w: World) -> list[Route]:
         ("POST", f"/api/documents/{w.document_id}/share-links", {"json": {}}),
         ("DELETE", f"/api/fact-checks/{w.check_id}", {}),
         ("DELETE", f"/api/check-runs/{w.run_id}", {}),
-        ("DELETE", f"/api/drafts/{w.draft_id}", {}),
         ("DELETE", f"/api/projects/{w.project_id}/draft-templates/report", {}),
         ("DELETE", f"/api/automations/{w.automation_id}", {}),
         ("DELETE", f"/api/reports/{w.report_id}", {}),
@@ -433,7 +424,6 @@ def chat_writes(w: World) -> list[Route]:
         ("POST", f"/api/chats/{w.chat_id}/messages/{w.message_id}/stop", {}),
         ("POST", f"/api/chats/{w.chat_id}/messages/{w.message_id}/retry", {}),
         ("POST", f"/api/chats/{w.chat_id}/messages/{w.message_id}/regenerate", {"json": {}}),
-        ("POST", f"/api/chats/{w.chat_id}/messages/{w.message_id}/draft", {}),
         ("DELETE", f"/api/chats/{w.chat_id}", {}),
     ]
 
@@ -517,18 +507,21 @@ def members(w: World) -> list[Route]:
 
 
 def keeps(w: World) -> list[Route]:
-    """A reader's own My files in the project (test_my_files.py): their list, and a file kept
-    there, which a viewer keeps too, since it changes nothing the members share."""
+    """A reader's own My files in the project (test_my_files.py): their list, a file kept there
+    and a document the agent is asked to write there (test_writings.py), which a viewer does
+    too, since it changes nothing the members share."""
     letter = {"file": ("Notes.docx", word("My notes."))}
+    asked = {"kind": "dispute_letter", "document_ids": [w.document_id]}
     return [
         ("GET", f"/api/projects/{w.project_id}/my-files", {}),
         ("POST", f"/api/projects/{w.project_id}/my-files", {"files": letter}),
+        ("POST", f"/api/projects/{w.project_id}/my-files/writings", {"json": asked}),
     ]
 
 
 def own_files(w: World) -> list[Route]:
-    """The routes that name a file of the owner's My files, which nobody else finds, the
-    organisation's admins included."""
+    """The routes that name a file of the owner's My files, or a writing they asked for there,
+    which nobody else finds, the organisation's admins included."""
     file = f"/api/my-files/{w.my_file_id}"
     version = {"file": ("Letter.docx", word("Dear Acme, again."))}
     return [
@@ -540,6 +533,8 @@ def own_files(w: World) -> list[Route]:
         ("POST", f"{file}/versions/1/view", {}),
         ("POST", f"{file}/copy", {"json": {}}),
         ("DELETE", file, {}),
+        ("POST", f"/api/my-file-writings/{w.writing_id}/retry", {}),
+        ("DELETE", f"/api/my-file-writings/{w.writing_id}", {}),
     ]
 
 

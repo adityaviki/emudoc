@@ -1,4 +1,4 @@
-// The files a text that cites passages downloads as, a draft's version, an answer or a whole chat
+// The files a text that cites passages downloads as, an answer or a whole chat
 // (backend/app/draft_export.py, backend/app/chat_export.py), and where an answer and a chat download from.
 
 import type { TextFormat } from './api.ts'

@@ -9,7 +9,6 @@
 import type { ActivityEvent, ConnectorProvider, Mention, Mentionable, Thread } from './api.ts'
 import type { Question } from './components/Confirm.tsx'
 import { SERVICE_NAMES } from './connectors.ts'
-import { KIND_LABELS } from './drafts.ts'
 import { REVIEW_LABELS } from './reviews.ts'
 
 /** Where a document's threads are kept. */
@@ -195,8 +194,6 @@ export function activityWords(event: ActivityEvent): ActivityWords {
       return said(event.reply ? ' replied on ' : ' commented on ', name)
     case 'thread_resolved':
       return said(' resolved a thread on ', name)
-    case 'draft_created':
-      return said(' asked for a draft: ', event.kind ? KIND_LABELS[event.kind] : 'a draft')
     case 'cross_checks_run':
       return said(' ran the cross-checks ', event.names.length ? event.names.join(', ') : null)
     case 'question_set_run':

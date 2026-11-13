@@ -14,9 +14,10 @@ calls of the indexing stages (`ocr` with the pages it read, `infer_sections`, `e
 texts embedded (`embed`, with the tokens the endpoint says they took), the pages rendered
 for the viewer (`render`: the member's by app/api/documents.py, the organisation's for a PDF's
 first pages drawn ahead by app/rendering.py), and the model calls of a discrepancy report the
-agent writes from a run of cross-checks (`report`, by app/check_runs.py) and of a draft it
-writes (`draft`, by app/drafts.py), whose asking counts as a question (`answer` in `questions`,
-by app/api/check_runs.py and app/api/drafts.py). The
+agent writes from a run of cross-checks (`report`, by app/check_runs.py) and of a document it
+writes into a member's My files outside a chat (`draft`, by app/writings.py; the drafts' until
+they went on 2026-11-13), whose asking counts as a question (`answer` in `questions`, by
+app/api/check_runs.py and app/api/my_files.py). The
 kind `suggestions` is the model calls that wrote a project's suggested questions until
 2026-11-11, when an empty chat stopped offering any: nothing records it now, and its rows stay,
 being what those calls cost.
@@ -34,8 +35,8 @@ settings list per model (MODEL_PRICES, app/config.py), for the tokens a model to
 gave out, an embedding model's included; a row for a model without a price, or for a unit that
 is not tokens, has none.
 
-The message, document, run or draft a row was for shows what it used: `ChatMessage.usage`,
-`Document.usage`, `WorkflowRun.usage` and `Draft.usage` (app/models.py) hold the rows for the row,
+The message, document or run a row was for shows what it used: `ChatMessage.usage`,
+`Document.usage` and `WorkflowRun.usage` (app/models.py) hold the rows for the row,
 by kind, each unit summed over every run, the model and the prompts' version the latest row
 named, and the cost summed when any row has one. `record` adds to it as it adds the rows, in
 the same transaction, so the two never drift apart.
@@ -71,7 +72,6 @@ from app.config import get_settings
 from app.models import (
     ChatMessage,
     Document,
-    Draft,
     Invitation,
     Membership,
     MyFile,
@@ -119,13 +119,12 @@ MONTHS = (
 CHARS_PER_PAGE = 3_000
 # What the workspace holds at any moment, as against what it uses in a month.
 HELD = ("projects", "documents", "storage_bytes", "members")
-# The row a reference names, which carries the usage recorded for it. A draft's usage is
-# referenced by the kind's own name.
+# The row a reference names, which carries the usage recorded for it. A writing into My files
+# names none: its file is the member's, and what it cost is the day's and the month's.
 _REFERENCED = {
     CHAT_MESSAGE: ChatMessage,
     DOCUMENT: Document,
     WORKFLOW_RUN: WorkflowRun,
-    DRAFT: Draft,
     QUESTION_REPORT: QuestionReport,
 }
 
@@ -473,7 +472,7 @@ def add(usage: Mapping[str, Mapping[str, Any]], rows: Iterable[UsageEvent]) -> d
 
 
 def _keep(session: Session, ref: tuple[str, int], rows: Iterable[UsageEvent]) -> None:
-    """Add the rows to the usage the message, document, run or draft they were for shows."""
+    """Add the rows to the usage the message, document, run or report they were for shows."""
     ref_type, ref_id = ref
     # Read again under the row's lock: the object the session holds may be behind the row (a
     # page rendered while the stage ran, the run that was lost charging beside this one), and

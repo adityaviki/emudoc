@@ -4,22 +4,19 @@ import { Markdown } from '../components/Markdown.tsx'
 import { CitationChip } from './ChatPane.tsx'
 
 /**
- * A text the model wrote whole, a discrepancy report or a draft, its citations numbered in the order it first makes
- * them and opening the passages they cite, which it lists below it. A reference to a passage it was never shown stays
- * plain text. With `lines`, a line break is kept where it is written, as a letter's address needs and as the draft's
- * files keep it (backend/app/draft_export.py). `opens` names where a citation opens, when not in the document.
+ * A text the model wrote whole, a discrepancy report, a question set's answer or a shared answer, its citations numbered
+ * in the order it first makes them and opening the passages they cite, which it lists below it. A reference to a
+ * passage it was never shown stays plain text. `opens` names where a citation opens, when not in the document.
  */
 export function CitedText({
   text,
   sources,
   onOpen,
-  lines = false,
   opens,
 }: {
   text: string
   sources: Source[]
   onOpen: (source: Source) => void
-  lines?: boolean
   opens?: string
 }) {
   const known = new Map(sources.map((source) => [source.id, source]))
@@ -27,7 +24,7 @@ export function CitedText({
   const numberOf = (id: number) => cited.indexOf(id) + 1
   return (
     <>
-      <div className={lines ? 'text-[13px] [&_p]:whitespace-pre-line' : 'text-[13px]'}>
+      <div className="text-[13px]">
         <Markdown
           text={text}
           citation={(id) => {

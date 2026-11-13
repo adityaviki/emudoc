@@ -81,12 +81,12 @@ from app.models import (
     CommentThread,
     CrossCheck,
     Document,
-    Draft,
     ExtractionTemplate,
     Fact,
     FactCheck,
     Folder,
     MyFile,
+    MyFileWriting,
     Passage,
     Project,
     QuestionReport,
@@ -445,20 +445,6 @@ def get_report(report_id: int, session: SessionDep, account: AccountDep) -> Ques
     return report
 
 
-def get_draft(draft_id: int, session: SessionDep, account: AccountDep) -> Draft:
-    """A draft of a project's (app/drafts.py), provided the account sees the project and it is
-    out of the trash."""
-    draft = session.scalar(
-        select(Draft)
-        .join(Project, Project.id == Draft.project_id)
-        .where(Draft.id == draft_id, visible_to(account))
-    )
-    if draft is None:
-        raise HTTPException(404, "Draft not found")
-    about(project_id=draft.project_id)
-    return draft
-
-
 def get_my_file(file_id: int, session: SessionDep, account: AccountDep) -> MyFile:
     """A file of the account's own My files (app/my_files.py), provided it still sees the
     project and the project is out of the trash. Another member's file, the project's owners'
@@ -472,6 +458,24 @@ def get_my_file(file_id: int, session: SessionDep, account: AccountDep) -> MyFil
         raise HTTPException(404, "File not found")
     about(project_id=file.project_id)
     return file
+
+
+def get_my_file_writing(writing_id: int, session: SessionDep, account: AccountDep) -> MyFileWriting:
+    """A writing the account asked for into its My files (app/writings.py), under the terms of
+    its files: another member's is not found."""
+    writing = session.scalar(
+        select(MyFileWriting)
+        .join(Project, Project.id == MyFileWriting.project_id)
+        .where(
+            MyFileWriting.id == writing_id,
+            MyFileWriting.user_id == account.user.id,
+            visible_to(account),
+        )
+    )
+    if writing is None:
+        raise HTTPException(404, "Writing not found")
+    about(project_id=writing.project_id)
+    return writing
 
 
 def get_fact(fact_id: int, session: SessionDep, account: AccountDep) -> Fact:
@@ -525,6 +529,7 @@ PassageDep = Annotated[Passage, Depends(get_passage)]
 ChatDep = Annotated[Chat, Depends(get_chat)]
 ThreadDep = Annotated[CommentThread, Depends(get_thread)]
 MyFileDep = Annotated[MyFile, Depends(get_my_file)]
+MyFileWritingDep = Annotated[MyFileWriting, Depends(get_my_file_writing)]
 CommentDep = Annotated[Comment, Depends(get_comment)]
 
 
@@ -589,11 +594,6 @@ def get_editable_report(
     return report
 
 
-def get_editable_draft(draft: Annotated[Draft, Depends(get_draft)], account: AccountDep) -> Draft:
-    _refuse_viewer(account)
-    return draft
-
-
 def get_editable_fact(fact: Annotated[Fact, Depends(get_fact)], account: AccountDep) -> Fact:
     _refuse_viewer(account)
     return fact
@@ -623,8 +623,6 @@ CrossCheckDep = Annotated[CrossCheck, Depends(get_cross_check)]
 EditableCrossCheckDep = Annotated[CrossCheck, Depends(get_editable_cross_check)]
 RunDep = Annotated[WorkflowRun, Depends(get_run)]
 EditableRunDep = Annotated[WorkflowRun, Depends(get_editable_run)]
-DraftDep = Annotated[Draft, Depends(get_draft)]
-EditableDraftDep = Annotated[Draft, Depends(get_editable_draft)]
 AutomationDep = Annotated[Automation, Depends(get_automation)]
 EditableAutomationDep = Annotated[Automation, Depends(get_editable_automation)]
 QuestionSetDep = Annotated[QuestionSet, Depends(get_question_set)]

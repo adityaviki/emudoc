@@ -17,29 +17,10 @@ read comments, and a search does not find them.
 ## The project's activity
 
 **Activity**, among the library's buttons, lists what was done in the project lately, newest
-first: its uploads and new versions, what was deleted and restored, reviews, comments, drafts,
-runs of its cross-checks and question sets, and chats shared. Each line opens what it was about
+first: its uploads and new versions, what was deleted and restored, reviews, comments, runs of
+its cross-checks and question sets, and chats shared. Each line opens what it was about
 while that is still there, and one member's uploads close together are one line. Everyone who
 sees the project reads it, for as long as the workspace's audit log keeps its entries.
-
-## Drafts
-
-The AI model writes letters, emails, memos, tables and reports from the project's documents,
-citing where each figure is written. **Drafts**, among the library's buttons, lists them, and
-**New draft** asks for one: its kind (a reply email, a dispute letter, a summary memo, a
-comparison table or a report), what it should say, and up to $draft_documents documents to write
-from. An answer in the chat offers one when you ask for it there, which "Write the draft" under
-the answer writes: nothing is written until it is pressed. A disputed document offers "Write a
-dispute letter" on its tab.
-
-Each writing and each edit is a new version, and the earlier ones stay as they were, under
-Version: "Edit" changes the text (Write and Preview) and saves it as a new version, and "Write it
-again" has the model write it anew from what it should say now. "Download" gives a version as a
-Word document to edit, a PDF to send as it is, or Markdown. A draft belongs to the project:
-everyone who sees the project reads and downloads it, and whoever may change the project asks
-for drafts, edits them and deletes them, for good. "Templates", on the drafts' page, sets for each
-kind the tone and the parts its drafts have in the project, in order; a writing follows the
-template as it is at the time.
 
 ## My files
 
@@ -60,6 +41,15 @@ or a Word document or workbook of the project, which it copies into My files fir
 it in place, keeping the formatting of everything it does not change. Each change is a new
 version you can go back to. A workbook holding charts, pictures, pivot tables or macros it reads
 but leaves to Excel to change, and it never changes the project's library.
+
+Asked for a reply email, a dispute letter, a summary memo, a comparison table or a report, the
+assistant follows the project's template of the kind. "Templates", in My files, shows each kind's
+tone and parts, in order, which apply to everyone in the project; whoever may change the project
+changes them, and a writing follows the template as it is at the time. A disputed document offers
+"Write a dispute letter" on its tab: the assistant writes the letter into your My files from what
+was read from the document and what the project's cross-checks found about it, citing where each
+figure is written. It shows in My files while it is written, and with "Try again" and "Dismiss"
+if it could not be.
 
 ## Share links
 

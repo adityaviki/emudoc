@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import type { DraftTemplate } from './api.ts'
-import { builtInAgainQuestion, originWords, sectionsWords, templateFormOf, templateInputOf, templateProblem, writtenToWords } from './draftTemplates.ts'
+import {
+  DRAFT_KINDS,
+  KIND_LABELS,
+  builtInAgainQuestion,
+  kindWords,
+  originWords,
+  sectionsWords,
+  templateFormOf,
+  templateInputOf,
+  templateProblem,
+} from './draftTemplates.ts'
 
 const letter: DraftTemplate = {
   kind: 'dispute_letter',
@@ -15,7 +25,14 @@ const letter: DraftTemplate = {
   updated_at: null,
 }
 
-describe('draft templates', () => {
+describe('writing templates', () => {
+  it('names every kind the server knows, once, each in a sentence with its article', () => {
+    expect(DRAFT_KINDS.map((kind) => kind.value)).toEqual(['reply_email', 'dispute_letter', 'summary_memo', 'comparison_table', 'report'])
+    expect(KIND_LABELS.comparison_table).toBe('Comparison table')
+    expect(kindWords('dispute_letter')).toBe('a dispute letter')
+    expect(kindWords('report')).toBe('a report')
+  })
+
   it('says what a template holds and where it comes from', () => {
     expect(originWords(letter)).toBe('Built in')
     expect(originWords({ built_in: false })).toBe('The project’s own')
@@ -50,14 +67,11 @@ describe('draft templates', () => {
     )
   })
 
-  it('says what giving a kind its built-in template back does, and when a new draft follows the project’s own', () => {
+  it('says what giving a kind its built-in template back does', () => {
     expect(builtInAgainQuestion('dispute_letter')).toEqual({
       title: 'Use the built-in dispute letter template again?',
-      body: 'The project’s own dispute letter template goes for good, and the next dispute letter is written to the built-in one. The drafts written already stay as they are.',
+      body: 'The project’s own dispute letter template goes for good, and the next dispute letter is written to the built-in one. The files written already stay as they are.',
       action: 'Use the built-in one',
     })
-    expect(writtenToWords(letter)).toBeNull()
-    expect(writtenToWords(undefined)).toBeNull()
-    expect(writtenToWords({ ...letter, id: 3, built_in: false })).toBe('Written to the project’s own template for this kind.')
   })
 })

@@ -95,11 +95,10 @@ The stages build three indexes:
 
 The agent (`backend/app/agent/`) answers with five read-only tools over the indexes:
 `list_documents` and `get_outline` read the map, `search` the passages, `query_facts` the facts,
-and `read` returns a passage's exact text. A member who may change the project is also offered
-`create_draft`, by which an answer offers a draft that only the member's press writes; and every
-member is offered the tools of their own My files (`agent/writing.py`: `list_my_files`,
-`read_file`, `create_document`, `edit_document`, `create_spreadsheet`, `edit_spreadsheet`,
-`copy_to_my_files`; Word documents by python-docx in `word_files.py`, workbooks by openpyxl in
+and `read` returns a passage's exact text. Every member is also offered the tools of their own
+My files (`agent/writing.py`: `list_my_files`, `read_file`, `get_template`, the project's
+template of a kind of document such as a dispute letter (`draft_templates.py`), `create_document`,
+`edit_document`, `create_spreadsheet`, `edit_spreadsheet`, `copy_to_my_files`; Word documents by python-docx in `word_files.py`, workbooks by openpyxl in
 `sheet_files.py`, their formulas' values worked out by the converter), each write a version only
 they see. Every tool is scoped to the chat's project, and to its folder or documents, by the
 server, never by the model.
@@ -156,7 +155,7 @@ backend/app/
   search.py         the hybrid search; languages.py the language a document is searched in
   extraction.py     the templates; fact_*.py the facts table, its checks, changes and export
   cross_checks.py   rules between documents' facts; check_runs.py their runs; automations.py
-  reviews.py, comments.py, drafts.py, my_files.py, question_sets.py, share_links.py, …
+  reviews.py, comments.py, my_files.py, writings.py, question_sets.py, share_links.py, …
                     one module per feature, with its routes in api/
   agent/            the tools and the loop; llm.py every call to a model
   answers.py        an answer as a job and its stream

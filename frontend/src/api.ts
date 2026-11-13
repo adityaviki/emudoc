@@ -353,7 +353,6 @@ export type ActivityAction =
   | 'document_assigned'
   | 'comment_added'
   | 'thread_resolved'
-  | 'draft_created'
   | 'cross_checks_run'
   | 'question_set_run'
   | 'chat_shared'
@@ -379,8 +378,7 @@ export interface ActivityEvent {
   names: string[]
   name: string | null
   questions: number | null
-  kind: DraftKind | null
-  /** The run, report, draft or chat to open. */
+  /** The run, report or chat to open. */
   target_id: number | null
 }
 
@@ -1006,66 +1004,36 @@ export interface MyFileDetail extends MyFile {
   history: MyFileVersion[]
 }
 
-/** What a draft is (backend/app/drafts.py), and how far the model's writing of it is. */
+/** A kind of document the agent writes to a template (DRAFT_KINDS in backend/app/models.py, backend/app/draft_templates.py). */
 export type DraftKind = 'reply_email' | 'dispute_letter' | 'summary_memo' | 'comparison_table' | 'report'
-export type DraftStatus = 'queued' | 'writing' | 'done' | 'failed'
-/** The files a text citing passages downloads as: a draft's version, an answer, a chat (backend/app/draft_export.py, backend/app/chat_export.py). */
+/** The files a text citing passages downloads as: an answer, a chat (backend/app/draft_export.py, backend/app/chat_export.py). */
 export type TextFormat = 'docx' | 'pdf' | 'md'
 
-/** A draft a member asks the model for (DraftIn): its kind, what it should say, and the documents it is about, none to have the model find them. */
-export interface DraftInput {
-  kind: DraftKind
-  instructions: string
-  document_ids: number[]
-}
-
-/** A draft as the project's list shows it (DraftSummaryOut): who asked for it first (null once their account is gone) and how many versions it has. */
-export interface DraftSummary {
+/** A Word file a member asked the agent to write into their My files outside a chat (MyFileWritingOut): a disputed document's dispute letter, while it is written, or why it failed. One that succeeds is a file of `files`. */
+export interface MyFileWriting {
   id: number
-  project_id: number
   kind: DraftKind
   title: string
-  status: DraftStatus
-  created_by: string | null
-  versions: number
-  created_at: string
-  updated_at: string
-}
-
-/** A version as a draft's history lists it (DraftVersionSummaryOut): the model's writing, which `author` asked for, or a member's save. */
-export interface DraftVersionSummary {
-  number: number
-  by_model: boolean
-  author: string | null
-  created_at: string
-}
-
-/** A version whole (DraftVersionOut): its text, citing `sources` as [P<id>] as they were when it was written. */
-export interface DraftVersion extends DraftVersionSummary {
-  text: string
-  sources: Source[]
-}
-
-/** A draft whole (DraftOut): what was asked of it, its documents (`gone` once deleted or in the trash), the run its last writing read, its history newest first and the newest version. */
-export interface Draft extends DraftSummary {
-  instructions: string
-  documents: { id: number; title: string; gone: boolean }[]
-  run_id: number | null
+  status: 'queued' | 'writing' | 'failed'
   error: string | null
-  notice: string | null
-  usage: Record<string, Usage>
-  history: DraftVersionSummary[]
-  latest: DraftVersion | null
+  created_at: string
 }
 
-/** A part of a kind's drafts (DraftSectionOut): its name, what goes in it, and whether every draft has it. */
+/** The member's files in a project, the one changed last first, the writings asked of the agent still under way or failed, and how many files it keeps (MyFilesOut). */
+export interface MyFiles {
+  files: MyFile[]
+  writings: MyFileWriting[]
+  limit: number
+}
+
+/** A part of a kind's documents (DraftSectionOut): its name, what goes in it, and whether every one has it. */
 export interface DraftSection {
   heading: string
   description: string
   required: boolean
 }
 
-/** How a project's drafts of a kind read (DraftTemplateOut): its own template (`id`), or the built-in one. */
+/** How the agent writes a project's documents of a kind (DraftTemplateOut): its own template (`id`), or the built-in one. */
 export interface DraftTemplate {
   kind: DraftKind
   id: number | null
@@ -1315,27 +1283,12 @@ export interface ChatStep {
  */
 export type MessageStatus = 'streaming' | 'done' | 'stopped' | 'failed'
 
-/** What a draft an answer offers is about (`create_draft`, backend/app/agent/tools.py). */
-export interface DraftAsked {
-  kind: DraftKind
-  instructions: string
-  documents: { id: number; title: string }[]
-}
-
-/** The draft an answer offers, written into the project's drafts once its member presses it, which they may once. */
-export interface DraftOffer extends DraftAsked {
-  written: boolean
-  /** The draft written from it, until that is deleted. */
-  draft_id: number | null
-}
-
 export interface ChatMessage {
   id: number
   role: 'user' | 'assistant'
   content: string
   steps: ChatStep[]
   sources: Source[]
-  draft: DraftOffer | null
   notice: string | null
   error: string | null
   status: MessageStatus
@@ -1377,7 +1330,6 @@ export type ChatEvent =
   | { type: 'tool_call'; id: string; name: string; input: Record<string, unknown> }
   | { type: 'tool_result'; id: string; summary: string; is_error: boolean; file?: StepFile }
   | { type: 'sources'; sources: Source[] }
-  | ({ type: 'draft' } & DraftAsked)
   | { type: 'notice'; message: string }
   | { type: 'error'; message: string }
   | { type: 'done'; usage: Usage }
@@ -2628,22 +2580,15 @@ export const api = {
   reviewers: (projectId: number) => request<Reviewer[]>(`/projects/${projectId}/reviewers`),
   /** Move a document's review, assign it, or both; the member assigned is told. */
   review: (documentId: number, change: ReviewInput) => request<Document>(`/documents/${documentId}/review`, json('PUT', change)),
-  /** A page of the project's drafts, newest first, before the draft `before` names. */
-  drafts: (projectId: number, before: number | null = null) =>
-    request<{ drafts: DraftSummary[]; next_before: number | null }>(
-      `/projects/${projectId}/drafts${before != null ? `?before=${before}` : ''}`,
-    ),
-  /** Have the model write a draft; the worker writes it, which the page follows. */
-  askDraft: (projectId: number, body: DraftInput) => request<Draft>(`/projects/${projectId}/drafts`, json('POST', body)),
-  draft: (id: number) => request<Draft>(`/drafts/${id}`),
-  draftVersion: (id: number, number: number) => request<DraftVersion>(`/drafts/${id}/versions/${number}`),
-  /** Keep a member's text as the newest version, edited from version `base`, which must still be the newest. */
-  saveDraft: (id: number, body: { text: string; base: number }) => request<Draft>(`/drafts/${id}/versions`, json('POST', body)),
-  /** Have the model write the draft again as a new version, with what is asked of it now when given. */
-  rewriteDraft: (id: number, body: { instructions?: string }) => request<Draft>(`/drafts/${id}/rewrite`, json('POST', body)),
-  deleteDraft: (id: number) => request<void>(`/drafts/${id}`, { method: 'DELETE' }),
   /** The member's own files in the project, the one changed last first, and how many it keeps. */
-  myFiles: (projectId: number) => request<{ files: MyFile[]; limit: number }>(`/projects/${projectId}/my-files`),
+  myFiles: (projectId: number) => request<MyFiles>(`/projects/${projectId}/my-files`),
+  /** Have the agent write a document of the kind about the documents into the member's My files; the worker writes it, which My files follows. */
+  askWriting: (projectId: number, body: { kind: DraftKind; document_ids: number[] }) =>
+    request<MyFileWriting>(`/projects/${projectId}/my-files/writings`, json('POST', body)),
+  /** Have a writing that failed written again. */
+  retryWriting: (id: number) => request<MyFileWriting>(`/my-file-writings/${id}/retry`, { method: 'POST' }),
+  /** Dismiss a writing: one that failed, or one under way, whose file is then never kept. */
+  dismissWriting: (id: number) => request<void>(`/my-file-writings/${id}`, { method: 'DELETE' }),
   /** Keep a Word or Excel file in the member's My files. */
   addMyFile: (projectId: number, file: File) => {
     const form = new FormData()
@@ -2834,9 +2779,6 @@ export const api = {
   /** Write the chat's last answer again in its place, from its question or `question` in its place; it counts a question. */
   regenerateAnswer: (chatId: number, messageId: number, question?: string) =>
     request<RegenerateResult>(`/chats/${chatId}/messages/${messageId}/regenerate`, json('POST', question === undefined ? {} : { question })),
-  /** Have the draft an answer offers written into the project's drafts; pressed again, the draft written from it. */
-  writeOfferedDraft: (chatId: number, messageId: number) =>
-    request<Draft>(`/chats/${chatId}/messages/${messageId}/draft`, { method: 'POST' }),
 
   /** The document's links that have not expired, the newest first. */
   shareLinks: (documentId: number) => request<ShareLink[]>(`/documents/${documentId}/share-links`),

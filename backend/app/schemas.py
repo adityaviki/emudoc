@@ -431,7 +431,6 @@ ActivityAction = Literal[
     "document_assigned",
     "comment_added",
     "thread_resolved",
-    "draft_created",
     "cross_checks_run",
     "question_set_run",
     "chat_shared",
@@ -467,13 +466,11 @@ class ActivityOut(BaseModel):
     # name as it is now (None for nobody, or an account gone).
     review: str | None
     assignee: str | None
-    # A run of cross-checks' names, a question set's name and how many questions it asked, a
-    # draft's kind.
+    # A run of cross-checks' names, and a question set's name and how many questions it asked.
     names: list[str]
     name: str | None
     questions: int | None
-    kind: str | None
-    # The run, report, draft or chat to open, while it is still there to be opened.
+    # The run, report or chat to open, while it is still there to be opened.
     target_id: int | None
 
 
@@ -1156,30 +1153,12 @@ class SourceOut(BaseModel):
 MessageStatus = Literal["streaming", "done", "stopped", "failed"]
 
 
-class OfferedDocumentOut(BaseModel):
-    id: int
-    title: str
-
-
-class DraftOfferOut(BaseModel):
-    """The draft an answer offers the member (`create_draft`, app/agent/tools.py), written into
-    the project's drafts once they press it, which they may once."""
-
-    kind: "DraftKind"
-    instructions: str
-    documents: list[OfferedDocumentOut]
-    written: bool
-    # The draft written from it, until that is deleted.
-    draft_id: int | None
-
-
 class ChatMessageOut(_FromORM):
     id: int
     role: Literal["user", "assistant"]
     content: str
     steps: list[ChatStep]
     sources: list[SourceOut]
-    draft: DraftOfferOut | None
     notice: str | None
     error: str | None
     status: MessageStatus
@@ -1607,103 +1586,15 @@ class RunFindingsOut(BaseModel):
     gone: list[int]
 
 
+# The kinds of document the agent writes to a template of the project's (app/draft_templates.py).
 DraftKind = Literal["reply_email", "dispute_letter", "summary_memo", "comparison_table", "report"]
-DraftStatus = Literal["queued", "writing", "done", "failed"]
-# What a member may write of a draft and of what they ask of it, and the documents one may be about.
+# The characters of what the agent writes into a Word document (app/agent/writing.py), and the
+# documents a writing outside a chat may be about (app/writings.py).
 DRAFT_CHARS = 100_000
-INSTRUCTION_CHARS = 4000
 DRAFT_DOCUMENTS = 10
 
 
-class DraftIn(BaseModel):
-    """A draft a member asks the agent for: its kind, what it should say in their words, and
-    the documents it is about, none to have the agent find them."""
-
-    kind: DraftKind
-    instructions: str = Field(default="", max_length=INSTRUCTION_CHARS)
-    document_ids: list[int] = Field(default_factory=list, max_length=DRAFT_DOCUMENTS)
-
-
-class DraftRewriteIn(BaseModel):
-    """A draft written again by the agent as a new version, with what the member asks of it
-    now in place of what they asked before; left out, it stays."""
-
-    instructions: str | None = Field(default=None, max_length=INSTRUCTION_CHARS)
-
-
-class DraftVersionIn(BaseModel):
-    """A member's text of a draft, kept as its newest version, and the number of the newest
-    version they edited it from, which must still be the newest."""
-
-    text: str = Field(min_length=1, max_length=DRAFT_CHARS)
-    base: int = Field(ge=0)
-
-
-class DraftDocumentOut(BaseModel):
-    """A document a draft is about, by its name when the draft was asked for, and whether it was
-    deleted or put in the trash since, which cannot be opened."""
-
-    id: int
-    title: str
-    gone: bool
-
-
-class DraftVersionSummaryOut(BaseModel):
-    """A version of a draft as its history lists it: its number, whether the model wrote it, and
-    who asked for it or saved it (their name as it is now, None once their account is gone)."""
-
-    number: int
-    by_model: bool
-    author: str | None
-    created_at: dt.datetime
-
-
-class DraftVersionOut(DraftVersionSummaryOut):
-    """A version whole: its text, citing passages as [P<id>], and the passages it cites as they
-    were when it was written."""
-
-    text: str
-    sources: list[SourceOut]
-
-
-class DraftSummaryOut(BaseModel):
-    """A draft as the project's list shows it: its kind and name, how far the model's writing of
-    it is, who asked for it first, and how many versions it has."""
-
-    id: int
-    project_id: int
-    kind: DraftKind
-    title: str
-    status: DraftStatus
-    created_by: str | None
-    versions: int
-    created_at: dt.datetime
-    updated_at: dt.datetime
-
-
-class DraftOut(DraftSummaryOut):
-    """A draft whole: what was asked of it, the documents it is about, the run whose findings its
-    last writing was given, why that writing failed or how it ended, what its writings used, its
-    versions newest first and the newest one's text."""
-
-    instructions: str
-    documents: list[DraftDocumentOut]
-    run_id: int | None
-    error: str | None
-    notice: str | None
-    usage: dict[str, UsageOut]
-    history: list[DraftVersionSummaryOut]
-    latest: DraftVersionOut | None
-
-
-class DraftsOut(BaseModel):
-    """A page of the project's drafts, newest first, and the id the next page starts before."""
-
-    drafts: list[DraftSummaryOut]
-    next_before: int | None
-
-
-# A draft template's ceilings (app/draft_templates.py), which bound what it adds to every
+# A writing template's ceilings (app/draft_templates.py), which bound what it adds to every
 # writing's prompt: its parts, and the characters of its tone, of a part's name and of what goes
 # in it, and of the rest it asks.
 MAX_DRAFT_SECTIONS = 20
@@ -1714,7 +1605,7 @@ GUIDANCE_CHARS = 2000
 
 
 class DraftSectionIn(BaseModel):
-    """A part of a kind's drafts: its name, what goes in it, and whether every draft has it or
+    """A part of a kind's documents: its name, what goes in it, and whether every one has it or
     only one whose documents give it something to say."""
 
     heading: Annotated[
@@ -1727,8 +1618,8 @@ class DraftSectionIn(BaseModel):
 
 
 class DraftTemplateIn(BaseModel):
-    """A project's own template of a kind of draft, written whole: its tone, its parts in order
-    and what else every draft of the kind should do."""
+    """A project's own template of a kind the agent writes, written whole: its tone, its parts in
+    order and what else every document of the kind should do."""
 
     tone: Annotated[str, StringConstraints(strip_whitespace=True, max_length=TONE_CHARS)] = ""
     sections: list[DraftSectionIn] = Field(default_factory=list, max_length=MAX_DRAFT_SECTIONS)
@@ -1744,8 +1635,8 @@ class DraftSectionOut(BaseModel):
 
 
 class DraftTemplateOut(BaseModel):
-    """The template in force for a kind of the project's drafts: its own (`id`, and when it was
-    last changed) or the built-in one."""
+    """The template in force for a kind the agent writes for the project: its own (`id`, and when
+    it was last changed) or the built-in one."""
 
     kind: DraftKind
     id: int | None
@@ -1805,11 +1696,37 @@ class MyFileDetailOut(MyFileOut):
     history: list[MyFileVersionOut]
 
 
+# WRITING_STATUSES in app/models.py.
+WritingStatus = Literal["queued", "writing", "failed"]
+
+
+class MyFileWritingIn(BaseModel):
+    """A document of a kind a member asks the agent to write into their My files, about the
+    documents named (app/writings.py)."""
+
+    kind: DraftKind
+    document_ids: list[int] = Field(min_length=1, max_length=DRAFT_DOCUMENTS)
+
+
+class MyFileWritingOut(_FromORM):
+    """A writing of the member's as their My files list it while it is under way or once it
+    failed, with why."""
+
+    id: int
+    kind: DraftKind
+    title: str
+    status: WritingStatus
+    error: str | None
+    created_at: dt.datetime
+
+
 class MyFilesOut(BaseModel):
-    """The member's files in the project, the one changed last first, and how many it keeps."""
+    """The member's files in the project, the one changed last first, how many it keeps, and the
+    writings they asked for that are under way or failed, the newest first."""
 
     files: list[MyFileOut]
     limit: int
+    writings: list[MyFileWritingOut] = Field(default_factory=list)
 
 
 class MyFileRenameIn(BaseModel):

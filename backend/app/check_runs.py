@@ -703,10 +703,10 @@ def describe_rule(kept: dict[str, Any]) -> str:
 def findings_about(
     session: Session, run: WorkflowRun, ids: list[int]
 ) -> tuple[list[str], dict[int, dict[str, Any]]]:
-    """What the run found about the documents, for a draft's input (app/drafts.py): those of its
-    findings that differ or could not be checked whose document, or a partner, is one of them,
-    in the server's words as a report's input gives them, by rule, at most REPORT_FINDINGS; with
-    the passages their values were read from, as the agent's sources. Nothing for none."""
+    """What the run found about the documents, for a writing's input (app/writings.py): those of
+    its findings that differ or could not be checked whose document, or a partner, is one of
+    them, in the server's words as a report's input gives them, by rule, at most REPORT_FINDINGS;
+    with the passages their values were read from, as the agent's sources. Nothing for none."""
     listed = _listed(session, run.id, about=ids)
     if not listed:
         return [], {}
@@ -727,7 +727,7 @@ def findings_about(
 
 def latest_run_about(session: Session, project_id: int, ids: list[int]) -> WorkflowRun | None:
     """The project's newest run worked out with a finding about one of the documents, of any
-    outcome, as a draft about them reads it; None for none."""
+    outcome, as a writing about them reads it; None for none."""
     if not ids:
         return None
     return session.scalar(

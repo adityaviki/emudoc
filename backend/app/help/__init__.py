@@ -42,7 +42,7 @@ from app.question_sets import MAX_QUESTION_SETS, MAX_SET_QUESTIONS
 from app.recents import RECENT
 from app.retention import DELETION_GRACE
 from app.sample import NAME as SAMPLE_NAME
-from app.schemas import COMMENT_LENGTH, DRAFT_DOCUMENTS, MAX_MENTIONS, PASSWORD_MIN_LENGTH
+from app.schemas import COMMENT_LENGTH, MAX_MENTIONS, PASSWORD_MIN_LENGTH
 from app.selection import MAX_CHOSEN
 from app.share_links import DAYS as SHARE_DAYS
 from app.share_links import MAX_LINKS
@@ -65,7 +65,10 @@ ARTICLES = (
         "Extraction templates, the facts table, cross-checks, automations, question sets and "
         "reviews.",
     ),
-    ("working-together", "Comments, the project's activity, drafts, My files and share links."),
+    (
+        "working-together",
+        "Comments, the project's activity, My files, writing templates and share links.",
+    ),
     (
         "workspace",
         "Roles, invitations, private projects, settings, usage, the Administration page, API keys "
@@ -185,7 +188,6 @@ def _values(settings: Settings) -> dict[str, str]:
         # Working together.
         "told": _told(mail),
         "comment_chars": f"{COMMENT_LENGTH:,}",
-        "draft_documents": str(DRAFT_DOCUMENTS),
         "my_files": str(MAX_MY_FILES),
         "share_days": _either(SHARE_DAYS),
         "share_links": str(MAX_LINKS),
@@ -311,7 +313,8 @@ def _spending(settings: Settings) -> str:
     return (
         "\nThe models' work may cost up to "
         f"{money(settings.daily_spend_cap_micros)} a day, as whoever runs Emudoc set it. Once a "
-        "day reaches it, a question, a draft or a report is refused with a sentence saying so, "
+        "day reaches it, a question, a dispute letter or a report is refused with a sentence "
+        "saying so, "
         "and documents wait to be summarised and read for facts, until the limit starts afresh "
         "at midnight UTC. What has started finishes.\n"
     )

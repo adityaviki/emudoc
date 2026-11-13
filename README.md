@@ -4,8 +4,8 @@ Emudoc keeps your team's documents in projects and answers questions about them.
 contracts, invoices, delivery notes and price lists, and ask in your own words: "Does invoice
 0503 apply the volume discount the contract sets?" The answer cites the passages it read, and a
 citation opens the document at that passage. Emudoc also reads the facts out of each document
-into tables you can check, compares documents against each other, and drafts the letter that
-follows.
+into tables you can check, compares documents against each other, and writes the letter that
+follows as a Word document of yours.
 
 It is free software that your team runs on its own server, with the AI models of the provider
 you choose.
@@ -26,8 +26,9 @@ you choose.
 - **Verify**: cross-checks compare documents' facts (an invoice against its purchase order, the
   contract, the price list) when you ask or as documents arrive, with reviews, assignees and
   question sets asked on a schedule.
-- **Create**: the agent drafts letters and replies from the documents for you to edit, and
-  writes and edits Word documents and Excel workbooks in your own files.
+- **Create**: the agent writes letters, replies, memos and reports from the documents as Word
+  documents in your own files, to your project's templates, and makes and edits Excel
+  workbooks; a disputed invoice's dispute letter is one press away.
 - **Work together**: a workspace with roles, private projects, comments with mentions, a
   project's activity, notices, and links that share a document or an answer outside.
 - **Bring documents in** by upload, by an upload client that sends a folder, by mail to a

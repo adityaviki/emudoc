@@ -1,16 +1,25 @@
-"""Draft templates (app/draft_templates.py, the routes in app/api/drafts.py): how a project's
-drafts of each kind read, the built-in template or the project's own in its place, which the
-agent is told after the rules every draft keeps."""
+"""Writing templates (app/draft_templates.py, the routes in app/api/draft_templates.py): how the
+documents of each kind the agent writes into a member's My files read for a project, the built-in
+template or the project's own in its place, which the agent is told after the rules every such
+document keeps: by a writing outside a chat, and by `get_template` in one."""
 
-from pydantic_ai.messages import TextPart
+from pydantic_ai.messages import TextPart, ToolCallPart, ToolReturnPart
 
-from app.draft_templates import BUILT_IN, KIND_FORMS, OWN_TEMPLATE, kind_task
-from app.drafts import DRAFT_TASK
+from app.agent.loop import WRITING
+from app.draft_templates import (
+    BUILT_IN,
+    KIND_FORMS,
+    OWN_TEMPLATE,
+    TEMPLATE_RULES,
+    kind_task,
+)
 from app.models import DRAFT_KINDS
+from app.writings import DRAFT_TASK
 from tests.conftest import FakeTurn
 from tests.test_api import create_project
 from tests.test_audit import actions
-from tests.test_drafts import LETTER, ask, disputed, write  # noqa: F401 (fixture)
+from tests.test_writing import asked
+from tests.test_writings import ask, disputed, write
 
 HOUSE_STYLE = {
     "tone": "  Formal, in British English.  ",
@@ -21,6 +30,21 @@ HOUSE_STYLE = {
     ],
     "guidance": "Quote the contract's clause for each figure.",
 }
+
+
+# What the agent is told of a dispute letter to HOUSE_STYLE.
+HOUSE_TASK = "\n".join(
+    [
+        KIND_FORMS["dispute_letter"],
+        OWN_TEMPLATE,
+        "Its tone: Formal, in British English.",
+        "Its parts, in this order:",
+        "- Our reference (only where the documents give it something): The order number we gave.",
+        "- What is disputed: Each figure beside what it should be.",
+        "- Closing: Signed by [Your name], Accounts Payable.",
+        "Also: Quote the contract's clause for each figure.",
+    ]
+)
 
 
 def templates(client, project_id: int) -> dict[str, dict]:
@@ -83,36 +107,21 @@ def test_each_kind_has_a_built_in_template_until_the_project_writes_its_own(clie
     ]
 
 
-def test_a_draft_is_written_to_the_template_in_force_as_its_writing_starts(
-    client, session, services
-):
+def test_a_writing_follows_the_template_in_force_as_it_starts(client, session, services):
     project = create_project(client)
     docs = disputed(client, session, services, project["id"])
     assert save(client, project["id"], "dispute_letter", HOUSE_STYLE).status_code == 200
     services.llm.agent_turns += [FakeTurn(TextPart("Ours.")), FakeTurn(TextPart("Built in."))]
-    draft = ask(client, project["id"], **LETTER, document_ids=[docs["INV-1"]])
+    ask(client, project["id"], [docs["INV-1"]])
     write(services)
 
     prompt = services.llm.agent_prompts[-1]
-    task = prompt[prompt.index(DRAFT_TASK) + len(DRAFT_TASK) :]
-    assert task == "\n".join(
-        [
-            KIND_FORMS["dispute_letter"],
-            OWN_TEMPLATE,
-            "Its tone: Formal, in British English.",
-            "Its parts, in this order:",
-            "- Our reference (only where the documents give it something): The order number we "
-            "gave.",
-            "- What is disputed: Each figure beside what it should be.",
-            "- Closing: Signed by [Your name], Accounts Payable.",
-            "Also: Quote the contract's clause for each figure.",
-        ]
-    )
+    assert prompt[prompt.index(DRAFT_TASK) + len(DRAFT_TASK) :] == HOUSE_TASK
 
-    # The built-in one again: the draft written again follows it.
+    # The built-in one again: the next writing follows it.
     gone = client.delete(f"/api/projects/{project['id']}/draft-templates/dispute_letter")
     assert gone.status_code == 204
-    assert client.post(f"/api/drafts/{draft['id']}/rewrite", json={}).status_code == 200
+    ask(client, project["id"], [docs["INV-1"]])
     write(services)
     assert services.llm.agent_prompts[-1].endswith(
         DRAFT_TASK + kind_task(BUILT_IN["dispute_letter"])
@@ -182,8 +191,8 @@ def test_a_template_names_each_part_once_and_is_of_a_kind_there_is(client, sessi
 def test_the_built_in_tasks_say_each_kinds_layout_and_parts():
     task = kind_task(BUILT_IN["reply_email"])
     assert task.splitlines() == [
-        'The draft is a reply email: a line "Subject: …" first, then the reply in short '
-        "paragraphs, with no headings.",
+        'It is a reply email: a line "Subject: …" first, then the reply in short paragraphs, '
+        "with no headings.",
         "Its tone: Courteous and plain.",
         "Its parts, in this order:",
         "- Greeting: A greeting to whoever wrote the email it replies to.",
@@ -192,3 +201,33 @@ def test_the_built_in_tasks_say_each_kinds_layout_and_parts():
     ]
     for kind in DRAFT_KINDS:
         assert OWN_TEMPLATE not in kind_task(BUILT_IN[kind])
+
+
+def test_an_answer_reads_the_projects_template_before_it_writes_one(client, session, services):
+    project = create_project(client)
+    assert save(client, project["id"], "dispute_letter", HOUSE_STYLE).status_code == 200
+    asked(
+        client,
+        services,
+        project["id"],
+        "Write a dispute letter to Acme about INV-1.",
+        FakeTurn(ToolCallPart("get_template", {"kind": "dispute_letter"}, "template-1")),
+        FakeTurn(TextPart("I will write it to the project's template.")),
+    )
+    # Told to read it for these kinds, and offered the tool with the other file tools.
+    assert "call get_template for its kind first" in WRITING
+    assert WRITING in services.llm.agent_prompts[0]
+    assert "get_template" in services.llm.agent_tools[0]
+    (result,) = [
+        part
+        for part in services.llm.agent_requests[-1][-1].parts
+        if isinstance(part, ToolReturnPart)
+    ]
+    # The project's own template, after the rules it cannot change, and outside the data tags:
+    # it is what the project's members ask, not what a document says.
+    own = templates(client, project["id"])["dispute_letter"]
+    assert own["built_in"] is False
+    assert result.content.startswith(TEMPLATE_RULES)
+    assert "Its tone: Formal, in British English." in result.content
+    assert "<project_data>" not in result.content
+    assert result.content == f"{TEMPLATE_RULES}\n\n{HOUSE_TASK}"
