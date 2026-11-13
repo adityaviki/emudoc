@@ -30,10 +30,8 @@ output "settings" {
     GOOGLE_PAID_TIER     = ""
 
     # Nobody signs up (deploying.md, "The first run, and who signs up"), as the app's default
-    # says too, and the site's "Book a demo" opens BOOKING_URL, a booking page (empty mails the
-    # support address).
+    # says too.
     SIGNUP_OPEN = "false"
-    BOOKING_URL = ""
   }
 }
 

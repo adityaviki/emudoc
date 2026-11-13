@@ -10,8 +10,8 @@ import { INBOUND_DOMAIN, makeOperator, receiveMail } from './operator.ts'
 import { printed } from './print.ts'
 import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, releaseTurns } from './standin.ts'
 
-// The member's way through the app, end to end: set the install up on the page its first visit opens, read the home
-// page a visitor is shown, whose old plans' address leads home, and the sign-up page, which says whom to ask, skip the tour the first project shows, ask the sample
+// The member's way through the app, end to end: set the install up on the page its first visit opens, find the sign-in
+// a visitor is sent to from /, and the sign-up page, which says whom to ask, skip the tour the first project shows, ask the sample
 // project the organisation starts with whether an invoice applies its contract's discount, print its contract's pages, make a project, upload a contract,
 // begun offline and waiting for the connection, wait for it to be indexed, find it by searching, ask about it, stop the
 // answer while the model thinks and try it again, open the passage the answer
@@ -20,8 +20,8 @@ import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, rele
 // download it and open the bell's notice that it is ready, leave the account's menu by the
 // keyboard, choose the workspace's settings, read them in its audit log and download it, invite a colleague as a
 // viewer from under that answer, who makes an account from the invitation's link, copied since the run mails nothing, ends her tour, finds
-// the project and is offered no change to it until made a member, write for help from the
-// help menu, which mails the page written from, make a read key, which reads the
+// the project and is offered no change to it until made a member, then write for help from her help menu to the
+// workspace's admin, which mails the page written from, make a read key, which reads the
 // versioned API and its contract, add a webhook, then make the project private, which she no longer finds until chosen for it, and share the chat, which the
 // colleague then reads but does not ask in; then, made
 // an operator, read the organisation in the operator's area, which nobody else is sent, and switch the model's provider off and on
@@ -96,7 +96,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
 
   await test.step('set the install up on the page its first visit opens', async () => {
     address = `ada.${Date.now()}@example.com`
-    // A new install has no account, so every page sends to its setup, the home page too.
+    // A new install has no account, so every page sends to its setup, / too.
     await page.goto('/')
     await expect(page).toHaveURL(/\/setup$/)
     await page.goto('/projects/1')
@@ -114,35 +114,23 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expectAccessible(page, 'the projects page')
   })
 
-  await test.step('read the home page as a visitor, which offers a demo, and the sign-up page, which says whom to ask', async () => {
-    // A browser of nobody's: without a session, / is the public site's home page, plain HTML the server fills in.
+  await test.step('find the sign-in at / as a visitor, and the sign-up page, which says whom to ask', async () => {
+    // A browser of nobody's: / is the app, which sends a visitor to its sign-in.
     const visit = await browser.newContext()
     const visitor = await visit.newPage()
-    const site = visitor.getByRole('navigation', { name: 'Site' })
     await visitor.goto('/')
-    await expect(visitor.getByRole('heading', { level: 1, name: /^Ask your documents/ })).toBeVisible()
-    // Its way in is a mail to support, this run having no booking page, and never the sign-up.
-    await expect(site.getByRole('link', { name: 'Request access' })).toHaveAttribute('href', 'mailto:support@example.com?subject=Access%20to%20Emudoc')
-    await expect(visitor.locator('a[href^="/signup"]')).toHaveCount(0)
-    await expectAccessible(visitor, 'the home page')
-    // The header's links lead to the page's sections.
-    await site.getByRole('link', { name: 'Features' }).click()
-    await expect(visitor).toHaveURL(/#features$/)
-    await expect(visitor.getByRole('heading', { level: 2, name: /^Everything you need/ })).toBeInViewport()
-    // The plans, the help and the API reference are put away for now: an old link leads home.
-    await visitor.goto('/pricing')
-    await expect(visitor).toHaveURL(/\/$/)
-    await site.getByRole('link', { name: 'Sign in' }).click()
     await expect(visitor).toHaveURL(/\/login$/)
+    await expect(visitor.getByRole('heading', { name: 'Sign in' })).toBeVisible()
+    // Sign-up is closed, as an install starts: no way to an account but an invitation.
+    await expect(visitor.getByText("New to Emudoc? Ask your team's admin for an invitation.")).toBeVisible()
+    await expect(visitor.locator('a[href^="/signup"]')).toHaveCount(0)
     await expectAccessible(visitor, 'the sign-in page')
-    // Sign-up is closed, as an install starts: its page says to ask the team's admin.
     await visitor.goto('/signup')
     await expect(visitor.getByRole('heading', { name: 'Accounts are made by invitation' })).toBeVisible()
     await expectAccessible(visitor, 'the sign-up page')
-    // The sign-in page's logo leads a visitor back to the site.
-    await visitor.goto('/login')
+    // The logo leads to /, the sign-in again for a visitor.
     await visitor.getByRole('link', { name: 'Emudoc' }).click()
-    await expect(visitor.getByRole('heading', { level: 1, name: /^Ask your documents/ })).toBeVisible()
+    await expect(visitor).toHaveURL(/\/login$/)
     await visit.close()
   })
 
@@ -735,23 +723,24 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expectAccessible(page, 'the usage page')
   })
 
-  await test.step('write for help from the help menu, which mails the page the member wrote from', async () => {
-    await page.getByRole('button', { name: 'Help', exact: true }).click()
-    const help = page.getByRole('dialog', { name: 'Help' })
-    await expectAccessible(page, 'the help menu')
-    // This run names SUPPORT_EMAIL, which takes the messages in place of the workspace's admins.
-    await expect(help.getByText('Write to support', { exact: true })).toBeVisible()
+  await test.step("write for help from the help menu to the workspace's admin, which mails the page the member wrote from", async () => {
+    // This run names no SUPPORT_EMAIL, so a member's message goes to the workspace's owners and admins: Ada.
+    await grace.getByRole('button', { name: 'Help', exact: true }).click()
+    const help = grace.getByRole('dialog', { name: 'Help' })
+    await expectAccessible(grace, 'the help menu')
+    await expect(help.getByText("Write to your workspace's admins", { exact: true })).toBeVisible()
     await help.getByRole('button', { name: 'A question' }).click()
     await help.getByLabel('Message').fill('Can one project hold two price lists?')
     await help.getByRole('button', { name: 'Send' }).click()
-    await expect(help.getByRole('status')).toContainText(`Sent to support@example.com. The answer comes to ${address}`)
-    const mail = await messageTo('support@example.com')
+    await expect(help.getByRole('status')).toContainText(`Sent to your workspace's admins. The answer comes to ${colleague}`)
+    // Ada was mailed before, so the newest message to her is awaited until it is this one.
+    await expect.poll(() => messageTo(address)).toContain('Can one project hold two price lists?')
+    const mail = await messageTo(address)
     expect(mail).toContain('A member asks a question, reference ')
-    expect(mail).toContain('Can one project hold two price lists?')
-    expect(mail).toContain('/organization/usage')
-    await page.keyboard.press('Escape')
+    expect(mail).toContain('/projects/')
+    await grace.keyboard.press('Escape')
     await expect(help).toHaveCount(0)
-    await expect(page.getByRole('button', { name: 'Help', exact: true })).toBeFocused()
+    await expect(grace.getByRole('button', { name: 'Help', exact: true })).toBeFocused()
   })
 
   await test.step('make a read key, which a program lists the projects with and changes nothing by, beside the upload client, and read the contract the API publishes', async () => {

@@ -10,11 +10,9 @@ from app.headers import HSTS, content_security_policy
 from app.indexing.pipeline import Services, process_document
 from app.legal import TERMS_VERSION
 from app.main import create_app
-from app.site import PAGES
 from app.storage import SANDBOX, S3Storage
 from tests.conftest import APP_HEADERS, FakeEmbedder, FakeLLM, FakeS3Client
 from tests.test_api import create_project, upload
-from tests.test_site import built
 
 POLICY = (
     "default-src 'self'; img-src 'self'; object-src 'none'; base-uri 'self'; "
@@ -102,6 +100,24 @@ def test_the_page_and_its_files_carry_the_headers(services, tmp_path, monkeypatc
             carries_the_headers(response)
 
 
+def test_no_search_engine_is_asked_to_list_the_install(services, tmp_path, monkeypatch):
+    # An install is a team's own server: robots.txt turns every crawler away, and every page
+    # asks not to be listed, for a crawler that came by a link. / is the members' page for
+    # everyone, which sends a visitor to its sign-in, so nothing varies by the cookie; the old
+    # site's addresses are paths nobody serves.
+    (tmp_path / "index.html").write_text("<!doctype html><title>Emudoc</title><p>members")
+    monkeypatch.setattr("app.main.FRONTEND_DIST", tmp_path)
+    with TestClient(create_app(services=services), headers=APP_HEADERS) as client:
+        robots = client.get("/robots.txt")
+        assert robots.text == "User-agent: *\nDisallow: /\n"
+        assert robots.headers["content-type"].startswith("text/plain")
+        for path in ("/", "/login", "/terms", "/projects/1", "/pricing", "/sitemap.xml"):
+            page = client.get(path, follow_redirects=False)
+            assert page.text.endswith("<p>members"), path
+            assert page.headers["x-robots-tag"] == "noindex", path
+            assert "vary" not in page.headers, path
+
+
 def test_the_browser_keeps_the_built_files_and_asks_again_for_the_page(
     services, tmp_path, monkeypatch
 ):
@@ -157,21 +173,17 @@ def test_the_policy_allows_images_from_the_bucket(services, mailer):
     assert s3.calls.count("generate_presigned_url") == 1
 
 
-@pytest.mark.parametrize("page", ["index.html", "operator.html", "home.html"])
+@pytest.mark.parametrize("page", ["index.html", "operator.html"])
 def test_the_page_needs_no_inline_code(page):
-    # The policy allows no inline script or style; the frontend's pages, the members', the
-    # operator's area's and the public site's home page, must keep to that, or the browser
-    # refuses the theme script and the page stays light for everyone (the home page needs none).
-    html = built(page) if page in PAGES.values() else (ROOT_DIR / "frontend" / page).read_text()
+    # The policy allows no inline script or style; the frontend's pages, the members' and the
+    # operator's area's, must keep to that, or the browser refuses the theme script and the page
+    # stays light for everyone.
+    html = (ROOT_DIR / "frontend" / page).read_text()
     for body in re.findall(r"<script\b[^>]*>(.*?)</script>", html, re.S):
         assert not body.strip(), f"{page} has an inline script; move it to public/ as a file"
     assert not re.search(r"\bstyle=|\bon\w+=", html), f"{page} has inline style or handlers"
-    if page in PAGES.values():
-        # The site has a look of its own, which the app's theme does not reach: no script.
-        assert "<script" not in html
-    else:
-        assert '<script src="/theme.js"></script>' in html
-        assert (ROOT_DIR / "frontend" / "public" / "theme.js").is_file()
+    assert '<script src="/theme.js"></script>' in html
+    assert (ROOT_DIR / "frontend" / "public" / "theme.js").is_file()
 
 
 def test_no_other_origin_is_answered(client):

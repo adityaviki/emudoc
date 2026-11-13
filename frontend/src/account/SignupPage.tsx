@@ -4,7 +4,7 @@ import type { FormEvent, ReactNode } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router'
 import { ApiError, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, auth } from '../api.ts'
 import { MeContext, forgetUser, safeNext, setSignedIn } from '../auth.ts'
-import { Button, ButtonLink, InputField, Notice, Spinner } from '../components/ui.tsx'
+import { Button, InputField, Notice, Spinner } from '../components/ui.tsx'
 import { usePageTitle } from '../hooks.ts'
 import { browserTimeZone } from '../timeZones.ts'
 import { useLinkToken } from './linkToken.ts'
@@ -23,8 +23,7 @@ const ASK_AGAIN = (
  * the account (FinishSignupPage). The server answers alike whether the address has an account or
  * not, and this page says the same either way; the mail tells an address that has one how to sign
  * in instead. An account made through a provider needs no link. The account joins the team's workspace. While
- * sign-up is closed, as an install starts, the page says to ask the team's admin, with the way to ask
- * (backend/app/signups.py).
+ * sign-up is closed, as an install starts, the page says to ask the team's admin (backend/app/signups.py).
  */
 export function SignupPage() {
   const me = useContext(MeContext)
@@ -59,9 +58,6 @@ export function SignupPage() {
           Ask them to invite you. Invited already? Open the link in the invitation, from its email or wherever the admin
           sent it.
         </p>
-        <ButtonLink href={options.data.book_url} variant="primary" className="mt-5 w-full">
-          {options.data.book_label}
-        </ButtonLink>
       </AuthCard>
     )
   }

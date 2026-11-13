@@ -1,12 +1,6 @@
 @import 'tailwindcss';
 @import './theme.css';
 
-/* The public site's page has a stylesheet of its own (src/site/site.css), and the logo's
-   drawing names no class, though its attributes read like some. */
-@source not '../home.html';
-@source not './site';
-@source not '../public/brand';
-
 /* Printed, a page that marks what it shows with data-print (a document's tab, a share link's
    page) prints that alone, as the document reads: everything around it goes, and what holds it
    gives up the panes' fixed heights, scrolling and spacing, which would cut a long document at

@@ -12,8 +12,8 @@ made it is shown as well as mailed, since an install may have no mail relay; for
 a member who forgot their password is handed a link that sets it (`handed_reset_link`), made from
 the members list or the `reset-password` command. Sign-up is closed by default (SIGNUP_OPEN):
 the sign-up form and a first sign-in through Google or Microsoft are refused, and the pages say
-to ask the team's admin, with the way to ask (`booking`). Open, a sign-up joins the workspace as
-a member instead of making an organisation of its own.
+to ask the team's admin for an invitation. Open, a sign-up joins the workspace as a member
+instead of making an organisation of its own.
 
 A database that holds several organisations, as development's does, keeps working: the
 workspace a sign-up joins is the one made first, the local account's aside.
@@ -27,7 +27,6 @@ from sqlalchemy.orm import Session
 
 from app.accounts import LOCAL_ORG_SLUG, Account, add_member, create_organization, create_user
 from app.auth import HANDED_LINK_TTL, issue_link_token, now
-from app.config import Settings
 from app.db import MIGRATION_LOCK
 from app.models import Organization, User, UserSession
 
@@ -56,20 +55,6 @@ class SetUpAlready(RuntimeError):
 
 class NotSetUp(RuntimeError):
     """The install has no workspace for a sign-up to join yet; the message says so."""
-
-
-def booking(settings: Settings) -> tuple[str, str]:
-    """Where a visitor asks for an account, and the words of the button that leads there: the
-    home page's way in (app/site.py), and the sign-in pages' while sign-up is closed. The
-    booking page, else a message to the support address; without either, the sign-up page
-    while it is open and the sign-in page while it is not."""
-    if settings.booking_url:
-        return settings.booking_url, "Book a demo"
-    if support := settings.support_address:
-        return f"mailto:{support}?subject={quote('Access to Emudoc')}", "Request access"
-    if settings.signup_open:
-        return "/signup", "Request access"
-    return "/login", "Sign in"
 
 
 def needs_setup(session: Session) -> bool:

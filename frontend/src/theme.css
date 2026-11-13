@@ -1,6 +1,5 @@
 /* The colours, the type and the base rules the app's pages share: the members' page and the
-   operator's (src/index.css imports this), so that a change of the palette reaches both. The
-   public site's home page has a look of its own (src/site/site.css). */
+   operator's (src/index.css imports this), so that a change of the palette reaches both. */
 
 /* Light is the default; dark applies only when the header toggle sets data-theme="dark". */
 @custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));

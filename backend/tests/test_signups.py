@@ -6,10 +6,9 @@ from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
-from pydantic import ValidationError
 from sqlalchemy import func, select, text
 
-from app.config import Settings, get_settings
+from app.config import get_settings
 from app.db import engine
 from app.legal import TERMS_VERSION
 from app.maintenance import main
@@ -200,31 +199,11 @@ def test_the_reset_password_command_prints_a_link_that_sets_it(
 
 
 def test_the_sign_in_pages_are_told_whether_anyone_may_sign_up(client, monkeypatch):
-    settings = get_settings()
-    monkeypatch.setattr(settings, "support_email", "")
-    monkeypatch.setattr(settings, "operator_email", "")
-    found = options(client)
-    # Closed as an install starts.
-    assert found["signup_open"] is False
-    # Where a visitor asks for an account: the booking page, else a message to support, else
-    # the sign-in page while sign-up is closed and the sign-up page while it is open.
-    assert (found["book_url"], found["book_label"]) == ("/login", "Sign in")
-    monkeypatch.setattr(settings, "signup_open", True)
-    found = options(client)
-    assert found["signup_open"] is True
-    assert (found["book_url"], found["book_label"]) == ("/signup", "Request access")
-    monkeypatch.setattr(settings, "support_email", "help@emudoc.test")
-    found = options(client)
-    assert (found["book_url"], found["book_label"]) == (
-        "mailto:help@emudoc.test?subject=Access%20to%20Emudoc",
-        "Request access",
-    )
-    monkeypatch.setattr(settings, "booking_url", "https://cal.com/emudoc/30min")
-    found = options(client)
-    assert (found["book_url"], found["book_label"]) == (
-        "https://cal.com/emudoc/30min",
-        "Book a demo",
-    )
+    # Closed as an install starts, when the pages say to ask the team's admin for an invitation;
+    # nothing else is offered, no booking page or mail to anyone outside the team.
+    assert options(client) == {"providers": [], "signup_open": False, "setup_needed": True}
+    monkeypatch.setattr(get_settings(), "signup_open", True)
+    assert options(client)["signup_open"] is True
 
 
 def test_a_closed_sign_up_refuses_every_address_alike(client, mailer, signed_in_only):
@@ -274,12 +253,3 @@ def test_a_sign_up_link_stops_working_once_sign_up_closes(client, monkeypatch, o
     # Nothing was used up: opened again, the link works.
     monkeypatch.setattr(get_settings(), "signup_open", True)
     assert finish_signup(grace, token).status_code == 201
-
-
-@pytest.mark.parametrize("url", ["http://cal.com/emudoc", "javascript:alert(1)", "cal.com/x"])
-def test_the_booking_page_is_a_web_page(url):
-    with pytest.raises(ValidationError, match="BOOKING_URL is the https:// address"):
-        Settings(database_url="postgresql://x", booking_url=url)
-    assert Settings(
-        database_url="postgresql://x", booking_url=" https://cal.com/x "
-    ).booking_url == ("https://cal.com/x")

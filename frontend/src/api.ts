@@ -1635,11 +1635,8 @@ export interface OAuthProvider {
 /** What the sign-in pages can offer besides a password, and whether anyone may sign up. */
 export interface AuthOptions {
   providers: OAuthProvider[]
+  /** Closed, the sign-in pages say to ask the team's admin for an invitation. */
   signup_open: boolean
-  /** Where a visitor asks for an account while sign-up is closed (backend/app/signups.py). */
-  book_url: string
-  /** The words of the button that leads there: "Book a demo" or "Request access". */
-  book_label: string
   /** The install has no account yet: every page sends to the setup, `/setup`. */
   setup_needed: boolean
 }
