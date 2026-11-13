@@ -17,6 +17,7 @@ import { UnsubscribePage } from './account/UnsubscribePage.tsx'
 import { UserMenu } from './account/UserMenu.tsx'
 import { VerifyPage } from './account/VerifyPage.tsx'
 import { AuthLayout } from './account/shared.tsx'
+import { AdminPage } from './admin/AdminPage.tsx'
 import { api, auth, handleForbidden, handleUnauthorized } from './api.ts'
 import type { Me } from './api.ts'
 import { ME_KEY, MeContext, forgetUser, loginPath, useMe, useMeQuery } from './auth.ts'
@@ -108,6 +109,7 @@ function App() {
           <Route path="organization" element={<OrganizationPage />} />
           <Route path="organization/usage" element={<UsagePage />} />
           <Route path="organization/audit" element={<AuditPage />} />
+          <Route path="admin/*" element={<AdminPage />} />
           <Route path="projects/:projectId/*" element={<Workspace />} />
           <Route path="*" element={<p className="py-16 text-center text-muted">Page not found.</p>} />
         </Route>

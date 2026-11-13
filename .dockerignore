@@ -13,7 +13,6 @@
 !frontend/package.json
 !frontend/pnpm-lock.yaml
 !frontend/index.html
-!frontend/operator.html
 !frontend/public/
 !frontend/src/
 frontend/src/**/*.test.ts

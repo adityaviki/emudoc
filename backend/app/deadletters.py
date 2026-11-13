@@ -7,9 +7,10 @@ reason through every retry. Those are the dead letters. They keep their row for 
 (app/jobs.py) with `last_error` saying why, and the user's side is settled already: the
 document shows the failure and offers "Index again". What is left is for the operator: the
 digest the worker's alerter thread mails to ALERT_EMAIL, listing the failures nobody has been
-told about yet; the `failed-jobs` command (app/maintenance.py) that lists them all; and
-`--requeue`, which queues the documents again from the stage they stopped at and empties the
-list.
+told about yet; the `failed-jobs` command (app/maintenance.py) that lists them all, as the
+Administration page's jobs do for a workspace's owners and admins (app/api/admin.py); and
+`--requeue`, or the page's "Run again", which queues the documents again from the stage they
+stopped at and empties the list.
 """
 
 from dataclasses import dataclass, field
@@ -167,10 +168,11 @@ class Requeue:
     lines: list[str] = field(default_factory=list)
 
 
-def requeue(session: Session, failures: list[NamedJob], operator: int | None = None) -> Requeue:
+def requeue(session: Session, failures: list[NamedJob], by: int | None = None) -> Requeue:
     """Queue each failed index job's document again from the stage it stopped at, as "Index
-    again" does, and remove the failed jobs from the list. Each document's audit row names
-    `operator`, the user's id, when an operator asked from the operator's area.
+    again" does, and remove the failed jobs from the list. Each document's audit row is `by`'s,
+    the user's id, when an owner or admin asked from the Administration page, and nobody's when
+    the `failed-jobs` command did.
 
     A job whose document was deleted, or has a newer job queued or running already, has
     nothing left to run and is removed too: the newer job carries the document's fate. The
@@ -202,10 +204,10 @@ def requeue(session: Session, failures: list[NamedJob], operator: int | None = N
                 session,
                 "document_requeued",
                 org_id=job.org_id,
+                user_id=by,
                 project_id=document.project_id,
                 target=("document", document.id),
-                detail={"filename": document.filename, "stage": stage}
-                | ({} if operator is None else {"operator": operator}),
+                detail={"filename": document.filename, "stage": stage},
             )
             outcome.queued += 1
             outcome.lines.append(f"Queued {failure.about} again from stage {stage} (job {job.id}).")

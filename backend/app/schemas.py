@@ -2142,6 +2142,10 @@ class MemberOut(BaseModel):
     # Whether they sign in with two-factor, which the owners and admins are shown, to know whom
     # requiring it would hold; None for anyone else.
     mfa_enabled: bool | None = None
+    # When one of their sessions was last seen, to LAST_SEEN_RESOLUTION, for the owners and
+    # admins, who answer the team's questions about its accounts; None for anyone else, and for
+    # a member with no session kept (app/auth.py prunes them CREDENTIAL_HISTORY after they end).
+    last_seen_at: dt.datetime | None = None
 
 
 # ROLES in app/models.py, which the database's check constraints hold.
@@ -3171,51 +3175,14 @@ class ProjectExportFile(BaseModel):
     share_links: list[ExportedProjectShareLink] = []
 
 
-# The operator's area (app/operators.py, app/api/operator.py): what the maintenance commands
-# print, as the page shows it. Amounts are millionths of PRICE_CURRENCY, as the usage rows hold
-# them.
-
-
-class OperatorOut(BaseModel):
-    """Who opened the area and the deployment it is about."""
-
-    user_id: int
-    name: str
-    email: str
-    environment: str
-    version: str
-    currency: str
-
-
-class OperatorOrganizationRow(BaseModel):
-    id: int
-    name: str
-    slug: str
-    members: int
-    created_at: dt.datetime
-    # Its known model cost over the list's `cost_days`, None while none is known.
-    cost_micros: int | None
-
-
-class OperatorOrganizationsOut(BaseModel):
-    organizations: list[OperatorOrganizationRow]
-    # The id to ask `before` for the next page, None on the last.
-    next_before: int | None
-    cost_days: int
-
-
-class OperatorMemberOut(BaseModel):
-    user_id: int
-    name: str
-    email: str
-    role: str
-    mfa_enabled: bool
-    joined_at: dt.datetime
+# The Administration page (app/api/admin.py): what the maintenance commands print, as the page
+# shows the workspace's owners and admins. Amounts are millionths of PRICE_CURRENCY, as the
+# usage rows hold them.
 
 
 class CostOut(BaseModel):
-    """What one organisation's work, or every organisation's, cost over a span of days, against
-    DAILY_SPEND_CAP (None for none): its costliest day, and the days that reached the cap."""
+    """What the workspace's work cost over a span of days, against DAILY_SPEND_CAP (None for
+    none): its costliest day, and the days that reached the cap."""
 
     cost_micros: int | None
     calls: int
@@ -3226,55 +3193,6 @@ class CostOut(BaseModel):
     top_day_micros: int | None
     limit_micros: int | None
     days_at_limit: int | None
-
-
-class DayCostOut(BaseModel):
-    day: dt.date
-    cost_micros: int
-
-
-class OperatorOrganizationOut(BaseModel):
-    organization: OrganizationOut
-    usage: UsagePageOut
-    members: list[OperatorMemberOut]
-    since: dt.date
-    until: dt.date
-    cost: CostOut
-    # The known cost of each day of the span that has one, the oldest first.
-    cost_days: list[DayCostOut]
-
-
-class OperatorUserMembershipOut(BaseModel):
-    org_id: int
-    slug: str
-    name: str
-    role: str
-
-
-class OperatorUserOut(BaseModel):
-    id: int
-    name: str
-    email: str
-    created_at: dt.datetime
-    email_verified: bool
-    mfa_enabled: bool
-    operator: bool
-    deletion_due_at: dt.datetime | None
-    # When one of its sessions was last seen, to LAST_SEEN_RESOLUTION; None without one.
-    last_seen_at: dt.datetime | None
-    memberships: list[OperatorUserMembershipOut]
-
-
-class OperatorUsersOut(BaseModel):
-    users: list[OperatorUserOut]
-    # Whether more users matched than are shown.
-    more: bool
-
-
-class OrganizationCostOut(CostOut):
-    org_id: int
-    slug: str
-    name: str
 
 
 class ModelCostOut(BaseModel):
@@ -3288,16 +3206,12 @@ class ModelCostOut(BaseModel):
     unpriced_tokens: int
 
 
-class OperatorCostsOut(BaseModel):
+class AdminCostsOut(BaseModel):
     since: dt.date
     until: dt.date
     currency: str
-    # Every organisation that used anything, the costliest first.
-    organizations: list[OrganizationCostOut]
-    # Theirs together, against DAILY_SPEND_CAP.
-    platform: CostOut
-    # The organisations that used nothing.
-    idle: int
+    # The workspace's, against DAILY_SPEND_CAP.
+    cost: CostOut
     models: list[ModelCostOut]
 
 
@@ -3313,7 +3227,7 @@ class QueueOut(BaseModel):
     oldest_due_seconds: float | None
 
 
-class OperatorJobOut(BaseModel):
+class AdminJobOut(BaseModel):
     id: int
     kind: str
     status: str
@@ -3325,13 +3239,13 @@ class OperatorJobOut(BaseModel):
     worker_id: str | None
     # What it is for, as "acme / Contracts / invoice.pdf" (`NamedJob.about`).
     about: str
-    # Why it failed, for the operator; None for one that did not.
+    # Why it failed, in the words of the one who runs the server; None for one that did not.
     last_error: str | None
     # Whether the alerter mailed its failure to ALERT_EMAIL.
     reported: bool
 
 
-class OperatorWorkerOut(BaseModel):
+class AdminWorkerOut(BaseModel):
     """A worker seen within WORKERS_KEPT (app/jobs.py): running, stopped by itself, or neither,
     which is a process that died or lost the database."""
 
@@ -3343,21 +3257,21 @@ class OperatorWorkerOut(BaseModel):
     running: bool
 
 
-class OperatorJobsOut(BaseModel):
+class AdminJobsOut(BaseModel):
     taken_at: dt.datetime
     queue: list[QueueOut]
-    running: list[OperatorJobOut]
+    running: list[AdminJobOut]
     # The dead letters of the last `history_days`, the newest first, `failed_shown` at most.
-    failed: list[OperatorJobOut]
+    failed: list[AdminJobOut]
     failed_total: int
     history_days: int
     # The workers seen lately, the latest first; none running leaves the queue's work waiting.
-    workers: list[OperatorWorkerOut]
+    workers: list[AdminWorkerOut]
 
 
 class RequeueIn(BaseModel):
-    """The failed jobs to run again, by id; None for every one the queue keeps, as the
-    `failed-jobs --requeue` command runs them."""
+    """The failed jobs to run again, by id; None for every one the workspace's queue keeps, as
+    the `failed-jobs --requeue` command runs them."""
 
     job_ids: list[int] | None = Field(None, max_length=1000)
 
@@ -3368,19 +3282,19 @@ class RequeueOut(BaseModel):
     lines: list[str]
 
 
-class OperatorModelOut(BaseModel):
+class AdminModelOut(BaseModel):
     variable: str
     name: str
     role: str
     fallback: bool
-    # Whether its provider is switched off, by DISABLED_PROVIDERS or from the area.
+    # Whether its provider is switched off, by DISABLED_PROVIDERS or from the page.
     disabled: bool
 
 
-class OperatorProviderOut(BaseModel):
-    """A model provider the settings name a model of, or that the area holds switched off,
-    and whether it is: by DISABLED_PROVIDERS, which the area cannot switch back on, or from the
-    area, by whom and since when."""
+class AdminProviderOut(BaseModel):
+    """A model provider the settings name a model of, or that the page holds switched off, and
+    whether it is: by DISABLED_PROVIDERS, which the page cannot switch back on, or from the page,
+    by whom and since when."""
 
     name: str
     # The settings that name a model of it (AGENT_MODEL, …), none for one no longer named.
@@ -3388,7 +3302,7 @@ class OperatorProviderOut(BaseModel):
     off: bool
     by_setting: bool
     switched_at: dt.datetime | None
-    # The operator who switched it off, by name or address; None for none, or one since gone.
+    # Who switched it off, by name or address; None for none, or one whose account is gone.
     switched_by: str | None
 
 
@@ -3415,10 +3329,11 @@ class DatabaseOut(BaseModel):
     timeouts: dict[str, str]
 
 
-class OperatorServicesOut(BaseModel):
-    models: list[OperatorModelOut]
-    providers: list[OperatorProviderOut]
-    # What stops the models, in the operator's words, None while they can be used.
+class AdminServicesOut(BaseModel):
+    models: list[AdminModelOut]
+    providers: list[AdminProviderOut]
+    # What stops the models, in the words of the one who runs the server, None while they can
+    # be used.
     model_problem: str | None
     embedding_model: str
     embedding_address: str

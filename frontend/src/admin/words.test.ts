@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Cost, Job, Worker } from './api.ts'
+import type { Cost, Job, Worker } from '../api.ts'
 import {
   ago,
   amount,

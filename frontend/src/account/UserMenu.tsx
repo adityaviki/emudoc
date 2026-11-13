@@ -1,6 +1,7 @@
-import { Compass, LogOut, ShieldCheck, Users } from 'lucide-react'
+import { Compass, LogOut, ServerCog, ShieldCheck, Users } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { useMatch, useNavigate } from 'react-router'
+import { isWithin } from '../api.ts'
 import { useMe, useSignOut } from '../auth.ts'
 import { Floating, Menu } from '../components/Menu.tsx'
 import type { MenuItem } from '../components/Menu.tsx'
@@ -8,7 +9,7 @@ import { useVersion } from '../hooks.ts'
 import { takeTour } from '../tour.ts'
 
 /** The signed-in user's initials in the header, opening the way to the account page, the
- * organisation's, the tour of a project's workspace while one is open, and out, above the version
+ * organisation's, its Administration page for an owner or admin, the tour of a project's workspace while one is open, and out, above the version
  * that runs. */
 export function UserMenu() {
   const me = useMe()
@@ -23,6 +24,7 @@ export function UserMenu() {
   const items: MenuItem[] = [
     { label: 'Account and security', icon: ShieldCheck, onSelect: () => navigate('/account') },
     { label: 'Workspace', icon: Users, onSelect: () => navigate('/organization') },
+    ...(isWithin('admin', me.role) ? [{ label: 'Administration', icon: ServerCog, onSelect: () => navigate('/admin') } satisfies MenuItem] : []),
     // The tour points at a workspace's parts, so it is offered where they are.
     ...(inProject ? [{ label: 'Take the tour', icon: Compass, onSelect: takeTour } satisfies MenuItem] : []),
     'separator',
@@ -59,7 +61,7 @@ export function UserMenu() {
   )
 }
 
-/** The release the API runs, for a member telling support what they saw, or an operator checking a release. */
+/** The release the API runs, for a member telling their admin what they saw, or an admin checking a release. */
 function RunningVersion() {
   const version = useVersion()
   if (!version.data) return null

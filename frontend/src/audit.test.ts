@@ -99,6 +99,10 @@ describe('a row', () => {
     expect(describeDetail(event('plan_changed', { from: 'free', to: 'team' }))).toBe('Free → Team')
     expect(describeDetail(event('plan_changed', { from: 'free', to: 'team', operator: 7 }))).toBe("Free → Team · by Emudoc's operators")
     expect(describeDetail(event('document_requeued', { filename: 'msa.pdf', stage: 'parse', operator: 7 }))).toBe("msa.pdf · by Emudoc's operators")
+    // Queued again from the Administration page, the row is the admin's, with no word of operators.
+    expect(describeDetail(event('document_requeued', { filename: 'msa.pdf', stage: 'parse' }))).toBe('msa.pdf')
+    expect(describeDetail(event('provider_switched', { provider: 'google', off: true }))).toBe('google off')
+    expect(describeDetail(event('provider_switched', { provider: 'google', off: false }))).toBe('google on again')
     // A feature flag turned on for the organisation, then back to its rollout, which leaves it off.
     expect(describeDetail(event('flag_changed', { flag: 'extraction_templates', from: null, to: true, on: true, operator: 7 }))).toBe(
       "extraction templates: on · by Emudoc's operators",

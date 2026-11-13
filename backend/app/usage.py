@@ -53,7 +53,7 @@ organisation's work cost over a span of days, costliest first, with the days tha
 and what each kind of work cost by the model that did it; `prompt_costs` is the same by the
 version of its prompts, with the first and last day each was seen, for the quality program to
 read what a change to the prompts did to the cost. The `costs` command prints the three for the
-operator; the operator's area reads the first two.
+operator; the Administration page reads the first two for its workspace alone (`org_id`).
 """
 
 from collections import Counter
@@ -171,6 +171,7 @@ _BY_ORGANIZATION = text(
                AS pages
     FROM usage_events
     WHERE occurred_at >= :since AND occurred_at < :until
+      AND (CAST(:org_id AS bigint) IS NULL OR org_id = :org_id)
     GROUP BY org_id
     """
 )
@@ -179,6 +180,7 @@ _DAILY_COSTS = text(
     SELECT org_id, (occurred_at AT TIME ZONE 'UTC')::date AS day, sum(cost_micros)::bigint
     FROM usage_events
     WHERE occurred_at >= :since AND occurred_at < :until AND cost_micros IS NOT NULL
+      AND (CAST(:org_id AS bigint) IS NULL OR org_id = :org_id)
     GROUP BY org_id, day
     """
 )
@@ -198,6 +200,7 @@ _BY_MODEL = text(
            )::bigint AS unpriced_tokens
     FROM usage_events
     WHERE occurred_at >= :since AND occurred_at < :until AND model IS NOT NULL
+      AND (CAST(:org_id AS bigint) IS NULL OR org_id = :org_id)
     GROUP BY kind, model
     ORDER BY sum(cost_micros) DESC NULLS LAST, calls DESC, kind, model
     """
@@ -704,11 +707,14 @@ class PromptCost:
     output_tokens: int
 
 
-def organization_costs(session: Session, since: date, until: date) -> list[OrganizationCost]:
+def organization_costs(
+    session: Session, since: date, until: date, org_id: int | None = None
+) -> list[OrganizationCost]:
     """Every organisation that used anything from `since` to `until` inclusive, in UTC, with
     what it came to: the costliest first, then the busiest, so that the organisations whose
-    models have no price still come in order of their calls."""
-    span = _span(since, until)
+    models have no price still come in order of their calls. With `org_id`, that one alone, or
+    none when it used nothing."""
+    span = _span(since, until) | {"org_id": org_id}
     days: dict[int, dict[date, int]] = {}
     for org_id, day, cost in session.execute(_DAILY_COSTS, span):
         days.setdefault(org_id, {})[day] = cost
@@ -745,10 +751,13 @@ def summed(costs: Iterable[OrganizationCost]) -> OrganizationCost:
     )
 
 
-def model_costs(session: Session, since: date, until: date) -> list[ModelCost]:
+def model_costs(
+    session: Session, since: date, until: date, org_id: int | None = None
+) -> list[ModelCost]:
     """What each kind of work cost by each model that did it, from `since` to `until`
-    inclusive, in UTC, the costliest first."""
-    return [ModelCost(*row) for row in session.execute(_BY_MODEL, _span(since, until))]
+    inclusive, in UTC, the costliest first: every organisation's, or with `org_id` one's."""
+    span = _span(since, until) | {"org_id": org_id}
+    return [ModelCost(*row) for row in session.execute(_BY_MODEL, span)]
 
 
 def prompt_costs(session: Session, since: date, until: date) -> list[PromptCost]:

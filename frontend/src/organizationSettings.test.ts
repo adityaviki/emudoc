@@ -89,6 +89,7 @@ describe('security', () => {
       role: 'member',
       joined_at: '2026-10-20T12:00:00Z',
       mfa_enabled,
+      last_seen_at: null,
     })
     expect(heldByTwoFactor([member('Ada', true)])).toBeNull()
     // A member the page was not told about is no member held.

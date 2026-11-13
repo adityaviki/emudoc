@@ -6,19 +6,19 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { RefreshCw } from 'lucide-react'
 import { useState } from 'react'
+import { admin } from '../api.ts'
+import type { Provider } from '../api.ts'
 import { Confirm } from '../components/Confirm.tsx'
 import { Button, Chip, Loading, Notice, Row, Section } from '../components/ui.tsx'
 import { formatDateTime } from '../format.ts'
-import { operatorApi } from './api.ts'
-import type { Provider } from './api.ts'
 import { Cell, Heading, Table } from './Table.tsx'
 
-export function ServicesPage() {
+export function ServicesView() {
   const queryClient = useQueryClient()
-  const services = useQuery({ queryKey: ['operator', 'services'], queryFn: operatorApi.services })
+  const services = useQuery({ queryKey: ['admin', 'services'], queryFn: admin.services })
   const toggle = useMutation({
-    mutationFn: ({ name, off }: { name: string; off: boolean }) => operatorApi.switchProvider(name, off),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ['operator', 'services'] }),
+    mutationFn: ({ name, off }: { name: string; off: boolean }) => admin.switchProvider(name, off),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['admin', 'services'] }),
   })
   // The provider to switch off once the dialog's question is agreed; switching one on asks nothing.
   const [asking, setAsking] = useState<Provider | null>(null)
@@ -138,7 +138,7 @@ export function ServicesPage() {
   )
 }
 
-/** Whether a provider is on, and what holds it off: the setting, or an operator, by whom and since when. */
+/** Whether a provider is on, and what holds it off: the setting, or an admin, by whom and since when. */
 function switchWords(provider: Provider): string {
   if (provider.by_setting) return 'off by DISABLED_PROVIDERS'
   if (!provider.off) return 'on'

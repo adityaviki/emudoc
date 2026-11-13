@@ -1,6 +1,6 @@
 """Whether anyone takes the queue's work: a worker says it runs at its start and with every
 heartbeat, and that it stopped at its stop (app/jobs.py), and the members' status line, the
-operator's area and the `jobs` command read it. The suite's apps run no worker (RUN_WORKER=false
+Administration page and the `jobs` command read it. The suite's apps run no worker (RUN_WORKER=false
 in tests/conftest.py), so a status a test reads says none runs until the test starts one.
 """
 
@@ -18,7 +18,6 @@ from app.maintenance import housekeeping, main
 from app.models import WorkerSeen
 from app.worker import HEARTBEAT_SECONDS, Worker
 from tests.test_jobs import wait_until
-from tests.test_operator import operator_on
 
 STARTED = datetime(2026, 10, 23, 9, 0, tzinfo=UTC)
 SHA = "3f2c1ab" + "0" * 33
@@ -177,7 +176,7 @@ def test_housekeeping_forgets_the_workers_not_seen_for_a_day(session, services):
     ]
 
 
-def test_the_jobs_command_and_the_operator_read_the_workers(client, session, capsys):
+def test_the_jobs_command_and_the_admins_read_the_workers(client, session, capsys):
     main(["jobs"])
     assert capsys.readouterr().out.splitlines()[1:] == [
         "No worker has been seen running in the last 3 min: nothing is indexed, answered, "
@@ -202,8 +201,7 @@ def test_the_jobs_command_and_the_operator_read_the_workers(client, session, cap
         "  host:3  3f2c1ab      2026-10-23 09:00 UTC  not seen for 20 min",
     ]
 
-    operator = operator_on(client.app, session)
-    shown = operator.get("/api/operator/jobs").json()["workers"]
+    shown = client.get("/api/organization/jobs").json()["workers"]
     assert [(worker["id"], worker["running"]) for worker in shown] == [
         ("host:1", True),
         ("host:2", False),

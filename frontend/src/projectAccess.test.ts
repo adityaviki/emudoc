@@ -9,6 +9,7 @@ const member = (user_id: number, role: Role): Member => ({
   role,
   joined_at: '2026-10-20T12:00:00Z',
   mfa_enabled: null,
+  last_seen_at: null,
 })
 
 const members = [member(1, 'owner'), member(2, 'admin'), member(3, 'member'), member(4, 'viewer')]

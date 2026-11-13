@@ -6,7 +6,7 @@ import { expect, test } from '@playwright/test'
 import type { BrowserContext, Page } from '@playwright/test'
 import { expectAccessible } from './axe.ts'
 import { messageTo } from './mail.ts'
-import { INBOUND_DOMAIN, makeOperator, receiveMail } from './operator.ts'
+import { INBOUND_DOMAIN, receiveMail } from './maintenance.ts'
 import { printed } from './print.ts'
 import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, releaseTurns } from './standin.ts'
 
@@ -23,8 +23,8 @@ import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, rele
 // the project and is offered no change to it until made a member, then write for help from her help menu to the
 // workspace's admin, which mails the page written from, make a read key, which reads the
 // versioned API and its contract, add a webhook, then make the project private, which she no longer finds until chosen for it, and share the chat, which the
-// colleague then reads but does not ask in; then, made
-// an operator, read the organisation in the operator's area, which nobody else is sent, and switch the model's provider off and on
+// colleague then reads but does not ask in; then read when each member was last seen, and on the workspace's
+// Administration page its jobs, services and costs, and switch the model's provider off and on
 // again; and last, make the project's own invoice template from the built-in one, a field
 // added, and delete it, then upload an invoice, read for the built-in one, and find its facts in
 // the project's facts table, sorted, kept by a condition and opened where they were found, the
@@ -85,8 +85,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   let theirs: BrowserContext
   let grace: Page
   let colleague = ''
-  // The first organisation's, for the operator's command, and the first member's address.
-  let slug = ''
+  // The first member's address.
   let address = ''
   // The chat's suggestion to invite the team, under an answer about the organisation's documents.
   const inviteTeam = page.getByRole('region', { name: 'Invite your team' })
@@ -654,8 +653,6 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   })
 
   await test.step('invite a viewer, who makes an account from the link, reads, and is made a member', async () => {
-    await page.goto('/organization')
-    slug = (await page.locator('code').filter({ hasText: /^analytical-engines/ }).textContent()) ?? ''
     // The answer's suggestion invites from the chat, which opens the member's latest.
     await page.getByRole('link', { name: 'Emudoc' }).click()
     await page.getByText('Supplier contracts').click()
@@ -833,48 +830,46 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await theirs.close()
   })
 
-  await test.step("be made an operator, read the organisation in the operator's area, and switch a provider", async () => {
-    // A member is sent the members' page at the area's address, as for any page there is not.
-    await page.goto('/operator')
-    await expect(page.getByText('Page not found.')).toBeVisible()
-
-    makeOperator(address)
-    await page.goto('/operator')
-    await expect(page.getByRole('heading', { name: 'Organisations', exact: true })).toBeVisible()
-    await page.getByLabel('Find organisations').fill(slug)
-    await page.getByLabel('Find organisations').press('Enter')
-    await page.getByRole('link', { name: "Analytical Engines" }).click()
-    await expect(page.getByRole('heading', { name: "Analytical Engines" })).toBeVisible()
-    const members = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Members', exact: true }) })
-    await expect(members.getByRole('row').filter({ hasText: address })).toContainText('owner')
-    await expect(members.getByRole('row').filter({ hasText: 'Grace Hopper' })).toContainText('member')
-    // What it holds and used, as its members read it, with no plan beside it.
-    await expect(page.getByRole('heading', { name: 'Plan', exact: true })).toHaveCount(0)
-    await expectAccessible(page, "an organisation in the operator's area")
-
+  await test.step("read when the members were last seen, open the Administration page, and switch a provider", async () => {
     // Its owner's audit log, read whole, holds every kind of row the workspace has, its export's among them.
     await page.goto('/organization/audit')
     await expect(page.getByRole('listitem').filter({ hasText: 'Exported a project' })).toContainText('Supplier contracts')
-    await page.goto('/operator/jobs')
+    // The members, each with when they were last seen.
+    await page.goto('/organization')
+    const members = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Members', exact: true }) })
+    await expect(members.getByRole('listitem').filter({ hasText: 'Grace Hopper' })).toContainText('last seen')
+    // The administration, from the account's menu, which offers it to owners and admins.
+    await page.getByRole('button', { name: /, your account$/ }).click()
+    await page.getByRole('menuitem', { name: 'Administration' }).click()
+    await expect(page).toHaveURL(/\/admin\/jobs$/)
     await expect(page.getByRole('heading', { name: 'Jobs', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Ask again' })).toBeVisible()
     // The worker the server runs in its own process says it runs, so the page warns of none.
     const workers = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Workers' }) })
     await expect(workers.getByRole('row').filter({ hasText: 'running, seen' })).toHaveCount(1)
     await expect(page.getByText('No worker has been seen running')).toHaveCount(0)
-    await expectAccessible(page, "the operator's jobs")
-    await page.getByRole('navigation', { name: 'Views' }).getByRole('link', { name: 'Services' }).click()
+    await expectAccessible(page, "the Administration page's jobs")
+    const views = page.getByRole('navigation', { name: 'Administration' })
+    await views.getByRole('link', { name: 'Costs' }).click()
+    await expect(page.getByRole('heading', { name: 'By kind of work and model' })).toBeVisible()
+    await expectAccessible(page, "the Administration page's costs")
+    await views.getByRole('link', { name: 'Services' }).click()
     await expect(page.getByRole('heading', { name: 'What the watch sees' })).toBeVisible()
-    await expectAccessible(page, "the operator's services")
+    await expectAccessible(page, "the Administration page's services")
     // The stand-in's provider switched off, which asks first, and on again: last, since nothing asks a model after it.
     const ollama = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Providers' }) }).getByRole('row').filter({ hasText: 'ollama' })
     await ollama.getByRole('button', { name: 'Switch ollama off' }).click()
     await page.getByRole('dialog', { name: 'Switch ollama off?' }).getByRole('button', { name: 'Switch it off' }).click()
     await expect(ollama).toContainText('switched off since')
-    await expect(page.getByText('is switched off: an operator switched its provider, ollama, off').first()).toBeVisible()
+    await expect(page.getByText('is switched off: an admin switched its provider, ollama, off').first()).toBeVisible()
     await ollama.getByRole('button', { name: 'Switch ollama on' }).click()
     await expect(ollama.getByRole('cell').nth(2)).toHaveText('on')
     await expect(ollama.getByRole('button', { name: 'Switch ollama off' })).toBeVisible()
+    // Each switch is a row of the workspace's audit log.
+    await page.goto('/organization/audit')
+    const switched = page.getByRole('listitem').filter({ hasText: 'Switched a model provider' })
+    await expect(switched.filter({ hasText: 'ollama off' })).toHaveCount(1)
+    await expect(switched.filter({ hasText: 'ollama on again' })).toHaveCount(1)
   })
 
   await test.step("make the project's own invoice template from the built-in one, then delete it", async () => {

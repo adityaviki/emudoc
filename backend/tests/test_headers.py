@@ -2,7 +2,6 @@
 
 import re
 
-import pytest
 from fastapi.testclient import TestClient
 
 from app.config import ROOT_DIR, get_settings
@@ -172,11 +171,10 @@ def test_the_policy_allows_images_from_the_bucket(services, mailer):
     assert s3.calls.count("generate_presigned_url") == 1
 
 
-@pytest.mark.parametrize("page", ["index.html", "operator.html"])
-def test_the_page_needs_no_inline_code(page):
-    # The policy allows no inline script or style; the frontend's pages, the members' and the
-    # operator's area's, must keep to that, or the browser refuses the theme script and the page
-    # stays light for everyone.
+def test_the_page_needs_no_inline_code():
+    # The policy allows no inline script or style; the frontend's page must keep to that, or the
+    # browser refuses the theme script and the page stays light for everyone.
+    page = "index.html"
     html = (ROOT_DIR / "frontend" / page).read_text()
     for body in re.findall(r"<script\b[^>]*>(.*?)</script>", html, re.S):
         assert not body.strip(), f"{page} has an inline script; move it to public/ as a file"

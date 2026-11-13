@@ -10,7 +10,7 @@ export interface Column {
   unseen?: boolean
 }
 
-/** A table of the area's rows, which scrolls sideways on a narrow screen rather than squeeze its columns. */
+/** A table of the page's rows, which scrolls sideways on a narrow screen rather than squeeze its columns. */
 export function Table({ columns, children }: { columns: Column[]; children: ReactNode }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-line bg-surface">
@@ -34,11 +34,11 @@ export function Cell({ figure, children, className = '' }: { figure?: boolean; c
   return <td className={`px-3 py-2 align-top ${figure ? 'text-right whitespace-nowrap tabular-nums' : ''} ${className}`}>{children}</td>
 }
 
-/** The page's title, with what it shows and the command that prints the same. */
+/** A view's title, under the page's, with what it shows and the command that prints the same in a shell on the server. */
 export function Heading({ title, command, children }: { title: string; command?: string; children?: ReactNode }) {
   return (
     <div className="mb-5">
-      <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
+      <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
       {children && <p className="mt-1 text-[13px] leading-relaxed text-muted">{children}</p>}
       {command && (
         <p className="mt-1 text-xs text-muted">

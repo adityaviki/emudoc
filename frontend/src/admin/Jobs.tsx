@@ -1,14 +1,14 @@
-// The `jobs` and `failed-jobs` commands' report: each kind's jobs by state, the running ones
-// with their leases, the dead letters with why each failed, whose documents are queued again
-// from here as `failed-jobs --requeue` queues them, and the workers seen lately.
+// The `jobs` and `failed-jobs` commands' report for the workspace: each kind's jobs by state,
+// the running ones with their leases, the dead letters with why each failed, whose documents are
+// queued again from here as `failed-jobs --requeue` queues them, and the workers seen lately.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { RefreshCw, RotateCcw } from 'lucide-react'
 import { useState } from 'react'
 import { Confirm } from '../components/Confirm.tsx'
 import type { Question } from '../components/Confirm.tsx'
+import { admin } from '../api.ts'
 import { Button, Loading, Notice, Section } from '../components/ui.tsx'
-import { operatorApi } from './api.ts'
 import { Cell, Heading, Table } from './Table.tsx'
 import { ago, count, lease, release, span, workerStands } from './words.ts'
 
@@ -26,12 +26,12 @@ function runAgainQuestion(jobIds: number[] | null): Question {
     : { title: `Run job ${jobIds.join(', ')} again?`, body: 'Its document is queued again, from the stage it stopped at.', action: 'Run it again' }
 }
 
-export function JobsPage() {
+export function JobsView() {
   const queryClient = useQueryClient()
-  const jobs = useQuery({ queryKey: ['operator', 'jobs'], queryFn: operatorApi.jobs, refetchInterval: 15_000 })
+  const jobs = useQuery({ queryKey: ['admin', 'jobs'], queryFn: admin.jobs, refetchInterval: 15_000 })
   const requeue = useMutation({
-    mutationFn: operatorApi.requeue,
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ['operator', 'jobs'] }),
+    mutationFn: admin.requeue,
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['admin', 'jobs'] }),
   })
   // The jobs whose documents are to run again while the dialog asks: null for every failed one.
   const [asking, setAsking] = useState<{ jobIds: number[] | null } | null>(null)
@@ -142,7 +142,7 @@ export function JobsPage() {
               title="Failed"
               description={`The jobs the worker gave up on in the last ${jobs.data.history_days} days, the newest first${
                 jobs.data.failed_total > jobs.data.failed.length ? `: ${jobs.data.failed.length} of ${count(jobs.data.failed_total, 'job')}` : ''
-              }. Each one's members see the failure; the reason here is the operator's.`}
+              }. Its members see the failure; the reason here is for whoever runs the server.`}
             >
               {jobs.data.failed.some((job) => job.kind === RUNS_AGAIN) && (
                 <Button className="mb-3" icon={<RotateCcw className="size-3.5" />} onClick={() => runAgain(null)} disabled={requeue.isPending}>

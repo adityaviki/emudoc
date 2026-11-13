@@ -208,7 +208,8 @@ NATURAL_ORDER = "natural_order"
 # keys, who was invited, joined, left or was removed, the members' roles, and a request to
 # delete it, which its owners' mail outlives, since the log goes with it), to its projects,
 # its documents and the sharing of its chats, and what the operator and the app did to it on
-# their own (a quarantine, the sample project a new account's organisation starts with). A
+# their own (a quarantine, the sample project a new account's organisation starts with). An owner
+# or admin switches a model provider off or on again for the install (app/switches.py). A
 # project, folder, document or chat `_deleted` went into the trash (app/trash.py), `_restored`
 # came out of it, and `_purged` was deleted for good from it by a member. A project's extraction
 # templates (app/extraction.py) and cross-checks (app/cross_checks.py) are made, changed and
@@ -374,6 +375,7 @@ AUDIT_ACTIONS = (
     "my_file_downloaded",
     "my_file_copied",
     "reset_link_made",
+    "provider_switched",
 )
 
 
@@ -645,27 +647,12 @@ class Membership(Base):
     user: Mapped[User] = relationship(back_populates="memberships")
 
 
-class Operator(Base):
-    """A user who may open the operator's area (app/operators.py): someone who runs the
-    deployment, whatever organisations they are a member of. Granted and taken back only by the
-    `operators` maintenance command, from a shell on the deployment, and by the user's id, so
-    an address that changes hands grants nothing; the row goes with the account."""
-
-    __tablename__ = "operators"
-
-    user_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
-    )
-    created_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-
-
 class ProviderSwitch(Base):
-    """A model provider an operator switched off from the operator's area (app/switches.py),
-    named as DISABLED_PROVIDERS names one, by the prefix of a `provider:model` name: while its
-    row is there no process asks a model of it. Switching it on again deletes the row, and a
-    provider DISABLED_PROVIDERS names stays off whatever the table says."""
+    """A model provider an owner or admin switched off from the Administration page
+    (app/switches.py), named as DISABLED_PROVIDERS names one, by the prefix of a
+    `provider:model` name: while its row is there no process asks a model of it. Switching it
+    on again deletes the row, and a provider DISABLED_PROVIDERS names stays off whatever the
+    table says."""
 
     __tablename__ = "provider_switches"
     __table_args__ = (
@@ -673,7 +660,7 @@ class ProviderSwitch(Base):
     )
 
     provider: Mapped[str] = mapped_column(Text, primary_key=True)
-    # The operator who switched it off; null once their account is gone.
+    # Who switched it off; null once their account is gone.
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     switched_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

@@ -1,7 +1,8 @@
 // The workspace: its name, its settings and security settings (its audit log is AuditPage.tsx), the API
 // keys its owners and admins make for its programs and the webhooks its programs hear of its work at, its share links
-// (ShareLinksSection.tsx), the way to what it holds and used (UsagePage.tsx), its members, their roles and removing
-// them, handing it over to another of them, and the invitations its owners and admins send.
+// (ShareLinksSection.tsx), the way to what it holds and used (UsagePage.tsx) and to its administration
+// (src/admin/AdminPage.tsx), its members, their roles, when each was last seen and removing them, handing it over to
+// another of them, and the invitations its owners and admins send.
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Copy, History, KeyRound, UserMinus, UserPlus } from 'lucide-react'
@@ -131,6 +132,13 @@ function NameSection({ me }: { me: Me }) {
             See what it holds and has used
           </Link>
         </Row>
+        {isWithin('admin', me.role) && (
+          <Row label="Administration">
+            <Link to="/admin" className="font-medium text-accent hover:underline">
+              See its jobs, services and costs
+            </Link>
+          </Row>
+        )}
       </dl>
     </Section>
   )
@@ -955,6 +963,7 @@ function MemberRow({ me, member }: { me: Me; member: Member }) {
           <p className="truncate text-xs text-muted">
             {member.name && <>{member.email} · </>}
             Member since {formatDate(member.joined_at)}
+            {isWithin('admin', me.role) && <> · {lastSeenWords(member.last_seen_at)}</>}
           </p>
         </div>
         {manageable ? (
@@ -1016,6 +1025,11 @@ function MemberRow({ me, member }: { me: Me; member: Member }) {
       )}
     </li>
   )
+}
+
+/** When a member was last seen, for an owner or admin: their sessions' latest, kept a month after each ends. */
+function lastSeenWords(seen: string | null): string {
+  return seen ? `last seen ${formatDateTime(seen)}` : 'not seen in the last month'
 }
 
 // A link that sets the member's password, for a member who forgot theirs where the install mails

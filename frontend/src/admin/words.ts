@@ -1,7 +1,7 @@
-// How the operator's area words its figures, as the maintenance commands print them
+// How the Administration page words its figures, as the maintenance commands print them
 // (backend/app/maintenance.py): costs in the deployment's currency, spans of time, counts.
 
-import type { Cost, Job, Worker } from './api.ts'
+import type { Cost, Job, Worker } from '../api.ts'
 
 /** An amount of millionths of the currency: to the cent, or to four places below a cent, as a cheap model's answer costs a tenth of one. */
 export function amount(micros: number, currency: string): string {
