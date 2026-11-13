@@ -16,6 +16,10 @@ newest entry first.
 
 Members:
 
+- The help pages are back, from "Help pages" in the help menu: how to upload and organise
+  documents, search and ask, check facts and documents, work together, and run the workspace and
+  your account. They describe your team's Emudoc as it is set up: its limits, and what it does
+  and does not do, such as sending email.
 - The help menu has a "Source code" link, to the code of the Emudoc your workspace runs: Emudoc
   is free software under the GNU AGPL.
 

@@ -29,6 +29,7 @@ import { ThemeToggle } from './components/ThemeToggle.tsx'
 import { Button, IconButton, Spinner } from './components/ui.tsx'
 import { useHelp, useLocalStorage, useOnline, useStatus } from './hooks.ts'
 import { HelpMenu } from './help/HelpMenu.tsx'
+import { HelpPage } from './help/HelpPage.tsx'
 import { AuditPage } from './organization/AuditPage.tsx'
 import { OrganizationPage } from './organization/OrganizationPage.tsx'
 import { UsagePage } from './organization/UsagePage.tsx'
@@ -110,6 +111,8 @@ function App() {
           <Route path="organization/usage" element={<UsagePage />} />
           <Route path="organization/audit" element={<AuditPage />} />
           <Route path="admin/*" element={<AdminPage />} />
+          <Route path="help" element={<HelpPage />} />
+          <Route path="help/:slug" element={<HelpPage />} />
           <Route path="projects/:projectId/*" element={<Workspace />} />
           <Route path="*" element={<p className="py-16 text-center text-muted">Page not found.</p>} />
         </Route>

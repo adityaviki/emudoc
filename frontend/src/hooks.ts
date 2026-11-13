@@ -75,6 +75,11 @@ export function useHelp() {
   return useQuery({ queryKey: ['help'], queryFn: api.help, staleTime: Infinity })
 }
 
+/** The help pages, filled in for the deployment, which they change only with. */
+export function useHelpArticles() {
+  return useQuery({ queryKey: ['help', 'articles'], queryFn: api.helpArticles, staleTime: Infinity })
+}
+
 export interface FolderTree {
   byId: Map<number, Folder>
   /** Subfolders of each folder (null for the root), sorted by name. */
