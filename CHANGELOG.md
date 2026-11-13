@@ -52,6 +52,19 @@ Members:
 
 Operators:
 
+- `deploy/compose.yml` runs everything on a team's server, as the README's new "Quick start"
+  does: Postgres 17 with pgvector, the release step, the API, a worker and the embeddings
+  server, and behind profiles ClamAV (`scan`, now ClamAV's Debian image, built for arm64 as
+  well), the converter (`office`) and Caddy in front with Let's Encrypt (`tls`), from
+  `ghcr.io/emudocai/emudoc` (`EMUDOC_TAG`, `latest` by default; `EMUDOC_IMAGE` for one built
+  here). Its settings are the `.env` beside it, made from the new `deploy/.env.example`, in
+  place of `/etc/emudoc/emudoc.env`; an existing deployment sets `EMUDOC_ENV` to that file, or
+  moves it, adds `POSTGRES_PASSWORD`, and leaves the new Postgres out if it has a database of its
+  own (deploying.md, "The image"). A version tag publishes the image for amd64 and arm64,
+  tagged with the version, its line, `latest` and the commit, once each platform's image has
+  run the compose file and passed the scan (`.github/workflows/publish.yml`); its version shows
+  in the user menu. `check-image.sh` now runs the compose file in production rather than
+  containers against the development database.
 - Production starts without a mail relay, without ClamAV and without `GOOGLE_PAID_TIER`, and
   warns about each at every start: they are a team's own choices, not what keeps its server
   safe. Without `SMTP_URL` or `RESEND_API_KEY` nothing is mailed, the log has a member's message

@@ -646,9 +646,34 @@ chats. A document in the trash keeps its place: uploading the same file again is
 the way to restore it, which costs none of the indexing again, and its indexing waits until it
 is restored.
 
+## Quick start
+
+On a server with Docker, a name that leads to it and ports 80 and 443 open, the image from GHCR
+(amd64 or arm64) with everything it needs beside it:
+
+```bash
+mkdir emudoc && cd emudoc
+curl -fsSLO https://raw.githubusercontent.com/emudocai/emudoc/main/deploy/compose.yml
+curl -fsSL -o .env https://raw.githubusercontent.com/emudocai/emudoc/main/deploy/.env.example
+chmod 600 .env && sed -i "s|^POSTGRES_PASSWORD=$|&$(openssl rand -hex 24)|; s|^ENCRYPTION_KEYS=$|&$(openssl rand -base64 32)|" .env
+docker compose up -d --wait          # after setting APP_URL, a model's key and COMPOSE_PROFILES in .env
+```
+
+The fourth line makes the database's password and the key the database's secrets are encrypted
+with; keep a copy of `.env` apart from the backups. In `.env`, set `APP_URL` to the address
+people will open, the models and their provider's key (Gemini's by default), and
+`COMPOSE_PROFILES=tls` for Caddy to answer on 80 and 443 with a certificate from Let's Encrypt,
+adding `scan` for ClamAV and `office` for Word, PowerPoint and Excel files shown as they look,
+each with the line beside it. Then open `APP_URL`: a new install opens its setup page, which
+makes the first account and the workspace. `docker compose up -d --wait` starts Postgres with
+pgvector, applies the migrations, and starts the API, a worker and the embeddings server;
+`deploying.md` ("The image") says how to update, and the rest. The image is published from the
+first release, v0.1.0; until then, build it from a checkout as below and name it in `.env` as
+`EMUDOC_IMAGE=emudoc:<commit>`.
+
 ## Run it
 
-You need Docker, [uv](https://docs.astral.sh/uv/) and Node with pnpm.
+For development: you need Docker, [uv](https://docs.astral.sh/uv/) and Node with pnpm.
 
 ```bash
 cp .env.example .env                 # then add your GOOGLE_API_KEY
@@ -684,9 +709,11 @@ TLS at a reverse proxy in front of uvicorn, is [`deploying.md`](deploying.md).
 builds one image for the API, the worker, the migrations and the maintenance commands, with the
 frontend built in, tagged with the commit it is built from and naming it: `/api/health`
 reports that version and the user menu shows it, and a checkout says `development`. It runs as
-a user of its own on a read-only filesystem and refuses development's settings.
-`deploy/compose.yml` runs it on one machine, the migrations first; `deploying.md` ("The
-image") says what a container needs. `deploy/aws` is the same on AWS as OpenTofu code, staging
+a user of its own on a read-only filesystem and refuses development's settings. A version tag
+(`v0.1.0`) publishes it for amd64 and arm64 as `ghcr.io/emudocai/emudoc`, tagged `0.1.0`,
+`0.1`, `latest` and the commit, with that version in the menu (`.github/workflows/publish.yml`).
+`deploy/compose.yml` runs it on one machine with Postgres, the migrations first, as the quick
+start above does; `deploying.md` ("The image") says what a container needs. `deploy/aws` is the same on AWS as OpenTofu code, staging
 and production alike: Postgres on RDS, the bucket, and an EC2 instance that runs the compose
 file with Caddy in front. CI releases it: every commit on `main` that passes the checks is
 pushed and released on staging, and production is released by hand from the Release workflow,
@@ -1437,8 +1464,9 @@ lint, format and suite against Postgres, in three jobs of a third of the tests (
 workflow runs the suite through pgbouncer in transaction mode once a change to how the app talks
 to the database is on `main`); the frontend's lint, unit tests and build; the browser
 test, and the load test at a size that takes a minute; the image, built and then
-started by `.github/scripts/check-image.sh` (the migrations, the API and a worker, read-only,
-against the development database); the deployment's embeddings server, started from the
+started by `.github/scripts/check-image.sh` (`deploy/compose.yml` run from it with the quick
+start's `.env`, in production: Postgres, the migrations, the API, a worker, the embeddings server
+and the converter); the deployment's embeddings server, started from the
 compose file by `.github/scripts/check-embeddings.sh` and asked for the vectors in
 `.github/scripts/embeddings.json`, which are those the deployments' databases hold (its own
 workflow, `embeddings.yml`, once a change to them is on `main`); the AWS configuration's
@@ -1588,7 +1616,9 @@ frontend/src/
   onboarding.ts when the chat suggests inviting the team; tour.ts the workspace's tour, which
                 components/Tour.tsx shows
 deploy/
-  compose.yml   the image on one machine: the migrations, the API, a worker and ClamAV
+  compose.yml   the image on a team's server: Postgres, the migrations, the API, a worker and
+                the embeddings server, and behind profiles ClamAV, the converter and Caddy;
+                .env.example beside it is the .env it reads
   restore-drill.sh
                 the restore drill: the newest backup into a throwaway copy, checked against the
                 live storage
@@ -1598,12 +1628,13 @@ deploy/
   aws/          staging and production on AWS in OpenTofu: account/ once per account,
                 modules/environment/ an environment, shared/ the settings both take, the two
                 roots, push-image.sh and release.sh, which CI runs, and what the image carries
-                for the instance (compose.yml over the one above, Caddyfile,
-                alertmanager.yml, host/)
+                for the instance (compose.yml over the one above, alertmanager.yml,
+                host/)
   prometheus/   the scrape configuration and the alerting rules, with their promtool tests
 Dockerfile      the one image for every process; .dockerignore names what goes into it
 .github/        CI: the checks of every push and pull request and staging's releases
-                (workflows/ci.yml), a release by hand (workflows/release.yml), the rules
+                (workflows/ci.yml), a release by hand (workflows/release.yml), the image
+                published to GHCR on a version tag (workflows/publish.yml), the rules
                 main is held to (rulesets/main.json), the daily
                 audit of the dependencies and the image (workflows/audit.yml), the daily
                 question to the deployment's models (workflows/models.yml), Dependabot's

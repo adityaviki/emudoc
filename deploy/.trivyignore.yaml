@@ -1,5 +1,5 @@
-# What `trivy image` reports of the images the deployment runs beside the app, ClamAV's,
-# llama.cpp's, Caddy's, Prometheus's and Alertmanager's (deploy/compose.yml,
+# What `trivy image` reports of the images the deployment runs beside the app, Postgres's,
+# ClamAV's, llama.cpp's, Caddy's, Prometheus's and Alertmanager's (deploy/compose.yml,
 # deploy/aws/compose.yml), that was looked at and
 # accepted until their projects release the fix (Audit, "Images beside the app"). Only those
 # projects can fix them, so each entry names the file in the image it was found in (`paths`, as
@@ -20,7 +20,7 @@ vulnerabilities:
     paths: [usr/bin/caddy]
     expired_at: 2026-11-26
     statement: >-
-      Caddy parses HTML only in its templates handler, which deploy/aws/Caddyfile does not use:
+      Caddy parses HTML only in its templates handler, which deploy/compose.yml's Caddyfile does not use:
       it proxies to the app, compresses the pages and limits bodies, passing the app's HTML
       through unread.
 
@@ -31,3 +31,52 @@ vulnerabilities:
       None of them parses HTML: Prometheus scrapes the app's metrics in its text format over the
       compose network (deploy/prometheus/prometheus.yml), Alertmanager takes Prometheus's alerts
       as JSON and publishes them to SNS, and promtool and amtool read the repository's files.
+
+  # zlib 1.3.1's gzwrite and gz_vacate write past a buffer on a crafted stream or a failed write;
+  # Debian fixed both in 1:1.3.dfsg+really1.3.1-1+deb13u1 (November 2026), which the image's
+  # digest of 2026-11-12 was built just before.
+  - id: CVE-2026-76844
+    purls: [pkg:deb/debian/zlib1g@1.3.dfsg%2Breally1.3.1-1%2Bb1]
+    expired_at: 2026-11-27
+    statement: &zlib >-
+      Postgres compresses nothing with zlib's gz* file functions, which the two findings are in:
+      the database's pages, its WAL and a plain pg_dump go through none of them, and the image
+      is rebuilt with Debian's fix within days, which Dependabot proposes.
+  - {id: CVE-2026-85091, purls: [pkg:deb/debian/zlib1g@1.3.dfsg%2Breally1.3.1-1%2Bb1], expired_at: 2026-11-27, statement: *zlib}
+
+  # gosu, which the Postgres image's entrypoint runs once to step down from root to the
+  # postgres user, is built with Go 1.24.6, and these are that standard library's fixes since:
+  # TLS, X.509, HTTP, URLs, mail, MIME, XML and templates.
+  - id: CVE-2025-61726
+    paths: [usr/local/bin/gosu]
+    expired_at: 2027-01-13
+    statement: &gosu >-
+      gosu reads nothing but its two arguments, the user and the command, calls setgroups,
+      setgid and setuid, and executes the command in its place, before the database starts:
+      none of the packages these are in is reached, and nothing reaches the container from
+      outside the compose network. The Postgres image takes a new gosu when gosu releases one.
+  - {id: CVE-2025-61729, paths: [usr/local/bin/gosu], expired_at: 2027-01-13, statement: *gosu}
+  - {id: CVE-2025-68121, paths: [usr/local/bin/gosu], expired_at: 2027-01-13, statement: *gosu}
+  - {id: CVE-2026-25679, paths: [usr/local/bin/gosu], expired_at: 2027-01-13, statement: *gosu}
+  - {id: CVE-2026-27145, paths: [usr/local/bin/gosu], expired_at: 2027-01-13, statement: *gosu}
+  - {id: CVE-2026-32280, paths: [usr/local/bin/gosu], expired_at: 2027-01-13, statement: *gosu}
+  - {id: CVE-2026-32281, paths: [usr/local/bin/gosu], expired_at: 2027-01-13, statement: *gosu}
+  - {id: CVE-2026-32283, paths: [usr/local/bin/gosu], expired_at: 2027-01-13, statement: *gosu}
+  - {id: CVE-2026-33811, paths: [usr/local/bin/gosu], expired_at: 2027-01-13, statement: *gosu}
+  - {id: CVE-2026-33814, paths: [usr/local/bin/gosu], expired_at: 2027-01-13, statement: *gosu}
+  - {id: CVE-2026-33818, paths: [usr/local/bin/gosu], expired_at: 2027-01-13, statement: *gosu}
+  - {id: CVE-2026-39820, paths: [usr/local/bin/gosu], expired_at: 2027-01-13, statement: *gosu}
+  - {id: CVE-2026-39821, paths: [usr/local/bin/gosu], expired_at: 2027-01-13, statement: *gosu}
+  - {id: CVE-2026-39822, paths: [usr/local/bin/gosu], expired_at: 2027-01-13, statement: *gosu}
+  - {id: CVE-2026-39836, paths: [usr/local/bin/gosu], expired_at: 2027-01-13, statement: *gosu}
+  - {id: CVE-2026-42499, paths: [usr/local/bin/gosu], expired_at: 2027-01-13, statement: *gosu}
+  - {id: CVE-2026-42504, paths: [usr/local/bin/gosu], expired_at: 2027-01-13, statement: *gosu}
+  - {id: CVE-2026-56853, paths: [usr/local/bin/gosu], expired_at: 2027-01-13, statement: *gosu}
+  - {id: CVE-2026-56858, paths: [usr/local/bin/gosu], expired_at: 2027-01-13, statement: *gosu}
+  - {id: CVE-2026-56859, paths: [usr/local/bin/gosu], expired_at: 2027-01-13, statement: *gosu}
+  - {id: CVE-2026-56860, paths: [usr/local/bin/gosu], expired_at: 2027-01-13, statement: *gosu}
+  - {id: CVE-2026-56862, paths: [usr/local/bin/gosu], expired_at: 2027-01-13, statement: *gosu}
+  - {id: CVE-2026-78667, paths: [usr/local/bin/gosu], expired_at: 2027-01-13, statement: *gosu}
+  - {id: CVE-2026-78669, paths: [usr/local/bin/gosu], expired_at: 2027-01-13, statement: *gosu}
+  - {id: CVE-2026-97031, paths: [usr/local/bin/gosu], expired_at: 2027-01-13, statement: *gosu}
+  - {id: CVE-2026-111943, paths: [usr/local/bin/gosu], expired_at: 2027-01-13, statement: *gosu}

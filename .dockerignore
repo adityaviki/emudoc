@@ -22,7 +22,6 @@ frontend/src/**/*.test.ts
 !deploy/managed-restore-drill.sh
 !deploy/rds-drill.sh
 !deploy/aws/compose.yml
-!deploy/aws/Caddyfile
 !deploy/aws/alertmanager.yml
 !deploy/aws/host/
 !deploy/prometheus/

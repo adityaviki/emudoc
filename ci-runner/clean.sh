@@ -12,8 +12,8 @@ if ((${#containers[@]})); then
   docker rm -f "${containers[@]}" >/dev/null
 fi
 docker network prune -f >/dev/null
-# Every volume but the embedding model's weights, which check-embeddings.sh downloads once and
-# checks by their hash at every run.
+# Every volume but the embedding model's weights, which check-embeddings.sh and check-image.sh
+# download once, checked by their hash.
 docker volume ls -q | { grep -vx 'emudoc-embeddings-check_embedding-model' || true; } |
   xargs -r docker volume rm >/dev/null
 docker image ls --format '{{.Repository}}:{{.Tag}}' | { grep '^emudoc:' || true; } |

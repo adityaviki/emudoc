@@ -7,8 +7,8 @@ on one machine; this is what changes for a deployment. The processes below run f
 
 ## The pieces
 
-- **Postgres 17 with pgvector 0.8 or later**, named in `DATABASE_URL`, managed or with a
-  standby of the deployment's own, on no public address, its role given a statement and an
+- **Postgres 17 with pgvector 0.8 or later**, named in `DATABASE_URL`, the compose file's
+  own ("The image"), managed, or with a standby of the deployment's own, on no public address, its role given a statement and an
   idle timeout, and a pooler in front when the replicas need more connections than it takes:
   "The database", below. The schema is applied as a release step, before the new version
   starts: `alembic upgrade head`. A process that finds the database behind its migrations
@@ -21,7 +21,8 @@ on one machine; this is what changes for a deployment. The processes below run f
   of it ends TLS, below.
 - **The worker**: `python -m app.worker`, as many as the backlog needs. It reads the same
   settings as the API and refuses the same misconfigurations.
-- **A reverse proxy** that holds the certificate and forwards to the API: Caddy or nginx, below.
+- **A reverse proxy** that holds the certificate and forwards to the API: Caddy, which the
+  compose file runs with its `tls` profile, or nginx, below.
 - **ClamAV**, named in `SCANNER_URL`, which scans every upload before a worker parses it and
   before the API serves it to the other members of a project. The `clamav/clamav` image with
   the signatures on a volume is enough: the workers stream each file to the daemon over its
@@ -65,8 +66,10 @@ on one machine; this is what changes for a deployment. The processes below run f
 
 `deploy/aws` builds all of it on AWS, staging and production alike: "On AWS", below.
 
-The settings arrive through the process environment or a secret manager, never a `.env` file:
-`ENVIRONMENT=production` makes the app copy nothing from one, and makes it refuse to start with
+The settings arrive through the process environment, from the orchestrator (the compose file
+passes its `.env` to the containers as Compose's `env_file`) or a secret manager: the app reads
+no `.env` file itself, since `ENVIRONMENT=production` makes it copy nothing from one, and makes
+it refuse to start with
 development's conveniences (the compose database's password, `LOCAL_ACCOUNT=true`, no
 `STORAGE_URL`, `APP_URL`, `ENCRYPTION_KEYS` or `EMBEDDING_BASE_URL`, no `AGENT_MODEL` or
 `INDEX_MODEL` or one its provider moves, no key for a model or its fallback, an embeddings
@@ -79,21 +82,29 @@ matter do.
 
 ## The image
 
-`Dockerfile` builds one image for every process: the API is its default command, and the
-worker, the release step and the maintenance commands are the others. Build it from a clean
-checkout of the commit to deploy, tagged with its full SHA and told it as `VERSION`, which
-`/api/health` reports, the user menu shows and each process logs as it starts ("Starting
-Emudoc 3f2c1ab…"); an image built without it says `unknown`, a checkout `development`:
+`Dockerfile` builds one image for every process, for amd64 and arm64: the API is its default
+command, and the worker, the release step and the maintenance commands are the others. A version
+tag (`v0.1.0`) publishes it to GHCR as `ghcr.io/emudocai/emudoc` (`.github/workflows/publish.yml`),
+tagged with the version (`0.1.0`), its line (`0.1`), `latest` and the commit's full SHA, the
+version being what `/api/health` reports, the user menu shows and each process logs as it starts
+("Starting Emudoc 0.1.0"). Each platform's image is run as below, arm64 under emulation, and
+scanned before anything is pushed. Built from a checkout instead, it is tagged with the commit's
+full SHA and told it as `VERSION`; an image built without it says `unknown`, a checkout
+`development`:
 
 ```bash
 commit=$(git rev-parse HEAD)
 docker build -t emudoc:$commit --build-arg VERSION=$commit .
 ```
 
-`.github/scripts/check-image.sh emudoc:<tag>` tries it against the development database of
-`docker-compose.yml`: it runs the release step, the API and a worker from the image, read-only
-with a tmpfs at `/tmp` as below, and checks the probes, the page and the files the page names.
-CI does the same for every change.
+`.github/scripts/check-image.sh emudoc:<tag>` runs it as a team does: `deploy/compose.yml` with a
+`.env` made from `deploy/.env.example` as the README's quick start makes one, so in production,
+in a Compose project of its own on a network and a port Docker picks. It checks the probes, the
+version, the page and the files the page names, that the API started beside the embeddings
+server, the metrics of the API and the worker, that the converter turns a Word file into a PDF
+for the worker, and that Caddy takes its configuration. It needs the network the first time, for
+the images and the embedding model's weights, which it keeps in a volume. CI does the same for
+every commit on `main`.
 
 It holds Python 3.13 on Debian's slim image with the backend's locked dependencies (`uv sync
 --frozen --no-dev`, compiled ahead), the app and its migrations, and the frontend's build, under
@@ -162,8 +173,8 @@ API's asks `/api/health`, the worker's reads the age of the file it keeps with `
 ("Health checks", below).
 
 Its bases are pinned by digest (`python:3.13-slim-trixie@sha256:…` and `node:24-slim@sha256:…`
-in the `Dockerfile`, and uv's), as are the images beside it in the compose files (ClamAV,
-llama.cpp's server, Caddy), so a commit builds the same image whenever it is built and a tag
+in the `Dockerfile`, and uv's), as are the images beside it in the compose files (Postgres,
+ClamAV, llama.cpp's server, Caddy), so a commit builds the same image whenever it is built and a tag
 moved on a registry changes nothing until a commit does. A security fix in Debian therefore
 reaches a deployment as a commit and a release. Dependabot proposes the digest a base was
 rebuilt with every Monday (`.github/dependabot.yml`), and the Audit workflow builds the image
@@ -178,7 +189,7 @@ docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/src:ro" -
   --ignorefile .trivyignore.yaml emudoc:<tag>
 ```
 
-The images that run beside it, ClamAV's, llama.cpp's and Caddy's, get the same scan every
+The images that run beside it, Postgres's, ClamAV's, llama.cpp's and Caddy's, get the same scan every
 morning (Audit's "Images beside the app"), each at the digest the compose files pin, read from
 its registry for `linux/amd64`, the instance's platform. Only their projects can fix what it
 finds, in a newer tag or a rebuild, which Dependabot proposes like a base's and which is
@@ -192,49 +203,65 @@ vulnerabilities Go had fixed, which any scanner of the deployment would report. 
 list and one image:
 
 ```bash
-EMUDOC_ENV=/dev/null EMUDOC_IMAGE=emudoc:app EMUDOC_DOMAIN=example.org \
-  docker compose -f deploy/compose.yml -f deploy/aws/compose.yml config --images
+EMUDOC_ENV=/dev/null EMUDOC_IMAGE=emudoc:app POSTGRES_PASSWORD=unused EMUDOC_DOMAIN=example.org \
+  EMUDOC_ENVIRONMENT=x EMUDOC_ALERTS=x EMUDOC_PAGES=x EMUDOC_HEARTBEAT=x \
+  docker compose -f deploy/compose.yml -f deploy/aws/compose.yml --profile '*' config --images
 docker run --rm -v "$PWD:/src:ro" -w /src aquasec/trivy:0.73.0 image --image-src remote \
   --platform linux/amd64 --timeout 20m --scanners vuln,secret --severity HIGH,CRITICAL \
   --ignore-unfixed --ignorefile deploy/.trivyignore.yaml caddy:2.11.9@sha256:…
 ```
 
-`deploy/compose.yml` puts it together on one machine: the release step, the API, a worker,
-ClamAV, and llama.cpp's server for the embeddings, with the settings in
-`/etc/emudoc/emudoc.env` (`EMUDOC_ENV` names another file):
+`deploy/compose.yml` puts it together on a team's server, as the README's "Quick start" runs
+it: Postgres 17 with pgvector, the release step, the API, a worker, and llama.cpp's server for
+the embeddings, from the image GHCR holds (`EMUDOC_TAG`, `latest` by default, or `EMUDOC_IMAGE`
+for one built here), with three more behind profiles: ClamAV (`scan`), the converter
+(`office`) and Caddy in front (`tls`). Its settings are the `.env` beside it, made from
+`deploy/.env.example`: Compose fills the file's `${…}` from it (`POSTGRES_PASSWORD`, `APP_URL`
+for Caddy, `EMUDOC_TAG`, `COMPOSE_PROFILES`), and the app's containers take every line of it as
+their environment (`EMUDOC_ENV` names another file for that). Compose expands `$` in its values
+unless they are in single quotes. The example sets what the file runs, `DATABASE_URL` made of
+the password, `STORAGE_URL=file:///var/lib/emudoc` and `EMBEDDING_BASE_URL=http://embeddings:8080/v1`,
+and with their profiles `SCANNER_URL=clamd://clamav:3310` and `CONVERTER_URL=http://converter:8080`,
+never without them: a scanner named and not running holds every upload in the queue. A team
+sets four values, `APP_URL`, `POSTGRES_PASSWORD`, `ENCRYPTION_KEYS` and a model's key, and may
+add any other setting ("Every setting"):
 
 ```bash
-export EMUDOC_IMAGE=emudoc:$(git rev-parse HEAD)
-docker compose -f deploy/compose.yml up -d --wait                 # also updates to a new tag
-docker compose -f deploy/compose.yml up -d --scale worker=3       # more workers
-docker compose -f deploy/compose.yml run --rm --no-deps worker python -m app.maintenance failed-jobs
+docker compose up -d --wait                       # in the folder of compose.yml and .env
+docker compose up -d --scale worker=3             # more workers
+docker compose run --rm --no-deps worker python -m app.maintenance failed-jobs
+docker compose logs -f api worker                 # what they log
 ```
 
-`up` runs `alembic upgrade head` first and starts the API and the worker once it has
-succeeded, and `--wait` returns once the API answers its health check and the worker keeps
-its alive file. It replaces the running API and worker before it runs the migrations, though,
-so a migration that fails there leaves neither running; an update runs them alone first, and
-stops there if they fail, and so does the embeddings server, whose download and start the API
-and the worker wait for in the same way:
+From a checkout, the same commands take `-f deploy/compose.yml`, with the `.env` in `deploy/`.
+`up` starts Postgres, runs `alembic upgrade head` once it answers, and starts the API and the
+worker once that has succeeded and the embeddings server answers; `--wait` returns once the API
+answers its health check and the worker keeps its alive file. It replaces the running API and
+worker before it runs the migrations, though, so a migration that fails there leaves neither
+running. An update, a new `EMUDOC_TAG` in `.env` (or the same `latest` pulled again), runs them
+alone first and stops there if they fail, and so does the embeddings server, whose download and
+start the API and the worker wait for in the same way:
 
 ```bash
-docker compose -f deploy/compose.yml run --rm --no-deps migrate && \
-  docker compose -f deploy/compose.yml up -d --wait embeddings && \
-  docker compose -f deploy/compose.yml up -d --wait
+docker compose pull && \
+  docker compose run --rm migrate && \
+  docker compose up -d --wait embeddings && \
+  docker compose up -d --wait
 ```
- The file gives its
-network a subnet of its own, `10.73.0.0/24`, so that `FORWARDED_ALLOW_IPS` can name the gateway
-(change both if the subnet collides with one the machine reaches), and its project another name
-than the development file's, so one machine can run both. The database, the mail relay, a
-bucket and the proxy are the deployment's: the env file names them, with
-`SCANNER_URL=clamd://clamav:3310` for the daemon beside the app,
-`EMBEDDING_BASE_URL=http://embeddings:8080/v1` for the embeddings and
-`CONVERTER_URL=http://converter:8080` for the converter, which the file runs from the same image
-on a network of its own that only the worker joins ("The converter"). Compose expands `$` in the
-env file's values unless they are in single quotes, which a password may need. Wherever this
-guide says `uv run …`, the image runs the same command through `docker compose … run --rm
---no-deps worker`: without `--no-deps`, `run` runs the release step first, with whatever image
-`EMUDOC_IMAGE` names.
+
+Postgres runs on the compose network alone, which the app counts as its own, so without TLS,
+in the `database` volume, with the role's two limits set as the server's ("The role's
+timeouts"); its backups are "Backups". A deployment with a database of its own names it in
+`DATABASE_URL` and leaves the service out with a file over this one that gives it a profile
+nobody starts (`postgres: {profiles: [external]}`), which `deploy/aws/compose.yml` does for
+RDS: the app's services wait for it only where it runs. The file gives its network a subnet of
+its own, `10.73.0.0/24`, so that `FORWARDED_ALLOW_IPS` can name the gateway (change both if the
+subnet collides with one the machine reaches), and its project another name than the
+development file's, so one machine can run both. Caddy runs on the host's network, answers on 80
+and 443 for `APP_URL`'s name and forwards to `127.0.0.1:8000` ("Caddy"); without the profile, a
+proxy of the server's own does. The mail relay and a bucket are the deployment's, named in
+`.env`. Wherever this guide says `uv run …`, the image runs the same command through `docker
+compose run --rm --no-deps worker`: without `--no-deps`, `run` runs the release step first.
 
 ## Health checks
 
@@ -405,8 +432,9 @@ ALTER ROLE emudoc SET statement_timeout = '30s';
 ALTER ROLE emudoc SET idle_in_transaction_session_timeout = '5min';
 ```
 
-New connections take them, so restart the app after. In production a role without them is a
-warning at every start, with these two statements. A member's request whose statement runs
+New connections take them, so restart the app after. The compose file's Postgres sets the same
+two as the server's own (`-c statement_timeout=30s`), which needs nothing run. In production a
+role without them is a warning at every start, with these two statements. A member's request whose statement runs
 into the limit is answered with 503 and "The database took longer over this request than it
 allows, so the request was stopped. Try again in a moment.", and the API's log has one line
 naming the route ("GET /api/… was stopped by the database: …"). The work whose length is the
@@ -572,11 +600,10 @@ the same texts in eight languages to a cosine of 0.9992 or closer, with the same
 so vectors stored from Ollama's `embeddinggemma` are kept. A deployment that ran Ollama in this
 compose file, before llama.cpp's server, can remove what it left behind (`docker volume rm
 emudoc-deploy_models`, `docker image rm ollama/ollama:0.40.5`). Other weights are another GGUF
-file named to compose beside `EMUDOC_IMAGE`, `export
-EMBEDDING_WEIGHTS_URL=https://huggingface.co/<repository>/resolve/<commit>/<file>.gguf
-EMBEDDING_WEIGHTS_SHA256=<the SHA-256 Hugging Face shows for the file>`, with a new
-`EMBEDDING_MODEL`, its `EMBEDDING_DIM` and prefixes in the env file ("Changing the model",
-below); on AWS the two are settings like the others. A file that does not match the hash stops
+file named in `.env`,
+`EMBEDDING_WEIGHTS_URL=https://huggingface.co/<repository>/resolve/<commit>/<file>.gguf` and
+`EMBEDDING_WEIGHTS_SHA256=<the SHA-256 Hugging Face shows for the file>`, with a new
+`EMBEDDING_MODEL`, its `EMBEDDING_DIM` and prefixes ("Changing the model", below); on AWS the two are settings like the others. A file that does not match the hash stops
 `up` with "The file at EMBEDDING_WEIGHTS_URL is not the one EMBEDDING_WEIGHTS_SHA256 names."
 
 **The model and its terms.** EmbeddingGemma reads more than a hundred languages into one
@@ -1256,7 +1283,10 @@ the answer again from the last event it saw and nothing is lost.
 Caddy obtains and renews the certificate itself, sets the two headers and passes `Host`
 through, keeps its connections to the app open between requests, and streams an answer's
 events as they come with no read timeout unless one is set. This is the whole configuration,
-as `/etc/caddy/Caddyfile`:
+as `/etc/caddy/Caddyfile`; the compose file's `caddy` service, with the `tls` profile, runs the
+same with `{$APP_URL}` for the name (its `x-caddyfile`, which the container writes to its tmpfs,
+since Compose cannot put a file into a read-only container), on the host's network so that it
+reaches the API where this one does:
 
 ```caddyfile
 emudoc.example.com {
@@ -3856,8 +3886,11 @@ The directories:
 - `staging/` and `production/`, the two roots. They differ in the domain, the sizes (a
   `t3a.large` and a `db.t4g.small` without a standby against a `t3a.xlarge` and a
   `db.t4g.medium` with one), deletion protection and the spending cap.
-- `push-image.sh` and `release.sh`, which CI runs; `compose.yml`, `Caddyfile` and `host/`,
-  which the image carries and each release runs on the instance.
+- `push-image.sh` and `release.sh`, which CI runs; `compose.yml` and `host/`, which the image
+  carries and each release runs on the instance: `compose.yml` over `deploy/compose.yml`, its
+  Postgres left out for RDS and its Caddy for the environment's domain, and `host/compose`
+  turning on the profiles of ClamAV, the converter and Caddy (a change of 2026-11-13 that no
+  environment has released yet).
 
 ### What an environment is made of
 
@@ -4538,9 +4571,12 @@ and the like), named on its models' pages.
 | `STATUS_PAGE_URL` | none | | The status page outside the deployment that the help menu links to ("The status page") |
 | `BACKUP_DAYS` | none | | How long the backups are kept, which the bucket's earlier versions are held to ("Backups") |
 
-The compose files read a few of their own: `EMUDOC_IMAGE` (the image to run) and `EMUDOC_ENV`
-(the settings' file, `/etc/emudoc/emudoc.env` by default) in `deploy/compose.yml`, with
-`EMBEDDING_WEIGHTS_URL` and `EMBEDDING_WEIGHTS_SHA256` for the embeddings server's weights;
+The compose files read a few of their own: `POSTGRES_PASSWORD` (the database's, which
+`DATABASE_URL` repeats), `EMUDOC_TAG` (the image's tag on GHCR, `latest` by default),
+`EMUDOC_IMAGE` (another image to run, such as one built here), `EMUDOC_ENV` (the app's settings'
+file, `.env` beside the compose file by default), `COMPOSE_PROFILES` (Compose's own: `scan`,
+`office`, `tls`) and `APP_URL` for Caddy, in `deploy/compose.yml`, with `EMBEDDING_WEIGHTS_URL`
+and `EMBEDDING_WEIGHTS_SHA256` for the embeddings server's weights;
 `EMUDOC_DOMAIN`, `EMUDOC_ENVIRONMENT`, `EMUDOC_ALERTS`, `EMUDOC_PAGES` and `EMUDOC_HEARTBEAT`
 in `deploy/aws/compose.yml`, which each release writes. The drill's `DRILL_*` and `RDS_*` are in
 its scripts' headers ("The drill").

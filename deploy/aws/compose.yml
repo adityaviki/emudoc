@@ -1,6 +1,7 @@
 # What deploy/compose.yml needs on the AWS instance (deploying.md, "On AWS"), and Prometheus
 # and Alertmanager beside it ("Alerts"), laid over it by the host's release
-# (deploy/aws/host/release), which runs from the image this file came in:
+# (deploy/aws/host/release), which runs from the image this file came in, with the profiles
+# scan, office and tls on (host/compose):
 #
 #   docker compose --env-file /etc/emudoc/compose.env \
 #     -f deploy/compose.yml -f deploy/aws/compose.yml up -d --wait
@@ -34,6 +35,11 @@ x-aws: &aws
   logging: *logging
 
 services:
+  # RDS is the database (DATABASE_URL in the settings), so the compose file's own is left out;
+  # the app's services wait for it only where it runs.
+  postgres:
+    profiles: [not-on-aws]
+    logging: *logging
   migrate: *aws
   api: *aws
   worker: *aws
@@ -46,27 +52,12 @@ services:
   embeddings:
     logging: *logging
 
-  # On the host's network, so that it answers on 80 and 443 and reaches the API where a proxy
-  # on the machine would, 127.0.0.1:8000, whose requests come from the gateway that
-  # FORWARDED_ALLOW_IPS names.
+  # deploy/compose.yml's Caddy, with its configuration, for the domain the release passes in
+  # (host/compose turns its profile on, with ClamAV's and the converter's).
   caddy:
-    image: caddy:2.11.9@sha256:e40b94d0a43b5ff69cb20568d73f10c70703df7b0ffc2298eb3d723cdc9d0bd1
-    network_mode: host
     environment:
-      EMUDOC_DOMAIN: ${EMUDOC_DOMAIN:?set EMUDOC_DOMAIN to APP_URL's host}
-    volumes:
-      - ./aws/Caddyfile:/etc/caddy/Caddyfile:ro
-      # The certificates and the ACME account, kept across releases.
-      - caddy-data:/data
-      - caddy-config:/config
-    read_only: true
-    tmpfs:
-      - /tmp
-    cap_drop: [ALL]
-    cap_add: [NET_BIND_SERVICE]
-    security_opt: [no-new-privileges:true]
+      APP_URL: https://${EMUDOC_DOMAIN:?set EMUDOC_DOMAIN to APP_URL's host}
     logging: *logging
-    restart: unless-stopped
 
   # The alerting rules of deploy/prometheus over the metrics of every API and worker, found by
   # the services' names on this network. It holds no credentials. Its page answers on the host's
@@ -142,7 +133,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  caddy-data:
-  caddy-config:
   prometheus-data:
   alertmanager-data:
