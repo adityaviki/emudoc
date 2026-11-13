@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import re
+import shutil
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -727,8 +728,9 @@ def test_a_backup_holds_the_database_the_originals_and_its_version(
     assert kept == [erasure_key(7, datetime(2026, 10, 1, tzinfo=UTC)), row.storage_key]
     assert (folder / "files" / row.storage_key).read_bytes() == sample_pdf.read_bytes()
 
-    # The password reaches pg_dump in its environment, never among its arguments.
-    url = make_url(get_settings().database_url)
+    # The password reaches pg_dump in its environment, never among its arguments. The address is
+    # the database's own, DATABASE_LISTEN_URL's behind a pooler, as the suite runs in Pooler.
+    url = make_url(get_settings().listen_url)
     ((program, *arguments),) = tools.calls
     assert program == "/usr/bin/pg_dump"
     assert arguments == [
@@ -822,7 +824,7 @@ def test_a_restore_puts_the_files_back_and_sets_the_rest_right(
     LocalStorage(STORAGE_ROOT).delete_prefix(row.storage_prefix)
     monkeypatch.setattr("app.backup._holds_tables", lambda: False)
     main(["restore", str(folder)])
-    url = make_url(get_settings().database_url)
+    url = make_url(get_settings().listen_url)
     assert tools.calls[-1] == [
         "/usr/bin/pg_restore",
         "--single-transaction",
@@ -944,11 +946,22 @@ def test_a_backup_needs_its_tools_a_direct_connection_and_days_to_keep(
     with pytest.raises(SystemExit, match="pg_dump is not installed here. Run this from the image"):
         main(["backup", str(tmp_path)])
 
+    # Behind a pooler in transaction mode, pg_dump is given the database's own address, and
+    # refused without one.
     monkeypatch.setattr("app.backup._tool", lambda name: f"/usr/bin/{name}")
+    pooler, listening = settings.database_pooler, settings.database_listen_url
     monkeypatch.setattr(settings, "database_pooler", "transaction")
+    monkeypatch.setattr(settings, "database_listen_url", "")
     with pytest.raises(SystemExit, match="goes through a pooler in transaction mode"):
         main(["backup", str(tmp_path)])
-    monkeypatch.setattr(settings, "database_pooler", "")
+    direct = "postgresql+psycopg://emudoc:direct@db.internal:5432/emudoc"
+    monkeypatch.setattr(settings, "database_listen_url", direct)
+    main(["backup", str(tmp_path / "direct")])
+    assert tools.calls[-1][-1] == "--dbname=postgresql://emudoc@db.internal:5432/emudoc"
+    assert tools.environs[-1]["PGPASSWORD"] == "direct"
+    shutil.rmtree(tmp_path / "direct")
+    monkeypatch.setattr(settings, "database_pooler", pooler)
+    monkeypatch.setattr(settings, "database_listen_url", listening)
 
     backup_days(0)
     with pytest.raises(SystemExit, match="BACKUP_DAYS is 0, which tells the members"):
