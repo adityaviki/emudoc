@@ -178,7 +178,7 @@ jobs:
             frontend/test-results/
           retention-days: 7
 
-  # The load test (deploying.md, "Load") at a size that takes a minute, against the compose
+  # The load test (docs/load.md) at a size that takes a minute, against the compose
   # database and the stand-in: its figures mean nothing on a runner, but a change it leans on (a
   # route, a reply, the prompt the stand-in reads) fails here rather than in the next real run.
   # On a failure its logs are kept for a week.

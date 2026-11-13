@@ -1,9 +1,100 @@
 # Deploying Emudoc
 
-How to run the app on a server. The README's "Run it" is the development path, one `uvicorn`
-on one machine; this is what changes for a deployment. The processes below run from the image
-("The image") or from a checkout with `uv`, as in development: the commands are the same, with
-`uv run` in `backend/` before each in a checkout.
+How to run Emudoc on your team's own server and keep it running. Emudoc is one image, run as an
+API and one or more workers beside Postgres, and `deploy/compose.yml` runs all of it on one
+machine. Start with [Install](#install); then the parts your team needs:
+
+- **Models**: the providers, their keys and what they cost ([The models](#the-models)).
+- **The address and its certificate**: Caddy from the compose file, or a proxy of your own
+  ([TLS at a reverse proxy](#tls-at-a-reverse-proxy)).
+- **Who signs in**: the first admin, invitations, open sign-up, and Google or Microsoft
+  ([The way in](#the-way-in)).
+- **Mail**, optional: invitations, password links and notices sent through SMTP or Resend
+  ([Mail](#mail)), and a project's own address that turns mail into documents
+  ([Mail in](#mail-in)).
+- **Connected folders**, optional: Google Drive, Dropbox and OneDrive, each an OAuth app you
+  register ([Connected folders](#connected-folders)).
+- **Backups and upgrades** ([Backups](#backups), [Upgrades](#upgrades)).
+- **Watching it**, optional: [Logs](#logs), [Error tracking](#error-tracking),
+  [Metrics](#metrics) and [Alerts](#alerts).
+- **When something goes wrong**: [Runbooks](#runbooks).
+
+The rest is reference, each piece in depth: the image, the database, the embeddings, drawing
+pages, the converter, encryption, what leaves the deployment, retention, and
+[Every setting](#every-setting), each variable the app reads. The commands below run in the
+image, as `docker compose run --rm --no-deps worker <command>` ("The image"), or in a checkout
+with `uv run` in `backend/` before each.
+
+## Install
+
+You need a server with Docker and Compose (Linux, amd64 or arm64), a name in DNS that leads to
+it, and ports 80 and 443 open to the people who will use it. 8 GB of memory is comfortable: the
+app, its database and the embeddings server hold under 2 GB most of the time, but each of the
+two files a worker parses at once may take up to 2 GB (`PARSE_MEMORY_MB`, "Large documents"),
+and ClamAV holds about 1 GB more. Two cores serve a small team; more index faster, since
+embedding the passages on the CPU is the slow part ("The embeddings endpoint", "Load").
+
+1. Fetch the compose file and its settings into a folder of their own, and make the database's
+   password and the key the database's secrets are encrypted with:
+
+   ```bash
+   mkdir emudoc && cd emudoc
+   curl -fsSLO https://raw.githubusercontent.com/emudocai/emudoc/main/deploy/compose.yml
+   curl -fsSL -o .env https://raw.githubusercontent.com/emudocai/emudoc/main/deploy/.env.example
+   chmod 600 .env && sed -i "s|^POSTGRES_PASSWORD=$|&$(openssl rand -hex 24)|; s|^ENCRYPTION_KEYS=$|&$(openssl rand -base64 32)|" .env
+   ```
+
+   Keep a copy of `.env` away from the server and its backups: they cannot be read without its
+   `ENCRYPTION_KEYS` ("The encryption keys").
+2. In `.env`, set:
+   - `APP_URL`, the address people will open, such as `https://emudoc.example.com`;
+   - the models and their provider's key: Gemini's by default, `GOOGLE_API_KEY`, with
+     `GOOGLE_PAID_TIER=true` once billing is on for the key's project, so that Google keeps
+     nothing it is sent; or another provider's ([The models](#the-models));
+   - `COMPOSE_PROFILES`, the services to run beside the app: `tls` for Caddy to answer on 80
+     and 443 with a certificate from Let's Encrypt (left out behind a proxy of your own), `scan`
+     for ClamAV to scan every upload, and `office` for Word, PowerPoint and Excel files shown as
+     they look, such as `COMPOSE_PROFILES=tls,scan,office`, each with the line its comment in
+     `.env` names.
+3. Start it:
+
+   ```bash
+   docker compose up -d --wait
+   ```
+
+   This starts Postgres with pgvector, applies the migrations, and starts the API, a worker and
+   the embeddings server, which downloads its model's 334 MB the first time.
+4. Open `APP_URL`. A new install opens its setup page, which makes the first admin and the
+   workspace ("The first run, and who signs up"): set it up before the address is public. Then
+   invite the team from the workspace's page.
+5. Back it up every night, `docker compose run --rm backup` from a timer, copy the backups off
+   the server, and try a restore once ("Backups").
+
+`docker compose logs -f api worker` shows what they do; every start logs what the install runs
+without (a mail relay, a scanner, a model's fallback) and refuses what would not work, naming
+the setting. Until the first release, v0.1.0, no image is published: build one from a checkout
+("The image") and name it in `.env` as `EMUDOC_IMAGE=emudoc:<commit>`.
+
+### The settings a team sets
+
+Those four values are all an install needs. These are the ones a team most often adds; "Every
+setting" says what each variable the app reads does, and the repository's `.env.example` lists
+them all with their defaults. A change to `.env` takes effect with `docker compose up -d`.
+
+| Settings | For |
+| --- | --- |
+| `AGENT_FALLBACK_MODEL`, `INDEX_FALLBACK_MODEL` and their provider's key | A model of another provider, asked when the first cannot answer ("The models") |
+| `MODEL_PRICES`, `DAILY_SPEND_CAP` | What each model costs, and the most a day may spend on them ("The models are spending fast") |
+| `SMTP_URL` or `RESEND_API_KEY`, with `MAIL_FROM` | Mail: invitations, password links and notices ("Mail") |
+| `SIGNUP_OPEN` | Anyone who reaches the install signs up and joins, rather than by invitation alone ("The first run, and who signs up") |
+| `GOOGLE_OAUTH_CLIENT_ID`, `MICROSOFT_OAUTH_CLIENT_ID` and their secrets | Sign-in with Google or Microsoft ("Sign-in with Google or Microsoft") |
+| `GOOGLE_DRIVE_CLIENT_ID`, `DROPBOX_APP_KEY`, `ONEDRIVE_CLIENT_ID` and their secrets | Folders connected to projects ("Connected folders") |
+| `INBOUND_DOMAIN` and a provider | A project's email address ("Mail in") |
+| `STORAGE_URL` with the `AWS_*` variables | The files in an S3-compatible bucket rather than a volume ("The pieces") |
+| `SUPPORT_EMAIL`, `STATUS_PAGE_URL` | Where members write for help, and a status page ("Support") |
+| `ALERT_EMAIL` | Where the worker reports what it gave up on and what it sees go wrong ("Alerts") |
+| `BACKUP_DAYS` | How long the backups are kept ("Backups") |
+| `SENTRY_DSN` | Error tracking ("Error tracking") |
 
 ## The pieces
 
@@ -41,7 +132,7 @@ on one machine; this is what changes for a deployment. The processes below run f
 - **An embeddings endpoint** in `EMBEDDING_BASE_URL`, which turns every passage and every
   search into a vector for search by meaning: llama.cpp's server beside the app, as the
   compose file runs it, or a hosted one: "The embeddings endpoint", below.
-- **A mail relay**, if the team wants mail: an SMTP relay in `SMTP_URL` (SES's on AWS), or
+- **A mail relay**, if the team wants mail: an SMTP relay in `SMTP_URL`, or
   Resend through its API with `RESEND_API_KEY`, with the sending domain's SPF, DKIM and DMARC
   records in its DNS, and the provider's news of what bounced reaching the app: "Mail", below.
   The workers send the mail, so a relay that is down holds the links back while they try again
@@ -75,8 +166,7 @@ endpoint that turns its requests down, and a connection that would carry the doc
 unencrypted off the deployment's own network), naming each. What a team may run without, a
 mail relay, a scanner, and the word that a Gemini key is on the paid tier
 (`GOOGLE_PAID_TIER`), it refuses nowhere: each start warns about each one left out.
-`.env.example` documents every setting; the README's "Configuration" says what the ones that
-matter do.
+`.env.example` documents every setting, and "Every setting", below, says what each does.
 
 ## The image
 
@@ -609,8 +699,7 @@ file named in `.env`,
 
 **The model and its terms.** EmbeddingGemma reads more than a hundred languages into one
 space, so a question finds the passage that answers it whichever language either is written in,
-which the keyword half of a search cannot (it stems each passage in its document's language;
-the README, "The workspace"). It replaced nomic-embed-text v1.5, which was trained on English,
+which the keyword half of a search cannot (it stems each passage in its document's language). It replaced nomic-embed-text v1.5, which was trained on English,
 on 2026-10-31: asked 42 questions in English about contract, invoice and delivery passages in
 seven other languages, among 48 passages, v1.5 ranked the right one first for 2 of them and
 EmbeddingGemma for 34, and asked in each passage's own language, for 22 and 40 (bge-m3 for 35
@@ -662,7 +751,7 @@ does not own it sits behind TLS, as production requires.
 
 On a CPU, embedding is the slow part of indexing. On a 6-core laptop CPU (Core i5-11400H, in
 Docker, 2026-10-31), llama.cpp b11706 embedded a batch of 32 passages of 1,500 characters with
-EmbeddingGemma in 18 seconds on every thread and in 29 on two, as many as the AWS instance has,
+EmbeddingGemma in 18 seconds on every thread and in 29 on two, as many as a small server has,
 and of 2,300 characters (the longest passages, with their headings) in 29 and in 47;
 nomic-embed-text v1.5 took 18 and 36, and 30 and 60. The app waits 120 seconds for a batch.
 Earlier, on an 8-core laptop CPU (Ryzen 7 7435HS), nomic-embed-text v1.5 embedded the batch of
@@ -853,7 +942,7 @@ sentence the member reads:
   document" without pages). The first request also lists the project's extraction templates,
   each field described while the listing is short and by name and type alone past 16,000
   characters, a few thousand tokens more a document, so that its facts are read for its kind
-  (README, "How it works"). The day's spending cap is checked before the stage ("The models
+  (`backend/app/extraction.py`). The day's spending cap is checked before the stage ("The models
   are spending fast"), so this is the most one document spends past it.
 - **Its vectors.** The embed stage keeps each vector as the column stores it, 4-byte floats (3 KB
   at 768 dimensions, where the endpoint's reply as Python floats is 25 KB), and writes them 500
@@ -872,11 +961,37 @@ to end (`emudoc_parses{state="waiting"}`, and `waited` in the run's `parse` span
 ## The models
 
 `INDEX_MODEL` reads every document, to infer its sections, write summaries, pull out facts and
-transcribe scanned pages; `AGENT_MODEL` answers in the Ask tab. (Until 2026-11-11 the indexing
-model also wrote the questions an empty chat offered, recorded as the usage kind `suggestions`,
-whose rows stay in the costs.) Each is written
+transcribe scanned pages; `AGENT_MODEL` answers in the Ask tab. Each is written
 `provider:model`, each may have a fallback, and every one of them is a company the documents
 are sent to ("What leaves the deployment").
+
+**The providers and their keys.** A model is named by its provider's prefix, and the provider
+reads its key from the environment:
+
+| Prefix | Provider | Its key |
+| --- | --- | --- |
+| `google:` | Google's Gemini API (the default, `google:gemini-3.5-flash-lite`) | `GOOGLE_API_KEY`, from https://aistudio.google.com/apikey; `GOOGLE_PAID_TIER=true` once billing is on for its project, since on the free tier Google may use what it is sent |
+| `google-cloud:` | Gemini on Google Cloud's Vertex AI | `GOOGLE_APPLICATION_CREDENTIALS` (a service account's key file), `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION` |
+| `anthropic:` | Anthropic's Claude | `ANTHROPIC_API_KEY` |
+| `openai:` | OpenAI, or any server that speaks its API | `OPENAI_API_KEY`, and `OPENAI_BASE_URL` for another server |
+| `openrouter:` | Any model OpenRouter lists, each request sent only to a provider of it that neither stores nor trains on it | `OPENROUTER_API_KEY` |
+| `ollama:` | An Ollama server | `OLLAMA_BASE_URL` |
+
+The two models may come from different providers, and the indexing model must read images, for
+scanned pages and photos. Other providers Pydantic AI supports read their own variables
+(`MISTRAL_API_KEY`, `GROQ_API_KEY` and the like). `python -m app.maintenance models`, below, asks
+each configured model what the app asks of it.
+
+**What they cost.** The team pays its providers directly. Indexing reads each document once, a
+request or a few for a short one and a request a page for a scan; an answer is a few requests,
+up to `AGENT_MAX_TURNS` (12). `MODEL_PRICES` gives each model's price per million tokens in and
+out (`google:gemini-3.5-flash-lite=0.30/2.50`), so that every usage row carries its cost: the
+cost shows under each answer and document, on the usage page and the Administration page, and
+`maintenance costs` prints it by kind of work and model. `DAILY_SPEND_CAP` is the most a day may
+spend by those prices: past it, questions are refused and indexing waits until midnight UTC
+("The models are spending fast"). Set a budget at each provider too (Google Cloud's billing
+budgets for a Gemini key, the Anthropic console's spend limits, OpenRouter's credit limit): the
+app counts what it knows the price of, and the provider counts the bill.
 
 **Pinned.** Production refuses to start with `AGENT_MODEL` or `INDEX_MODEL` unset: the default
 (`google:gemini-3.5-flash-lite` in October 2026) moves with the app's releases, and Google
@@ -1132,9 +1247,7 @@ block by the stage as a model's is; the next build with a model replaces them.
 `/` is the app: a member finds their projects there, and a visitor without a session is sent to
 the sign-in, which returns them to the page they wanted. An install is a team's own server, which
 no search engine should list: `/robots.txt` turns every crawler away, and every page says
-`X-Robots-Tag: noindex` besides, for a crawler that came by a link. The public site and its
-booking link went on 2026-11-13. The versioned API and its contract at `/api/v1/openapi.json`
-stay.
+`X-Robots-Tag: noindex` besides, for a crawler that came by a link.
 
 ### The first run, and who signs up
 
@@ -1175,6 +1288,31 @@ invitation. Set to `true`, anyone who reaches the install signs up by the link m
 to their address, or through a provider, and joins the workspace as a member; a sign-up link
 stops working once the sign-up is closed again. Either change
 takes effect at once, with no release.
+
+### Sign-in with Google or Microsoft
+
+Members sign in with a password, and with Google or Microsoft as well once the install has an
+OAuth client of that provider's (`backend/app/oidc.py`): the sign-in page offers each provider
+whose client id is set. A first sign-in through a provider signs in the account of the same
+address where both the provider and the account have confirmed it, makes the account of someone
+who came from their invitation's page, or makes one where `SIGNUP_OPEN` lets anyone sign up;
+otherwise it is refused, as the sign-up form is. Each client is registered with the redirect address under
+`APP_URL`, which must be the address people open:
+
+- **Google**: in the Google Cloud console, under APIs & Services, configure the OAuth consent
+  screen (internal to the team's Google Workspace, or external for any Google account), then
+  make an OAuth client of the type "Web application" with the authorised redirect URI
+  `{APP_URL}/api/auth/oauth/google/callback`. Its id and secret are `GOOGLE_OAUTH_CLIENT_ID`
+  and `GOOGLE_OAUTH_CLIENT_SECRET`.
+- **Microsoft**: in Microsoft Entra ID, register an application with a Web redirect URI
+  `{APP_URL}/api/auth/oauth/microsoft/callback` and make a client secret under "Certificates &
+  secrets". Its application (client) id and the secret's value are `MICROSOFT_OAUTH_CLIENT_ID`
+  and `MICROSOFT_OAUTH_CLIENT_SECRET`. `MICROSOFT_OAUTH_TENANT` says whose accounts sign in:
+  `common` (the default) work, school and personal accounts, `organizations` work and school
+  ones, or the directory's own id for the team's alone.
+
+The secrets are rotated at the provider's console, which holds two at once ("Rotating a key").
+The same providers' folders are another client each ("Connected folders").
 
 ## TLS at a reverse proxy
 
@@ -1668,8 +1806,8 @@ once its lease runs out. Through Resend that is once: the message's key goes as 
 ### The providers
 
 - **SMTP**: any relay, `smtp://user:password@host:587` (STARTTLS) or `smtps://…:465` (TLS), its
-  certificate checked against this machine's authorities and for the relay's name; on AWS,
-  SES's, with SMTP credentials that may send from the domain and do nothing else.
+  certificate checked against this machine's authorities and for the relay's name; for
+  Amazon SES, its SMTP credentials, which may send from the domain and do nothing else.
 - **Resend**: `RESEND_API_KEY` (an API key with sending access, `re_…`) sends through
   `https://api.resend.com/emails`, from `MAIL_FROM`, whose domain is added and verified in
   Resend's dashboard first.
@@ -1941,7 +2079,7 @@ organisation's delivery log, never among the failed jobs, since what the receive
 member's to fix. There is nothing to set.
 
 The worker posts to addresses members chose, on the internet, so its machine must reach the
-internet on port 443 (on AWS the instance's security group lets it out). It refuses what a
+internet on port 443. It refuses what a
 member must not reach through it: a name that resolves, wholly or in part, into the deployment's
 own network (a private, loopback, link-local, shared or reserved address, IPv4 inside IPv6
 included, so the instance's metadata too) and plain HTTP, in production; it connects to the
@@ -2024,9 +2162,7 @@ must leave `erasures/` as it is: restored to an older point, it forgets the purg
 backups may be kept for any length of time.
 
 The workspace itself is not deleted from the app, since it is the install: drop the database and
-the storage to start over. Until 2026-11-12 an owner could ask for an organisation's deletion, and
-a bucket of a deployment from before may still hold `erasures/organizations/`, which nothing reads
-now.
+the storage to start over.
 
 Logs carry no email address of the app's making: a refused sign-in names the address by its
 SHA-256, as the rate limits count it, and a mail that fails is logged with its subject and the
@@ -2593,7 +2729,8 @@ The proxy keeps a log of its own, and both nginx's default format and Caddy's wr
 addresses, queries included. The examples above give each one without the query: nginx logs
 `GET /api/projects/3/search`, Caddy `/api/projects/3/search?…`. A load balancer or CDN in
 front needs the same; most log the query unless told not to. A cloud's records of the bucket's
-and the network's requests (S3's access logs, VPC flow logs) hold members' addresses too. The
+and the network's requests (a bucket's access logs, a network's flow logs) hold members'
+addresses too. The
 parse child prints the same
 traceback as the app when a parser crashes, which the worker logs.
 
@@ -2830,8 +2967,7 @@ value.
 | `emudoc_wal_archived_total`, `emudoc_wal_archive_failures_total`, `emudoc_wal_last_archived_seconds`, `emudoc_wal_segments_pending` | The server's archiving of its write-ahead log ("Backups"): the segments archived and the attempts that failed, how long ago the last went, and the finished segments waiting; none of them from a server that archives nothing (`archive_mode` off) or is in recovery |
 
 A Prometheus on the compose file's network finds every replica by the services' names, and
-keeps which kind of process each is as `process`, with `deploy/prometheus/prometheus.yml` (on
-AWS the instance runs it so: "Alerts"):
+keeps which kind of process each is as `process`, with `deploy/prometheus/prometheus.yml`:
 
 ```yaml
 scrape_configs:
@@ -3055,21 +3191,18 @@ Docker starts again a container that exits, never one whose health check fails, 
 compose file's checks only mark it: a container's trouble is the rules' `EmudocProcessDown`. A
 timer the deployment runs for its drill ("The drill") mails its own failure (`OnFailure=`).
 
-## Service levels
+### Service levels
 
-What the deployment promises its members, measured by the app itself, so that an alert says the
-promise is in danger before anything is broken outright. Each objective holds over 30 days, and
-the share of requests, answers or uploads it lets miss is its error budget:
+Six of the example rules watch three objectives the app measures itself, so that an alert says
+the members are being let down before anything is broken outright. Each holds over 30 days, and
+the share of requests, answers or uploads it lets miss is its error budget. The numbers are the
+examples' own: set them to what your members expect, in the rules and their tests alike.
 
 | Objective | Measured by | Budget |
 | --- | --- | --- |
 | **The app answers**: 99.5 % of the members' requests end without a server error | `emudoc_http_requests_total`, a 5xx status against every status, the probes left out | 0.5 %, a request in 200 |
 | **Answers begin**: 95 % of answers write their first words within 30 seconds of the question | `emudoc_answer_first_text_seconds`: the job's wait for a worker, and its run up to the first text | 5 % |
 | **Uploads are ready**: 95 % of uploads can be searched and asked about within 10 minutes | `emudoc_document_ready_seconds`: from the upload to the end of its first indexing, retries and waits included | 5 % |
-| **The app is up**: `/api/health` answers 200 through the proxy in 99.5 % of the minutes | An uptime service outside the deployment, asking every minute | 0.5 %, 3.6 hours |
-
-The numbers are a start, for a beta on one machine: tune them to what the members see, in the
-rules and their tests too, as the alerting rules' thresholds are.
 
 - **A server error** is a 500, the app's own fault, or a 503: a pool out of connections, a
   statement the database stopped, a database or a storage that does not answer. A 4xx is the
@@ -3077,10 +3210,9 @@ rules and their tests too, as the alerting rules' thresholds are.
   (`/api/livez`, `/api/health`) are left out, since an orchestrator asks them more often than
   the members ask anything, and an answer's event stream counts once, by the status it began
   with. A request that never reached the app, the proxy's 502 while the API restarts or every
-  request while the machine is down, is not counted at all: that is the last line's, which only
-  a check from outside sees. Any uptime service does, a Route 53 health check on AWS or one of
-  the hosted ones, asking `https://<domain>/api/health` from more than one place and calling
-  after two misses in a row.
+  request while the machine is down, is not counted at all: only a check from outside sees it,
+  an uptime service asking `https://<domain>/api/health` from more than one place and calling
+  after two misses in a row ("The status page").
 - **An answer's wait** runs from the question, when its job is due, to its first words. The
   agent's first tool calls are inside it, which the member sees as steps meanwhile. A run that
   was lost starts the answer over and counts again, from the question. An answer that failed or
@@ -3127,337 +3259,26 @@ hour is no burn:
 | `EmudocAnswersLateFastBurn`, `EmudocAnswersLateSlowBurn` | Over 72 %, or over 30 %, of answers begun after 30 seconds |
 | `EmudocDocumentsLateFastBurn`, `EmudocDocumentsLateSlowBurn` | Over 72 %, or over 30 %, of uploads ready after 10 minutes |
 
-A budget spent before its 30 days are over is the sign to put the work that makes the app
-answer, begin or index sooner ahead of the next feature, until the figures are back within it.
-
 ## Load
 
-What one machine carries, as the load test measures it: `python -m loadtest` in `backend/`
-(`backend/loadtest/`). It starts the app in production's shape, the API as the image's command
-and the worker as a process of its own, each serving its metrics, against a database of its own
-on the compose server (`emudoc_load`, made afresh) and a stand-in for the models and the
-embeddings endpoint (`frontend/e2e/standin.py --fill`, which answers an indexing request with
-what the request holds: a scanned page's text made up from its picture, a document's title,
-kind, summary, section summaries and the facts its "Name: value" lines state), so that a run
-costs nothing and its figures are the app's own time. Then one member, with the rates a
-minute lifted (one member asks for what twenty would):
+What one machine carries, as the load test measures it (`python -m loadtest`; its figures and
+what they mean are `docs/load.md`). On a laptop of 8 cores and 16 threads with 23 GB (Ryzen 7
+7435HS), at the defaults, with Postgres beside the app:
 
-1. **library**: uploads 3,000 documents of the sample set's kinds (invoices, delivery notes,
-   contracts, price lists, emails and supplier reviews, as Markdown, PDF and Word), 50 a
-   request and two requests at once, and searches the project twice a second while it is
-   indexed;
-2. **search**: searches it 300 times one at a time and 300 times eight at a time, and asks
-   for facts, and runs the agent's `list_documents`, by a word and by a piece of one, which
-   only `ilike` finds; then ranks the passages for 100 of the searches as the search's vector
-   ranking does, at `hnsw.ef_search` 40 (pgvector's default), 100, 200 and 400 and once through
-   the vector index whatever the planner would choose, against the nearest by exact
-   distance; then uploads a project of 30 other documents beside the library
-   (`--small-documents`), searches it 100 times, searches it and the library together 100
-   times as the search of every project (`GET /api/search`), and ranks its passages likewise;
-3. **chats**: asks 20 questions at once in 20 chats, five times, following each answer as the
-   page does, first with the stand-in answering at once, then at a hosted model's pace
-   (`--first-token`, 1 s before each turn, and `--words-per-second`, 40);
-4. **paced**: uploads 200 of the documents into a project of their own with each indexing
-   request taking `--index-seconds` (3);
-5. **large**: uploads a 300-page scan (62 MB) and asks the 20 questions while it is read, a
-   50 MB workbook of seven sheets of 90,000 order rows, and the same orders in one sheet, then
-   opens each page of the scan, four at a time as a member scrolls, twice; each indexing
-   request, a page of the scan each, takes `--large-index-seconds` (0, at once).
+- a search of a project of 3,000 documents (9,300 passages) takes under 100 ms, eight at a time;
+- 20 members asking at once at a hosted model's pace see their answers' first words in about
+  5 s (7 s at the 95th percentile), and within 3 s with `ANSWER_CONCURRENCY` at 20;
+- of 3,000 documents uploaded at once, 95 % are ready within about 2.5 minutes when the model
+  answers at once, and at 3 s an indexing request a worker indexes about 290 documents a minute;
+- a 300-page scan is ready in about 5 minutes at 3 s a page;
+- the API holds about 220 MB and the worker 420 to 600 MB, with its parses' children beside it.
 
-It prints a table of what the member waited, at the 50th and 95th percentiles and the longest,
-and notes of what the app did meanwhile: documents indexed a minute, each stage's average, the
-indexing requests, and the most memory the API's and the worker's processes held with their
-children; `--out` keeps the figures as JSON. A run takes about 12 minutes and needs the compose
-database, and the compose bucket with `--storage s3` (`docker compose --profile s3 up -d
---wait`); the large files are made once, which takes longer, and kept in its directory
-(`--dir`, by default `$TMPDIR/emudoc-load`). Every setting a figure depends on is set in
-`backend/loadtest/deployment.py`, so `.env` changes none, and `--set NAME=VALUE` runs it with
-one changed, `--set ANSWER_CONCURRENCY=20` say; `--phases` picks some. It exits 1 when its own
-work went wrong (a library document not ready, an answer not done), since such figures are not
-of that work. CI runs it at a size that takes a minute, for the harness's sake: a runner's
-figures mean nothing.
-
-### The figures
-
-On 2026-10-19, on one machine (16 × AMD Ryzen 7 7435HS, 23 GB) with the compose Postgres 17
-beside the app and the files in a directory, at the defaults (`WORKER_CONCURRENCY` 16,
-`PARSE_CONCURRENCY` 2, `ANSWER_CONCURRENCY` 8, `DB_POOL_SIZE` 10 and `DB_MAX_OVERFLOW` 20,
-`RENDER_PROCESSES` 2) with `OCR_MAX_PAGES` raised to the scan's 300 pages:
-
-| What the member waited | n | p50 | p95 |
-| --- | --- | --- | --- |
-| An upload of 50 files | 60 | 1.54 s | 2.49 s |
-| A search in the 3,000 documents (9,300 passages), one at a time | 300 | 71 ms | 79 ms |
-| The same, eight at a time | 300 | 76 ms | 90 ms |
-| The same, while the 3,000 were indexed | 254 | 42 ms | 59 ms |
-| Facts by a word, or by a piece of one (15,210 facts) | 100 | 39 ms | 43 ms |
-| The agent's `list_documents` by a word, or by a piece of one | 100 | 24 ms | 26 ms |
-| A question asked, 20 at once | 100 | 227 ms | 406 ms |
-| The question to the answer's first event, the step "Searching…", 20 at once | 100 | 635 ms | 964 ms |
-| The question to its first words, 20 at once, the model at once | 100 | 783 ms | 1.08 s |
-| The same, at the hosted model's pace | 100 | 4.58 s | 6.79 s |
-| The same, with `ANSWER_CONCURRENCY` 20 | 100 | 2.76 s | 2.90 s |
-| An upload of 3,000 documents to each one ready, the model at once | 3,000 | 83 s | 136 s |
-| 200 documents to each one ready, at 3 s an indexing request | 200 | 22 s | 39 s |
-| A page of the scan drawn, four asked at once | 300 | 602 ms | 629 ms |
-| The same, from a bucket (the compose bucket, on the loopback address) | 300 | 675 ms | 730 ms |
-| A page of the scan kept from before | 300 | 26 ms | 32 ms |
-| The same, from the bucket | 300 | 52 ms | 63 ms |
-
-The two rows at the hosted model's pace were measured with the words of an answer at once: the
-stand-in ignored `--words-per-second` until 2026-10-23. The first token's second before each
-turn was paced, so the row with `ANSWER_CONCURRENCY` 20, where no question waits for an
-answerer, stands; the row above it is short of the time each answer now holds an answerer for
-its words (about 0.4 s at 40 a second), which the questions waiting for one add up, and is to be
-measured again on an idle machine (`--phases library,chats`). The row with
-`ANSWER_CONCURRENCY` 20 is a run earlier that day (with `DB_POOL_SIZE` 22, the pool
-the worker then needed), the bucket's a run of the large phase with `--storage s3` (`--phases
-large --sheet-mb 0`) once the API kept its copy of the original for the next pages; before it
-copied the original for every page, and a page from the bucket took 2.06 s (p95 2.11 s).
-
-Indexing at a hosted model's pace, 3 s an indexing request, by the worker's indexers (the paced
-phase with `--paced-documents`, `--set WORKER_CONCURRENCY=…` and the pool that needs; the row
-of 2 is the day's earlier run, before the parses had a limit of their own):
-
-| `WORKER_CONCURRENCY` | Documents | Indexed a minute | Ready, p50 | p95 | The worker held |
-| --- | --- | --- | --- | --- | --- |
-| 2 | 200 | 37 | 163 s | 309 s | – |
-| 8 | 600 | 145 | 124 s | 231 s | 414 MB |
-| 16 | 1,200 | 289 | 121 s | 224 s | 414 MB |
-| 32 | 1,200 | 554 | 60 s | 109 s | 437 MB |
-
-With the model at once, `PARSE_CONCURRENCY` 4 indexed the 3,000 documents no sooner than 2
-(959 a minute against 952, ready at p95 139 s against 136 s), the worker at 491 MB against
-418 MB.
-
-The large files, one at a time, with the model at once:
-
-- **The 300-page scan** was ready 101 s after its upload, 96 s of them in the parse: its pages
-  drawn one after another for the model (about 89 s) and read (320 requests, about 9 s). The
-  20 questions asked meanwhile began as soon as without it. Read four pages at a time
-  (`OCR_CONCURRENCY`, a run of the large phase alone), it was ready after 51 s, 46 s of them in
-  the parse, its pages drawn two at a time by the worker's `RENDER_PROCESSES` children, which
-  are then the narrow part; the worker held 469 MB.
-- **The 50 MB workbook in seven sheets** (625,000 rows, 88 million characters) was ready after
-  604 s: the parse 98 s, the structure 48 s, the summaries and facts 193 s in 3,126 requests
-  (one for each 40,000 characters of rows), the embeddings 264 s (about 52,000 passages in
-  1,620 requests, which took 26 s; the rest is the database writing each vector into its
-  index). The worker's processes held 2.6 GB. Bounded later that day ("Large documents"), it
-  is refused by `PARSE_MAX_CHARS` after 36 s, the worker's processes at 470 MB (580 MB at 16
-  indexers). With the limit
-  lifted (`--set PARSE_MAX_CHARS=100000000`) it is ready after 396 s: the parse 82 s, the
-  structure 32 s, the summaries and facts 31 s in one request (each sheet shown by its first
-  and last rows), the embeddings 251 s (25 s of requests); the worker held 590 MB and its
-  parse child 400 MB.
-- **A 10 MB workbook** (125,000 rows in two sheets, 17.6 million characters, 10,400 passages)
-  was ready after 95 s in 626 requests, the worker at 640 MB while it embedded; bounded, after
-  64 s in one request, the worker at 280 MB.
-- **The same orders in one sheet** were refused by `PARSE_MAX_ROWS` after 31 s, the worker's
-  processes at 1.55 GB, most of it what the workbook before had left the worker holding;
-  bounded, at 440 MB (550 MB at 16 indexers).
-
-The API's processes held 210 to 225 MB throughout, the worker's about 420 MB while the library
-was indexed.
-
-The scan at a hosted model's pace, 3 s an indexing request (`--phases large --sheet-mb 0
---large-index-seconds 3`), by the pages read at once (`--set OCR_CONCURRENCY=…`):
-
-| `OCR_CONCURRENCY` | Ready | The parse | The worker held |
-| --- | --- | --- | --- |
-| 1 | 1,068 s | 1,004 s | 466 MB |
-| 4 | 317 s | 252 s | 587 MB |
-| 8 | 192 s | 128 s | 654 MB |
-
-Of the rest, 62 s are its summaries and facts, 20 requests one after another, which the pages
-read at once leave as they were.
-
-At ten times the size, on 2026-10-20: 30,000 documents in one project (93,141 passages,
-151,193 facts, a database of 1.1 GB; `--phases library,search --documents 30000 --set
-WORKER_CONCURRENCY=8 --set DB_POOL_SIZE=22`, indexed in 38 minutes, 780 a minute), with the
-vectors of a real model, Ollama's `nomic-embed-text` on the same machine (`--set
-EMBEDDING_BASE_URL=http://127.0.0.1:11434/v1 --set EMBEDDING_MODEL=nomic-embed-text`), whose
-vectors are the embeddings server's: the stand-in's vectors of words crowd together and tie as
-no model's do, and made the vector index look worse than it is.
-
-| What the member waited | n | p50 | p95 |
-| --- | --- | --- | --- |
-| A search in the 30,000 documents, one at a time | 300 | 199 ms | 267 ms |
-| The same, eight at a time | 300 | 245 ms | 366 ms |
-| Facts by a word, or by a piece of one (151,193 facts) | 100 each | 92–94 ms | 133–137 ms |
-| The agent's `list_documents` by a word, or by a piece of one | 100 each | 93 ms | 98–99 ms |
-| A search in a project of 30 documents (99 passages) beside them | 100 | 19 ms | 21 ms |
-
-The searches ran at `hnsw.ef_search` 100; 200, the setting since, adds 2 to 4 ms. Most of a
-search's time was then its keyword ranking, which fetched and ranked every passage that held
-any word of the question: "penalty late deliveries" matched 42,279, which took 236 of the
-search's 241 ms, and the vector ranking 2.
-
-On 2026-10-30 the same run was made twice: with the keyword ranking as it was, then with the
-passages that hold every word of the question ranked first, then those that hold all but one,
-and those that hold any only while the others are fewer than the 40 candidates ("Search"
-below). The machine was busy with other work through both:
-
-| What the member waited | n | p50 | p95 | Before, p50 | p95 |
-| --- | --- | --- | --- | --- | --- |
-| A search in the 30,000 documents, one at a time | 300 | 43 ms | 111 ms | 222 ms | 304 ms |
-| The same, eight at a time | 300 | 89 ms | 181 ms | 291 ms | 433 ms |
-| The same, while the 30,000 were indexed | 2,269 | 70 ms | 163 ms | 262 ms | 419 ms |
-| The search of every project, the library and the 30 documents | 100 | 42 ms | 109 ms | – | – |
-| A search in the project of 30 documents | 100 | 23 ms | 26 ms | 25 ms | 28 ms |
-| Facts by a word, or by a piece of one | 100 each | 103 ms | 140–144 ms | 108–109 ms | 148–150 ms |
-| The agent's `list_documents` by a word, or by a piece of one | 100 each | 100 ms | 105–106 ms | 102–104 ms | 111–113 ms |
-| An upload of 30,000 documents to each one ready | 30,000 | 1,114 s | 1,416 s | 1,337 s | 6,967 s |
-
-The statement alone, over 100 of the load test's questions, ranked in 20 ms at the median and
-68 at p95, where it had taken 183 and 266: "penalty late deliveries" now ranks the 11,599
-passages that hold its words, or all but one, of the 52,293 that hold any. What a search
-finds changed with it: three in four of its first ten hits were the same, and its first hit
-for 65 of the 100. A question of one word most passages hold still ranks them all:
-"invoice", in 43,645, about 130 ms.
-
-The second run indexed the library 601 a minute against 207 (780 on 2026-10-20), and the
-upload's last documents were ready within 24 minutes rather than two hours. From 2026-10-25
-each document indexed asked whether its project had settled, to write its suggested questions,
-by a statement that scanned the queued jobs again for each of the project's documents: 22 s
-after each document at 22,000, run by the indexers side by side, and the indexing fell to 16 a
-minute. It looked the jobs up once after that, in about 25 ms, until the suggested questions
-were taken out on 2026-11-11. The rest of the gap to 780 was not
-looked into.
-
-The vector ranking's 40 candidates for 100 of the searches, against the 40 nearest passages
-by exact distance:
-
-| `hnsw.ef_search` | The 10 nearest found | The 40 nearest found | Searches that missed the nearest | p50 | p95 |
-| --- | --- | --- | --- | --- | --- |
-| 40, pgvector's default | 83 % | 82 % | 11 | 3 ms | 4 ms |
-| 100 | 88 % | 88 % | 7 | 4 ms | 6 ms |
-| 200 | 93 % | 92 % | 3 | 6 ms | 10 ms |
-| 400 | 95 % | 95 % | 2 | 11 ms | 16 ms |
-| Every passage's distance, sorted | 100 % | 100 % | 0 | 148 ms | 153 ms |
-
-Two more samples of 100 found the 10 nearest at 83 and 89 % at 40, 92 and 94 % at 100, 93 and
-95 % at 200, and 97 and 98 % at 400. What the index found instead was near: at 40 its 40th
-candidate was a median 0.0007 farther from the question than the exact 40th, where the 40
-nearest spread over 0.034.
-
-In the project of 30 documents the planner sorted its 99 passages by distance (1 ms) and
-found all 40 nearest. Made to walk the vector index instead, it found 11 candidates at fewest
-of the 40, and 45 % of the nearest, in 105 ms: `hnsw.max_scan_tuples` (20,000) ends the walk
-long before a project of 0.1 % of the table fills its 40. The planner walks the index only for
-a project of a few percent of the table: as passages were moved into the small project, it
-sorted them at 2,000 (2.2 %) and walked the index at 4,000 (4.3 %), where 40 candidates take a
-walk of about 1,000 passages.
-
-With the library's passages spread over 602 projects (18,000 of them moved into 600 projects
-of 30), one connection's searches of the large project went over to the one plan Postgres
-keeps for every project after the fifth, which sorts the whole project by distance (495 ms
-for its 75,141 passages): they took 470 to 540 ms where they had taken 150 to 250. Planned
-each for its project, as every search is now ("The database"), they stayed at 100 to 215 ms.
-
-### What the figures mean
-
-- **Answers** run in a worker's `ANSWER_CONCURRENCY` threads (8), one an answer from its
-  question to its end, and at a hosted model's pace an answer takes about 2.5 s of a thread:
-  the 20 questions were answered in three rounds, and the last began about 4 s after the first.
-  Twenty threads answered all 20 at once. A worker whose `emudoc_worker_busy{lane="answerer"}`
-  stands at `ANSWER_CONCURRENCY` wants more threads or another worker; a thread costs little,
-  as it waits on the model, but the pool must grow with it (the worker refuses fewer than
-  `WORKER_CONCURRENCY` + `ANSWER_CONCURRENCY` + 4 connections). The API follows each answer
-  by looking at the table every 0.1 s, a connection for each look: 20 members reading answers
-  are 200 short queries a second, and the API's 15 connections carried them (30 now).
-- **Uploads** are indexed by a worker's `WORKER_CONCURRENCY` threads (16). A small document
-  takes an indexer a fraction of a second of the app's own time, and each request to a model
-  adds the model's, during which the indexer holds no database connection and next to no
-  memory: at 3 s a request the documents indexed a minute grew with the indexers, 37 with 2,
-  145 with 8, 289 with 16 and 554 with 32, and the worker's memory did not. So at the defaults
-  an upload of about 2,800 documents is ready within the 10 minutes of the objective ("Service
-  levels") at that pace, where 2 indexers, the default until then, readied about 370 within
-  them and took 80 minutes over 3,000.
-  Only `PARSE_CONCURRENCY` (2) of them parse at once, the part that takes memory, each in a
-  child of up to `PARSE_MEMORY_MB`, and the others wait their turn: with the model at once the
-  parses were the narrow part (the parse stage took 0.42 s on average, over half of it
-  waiting), but
-  four of them readied the 3,000 no sooner, since the uploads and the database set the pace
-  there, and held 70 MB more. More indexers cost a database connection each (the worker
-  refuses fewer than `WORKER_CONCURRENCY` + `ANSWER_CONCURRENCY` + 4, 28 at the defaults) and
-  the provider's rate: 16 at 3 s are about 320 indexing requests a minute, more than a
-  provider's lowest tiers take (`EmudocModelRateLimited`, then lower `WORKER_CONCURRENCY`). A
-  member who uploads thousands at once is served by more indexers, or another worker, with the
-  pool and the provider's limits to match.
-- **A long scan** is read `OCR_CONCURRENCY` pages at a time (4), each drawn (0.3 s) and then
-  sent to the model: at a hosted model's 3 s a page the 300-page scan was ready in 5.3 minutes,
-  where one page after another took 17.8, past the objective by itself. Eight at a time took
-  3.2 minutes, but every page in flight is a request the provider's rate limit counts: 16
-  indexers reading scans 4 pages at a time are 64 requests at once, about 1,300 a minute at
-  3 s, beyond a provider's lower tiers, so such a deployment lowers it rather than raise it.
-  The pages in flight cost the worker 120 MB at 4 and 190 MB at 8, their images and the
-  requests that carry them. `OCR_MAX_PAGES` (100) holds one scan to about 2 minutes, and its
-  summaries and facts, one request after another, are now a fifth of its time.
-- **A large workbook** was thousands of model requests and hours of an indexer at a hosted
-  model's pace; its sheets are now one request or a few, whatever their rows, and a workbook
-  past `PARSE_MAX_CHARS` is refused in the parse ("Large documents"). What one within it costs
-  is its passages: written, indexed and embedded, 3 to 4 ms each in the database and the
-  endpoint's time on top, a minute or two for one at the limit here, and longer with an
-  embeddings server on a few CPUs.
-- **Pages** are drawn two at a time by each API, about 0.3 s each for a page of this scan, so
-  four asked at once wait about 0.6 s. From a bucket the API copies the original, here 62 MB,
-  once for the pages that follow (`RENDER_CACHE_MB`, "Drawing pages"), so a page waits about
-  as long as from a directory; when it copied the original for every page, a page took 2 s and
-  a member scrolling through the scan fetched 300 copies. A page kept from before comes from
-  the storage in 25 ms, from the bucket in about 50 (the redirect and the bucket's answer).
-- **Search** is quick at 3,000 documents: the full-text and vector search under 100 ms eight at
-  a time, and `ilike` over their titles, file names and summaries and 15,210 facts under
-  50 ms. At 30,000 in one project a search takes 43 ms (111 ms at p95), where it took 222
-  (304) while the keyword ranking ranked every passage that held any word of the question: it
-  ranks those that hold every word first, then all but one, and the rest only while those are
-  too few, so its cost is the passages that hold the question's words and grows with them. A
-  question of one word that most passages hold is the slow case (about 130 ms for the ranking
-  at 30,000). The search of every project ranks its projects' passages together, 42 ms here for
-  the library and a small project. The vector ranking takes a few milliseconds. `ilike` grew to
-  about 100 ms (145 ms at p95) over 151,193 facts and the documents' names and summaries.
-  Trigram indexes (`pg_trgm`, GIN) took the facts route to 55 ms at p95 and `list_documents`
-  to 40, not a few milliseconds, since a supplier's name matches thousands of facts, and cost
-  33 MB and an insert of the 151,193 facts in 1.4 to 16 s rather than 0.14 (GIN's pending
-  list), so there are none yet. Look again when a project nears 100,000 documents or the facts
-  route's p95 passes 300 ms. At pgvector's
-  default the vector index left out one in six of the 10 nearest passages; `hnsw.ef_search`
-  200 leaves out one in fourteen for about 5 ms more. A small project is sorted by exact
-  distance and loses nothing, and each search is planned for its project, without which a
-  table of many projects sorted a large one whole.
-
-## On call
-
-Who hears what, and how soon someone acts. Each way to the operator ends at an address or a
-pager the deployment names, and only the worker's mail depends on the machine in trouble, which
-the rules back up:
-
-| From | What | To |
-| --- | --- | --- |
-| The worker | The jobs it gave up on, quarantines, spending at 80 % of a limit, its watch's alerts ("What the worker mails") | `ALERT_EMAIL`, through the app's mail relay |
-| Prometheus's rules | `critical` alerts every hour while they last, `warning` ones every 4 hours, and each once more when it is over | Alertmanager's receivers |
-| The watchdog | Its silence | The dead man's switch |
-| The drill's timer | A failed drill | Its `OnFailure=` unit's mail ("The drill") |
-| The uptime service | `/api/health` missed from outside | Its own notifications, and its status page for the members ("The status page") |
-| The members | A problem, a question or an idea from the app's help menu, with the page and the reference of the request that failed there; or by mail, quoting the error screen's reference ("Support") | `SUPPORT_EMAIL`, else the workspace's owners and admins |
-
-How soon:
-
-- **`critical`** and the uptime service: a member waits now, or a backup is losing changes. The person on call acts within 30 minutes, day or night, starting from "A
-  first look" below, and the paging service calls a second when the first has not answered in
-  15.
-- **`warning`** and the worker's mails: within the working day.
-- **A member's report**: answered within a working day, with what was found.
-
-The Alertmanager of "Rules on the metrics" gives `critical` a receiver of its own, a paging
-service's webhook or its `pagerduty_configs`, and the mail the rest. A paging service calls the
-second person when the first does not answer, and can close the incident by the page that says
-the rule is over. A page repeats every hour while its rule fires: a silence (`amtool silence
-add`) holds the repeats back once someone is on it.
-
-Every alert says where to look; the runbooks below say what to do for those that need more than
-a sentence. Each incident that called someone gets a short record: when it began and ended, what
-the members saw, the cause, and what changes so that it does not come back. The service levels'
-figures for each 30 days go into the same record.
+The model provider's rate limits are usually the first limit: 16 indexers at 3 s a request are
+about 320 requests a minute (`EmudocModelRateLimited`, then a lower `WORKER_CONCURRENCY`). A
+worker whose `emudoc_worker_busy{lane}` stands at its threads wants more threads, or another
+worker (`docker compose up -d --scale worker=2`), with the database's connections to match
+("The database"); embedding on a CPU of few cores is the slow part of indexing ("The embeddings
+endpoint").
 
 ## Support
 
@@ -3492,9 +3313,7 @@ answers with the reference and where the message went; a member writes `RATE_FEE
 messages an hour (10), past which the menu says when to try again. Where no relay is set
 ("Mail"), the message would reach the log by its subject alone, so the menu sends none: it names
 `SUPPORT_EMAIL`, or else the workspace's owners and admins, to write to from the member's own
-mail, each a link to a mail that carries the page and the failed request's reference. Until 2026-11-13 a member could also let Emudoc's
-support see their account from the operator's area; a team that runs its own install asks its
-members what they see instead.
+mail, each a link to a mail that carries the page and the failed request's reference.
 
 ### The status page
 
@@ -3506,14 +3325,13 @@ which tells the page the address, reads no database, so it answers while the dat
 (when the API itself is down, nothing of the app loads, and members find the page by its
 address). Three things fill it:
 
-- **The uptime service** of "On call" and "Service levels", which already asks
-  `https://<domain>/api/health` every minute from outside. Most of them (the hosted ones, or
+- **An uptime service**, which asks `https://<domain>/api/health` every minute from outside
+  and tells whoever runs the install when it misses twice. Most of them (the hosted ones, or
   Uptime Kuma, Gatus or Upptime run elsewhere) publish their checks as a public status page;
   show the `/api/health` check, which answers 200 only while the API reaches its database, not
   `/api/livez`, which answers through a database outage.
-- **The person on call**, who posts an incident when members are affected ("On call"): what they
-  see, what is being done and when the next word is due, and closes it with the incident's
-  record.
+- **Whoever runs the install**, who posts an incident when members are affected: what they
+  see, what is being done and when the next word is due.
 - **The alerts**, where the service takes them: a receiver of `critical` alerts with the
   service's own webhook (`webhook_configs`) beside the pages route in Alertmanager's
   configuration ("Rules on the metrics"), its address and key in the deployment's secrets. A rule's summary names the app's parts, never a member's
@@ -3568,10 +3386,7 @@ admin:
 The page is the members' app's own, held by role: a member or a viewer is refused its routes
 (`/api/organization/jobs`, `/services`, `/costs`, `/providers/…`) with 403 and sees no link to
 it. Two-factor sign-in for the admins is the workspace's choice, "Require two-factor sign-in"
-on the workspace page, which holds everyone who works in it. Until 2026-11-13 this was the
-operator's area, a page of its own at `/operator` for the accounts an `operators` command named,
-from the addresses `OPERATOR_NETWORKS` listed: a team runs its own install, so its admins are
-the people who run it. A proxy rule that refused `/operator` by address may go.
+on the workspace page, which holds everyone who works in it.
 
 ## Runbooks
 
@@ -3811,7 +3626,7 @@ every API replica counts the same. The proxy needs no rate limit of its own. One
 (nginx's `limit_req`, Caddy's rate-limit plugin) sees addresses, not users, so it must allow
 more than `RATE_SIGN_INS_PER_ADDRESS` a minute, or an office behind one address is held
 before the app would hold it, and more than `RATE_API_REQUESTS`: a request made with an API
-key (README, "The API") is counted for its key as well, every request it makes, 300 a minute
+key (`/api/v1`, "Support") is counted for its key as well, every request it makes, 300 a minute
 unless set, on top of the rates of the member who made the key, which its uploads, questions
 and searches count against as their own.
 
@@ -3833,7 +3648,7 @@ confirms a change with the password (a new password, an address, turning two-fac
 deleting the account) is counted for its user instead. The 429 says nothing that differs
 between an address with an account and one without, and the mail goes out after it.
 
-A share link (README, "Accounts") opens with no account, so its openings are counted per
+A share link opens with no account, so its openings are counted per
 client address (`RATE_SHARED_LINKS`, 30 a minute), unknown tokens among them, and the wrong
 passwords of a link over the hour, for the link from every address together and for each
 address (`RATE_SHARED_PASSWORDS`, 10): past it the link opens with no password, the right one
@@ -3961,7 +3776,7 @@ the database would let a guesser skip most candidates at SHA-1's speed. Empty ch
     "Emudoc alert over: …". With a scraper, its rules page lists the 33 rules of
     `deploy/prometheus/alerts.yml` without an error and none firing but `EmudocWatchdog`, which
     the dead man's switch hears; with the API stopped, `EmudocNoApi` fires after 5 minutes,
-    reaching the pager, and `EmudocProcessDown` is held back.
+    reaching its receiver, and `EmudocProcessDown` is held back.
 18. Ask a question: the worker's log has its run's line, "Job … (answer_question) ran … s
     (done)", whose `timing` lists the model's turns with the configured model and the tool
     calls by name, and the second recipe of "Traces" with its `trace_id` finds the API's lines
@@ -4112,9 +3927,9 @@ and the like), named on its models' pages.
 | `SMTP_URL` | none: nothing is mailed, and the log has each message (development) or its subject | a warning without it or `RESEND_API_KEY` | The relay the mail goes through ("Mail") |
 | `RESEND_API_KEY` | none | a secret, or `SMTP_URL` | Resend's API key, which sends the mail through Resend instead ("Mail") |
 | `RESEND_WEBHOOK_SECRET` | none | a secret | The signing secret of Resend's webhook, which says what bounced ("Mail") |
-| `MAIL_EVENTS_QUEUE` | none | | The SQS queue of SES's bounces and complaints, which the worker reads ("Mail"; the AWS module writes it) |
+| `MAIL_EVENTS_QUEUE` | none | | The SQS queue of SES's bounces and complaints, which the worker reads ("Mail") |
 | `INBOUND_DOMAIN` | none | with a provider that hands its mail over | The domain of the projects' addresses, whose mail becomes their documents ("Mail in") |
-| `INBOUND_MAIL_QUEUE` | none | | The SQS queue of SES's notices of the mail sent to projects' addresses, which the worker waits on ("Mail in"; the AWS module writes it) |
+| `INBOUND_MAIL_QUEUE` | none | | The SQS queue of SES's notices of the mail sent to projects' addresses, which the worker waits on ("Mail in") |
 | `PWNED_PASSWORDS_URL` | `https://api.pwnedpasswords.com` | | Where new passwords are checked against breaches ("Rates"); empty checks nothing, for a server without the internet |
 | `ENCRYPTION_KEYS` | development's key, which is in the code | required, a secret | The keys the authenticators' secrets and the connected folders' grants are encrypted with, the first encrypting ("The encryption keys") |
 | `MAIL_FROM` | `Emudoc <no-reply@localhost>` | | The sender |

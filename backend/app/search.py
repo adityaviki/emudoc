@@ -89,7 +89,7 @@ q AS (
 -- that hold any, each tier by how densely they hold the words. A tier is ranked only when those
 -- before it found fewer than the candidates, so that a large project ranks the passages that
 -- hold every word rather than every passage that holds one: in one of 93,000 passages, "penalty
--- late deliveries" ranked 11,599 rather than 52,293 (deploying.md, "Load").
+-- late deliveries" ranked 11,599 rather than 52,293 (docs/load.md).
 kw_every AS (
     SELECT p.id, ts_rank_cd(p.tsv, q.any_word) AS score
     FROM passages p
@@ -243,7 +243,7 @@ def search_projects(
     # on a connection, and Postgres may then keep one plan for every project, made for a
     # project of the average size: in a table of many projects, that is a sort of the whole
     # project by distance, which made a search of a 75,000-passage project three times slower
-    # (deploying.md, "Load"). The planner's own choice takes the vector index only for a
+    # (docs/load.md). The planner's own choice takes the vector index only for a
     # project of a few percent of the table, where its candidates never run short.
     session.execute(text("SET LOCAL plan_cache_mode = force_custom_plan"))
     if vector:
@@ -251,7 +251,7 @@ def search_projects(
         # At pgvector's default of 40, the vector index's candidates held 83 to 89 % of the 10
         # passages nearest the question in a project of 93,000, and missed the nearest in one
         # search of ten; at 200 they held 93 to 95 % and missed it in three of a hundred, for
-        # 3 to 6 ms more in a search that took 200 (deploying.md, "Load").
+        # 3 to 6 ms more in a search that took 200 (docs/load.md).
         session.execute(text(f"SET LOCAL hnsw.ef_search = {EF_SEARCH}"))
         if _iterative_scan_supported():
             # Keep scanning the vector index until enough rows pass the project filter.

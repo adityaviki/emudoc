@@ -1,7 +1,7 @@
 """The load test: the app on this machine in production's shape, against a stand-in model, with
 a member who uploads a library of thousands of documents, searches it, asks twenty questions
 at once, and uploads a long scan and large workbooks. It prints what the member waited for at
-the 50th and 95th percentiles, and what the app held and did meanwhile (deploying.md, "Load").
+the 50th and 95th percentiles, and what the app held and did meanwhile (docs/load.md).
 
     uv --directory backend run python -m loadtest [--documents 3000] [--storage s3] [--out f.json]
 
