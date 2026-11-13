@@ -742,6 +742,682 @@ backend (restarting when Python changes) and the frontend dev server (updating t
 you edit, no build needed), which proxies `/api` to the backend. Ctrl+C stops both servers. Port
 8000 still serves the last build, so it does not show your edits. `dev.sh`, the browser test and
 the load test use fixed ports, so they run in one checkout at a time.
+## What works without what
+
+| Missing          | Still works                                           | Does not                                          |
+| ---------------- | ----------------------------------------------------- | ------------------------------------------------- |
+| Model API key    | Parsing, outlines from headings, search, the viewer   | Summaries, facts, scans and images, the Ask tab   |
+| Embeddings       | Keyword search, everything else                       | Search by meaning                                 |
+| ClamAV           | Everything; each document says it was not scanned     | Malware scanning of uploads (off by choice only in production) |
+| Converter        | Everything; Office files are shown by their text      | Word, PowerPoint and Excel files shown as they look |
+
+The Ask tab says when the model is out of reach, and a search when it matched keywords only;
+the backend asks the embeddings endpoint at most once a minute, so an endpoint that comes back
+is used within the minute. In development the Ask tab says what stops the model and what to
+change; a deployment's members are told only what they cannot do for now and to try later, and
+the reason is the operator's, in the log, the metrics and the alerts. After adding a key, restart the backend and
+press "Index the rest" in the library to enrich what was indexed without it.
+`DISABLED_PROVIDERS` switches a provider's models off on purpose, with the same effect and the
+reason shown in the Ask tab in development, and the same button enriches what was indexed
+meanwhile once it is lifted; a fallback of another provider (`AGENT_FALLBACK_MODEL`, `INDEX_FALLBACK_MODEL`, below)
+does the work meanwhile instead. Running without the model is for development: with `ENVIRONMENT=production` the
+backend refuses to start until the key is in the environment, unless the model was switched
+off that way. The same goes for the embeddings: production refuses to start without
+`EMBEDDING_BASE_URL`, or with an endpoint that turns the start's request down, and starts with a
+warning when the endpoint is only out of reach (`deploying.md`, "The embeddings endpoint").
+
+## Configuration
+
+Settings live in `.env`; `.env.example` lists them all with their defaults. The ones that matter:
+
+- `RUN_WORKER` is whether the process runs the background worker as well. Unset, it does in
+  development and does not in production, where the worker is `uv run python -m app.worker`,
+  a process of its own ("Run it" above).
+- `WORKER_CONCURRENCY` and `ANSWER_CONCURRENCY` are the worker's threads: 16 documents indexed
+  at once and 8 questions answered at once, in lanes of their own, so a backlog of uploads
+  never holds an answer up. Both wait on the model most of the time, so a thread costs a
+  database connection more than memory. `PARSE_CONCURRENCY` (2) of the indexers parse a file
+  at once, each in a child process with memory of its own, and the others wait their turn.
+- `DB_POOL_SIZE`, `DB_MAX_OVERFLOW` and `DB_POOL_TIMEOUT` size the database connections a
+  process holds: 10 kept open, up to 21 more while all of those are in use, and 5 seconds a
+  request waits for one before it is refused with 503 and asked to try again. An API replica
+  needs about one per request in flight; a worker needs one per document and per answer it
+  runs at once (an answer holds one only while a tool runs) plus one for each of its helper
+  threads (the mail's, four of its own, and the readers of SES's queues), and refuses to start with a pool that cannot hold them; its listener holds one more
+  outside the pool. The sum over every replica must stay under the database's
+  `max_connections` (100 for Postgres), or a connection pooler goes in between: one in
+  transaction mode, such as pgbouncer's usual setup, needs `DATABASE_POOLER=transaction`
+  (nothing is prepared then) and `DATABASE_LISTEN_URL` naming the database itself for the
+  worker's listener, which otherwise polls every two seconds (`deploying.md`, "A pooler").
+- `MAX_ANSWERS` is how many questions one organisation may have waiting for or receiving an
+  answer at once, 20 by default. The worker answers `ANSWER_CONCURRENCY` of them at a time,
+  shared between the organisations, so the cap bounds how long a question waits without
+  letting one organisation keep the others waiting; the question past it is refused with 429
+  and asked to wait a moment. It is the same for every organisation.
+- `MAX_QUESTION_CHARS` is the longest question, 20,000 characters by default. A question goes
+  to the model whole with every turn of its answer, so one that is pasted rather than asked is
+  refused with 413 and asked to be shortened; the documents are what to upload.
+- `MAX_UPLOAD_MB`, `MAX_UPLOAD_FILES` and `MAX_UPLOAD_REQUEST_MB` bound one upload: 100 MB a
+  file, 100 files a request and 500 MB a request by default. A file over its size is rejected
+  on its own while the others go in; a request over the other two is refused whole with 413
+  and asked to upload in smaller batches. The body has been read by then, so a proxy's limit
+  on the request body is the guard against the request itself.
+- `RATE_UPLOADS`, `RATE_QUESTIONS` and `RATE_SEARCHES` are how fast one user may go: 20
+  upload requests, 20 questions and 120 searches (the search and facts routes, a project's and
+  every project's) a minute by default. `RATE_SIGN_INS` holds the sign-in routes (sign-in, sign-up, the reset and
+  verification mails, the authenticator code) to 10 requests a minute per email address, and
+  `RATE_SIGN_INS_PER_ADDRESS` to 60 per client address, so that neither a password nor a code
+  can be guessed at speed. The request past a rate is refused with 429 and the seconds until
+  the minute turns; `0` removes a limit. The counts live in the database, so every API
+  replica counts the same.
+- `RATE_FAILED_SIGN_INS` is how many wrong passwords and codes an account may be tried with
+  in an hour, 20 by default. Past it, sign-ins from the browsers that never signed in to the
+  account pause until the hour ends, the right password included, and the owner is told by
+  mail; a browser that signed in before (it keeps a cookie, `emudoc_browser`) is counted by
+  itself, on this and on `RATE_SIGN_INS`, so a stranger who knows an address cannot keep its
+  owner out. A password reset ends the pause.
+- `PWNED_PASSWORDS_URL` is where a new password is checked against the passwords exposed in
+  data breaches: Have I Been Pwned's range API by default, which is sent the first five
+  characters of the password's SHA-1 alone, or a copy of its list on your own network. A
+  breached password is refused at sign-up, from a reset link and on the account page; a
+  service that does not answer lets it through. Empty checks nothing, for a server without the
+  internet.
+- `SCANNER_URL` names the ClamAV daemon that scans every upload before it is indexed or
+  served: `clamd://host:3310`, or `clamd:///run/clamav/clamd.ctl` for one on the same
+  machine. The file is streamed to it, so the daemon needs no access to the storage; its own
+  limits (`StreamMaxLength`, `MaxFileSize`, `MaxScanSize` in `clamd.conf`) must allow a file
+  of `MAX_UPLOAD_MB`, or it refuses the file and the document says so. Empty or `off`,
+  nothing is scanned, every document says so and a production start warns. clamd's protocol
+  has no encryption, so production
+  takes a daemon on the deployment's own network only. `docker compose --profile clamav up -d
+  --wait` runs one to try this with.
+- `CONVERTER_URL` names the converter that shows Word, PowerPoint, Excel, RTF and HTML documents
+  as they look: this app's image run as `python -m app.converter`, with LibreOffice, in a
+  container that holds no settings and reaches nothing but the worker (`http://converter:8080`
+  in `deploy/compose.yml`). Empty or `off`, those documents are shown by their text. `docker
+  compose --profile converter up -d --wait` builds the image and runs one on 127.0.0.1:8090 to
+  try this with.
+- `ALERT_EMAIL` is where the worker reports the jobs it gave up on, through the same mail
+  settings as the sign-in links, as one digest every quarter of an hour, where it reports
+  the uploads the malware scan quarantined the same way, where it warns once a day when
+  a day's spending on models reaches 80 % of `DAILY_SPEND_CAP`,
+  and where its watch (`backend/app/watch.py`) writes when something goes wrong and when it is
+  over: questions or documents waiting long for a worker, indexing or answers failing, a model
+  failing over to its fallback, the embeddings endpoint, the scanner or the storage not
+  answering, the database failing to archive its log or falling behind. Empty sends nothing;
+  the `failed-jobs` command lists the failures either way.
+- `DAILY_SPEND_CAP` is what every organisation together may spend on models in one UTC day,
+  in `PRICE_CURRENCY` by the costs `MODEL_PRICES` gives; `0`, the default, is no limit. Past
+  it every question is refused with 503 until midnight UTC and every indexing stage that needs
+  a model waits for it. Production refuses the cap
+  without a price in `MODEL_PRICES` for every model named, fallbacks included, since what a
+  model without one answers would count nothing.
+- `DISABLED_PROVIDERS` is the kill switch: the model providers switched off, by the prefix of a
+  `provider:model` name, separated by commas (`google,anthropic`). A model of a provider named
+  here cannot be used until the name is removed and the backend and the worker restarted;
+  meanwhile the app runs as it does without a key, and says why in its log (and, in
+  development, in the Ask tab). Production starts with it, unlike with a missing key. The
+  Administration page switches a provider off the same way without a restart, and on again;
+  one this setting names stays off whatever the page says.
+- `ENVIRONMENT` is `development` (the default) or `production`. In development the backend
+  copies the model keys from `.env` into its environment, where the model libraries read them.
+  A production deployment injects every secret through the environment or a secret manager
+  instead; the backend then copies nothing from `.env`, and a missing key is reported as one to
+  set in the environment. Production also refuses to start, listing what to change, when the
+  settings would leave a team's server unsafe: the `docker compose` database's password,
+  `LOCAL_ACCOUNT=true`, no `STORAGE_URL`, no `APP_URL`, no `ENCRYPTION_KEYS` (`python -m
+  app.keyring` makes one), no `EMBEDDING_BASE_URL`, a `DAILY_SPEND_CAP` without
+  `MODEL_PRICES`, no key for the model, an embeddings endpoint that turns its requests down, or a connection that
+  would carry the documents unencrypted off the deployment's own network: a database there without `sslmode=verify-full`, a scanner there, or an
+  embeddings endpoint, a model's address or a bucket there over plain `http://`
+  (`deploying.md`, "Encryption"). A mail relay, a scanner and `GOOGLE_PAID_TIER` it does
+  without, and says so at every start. It does not serve the interactive API docs at `/docs`, and it marks
+  the session cookie `Secure` and sends `Strict-Transport-Security` whatever the request's
+  scheme, since a deployment is behind TLS; a request that still reaches it as plain HTTP is
+  logged with what the proxy should send.
+- `BACKUP_DAYS` says how long the deployment's backups of the database and bucket are kept (0
+  for none). Production refuses to start with a versioned bucket that keeps a deleted file's
+  earlier versions longer than it says (`deploying.md`, "Backups").
+- `SUPPORT_EMAIL` is where members write for help, from the app's help menu (Accounts, below);
+  unset, the help menu writes to the workspace's owners and admins. `STATUS_PAGE_URL` names the status page outside the deployment that the help menu links to
+  (`deploying.md`, "The status page").
+- `SOURCE_URL` is where the source of the running code is, which the help menu's "Source code"
+  offers every member, as the AGPL asks; unset, it is the public repository at the running
+  release (`deploying.md`, "The source code").
+- `FORWARDED_ALLOW_IPS` is uvicorn's, not the app's: the addresses whose `X-Forwarded-Proto`
+  and `X-Forwarded-For` headers it believes, which tell the app the request's scheme and the
+  browser's address behind a reverse proxy. `127.0.0.1,::1` by default, right for a proxy on
+  the same machine; a proxy elsewhere needs its address or network named, in the environment
+  (`deploying.md`).
+- `DATABASE_URL` names the database as a SQLAlchemy URL. There is no default: a process that
+  is not told its database stops at once and says so. `.env.example` names the
+  `docker compose` container, which only this machine can reach; a deployment sets the
+  variable in the environment. A database off the deployment's own network is reached with
+  `?sslmode=verify-full&sslrootcert=system` on the URL (or the provider's authority's file in
+  place of `system`), which production requires. With `system`, `SSL_CERT_FILE` must name the
+  machine's bundle of authorities, since psycopg's own OpenSSL looks for them elsewhere; the
+  image sets it, and production refuses the URL without it. The database needs pgvector 0.8 or
+  later (production refuses an older one, since a search would lose a project's passages to
+  the other projects'), and in production its role a `statement_timeout` and an
+  `idle_in_transaction_session_timeout` (a warning without them); `uv run python -m
+  app.maintenance database` (in `backend/`) says what the server is, how its largest tables
+  are kept by vacuum, and what to look at (`deploying.md`, "The database").
+- `STORAGE_URL` is where uploaded files and rendered page images are kept: a directory as
+  `file:///var/lib/emudoc`, or an S3-compatible bucket as `s3://bucket/prefix`. The default is
+  `backend/data` inside the checkout; a deployment names a place of its own. A bucket is reached
+  with the standard `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION` and, for
+  a service other than AWS, `AWS_ENDPOINT_URL`; the backend checks at start that it can use the
+  bucket, and logs whether the bucket encrypts what it keeps (its default encryption, which
+  every AWS bucket has; a directory is as encrypted as its disk). Files are always served through the API after its permission checks: from a directory
+  the backend sends the file, from a bucket it redirects to a URL signed for 15 minutes, so the
+  bucket is never public. An original comes as a download, never shown in the browser's own
+  viewer, where a PDF could run scripts and submit forms; only an image opens in a tab, and the
+  files the backend sends itself carry `Content-Security-Policy: sandbox`, so a browser runs
+  nothing in them. `docker compose --profile s3 up -d --wait` runs a local bucket to try
+  this with; `docker-compose.yml` lists the settings for it. A checkout with uploads from before
+  storage keys (October 2026) keeps them in the old layout: run
+  `uv run python -m app.maintenance relocate-files` once in `backend/` with the app stopped (the
+  backend logs a reminder while they are there), or `docker compose down -v` and upload again.
+- `PAGE_IMAGE_DAYS` is how long a rendered page image or thumbnail is kept after it was
+  rendered (30 by default). A PDF's first pages are rendered once it is parsed, the others the
+  first time they are asked for, and each is kept beside the original; every few hours the
+  backend removes the ones older than this, and a page asked for again is rendered again, so
+  nothing is lost. `0` keeps them for good.
+  `uv run python -m app.maintenance sweep-page-images` (in `backend/`) runs the sweep at once,
+  say after lowering the setting. The same walk removes what a failed delete left behind: the
+  files of documents and projects that no longer exist in the database (files under an hour
+  old are left alone, as an upload whose row is not committed yet).
+  `uv run python -m app.maintenance sweep-orphans` lists them and `--delete` removes them at
+  once. Neither removes anything while the database holds no documents at all, since the
+  storage is then more likely another deployment's than all orphans; the message says what to
+  check.
+- `PARSE_TIMEOUT`, `PARSE_MEMORY_MB`, `PARSE_MAX_PAGES`, `PARSE_MAX_ROWS` and
+  `PARSE_MAX_CHARS` bound the parsing of an upload: 300 seconds, 2048 MB of address space, 5,000
+  pages of a PDF or a TIFF or slides of a presentation, 100,000 filled rows on one sheet and
+  20,000,000 characters of text in one document by default; `0` removes a limit. The parser runs in a child process of the worker
+  that is killed at the time limit and caps its own memory, so a file that is too big fails with
+  a message naming the limit, is not retried, and leaves the worker and the other uploads
+  untouched; a file with more text is refused before the worker holds any of it, since every
+  later stage pays for the text (its passages, about one per 1,200 to 2,000 characters, are
+  written, indexed and embedded). `PARSE_CONCURRENCY` parses run at once, each with its own
+  memory on top of the worker's. A PDF of more than `PARSE_PART_PAGES` (250) pages is read
+  that many pages a child, each within the limits, and its document made of the parts by one
+  more; `0` reads every PDF in one child. An image of more than 50 megapixels is refused the same way,
+  by OCR and by the thumbnail alike, from its header and before a pixel of it is decoded.
+  `OCR_MAX_PAGES` (100) is how many pages of one document the model may read as scans, each a
+  model call: a document with more fails before a page is read, with a message that says to
+  split it; `0` removes the limit. `OCR_CONCURRENCY` (4) of a scan's pages are read at once,
+  each drawn and sent to the model as an earlier one is answered. `ENRICH_MAX_REQUESTS` (50) is how many requests one
+  document's summaries and facts may take, one for each 40,000 characters and one to roll them
+  up: a longer document is summarised from its start as far as they reach, and its enrich
+  stage says how far; the rest is searched all the same. A table of more than 100 rows, such as
+  a sheet's, is shown to the model by its header, its first 20 rows and its last 5, and gives
+  no facts, so that a sheet of 90,000 rows is one request rather than hundreds; deploying.md's
+  "Large documents" has the whole of it.
+- `RENDER_PROCESSES`, `RENDER_TIMEOUT` and `RENDER_MEMORY_MB` bound the drawing of a PDF's
+  pages as images, for the document pane, the thumbnails and OCR: the API and the worker each
+  draw in child processes of their own, 2 pages at once by default, each page within 30
+  seconds and each process within 1024 MB, and no page larger than 2,576 pixels on its longer
+  side; `0` removes the time or the memory limit. A page past a limit is not drawn and says
+  why (a scanned one fails the document's indexing, naming the page), and its process is
+  replaced. `PRERENDER_PAGES` (3) is how many of a PDF's first pages the worker draws once the
+  PDF is parsed, so that opening it shows them at once; `0` draws none ahead. From a bucket a
+  page is drawn from a copy of the original in the temporary directory, which the API keeps
+  five minutes for the next pages, up to `RENDER_CACHE_MB` (256) of copies; `0` keeps none.
+- `AGENT_MODEL` and `INDEX_MODEL` name the AI models as `provider:model`. Both default to
+  `google:gemini-3.5-flash-lite`, Google's model for new projects (since September 2026 Google
+  serves Gemini 2.5 only to accounts that used it before). Indexing is the high-volume side and
+  the agent answers questions, so the two can differ, even across providers. Production refuses
+  to run on the default, and on an alias its provider moves to a newer model when it likes
+  (`gemini-flash-latest`, `chatgpt-4o-latest`): a deployment names the version it tried. The index model is sent the text
+  and the scanned pages of every document, the agent each question and the passages it reads,
+  so a deployment uses providers whose terms forbid training on them (`deploying.md` says
+  where each provider stands). A production start warns about `google:` models, the Gemini
+  Developer API, until `GOOGLE_PAID_TIER=true` says billing is on for the key's Google Cloud
+  project: on the free tier Google may use what it is sent to improve its products, and a free
+  key looks like a paid one. `google-cloud:` reaches the same models through Vertex AI. A request through
+  OpenRouter is forwarded only to a provider of the model that neither stores it nor trains on
+  it.
+- Each provider reads its own key: `GOOGLE_API_KEY` for `google:` models, `ANTHROPIC_API_KEY`
+  for `anthropic:`, `OPENROUTER_API_KEY` for `openrouter:`; Vertex AI signs in as a service
+  account, with `GOOGLE_APPLICATION_CREDENTIALS` naming its key file and `GOOGLE_CLOUD_PROJECT`
+  its project. To switch models, change these lines and restart. [Pydantic
+  AI](https://pydantic.dev/docs/ai/models/overview/) makes the requests, so any model it
+  supports can be named.
+- `AGENT_FALLBACK_MODEL` and `INDEX_FALLBACK_MODEL` name the model asked when the first cannot
+  answer: its provider is down, overloaded or out of reach, refuses the key or the account, no
+  longer serves the model, or is switched off with `DISABLED_PROVIDERS`. Not for a request the
+  provider refused or a reply that took too long. The process logs each time it falls back and
+  asks the fallback first for the next minute; what the fallback answered is counted under its
+  own name and price. Best one of another provider, with its key: it is sent what the first is,
+  so it is held to the same terms and prices, and a production start
+  refuses one it cannot set up and warns about a kind of work without one.
+  `uv run python -m app.maintenance models` (in `backend/`) asks every model named, fallbacks
+  included, what the app asks of it (two facts of a note, the number on a drawn scan, a call
+  to one of the agent's tools) and exits with 1 when one fails: the start only builds the
+  models, so this is how a fallback is tried before it is needed (`deploying.md`, "The
+  models", which also lists where each provider announces the models it retires).
+- `AGENT_EFFORT` and `INDEX_EFFORT` set how hard a model thinks, for models that can.
+- `AGENT_MAX_TURNS` is how many rounds of tool calls one answer may make, 12 by default; an
+  answer that needs more stops with what it has and says so. Each round is a model request,
+  so this bounds what a question can cost.
+- `EMBEDDING_MODEL` and `EMBEDDING_DIM` select the embedding model. Changing the model re-embeds
+  every document on the next start. Changing the size changes the type of the column the
+  vectors live in, which discards them, so the backend refuses to start until
+  `uv run python -m app.maintenance rebuild-embeddings` (in `backend/`, with the app stopped)
+  has resized the column and queued every document to be embedded again.
+- Sign-in: `LOCAL_ACCOUNT=true` lets a request without a session act as a local owner account,
+  for development on one machine (off by default); `APP_URL` is the address the links in emails
+  point at; `SMTP_URL` sends the emails over TLS to a relay whose certificate the machine
+  trusts, or `RESEND_API_KEY` through Resend's API. Without either nothing is mailed: the log
+  has each message in development and its subject alone in production, an owner or admin hands
+  invitations and password-reset links on, the forgotten-password page says to ask them, and
+  the Administration page's services show the mail as none;
+  `GOOGLE_OAUTH_CLIENT_ID` and `MICROSOFT_OAUTH_CLIENT_ID` with their secrets offer sign-in with
+  those providers.
+
+## Accounts
+
+An install holds one team's workspace. It starts with no account: every page sends to the setup
+page, `/setup`, which takes the admin's name, address and password and the team's name, and makes
+the account, with the address confirmed, an owner of the workspace named so, signed in; it is
+refused once any account exists (`backend/app/signups.py`; `maintenance create-admin` does the
+same from a shell; deploying.md, "The first run, and who signs up"). The workspace starts with
+the sample project, "Sample: Acme supplier contract": a supplier's contract, three of its
+invoices, the price list, the delivery log, an email and meeting notes, indexed already
+(`backend/app/sample`), so that the first question gets its answer and citations without waiting
+for an upload. Its documents are left out of the usage page and it takes no uploads; its questions count, and
+it is deleted like any project (`SAMPLE_PROJECT=false` turns it off; deploying.md, "The sample
+project"). Everyone after the admin comes in by invitation (below). Sign-up is closed unless
+`SIGNUP_OPEN=true`: the form and a first sign-in through Google or Microsoft make no account, and
+the sign-up page says to ask the team's admin. Open, signing up starts with an email address
+alone, which is sent a link; the page it opens takes a name and a password and makes a user who
+joins the workspace as a member, signed in and with the address confirmed, since whoever chose
+the password holds the mail. The first project a member opens shows a short tour of the workspace, card by card,
+which "Skip the tour" or Escape ends; the user menu offers it again inside a project. Once an
+answer about the organisation's own documents is done (not the sample's), the chat suggests
+inviting the team under it to an owner or admin while nobody else is a member or invited (read
+from what the organisation has done, `backend/app/onboarding.py`), with a form that sends the
+invitation there; its cross hides it in every
+organisation of the account (`frontend/src/workspace/InviteTeam.tsx`). The form answers an
+address that has an account the same, and that address is told by mail instead, so the form
+says nothing of who uses the deployment. An account made through Google or Microsoft whose
+address the provider does not vouch for gets a verification link, and a banner asks for it until
+it is used. Sign-in sets a session cookie, marked `Secure` over HTTPS and always in production. The account page (the
+initials in the header) changes the name and the time zone the mail is dated in (the browser's at
+sign-up; the pages date everything in the browser's own), moves the account to a new email
+address through a link sent there, which the old address is told of once it is opened (where the
+install mails nothing, an owner or admin moves their own at once, confirmed by the password, and
+a member asks one of them for the link, below), changes
+the password, turns on a code from an authenticator app at sign-in (shown as a QR code to scan,
+with recovery codes for a lost phone; its secret is kept encrypted with `ENCRYPTION_KEYS`, which
+the database never holds, so a copy of it makes no codes), lists the browsers and devices that are signed in and
+signs any of them out, and chooses how each kind of notice is told, the news a member may do
+without: that an upload which took five minutes or more to index is done, naming the files that
+could not be indexed and why (`backend/app/notices.py`), that a question set's report is ready, that a member
+mentioned them in a comment or replied in a thread they wrote in, and, once a member turns it on,
+on Monday morning of their zone what arrived over the week in the projects they see, by name
+(`backend/app/digests.py`). Each is told under the bell in the header, the member's
+notification centre of the workspace (kept 90 days), and by email, each way on or off by kind
+(where the install mails nothing, the account page and the workspace's offer the first way alone); a notice's own link and a
+mail program's "Unsubscribe" turn its kind's email off, and a browser may show them as they come
+as the computer's own notifications while the app is open. A forgotten password is reset
+through a link sent by email, which signs the account out everywhere. The worker sends the
+mail, a plain text and an HTML part each, from a queue: a relay that is down gets a message again
+for half an hour, and an address the mail provider says bounced for good or was marked as spam
+is sent no notices for a year (deploying.md, "Mail"). Google and Microsoft accounts sign in through
+OpenID Connect and are linked to an existing account only when both sides have verified the
+address. `/` is the app: a visitor without a session is sent to `/login`, from any page, and
+returned to the page they wanted. No search engine is asked to list an install (deploying.md,
+"The way in").
+A session the server stops accepting drops everything the tab had fetched, so whoever signs in
+next in it starts from nothing. Every request that changes something must carry an `X-Requested-With` header, which the app's own
+requests do and a page on another site cannot add, so the cookie alone changes nothing; send the
+header when calling the API by hand. The app answers no request from another origin (there is
+no CORS): the frontend is served from the API's own origin, and the defence rests on that. The
+routes are under `/api/auth`, the pages in `frontend/src/account/`.
+
+An install holds one workspace, the team's, made by its setup: an organisation in the code, with
+its projects, members and audit log. Nobody starts another, switches, leaves it or deletes
+it. Its name in the header opens its page (`/organization`), which renames it (owners and
+admins; the slug the operator's commands name it by stays), keeps its settings, lists its
+members, and hands it over to another member with the password (they become an owner and the one
+handing it over an admin), for when its admin leaves the company. An owner or admin removes a
+member: the member's private chats in its projects go, and the shared ones stay. The member keeps
+their account, in no workspace, and signing in shows them a page that says so and to ask an
+admin, until an invitation to their address brings them back. A database that holds several
+organisations, as development's may, keeps working: each user works in the one they joined first,
+or the one an invitation last brought them to.
+Its settings are its owners' and admins', and each change is a row of its audit log: the
+language its documents are searched in (keyword search matches words by their stems in it, one
+of the database's text search configurations, else the deployment's `FTS_LANGUAGE`) where a
+document has no language of its own (its details, above), which the documents indexed before
+move to by a background job within minutes, without asking a model or counting a page, and answers fall back to when a question does not show a language
+(`backend/app/languages.py`); how long it keeps a chat after its last question (until it is
+deleted, unless they choose a number of days), which deletes the older chats of every member at
+the next housekeeping round, as the page says before it is saved; how long it keeps its audit
+log (a year, unless they choose fewer or more days or none at all, for good); and how its members are told each kind of notice until
+they choose for themselves on their account page. Its security settings are theirs too
+(`backend/app/security.py`): requiring two-factor sign-in of everyone who works in it, which
+only someone who signs in with it may turn on, and which holds a member without it at a page
+that sets up an authenticator app, or signs out (an account that signs in through Google or
+Microsoft sets one up too, since the provider's own second factor is not seen); and signing its
+members in again sooner than the deployment's `SESSION_DAYS`, which ends a session that signed
+in longer ago at its next request there. The owners and admins see which members sign in with
+two-factor, and the page names whom requiring it would hold before it is turned on.
+Its owners and admins also make its API keys (`backend/app/apikeys.py`). A program sends a key in a header, needing none of the app's:
+
+```bash
+curl -H "Authorization: Bearer emk_…" https://emudoc.example.org/api/v1/projects
+```
+
+A key acts as the member who made it, in the organisation it was made in: it reads what they may
+in the organisation's projects (their folders, documents, search, facts, extraction templates
+and cross-checks, chats and trash), and with the write scope changes it as their role allows,
+never more. It does less as soon as they
+may, goes when they leave or are removed, and is refused whenever they would be (two-factor
+required and not set up, the account set to be deleted). It reaches nothing
+of the accounts or of the organisation itself, so no key signs in, makes another key, invites
+anyone or changes its settings. A key is shown once, as it is made or rolled (only its own member
+rolls it, and the secret before stops at once), runs 30, 90 or 365 days or until it is revoked,
+and is held to 300 requests a minute of its own (`RATE_API_REQUESTS`) as well as its member's
+rates. Each key made, rolled or revoked is a row of the audit log, and so is what a key does, as
+its member's with the key named.
+A program builds on the versioned API under `/api/v1` (`backend/app/api/v1/`), which changes by
+addition alone, where the page's routes under `/api` change with the page (a key reaches those
+too, the copies of the upload client from before it moved onto `/api/v1` among them). It holds
+the projects, folders and documents (an upload, how far each document is indexed, its file and
+facts), search and the facts of a project, the passages answers cite, the chats (a question
+asked, its answer polled or followed as it is written) and the workflows (a project's
+cross-checks, a run of them and what each rule found, with the discrepancy report). It takes a
+key alone, refusing a request without one with 401, and answers in models of its own: a list is
+a page, `data` with `next`, which `after` takes for the page that follows; a refusal is
+`detail`, a sentence, as the page's routes answer. A request that
+makes something (a project, a folder, an upload, a chat, a question, a run) may name itself
+with an `Idempotency-Key` header (`backend/app/idempotency.py`): sent again with it within a
+day, it is given the first one's answer, marked `Idempotent-Replayed: true`, and carried out
+once; the key with another request is refused with 422, and while the first is still being carried
+out with 409, and a request that was refused gives its key back. An answer's events are the API's
+own, whatever the agent does on the way: `text` adds to the answer, `reset` puts the answer so far
+and its sources in place of what was sent, `sources` adds passages it may cite, and `end` is the
+message as it was settled, each with an id that `Last-Event-ID` follows again from. The contract is
+`backend/app/api/v1/openapi.json`, which the tests hold to the routes and which `python -m
+app.api.v1.contract` writes again from them, refusing a change that would break a program written
+against it (one gone, renamed or retyped, or one a request must now send):
+
+```bash
+curl -H "Authorization: Bearer emk_…" -H "Idempotency-Key: $(uuidgen)" \
+  -F files=@invoice.pdf https://emudoc.example.org/api/v1/projects/12/documents
+```
+The contract, each route, the webhooks' events and the schemas, is served at
+`/api/v1/openapi.json`, public, naming the deployment's address as its server, for a program's
+tools to read. It names the key every route takes (the security scheme `APIKey`) and the group
+each is listed in, with its words.
+A key that reads and writes also runs the upload client, `emudoc_upload.py`
+(`backend/app/client/`), which the app serves to anyone at `/api/help/emudoc_upload.py`, links
+to from the API keys section, and which any Python from 3.9 runs, needing nothing
+but the standard library. `send` files folders into a project as they are (and files named on
+their own beside them, `--into` a folder of the project), leaving out what the app would refuse
+and hidden files, sends the rest through the versioned API in requests within `GET
+/api/v1/status`'s upload limits, and follows the documents by their ids until they are read;
+`watch` looks at a folder every 10 seconds and sends a file once its size and time stayed the
+same from one look to the next, as a scanner writes slowly. The key is read from
+`EMUDOC_API_KEY`; each file's SHA-256 goes into a state file (`.emudoc-upload.json` in a watched
+folder, `--state` for `send`), so a file is sent once however it is renamed, and a file the
+project holds already comes back as `duplicate_of` the document that holds it, each refused
+file naming its place in the request (`index`). Each request carries an `Idempotency-Key`, kept
+(in the state file too) until its answer comes, so files sent again after a lost answer are taken
+once and answered as the first time. It never deletes, moves or changes a file:
+
+```bash
+EMUDOC_API_KEY=emk_… python3 emudoc_upload.py watch --server https://emudoc.example.org --project Invoices ~/Scans
+```
+Its owners and admins also give its programs webhooks (`backend/app/webhooks.py`), beside the
+API keys: an address and the events posted to it as they happen,
+`document.ready` and `document.failed` once a document's indexing ended,
+`check_run.completed` once a run of cross-checks is worked out with its report, and
+`report.completed` once a question set's report is answered. An event's body is what the
+versioned API answers for the document, the run or the report (without its answers), in an envelope (`id`, `type`,
+`created_at`, `data`) the contract lists beside the routes, and it is signed with the webhook's
+secret, shown once (`Emudoc-Signature: t=…,v1=…`, the HMAC-SHA256 of the time, a full stop and
+the body). Anything but a 2xx within 10 seconds is tried again, the wait doubling from a
+minute, 12 times, with the same event `id`, so a receiver drops one it has seen; each
+webhook's delivery log keeps what was sent and how it was answered for 30 days, never what it
+said. An address must be on the internet over HTTPS: a delivery goes to the address its name
+was checked to resolve to, outside the deployment's own network, and follows no redirect. Each
+webhook added, changed, rolled or removed is a row of the audit log, which names its server
+alone.
+A member who may change a project shares one of its documents with someone outside the
+organisation by a link that needs no account (`backend/app/share_links.py`, "Share by link" on
+the document's tab): the link runs 1, 7 or 30 days, a week unless chosen, and may have a
+password, which is sent apart from it. Its address carries a random token in the fragment, shown to its maker once and kept as
+a hash only, and opens `/shared`, where the visitor reads the document as a member's tab shows it,
+its text, its pages and its file to download, read only, with who shared it and until when. A
+link works only while its maker could still make it: a member who sees the document, not a
+viewer, not removed, not leaving Emudoc, and the project not made private without them; and only
+while the organisation allows them (its owners and admins turn them off
+on the organisation page, which stops every link at once, and list and revoke every link there)
+and the document is out of the trash. Every request checks it all again, and the visitor is told
+only that the link no longer works. Opening the link makes a view of an hour, kept in a cookie
+the browser sends to that link's pages and file alone, so the password is asked once an hour;
+wrong passwords pause the link after 10 an hour. Its maker, or an owner or admin, revokes it from
+the document's dialog; each link made, revoked, opened and its file downloaded is a row of the
+audit log, an opening by nobody the app knows with the address it came from. A finished answer is
+shared the same way ("Share the answer" under it), by whoever sees its chat and may change the
+project: its link shows the question, the answer and the passages it cites, each citation leading
+to its passage's text, and nothing else of the documents, neither a file nor a page; it stops with
+the chat in the trash, or made private while its maker is not its starter, and a passage whose
+document went is left out. The organisation's list names an answer's link by no words of its
+chat.
+The roles: a viewer reads the projects and asks about them in chats of their own, a member also
+changes the projects (makes, uploads, organises, deletes), an admin also renames the organisation
+and manages who is in it, and an owner also manages its owners. The page offers each member only
+what their role allows, and the server refuses the rest. On the organisation's page the owners
+and admins change the other members' roles and remove members: an admin anyone's but an
+owner's, and to any role but owner; an owner anyone's, so an owner can make another without
+handing the organisation over. Nobody changes their own role there, so an organisation always
+keeps an owner. A member removed loses what leaving loses, and one removed from their last
+organisation gets an empty one of their own. For a member who forgot their password where the
+install mails nothing, an owner or admin makes a link that sets it from the members list ("Reset
+password…"), shown to copy and hand on, for a member within their own role, which works once within
+a day and is kept in the audit log; `maintenance reset-password <address>` prints one too. In the
+same way, for a member who moves to a new address, which no link mailed there could confirm, an
+owner or admin makes a link that moves their account to the address they asked for ("Change
+address…"); opened, it confirms the address, the owner or admin vouching for it. A project is seen by everyone in the
+organisation until it is made private ("Who sees it" on its card, or "Private" when making it):
+then only the members chosen for it see it, and the owners and admins, who see every project,
+so that none is left that nobody can manage. Whoever may change the project chooses; a member
+who is neither owner nor admin stays among its members, and a viewer may be chosen, to read it.
+Anyone else finds no trace of it: its routes answer 404, as another organisation's do. Opening
+it to everyone forgets the choice; leaving or being removed takes one's place among the
+organisation's private projects, and a changed role keeps it. A member's chats in a project
+they no longer see are hidden until they are chosen again, and an answer under way finishes
+(`backend/app/access.py`, `GET` and `PUT /api/projects/{id}/access`). Each act
+is in the organisation's audit log; a sign-in is recorded where its session starts and what the
+account does after where the session works then, so one organisation does not see when, or
+from where, a member signs in to another. The routes are `backend/app/api/organizations.py`, the
+pages `frontend/src/organization/`.
+
+People join an organisation by invitation. Its owners and admins invite an address with a role,
+never above their own, from the organisation's page; the address is mailed a link to
+`/invitation`, which shows who invited it to what, and whoever sent it is shown the link to copy
+and hand on, the one way it arrives where the install has no mail relay, which the page then
+says. Signed in with the address, one click joins;
+an address with an account signs in first and comes back; one without makes its account there,
+or through Google or Microsoft from there, and that account is a member of the inviting
+organisation and of none of its own. Another account cannot accept it, since the link proves
+only the address it was sent to, which an account that had not confirmed it then has. An
+invitation lasts a week, counts among the members on the usage page meanwhile, and is listed for the owners and
+admins, who send it again (a new link, the old one stops) or revoke it; accepting or revoking
+it deletes it, and an expired one goes a month after (`backend/app/invitations.py`,
+`backend/app/api/invitations.py`, the link's routes in `backend/app/api/auth.py`). A member
+removed from the workspace accepts one the same way, signed in.
+
+The app publishes no terms of service or privacy policy of its own: the team that runs it is
+the one that tells its members what it keeps and for how long, and `deploying.md` ("What leaves
+the deployment", "Retention and deletion") says what that is. The app sets no analytics or
+advertising cookies and loads nothing from other sites, so it shows no cookie banner. The chat pane says that answers are written by an AI model and
+can be wrong, and a link in an answer shows its address without leading anywhere, since a
+document can steer what the model writes.
+
+The account page downloads "your data": one JSON file with everything kept about the user
+as a person (the account, how it signs in, its organisations, the sessions of the last month,
+the chats it started with every message, the usage counted to it, and the audit log's rows that
+name it), without the password
+hash, the authenticator secret or the organisation's documents (`backend/app/export.py`, `GET
+/api/auth/account/export`). Deleting the account takes the password, or the address typed out
+for an account that signs in only through Google or Microsoft. It signs out every other browser,
+mails a notice, and leaves 14 days in which the account can do nothing but be kept, exported or
+signed out of: signing in shows the day and a "Keep my account" button. Then the worker's
+housekeeping purges it, with every organisation it was the only member of and everything in it,
+rows and files; in an organisation with other members only the user's membership and chats go,
+and the last owner of one is refused until another member is an owner (`backend/app/retention.py`).
+Each purge leaves a record under `erasures/` in the storage (the account's id and creation time,
+nothing else), so an account that a restored backup brings back is purged again at the next round.
+A member (not a viewer) exports a whole project from its card on the projects page: the worker
+writes one ZIP file with every document's original in its folders, `project.json` listing the
+project, its folders, its documents and the chats the member may read (those shared with the
+project and their own), and `documents/<id>.json` with each document's outline, passages (the
+`[P<id>]` an answer cites) and facts, leaving out the trash, quarantined files and other
+members' private chats (`backend/app/export.py`, `POST|GET /api/projects/{id}/exports`); or the
+documents chosen together in the library alone, with the folders they are in and without the
+chats, which the same panel lists. The member is told when it is ready, in the app and by email
+as they chose, downloads it from the same panel, and it is kept 7 days for them alone, then goes
+from the storage.
+`python -m app.maintenance backup <dir>` writes a backup into a folder of its own in `<dir>`: a
+`pg_dump` of the database, the storage's files (a directory's, without the rendered pages, each
+file unchanged since the previous backup a hard link to its copy; a bucket's keys alone, which
+its versions keep) and the version and schema revision it was taken at, then removes those older
+than `BACKUP_DAYS`; `restore <dir>` puts the files back, restores the database into an empty one
+in one transaction, upgrades it if it came from an earlier version, and runs what `after-restore`
+does from the backup's moment (`backend/app/backup.py`). The compose file runs both as its
+`backup` service, with PostgreSQL 17's client in the image.
+After the database is restored to an earlier point, `python -m app.maintenance after-restore
+<time>` brings back from a versioned bucket the files deleted since, moves the ids past every id
+the storage holds, signs everyone out, expires the open invitations and records the restore in
+each organisation's audit log
+(`backend/app/restore.py`); until it has run, an upload refuses a place in the storage that a
+lost document's files still hold. With `--dry-run` it changes nothing and fails when the storage
+lacks a document's original at that point: `deploy/restore-drill.sh` restores the newest backup
+into a throwaway copy and runs it against the live storage, the monthly restore drill
+(`deploying.md`, "The drill"); `deploy/managed-restore-drill.sh` does the same for a managed
+database, which the provider restores to a new instance (`deploy/rds-drill.sh` for RDS).
+A chat is kept until it is deleted, or for as many days after its last question as the
+workspace's owners and admins chose, which the chat list and the account page say; sessions,
+one-time links and expired invitations are removed a month after they ended.
+
+The log holds no document text, question, answer or key (`backend/app/logs.py`): a traceback
+keeps its frames and the kinds of its exceptions but not their messages unless the app wrote
+them, a database error its SQLSTATE and names rather than the row it refused, a provider's error
+its status and codes rather than its words (a developer sees the same, a deployment's members
+neither), and the access log a query's
+parameter names without their values, as does the line httpx writes for each request the app
+sends, without the user and password an address may carry. A failed parse names the document
+by its id. The links in emails carry their token after `#`, which
+no browser sends to a server, and pages send no `Referer`. A refused request (422) says where
+and why, never with the value it refused, so a short password or a link's token does not come
+back in the response. `deploying.md` ("Logs") gives the
+proxy a log format to match.
+
+In production the API, the worker and the migrations write one JSON object a line to standard
+error (`LOG_FORMAT`, text in development): the time in UTC, the level, the logger, the message,
+and the ids of what the line was logged about, the request's id with the user, organisation
+and project it acts on, or the job's id and kind with its document or answer. uvicorn's own
+lines, its access log included, come out the same way, without the probes that succeeded, and
+an access line says how long the request took to begin its response. Every response carries
+its request's id in `X-Request-ID`, the proxy's when it sent one.
+
+Every request starts a trace (`trace_id` on its lines), which the jobs it queues carry, so an
+upload's request and its documents' indexing, or a question and its answer, are found in the
+log by one id (`backend/app/tracing.py`). Each run of a job ends with one line that says where
+its time went: how long it waited for a worker, each stage, each request to a model or the
+embeddings endpoint with its model, outcome, first event and tokens, each tool call, the writes
+of an answer's events, and when its first text was written. The spans name the app's own words,
+never what was searched for or answered; there is no tracing service, on purpose. `deploying.md`
+("Traces") shows a line and how to find the slowest answers.
+
+With `SENTRY_DSN` set, the API and the worker report each error nobody planned for to Sentry,
+or to GlitchTip or a Sentry of your own (`backend/app/tracking.py`), with what the log would
+show of it and the ids of the request or job as tags: the exception's kind and frames, its
+message only when the app wrote it, never a frame's variables, a request's body, cookies or
+query values, nor an email address. An error the page renders into shows a reference and the
+way on in place of the part that broke, and is reported to the app (`POST /api/page-errors`),
+which logs it and passes it on; the browser runs no tracker's script. The part is as small as
+it can be: the header stays while the page below it shows the error, and in a project the
+library, the open document and the chat each break alone, offering to try again, and start
+afresh once another folder, document or chat is opened
+(`frontend/src/components/ErrorBoundary.tsx`, `frontend/src/failures.ts`). A 500 answers with
+a sentence that ends with the request's id as the reference to quote. `deploying.md` ("Error
+tracking") has the details.
+
+The question mark in the header is the help menu, where a member writes for help: a problem, a
+question or an idea, in their own words (`frontend/src/help/`, `POST /api/feedback` in
+`backend/app/api/help.py`). With `STATUS_PAGE_URL` it also leads to the status page, which the
+page that cannot reach its server links to as well (`GET /api/help`), and it always leads to the
+source of the running code ("Source code", `SOURCE_URL`). The app mails the message
+to `SUPPORT_EMAIL` where the server names one, a team's helpdesk, and otherwise to each of the
+workspace's other owners and admins (a sole one is told the message would come back to them),
+with a `Reply-To` of the member's address and what its reader needs to find what they met: the
+account, the workspace,
+the page's path with the ids of what was open, the version, the browser, and the reference of
+the last request the page saw refused or failed, which the log is searched by. The member's
+words go into the mail alone, never into the log, the subject or a table; the menu answers with
+the message's reference. A member writes 10 messages an hour (`RATE_FEEDBACK`). Where the
+install mails nothing, the message would reach its log by the subject alone, so the menu sends
+none (`GET /api/help`'s `mail`, the route refusing with 409): it names whom to write to from the
+member's own mail, `SUPPORT_EMAIL` or the workspace's owners and admins, each a link to a mail
+that carries the page's address and the failed request's reference. `deploying.md` ("Support")
+says what the message holds and how to find its request.
+
+The API and the worker serve metrics in Prometheus's format on a port of their own
+(`METRICS_ADDRESS`; the image's containers on 9464, which the compose file publishes nowhere):
+requests by route pattern, the database pool, each model's requests, outcomes, time to the
+first event and tokens, stages, jobs, uploads and rate refusals, and from a worker the documents
+and the queue by status, the backlog's age, the answers being written, the bytes of the
+originals kept, the day's spend, and how the database server keeps up (dead rows, the
+oldest transaction, the archiving of its log) (`backend/app/metrics.py`). No label names an
+organisation, a user or anything a member typed. `deploying.md` ("Metrics") lists them, with a
+Prometheus to scrape them; `deploy/prometheus/alerts.yml` holds alerting rules over them,
+tested with promtool ("Alerts"), and a watchdog for a dead man's switch.
+
+Three service levels are measured the same way, each over 30 days: 99.5 % of the members'
+requests without a server error, 95 % of answers begun within 30 seconds of the question
+(`emudoc_answer_first_text_seconds`), and 95 % of uploads ready within 10 minutes
+(`emudoc_document_ready_seconds`, once per document, by `documents.ready_at`), with a fourth,
+the app up in 99.5 % of the minutes, for an uptime check from outside. Six of the rules alert when
+an objective's error budget is spent too fast, a fast burn at once and a slow one for the working
+day. `deploying.md` has them ("Service levels"), who hears which alert and how soon ("On call"),
+what to do for what goes wrong most often, from a stuck upload to a provider down or a key to
+rotate ("Runbooks"), and every variable the app reads with its default ("Every setting").
+
+Each organisation keeps an audit log (`backend/app/audit.py`): its members' sign-ins (and
+failed ones for their accounts), profile, address, password, two-factor and session changes,
+exports and deletion requests, every upload, download and deletion of a document, folder or
+project and its restore from the trash or deletion for good there, who sees a project, chats
+shared, taken private, downloaded, deleted or restored, and answers downloaded, and what the
+operator (a requeue) and the app (a quarantine, an account purge with the owner it promoted) did
+on their own. A row names the member, the project and the object, the client's address, and names or
+settings as they were (a file's name, a role before and after), never what a document, a
+question or a chat's title says, nor what a name or an address was changed to. Its owners and
+admins read it on its page (`/organization/audit`, from the organisation page's Security
+section), the newest first, by what was done, by whom, in which project and on which days, and
+download what they picked as a CSV file, which the log records too (`GET /api/audit`, `GET
+/api/audit/export`). A row is kept a year, or as many days as its owners and admins choose on the organisation
+page, or for good. A purged account's rows stay with an organisation that keeps other members,
+without their addresses, and the account export includes the rows that name its user.
+
+Every response carries the headers that tell the browser what a page of the app may do
+(`backend/app/headers.py`): a `Content-Security-Policy` that allows scripts, styles and requests
+from the app's own origin only, and images from the storage bucket besides, so an answer cannot
+load an image from an address a document planted in it; `frame-ancestors 'none'` and
+`X-Frame-Options`, so no other site can show the app in a frame; `X-Content-Type-Options:
+nosniff`; `Referrer-Policy: no-referrer`; and `Strict-Transport-Security`
+over HTTPS and always in production. Every answer of the API, the files and page images
+included, carries `Cache-Control: no-store`, and signing out sends `Clear-Site-Data: "cache"`,
+so a shared computer keeps nothing of the account's chats or documents. The policy allows no inline code, which is why the one
+script `index.html` runs before the app, the saved theme, is the file `frontend/public/theme.js`.
+The development server on :5173 sends none of this; the build served on :8000 does.
+
 ## Tests
 
 ```bash
