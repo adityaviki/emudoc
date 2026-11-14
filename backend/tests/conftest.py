@@ -29,7 +29,7 @@ from sqlalchemy.engine import URL, make_url
 SERVER = os.environ.get("TEST_DATABASE_SERVER", "emudoc:emudoc@127.0.0.1:5437")
 # Under pytest-xdist (`-n`) each worker truncates and rebuilds a database of its own,
 # emudoc_test_gw0 and on, so that the workers never empty each other's tables. A git worktree
-# (worktree.sh, whose checkout holds a `.git` file where the main one holds the directory) puts
+# (whose checkout holds a `.git` file where the main one holds the directory) puts
 # its name in them, emudoc_test_wt_<name>_gw0, so that two checkouts' runs never do either; the
 # name is cut to 40 characters, within Postgres's 63 for the whole.
 _WORKER = os.environ.get("PYTEST_XDIST_WORKER")

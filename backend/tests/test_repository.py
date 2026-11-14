@@ -164,18 +164,10 @@ def test_a_release_s_image_is_pushed_only_once_both_platforms_ran():
     assert "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/emudoc" in str(job["steps"])
 
 
-def test_the_published_tree_leaves_the_owner_s_tools_out():
-    # What a contributor runs works without the owner's tools.
+def test_the_owner_s_tools_are_not_in_the_repository():
+    # The owner's sessions run follow.sh and worktree.sh from beside the main checkout, outside
+    # the repository (moved out at S.5's release, 2026-11-14); what a contributor runs works
+    # without them.
+    assert not any((ROOT_DIR / name).exists() for name in ("follow.sh", "worktree.sh"))
     dev = (ROOT_DIR / "dev.sh").read_text()
     assert "follow" not in dev and "worktree" not in dev and "systemctl" not in dev
-    # The public repository starts from `git archive` of main, which leaves out what the private
-    # archive's .gitattributes marks export-ignore, itself among them: the published tree holds
-    # neither the tools nor the file.
-    attributes = ROOT_DIR / ".gitattributes"
-    tools = {"follow.sh", "worktree.sh"}
-    if not attributes.exists():
-        assert not any((ROOT_DIR / name).exists() for name in tools)
-        return
-    lines = [line.split() for line in attributes.read_text().splitlines()]
-    ignored = {words[0] for words in lines if words[1:] == ["export-ignore"]}
-    assert tools | {".gitattributes"} <= ignored

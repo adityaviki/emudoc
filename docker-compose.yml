@@ -3,7 +3,7 @@
 # that `cp .env.example .env` works. The app has no such default: a deployment runs its own
 # database and names it in DATABASE_URL.
 #
-# Named, so that a worktree (worktree.sh), whose folder has another name, runs these same
+# Named, so that a git worktree, whose folder has another name, runs these same
 # containers rather than a second set on the same ports.
 name: emudoc
 services:
