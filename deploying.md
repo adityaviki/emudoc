@@ -39,8 +39,8 @@ embedding the passages on the CPU is the slow part ("The embeddings endpoint", "
 
    ```bash
    mkdir emudoc && cd emudoc
-   curl -fsSLO https://raw.githubusercontent.com/adityaviki/emudoc/main/deploy/compose.yml
-   curl -fsSL -o .env https://raw.githubusercontent.com/adityaviki/emudoc/main/deploy/.env.example
+   curl -fsSLO https://raw.githubusercontent.com/adityaviki/emudoc/v0.1.0/deploy/compose.yml
+   curl -fsSL -o .env https://raw.githubusercontent.com/adityaviki/emudoc/v0.1.0/deploy/.env.example
    chmod 600 .env && sed -i "s|^POSTGRES_PASSWORD=$|&$(openssl rand -hex 24)|; s|^ENCRYPTION_KEYS=$|&$(openssl rand -base64 32)|" .env
    ```
 
@@ -72,8 +72,8 @@ embedding the passages on the CPU is the slow part ("The embeddings endpoint", "
 
 `docker compose logs -f api worker` shows what they do; every start logs what the install runs
 without (a mail relay, a scanner, a model's fallback) and refuses what would not work, naming
-the setting. Until the first release, v0.1.0, no image is published: build one from a checkout
-("The image") and name it in `.env` as `EMUDOC_IMAGE=emudoc:<commit>`.
+the setting. The compose file runs the image each release publishes; one built from a checkout
+("The image") is named in `.env` as `EMUDOC_IMAGE=emudoc:<commit>`.
 
 ### The settings a team sets
 
@@ -1250,9 +1250,9 @@ an image whose sample files are not those its index describes.
 files with the configured models in an organisation of its own that it deletes after, and
 writes the file to commit. Run it after changing the files, or when a change to the parsers or
 the pipeline should show in the sample; until then the index describes the same files with the
-older code's outline, which is not wrong. The index first committed holds the enrich stage's
-replies written by hand (`built.models` says `hand:`), each fact's quote checked against its
-block by the stage as a model's is; the next build with a model replaces them.
+older code's outline, which is not wrong. The index committed for 0.1.0 was built with Claude
+Sonnet 5.5 as `INDEX_MODEL` (`built.models` says which), since Haiku 5.5 left out an invoice's
+lines; each fact's quote is checked against its block by the stage, whichever model read it.
 
 ## The way in
 

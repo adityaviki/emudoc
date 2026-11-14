@@ -171,3 +171,16 @@ def test_the_owner_s_tools_are_not_in_the_repository():
     assert not any((ROOT_DIR / name).exists() for name in ("follow.sh", "worktree.sh"))
     dev = (ROOT_DIR / "dev.sh").read_text()
     assert "follow" not in dev and "worktree" not in dev and "systemctl" not in dev
+
+
+def test_the_quick_start_fetches_the_newest_release_s_files():
+    # The quick start's compose file and settings are the newest release's, whose image `latest`
+    # names, rather than main's, which may already need an image not published yet: a release
+    # that renames Unreleased moves them to its tag in the same commit.
+    changelog = (ROOT_DIR / "CHANGELOG.md").read_text()
+    newest = re.search(r"^## (\d+\.\d+\.\d+) \(", changelog, re.MULTILINE)
+    ref = f"v{newest[1]}" if newest else "main"
+    for name in ("README.md", "deploying.md"):
+        text = (ROOT_DIR / name).read_text()
+        found = set(re.findall(r"raw\.githubusercontent\.com/adityaviki/emudoc/([^/]+)/", text))
+        assert found == {ref}, name
