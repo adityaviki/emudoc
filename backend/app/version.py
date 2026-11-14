@@ -18,7 +18,7 @@ from collections.abc import Mapping
 
 DEVELOPMENT = "development"
 # The public repository, whose tag of each release (v0.1.0) holds that release's source.
-REPOSITORY = "https://github.com/emudocai/emudoc"
+REPOSITORY = "https://github.com/adityaviki/emudoc"
 
 
 def running_version(environ: Mapping[str, str] = os.environ) -> str:

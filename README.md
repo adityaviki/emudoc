@@ -43,8 +43,8 @@ On a server with Docker, a name that leads to it and ports 80 and 443 open:
 
 ```bash
 mkdir emudoc && cd emudoc
-curl -fsSLO https://raw.githubusercontent.com/emudocai/emudoc/main/deploy/compose.yml
-curl -fsSL -o .env https://raw.githubusercontent.com/emudocai/emudoc/main/deploy/.env.example
+curl -fsSLO https://raw.githubusercontent.com/adityaviki/emudoc/main/deploy/compose.yml
+curl -fsSL -o .env https://raw.githubusercontent.com/adityaviki/emudoc/main/deploy/.env.example
 chmod 600 .env && sed -i "s|^POSTGRES_PASSWORD=$|&$(openssl rand -hex 24)|; s|^ENCRYPTION_KEYS=$|&$(openssl rand -base64 32)|" .env
 docker compose up -d --wait          # after setting APP_URL, a model's key and COMPOSE_PROFILES in .env
 ```
@@ -115,4 +115,5 @@ Emudoc is free software under the GNU Affero General Public License, version 3 o
 ([`LICENSE`](LICENSE)); [`NOTICE`](NOTICE) names the other projects' software it uses. The help
 menu's "Source code" offers the running version's source to whoever uses an install, as the
 licence asks. Contributors sign the contributor licence agreement ([`CLA.md`](CLA.md)), which
-`CONTRIBUTING.md` explains. The name and the logo are not covered by the licence.
+`CONTRIBUTING.md` explains. The name and the logo are not covered by the licence:
+[`TRADEMARKS.md`](TRADEMARKS.md) says how they may be used.

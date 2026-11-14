@@ -729,7 +729,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     expect(href.startsWith(`mailto:${address}?subject=`)).toBe(true)
     expect(decodeURIComponent(href)).toMatch(/Page: http:\/\/[^/]+\/projects\/\d+/)
     // The code's source, which the AGPL has the deployment offer: a checkout's is the public repository.
-    await expect(help.getByRole('link', { name: 'Source code', exact: true })).toHaveAttribute('href', 'https://github.com/emudocai/emudoc')
+    await expect(help.getByRole('link', { name: 'Source code', exact: true })).toHaveAttribute('href', 'https://github.com/adityaviki/emudoc')
     await expectAccessible(grace, 'the help menu')
     await grace.keyboard.press('Escape')
     await expect(help).toHaveCount(0)

@@ -12,7 +12,8 @@ to offer them its source. The help menu's "Source code" link does so: it opens t
 repository at the running release, or SOURCE_URL where a deployment names its own copy
 (deploying.md, "The source code").
 
-The name Emudoc and its logo are not licensed by the AGPL.
+The name Emudoc and its logo are not licensed by the AGPL: TRADEMARKS.md says how they may be
+used.
 
 
 Other projects' software
