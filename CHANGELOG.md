@@ -14,6 +14,8 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 
 ## Unreleased
 
+## 0.1.0 (2026-11-14)
+
 ### Users
 
 - The first public release of Emudoc. Upload your team's documents into a project and ask about

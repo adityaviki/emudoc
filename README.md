@@ -43,8 +43,8 @@ On a server with Docker, a name that leads to it and ports 80 and 443 open:
 
 ```bash
 mkdir emudoc && cd emudoc
-curl -fsSLO https://raw.githubusercontent.com/adityaviki/emudoc/main/deploy/compose.yml
-curl -fsSL -o .env https://raw.githubusercontent.com/adityaviki/emudoc/main/deploy/.env.example
+curl -fsSLO https://raw.githubusercontent.com/adityaviki/emudoc/v0.1.0/deploy/compose.yml
+curl -fsSL -o .env https://raw.githubusercontent.com/adityaviki/emudoc/v0.1.0/deploy/.env.example
 chmod 600 .env && sed -i "s|^POSTGRES_PASSWORD=$|&$(openssl rand -hex 24)|; s|^ENCRYPTION_KEYS=$|&$(openssl rand -base64 32)|" .env
 docker compose up -d --wait          # after setting APP_URL, a model's key and COMPOSE_PROFILES in .env
 ```
@@ -62,9 +62,9 @@ the API, a worker and the embeddings server. `docker compose run --rm backup` wr
 the database and the files, to run every night from a timer and copy off the server. The
 self-hosting guide, [`deploying.md`](deploying.md), takes it from there: the install step by
 step, the models, the proxy, mail, sign-in with Google or Microsoft, backups, upgrades and
-monitoring. The image is published from the first release, v0.1.0; until then, build it from a
-checkout ([`docs/development.md`](docs/development.md), "The image") and name it in `.env` as
-`EMUDOC_IMAGE=emudoc:<commit>`.
+monitoring. The image is `ghcr.io/adityaviki/emudoc`, published for each release; to run one you
+built from a checkout ([`docs/development.md`](docs/development.md), "The image"), name it in
+`.env` as `EMUDOC_IMAGE=emudoc:<commit>`.
 
 ## Models
 
