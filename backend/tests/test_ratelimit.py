@@ -14,6 +14,8 @@ from app.api.auth import (
     PAUSED_BROWSER,
     PAUSED_NEW,
     PAUSED_SESSION,
+    RESET_HANDED,
+    RESET_MAILED,
     SIGN_IN_FAILED,
     WRONG_PASSWORD,
 )
@@ -104,12 +106,13 @@ def refused(response, sentence: str, within: int = 60) -> None:
     assert 1 <= int(response.headers["Retry-After"]) <= within
 
 
-def paused(response, sentence: str, allowed: int) -> None:
-    """Refused for the rest of the hour, the minutes left in the sentence."""
+def paused(response, sentence: str, allowed: int, reset: str = RESET_HANDED) -> None:
+    """Refused for the rest of the hour, the minutes left in the sentence, with the way to a
+    new password: an admin's link, since the suite names no relay unless a test asks."""
     seconds = int(response.headers.get("Retry-After", 0))
     minutes = -(-seconds // 60)
     wait = f"{minutes} {'minute' if minutes == 1 else 'minutes'}"
-    refused(response, sentence.format(allowed=allowed, wait=wait), within=3600)
+    refused(response, sentence.format(allowed=allowed, wait=wait, reset=reset), within=3600)
 
 
 def attempt(client, password="guess", email="ada@example.com"):
@@ -385,6 +388,18 @@ def test_a_browser_that_signed_in_before_is_paused_by_itself(
     # Nobody else is held by it, and the owner is not mailed about their own browser.
     assert login(another_browser(client)) == {"mfa_required": False}
     assert mailer.sent == []
+
+
+def test_a_pause_points_to_the_reset_the_install_offers(
+    client, mailer, relay, signed_in_only, monkeypatch
+):
+    # With a relay the forgotten password's link is mailed from the sign-in page; without one
+    # (every other test here) an admin makes it, which the sentence says instead.
+    monkeypatch.setattr(get_settings(), "rate_failed_sign_ins", 2)
+    signup(client)
+    for _ in range(2):
+        assert attempt(client).status_code == 401
+    paused(attempt(client, PASSWORD), PAUSED_BROWSER, 2, reset=RESET_MAILED)
 
 
 def test_a_new_password_ends_the_pause_and_the_browser_that_chose_it_is_the_accounts(

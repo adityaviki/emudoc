@@ -25,6 +25,7 @@ import type {
 } from '../api.ts'
 import { KEY_DAYS, SCOPES, UPLOAD_CLIENT, callWith, daysOf, describeKey, mayRoll, uploadWith } from '../apiKeys.ts'
 import { setSignedIn, useMe } from '../auth.ts'
+import { useAuthOptions } from '../account/authOptions.ts'
 import { PasswordField } from '../account/shared.tsx'
 import { NoticeChoices } from '../components/NoticeChoices.tsx'
 import { HandedLink, SentInvitation } from '../components/HandedLink.tsx'
@@ -1208,6 +1209,8 @@ function InvitationsSection({ me }: { me: Me }) {
   const invitations = useQuery({ queryKey: INVITATIONS_KEY, queryFn: organizations.invitations })
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<Role>('member')
+  // An install that mails nothing hands the invitation's link to whoever invites (S.1).
+  const mailed = useAuthOptions().data?.mail ?? true
   const invite = useMutation({
     mutationFn: () => organizations.invite({ email: email.trim(), role }),
     onSuccess: () => {
@@ -1225,7 +1228,7 @@ function InvitationsSection({ me }: { me: Me }) {
     <Section
       id={INVITATIONS_SECTION}
       title="Invitations"
-      description="Invite someone by email: the link they are sent lets them join with the role you choose, and makes their account if they have none. An invitation runs out after a week unless it is accepted or revoked first."
+      description={`Invite someone by their email address: ${mailed ? 'the link they are sent' : 'the link shown here once you invite them, which you pass on yourself since this workspace sends no email,'} lets them join with the role you choose, and makes their account if they have none. An invitation runs out after a week unless it is accepted or revoked first.`}
     >
       <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
         <InputField

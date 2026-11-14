@@ -40,7 +40,7 @@
 # Apart from the development file's project (emudoc), so that one machine can run both.
 name: emudoc-deploy
 
-x-image: &image ${EMUDOC_IMAGE:-ghcr.io/emudocai/emudoc:${EMUDOC_TAG:-latest}}
+x-image: &image ${EMUDOC_IMAGE:-ghcr.io/adityaviki/emudoc:${EMUDOC_TAG:-latest}}
 
 x-app: &app
   image: *image

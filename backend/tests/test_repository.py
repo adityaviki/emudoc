@@ -160,7 +160,7 @@ def test_a_release_s_image_is_pushed_only_once_both_platforms_ran():
     assert all("secrets." not in str(step) for step in job["steps"][:-1])
     # The image's name is the one the compose file runs by default.
     compose = (ROOT_DIR / "deploy" / "compose.yml").read_text()
-    assert "ghcr.io/emudocai/emudoc:${EMUDOC_TAG:-latest}" in compose
+    assert "ghcr.io/adityaviki/emudoc:${EMUDOC_TAG:-latest}" in compose
     assert "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/emudoc" in str(job["steps"])
 
 

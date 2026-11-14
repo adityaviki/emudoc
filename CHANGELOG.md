@@ -2,7 +2,7 @@
 
 What changed in each release of Emudoc, for the people who use it (**Users**) and for the people
 who run it on their server (**Admins**), the newest release first. A release is a version tag,
-`v0.1.0`, which publishes the image `ghcr.io/emudocai/emudoc:0.1.0` for a team to upgrade to
+`v0.1.0`, which publishes the image `ghcr.io/adityaviki/emudoc:0.1.0` for a team to upgrade to
 (deploying.md, "Upgrades"); what is on `main` and not released yet is under **Unreleased**.
 
 A change that users or admins would notice adds its line under Unreleased in the same commit,
@@ -48,7 +48,7 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 - A self-hosting guide, `deploying.md`, from the install step by step and the settings a team
   sets, through the models' keys and costs, the proxy, sign-in with Google or Microsoft, mail,
   backups and upgrades, to monitoring and the runbooks, with every setting the app reads.
-- One image for amd64 and arm64, `ghcr.io/emudocai/emudoc`, and one compose file that runs
+- One image for amd64 and arm64, `ghcr.io/adityaviki/emudoc`, and one compose file that runs
   everything on one server: Postgres with pgvector, the migrations, the API, a worker and the
   embeddings server, and behind profiles ClamAV, a converter that shows Office files as they
   look and works out the formulas of the workbooks the agent writes, and Caddy with a

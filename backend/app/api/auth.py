@@ -247,18 +247,20 @@ LOCAL_INVITATION = (
 PAUSED_NEW = (
     "There have been {allowed} failed sign-ins for this email address this hour from browsers "
     "that have not signed in with it before, so signing in from those is paused for {wait}. "
-    "Sign in from a browser you have signed in with before, or reset your password, which "
-    "ends the pause."
+    "Sign in from a browser you have signed in with before, or {reset}, which ends the pause."
 )
 PAUSED_BROWSER = (
     "There have been {allowed} failed sign-ins from this browser this hour, so its sign-ins "
-    "are paused for {wait}. Try again then, or reset your password, which ends the pause."
+    "are paused for {wait}. Try again then, or {reset}, which ends the pause."
 )
 PAUSED_SESSION = (
     "There have been {allowed} wrong passwords or codes from your account this hour, so they "
-    "cannot be tried again for {wait}. Try again then, or reset your password from the sign-in "
-    "page, which ends the pause."
+    "cannot be tried again for {wait}. Try again then, or {reset}, which ends the pause."
 )
+# The new password that ends a pause: reset through a mailed link, or, where the install mails
+# nothing, through a link one of the workspace's owners or admins makes (app/signups.py).
+RESET_MAILED = "reset your password from the sign-in page"
+RESET_HANDED = "ask one of your workspace's admins for a link that sets a new password"
 
 
 class Guesser(NamedTuple):
@@ -1270,8 +1272,11 @@ def _refuse_paused(session: Session, key: Key, sentence: str) -> None:
         allowed, seconds = found
         minutes = math.ceil(seconds / 60)
         wait = f"{minutes} {'minute' if minutes == 1 else 'minutes'}"
+        reset = RESET_MAILED if relay_set(get_settings()) else RESET_HANDED
         raise HTTPException(
-            429, sentence.format(allowed=allowed, wait=wait), headers={"Retry-After": str(seconds)}
+            429,
+            sentence.format(allowed=allowed, wait=wait, reset=reset),
+            headers={"Retry-After": str(seconds)},
         )
 
 

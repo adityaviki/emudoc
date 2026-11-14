@@ -39,8 +39,8 @@ embedding the passages on the CPU is the slow part ("The embeddings endpoint", "
 
    ```bash
    mkdir emudoc && cd emudoc
-   curl -fsSLO https://raw.githubusercontent.com/emudocai/emudoc/main/deploy/compose.yml
-   curl -fsSL -o .env https://raw.githubusercontent.com/emudocai/emudoc/main/deploy/.env.example
+   curl -fsSLO https://raw.githubusercontent.com/adityaviki/emudoc/main/deploy/compose.yml
+   curl -fsSL -o .env https://raw.githubusercontent.com/adityaviki/emudoc/main/deploy/.env.example
    chmod 600 .env && sed -i "s|^POSTGRES_PASSWORD=$|&$(openssl rand -hex 24)|; s|^ENCRYPTION_KEYS=$|&$(openssl rand -base64 32)|" .env
    ```
 
@@ -172,7 +172,7 @@ mail relay, a scanner, and the word that a Gemini key is on the paid tier
 
 `Dockerfile` builds one image for every process, for amd64 and arm64: the API is its default
 command, and the worker, the release step and the maintenance commands are the others. A version
-tag (`v0.1.0`) publishes it to GHCR as `ghcr.io/emudocai/emudoc` (`.github/workflows/publish.yml`),
+tag (`v0.1.0`) publishes it to GHCR as `ghcr.io/adityaviki/emudoc` (`.github/workflows/publish.yml`),
 tagged with the version (`0.1.0`), its line (`0.1`), `latest` and the commit's full SHA, the
 version being what `/api/health` reports, the user menu shows and each process logs as it starts
 ("Starting Emudoc 0.1.0"). Each platform's image is run as below, arm64 under emulation, and
