@@ -1,5 +1,0 @@
-# The owner's tools for the sessions of the private archive, which the published tree, a
-# `git archive` of main, leaves out (follow.sh says why).
-follow.sh export-ignore
-worktree.sh export-ignore
-.gitattributes export-ignore

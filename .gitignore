@@ -4,8 +4,8 @@
 # uploaded files and rendered page images
 backend/data/
 
-# the checkouts beside this one, and in one the link to the rules outside the repository
-# (worktree.sh)
+# git worktrees made beside this checkout, and in one a link to rules kept outside the
+# repository
 .claude/worktrees/
 /.claude/rules
 
