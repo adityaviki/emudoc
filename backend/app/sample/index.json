@@ -1,5 +1,5 @@
 {
-  "built": {"on": "2026-10-20", "models": ["hand:claude-opus-5-5"]},
+  "built": {"on": "2026-11-14", "models": ["anthropic:claude-sonnet-5-5"]},
   "documents": [
     {
       "filename": "acme-service-contract.pdf",
@@ -7,10 +7,10 @@
       "title": "Master Services Agreement",
       "doc_type": "contract",
       "doc_date": "2026-03-01",
-      "summary": "A Master Services Agreement under which Acme Industrial Supplies Ltd. delivers palletised fasteners, fittings and packaging to the Hamburg and Rotterdam warehouses of Northwind Logistics GmbH, effective 1 March 2026 for an initial term of 24 months. Prices are in EUR from Schedule A, with volume discounts of 3% from 100 and 6% from 250 pallets a month and invoices payable within 30 days; either party may terminate on 90 days' notice, the Supplier's liability is capped at EUR 250,000, and English law governs.",
+      "summary": "Master Services Agreement between Acme Industrial Supplies Ltd. (Supplier) and Northwind Logistics GmbH (Customer) for delivery of industrial fasteners, fittings and packaging to Hamburg and Rotterdam. Effective 1 March 2026 with a 24-month initial term; covers fees, delivery, termination penalties, liability cap of EUR 250,000 and English law. Signed 20 and 21 February 2026.",
       "page_count": 2,
       "page_sizes": [[595.28, 841.89], [595.28, 841.89]],
-      "stages": {"parse": {"detail": "25 blocks", "status": "done"}, "structure": {"detail": "7 sections, 10 passages", "status": "done"}, "enrich": {"detail": "7 section summaries, 31 facts", "status": "done"}},
+      "stages": {"parse": {"detail": "25 blocks", "status": "done"}, "structure": {"detail": "7 sections, 10 passages", "status": "done"}, "enrich": {"detail": "7 section summaries, 13 facts, by the contract template", "status": "done"}},
       "blocks": [
         {"kind": "heading", "level": 1, "text": "Master Services Agreement", "page": 1, "bbox": [179.59, 66.42, 415.68, 84.42]},
         {"kind": "paragraph", "level": null, "text": "Between Acme Industrial Supplies Ltd. (\"Supplier\"), 14 Foundry Lane, Leeds LS1 4AB, and Northwind Logistics GmbH (\"Customer\"), Hafenstrasse 22, 20457 Hamburg.", "page": 1, "bbox": [68.36, 92.76, 482.31, 114.76]},
@@ -39,13 +39,13 @@
         {"kind": "table", "level": null, "text": "| Signed for Acme Industrial Supplies Ltd. | Signed for Northwind Logistics GmbH |\n| --- | --- |\n| Name: Helen Marsh Title: Commercial Director Date: 20 February 2026 | Name: Jonas Becker Title: Head of Procurement Date: 21 February 2026 |", "page": 2, "bbox": [68.36, 516.69, 510.57, 576.69]}
       ],
       "sections": [
-        {"parent": null, "level": 1, "title": "Overview", "path": "Master Services Agreement › Overview", "summary": "The parties, Acme Industrial Supplies Ltd. of Leeds as Supplier and Northwind Logistics GmbH of Hamburg as Customer, the effective date of 1 March 2026 and the initial term of 24 months.", "page_start": 1, "page_end": 1, "block_start": 0, "block_end": 3},
-        {"parent": null, "level": 1, "title": "1. Scope of Services", "path": "Master Services Agreement › 1. Scope of Services", "summary": "What the Supplier delivers: palletised fasteners, fittings and packaging to the Customer's Hamburg and Rotterdam warehouses on its weekly forecast, ordered in writing at least five business days ahead.", "page_start": 1, "page_end": 1, "block_start": 3, "block_end": 5},
-        {"parent": null, "level": 1, "title": "2. Fees and Payment", "path": "Master Services Agreement › 2. Fees and Payment", "summary": "Unit prices from Schedule A in EUR excluding VAT, monthly invoices payable within 30 days with 1.5% interest a month on late payment, payment by bank transfer, and the volume discounts of 3% from 100 and 6% from 250 pallets a month.", "page_start": 1, "page_end": 1, "block_start": 5, "block_end": 10},
-        {"parent": null, "level": 1, "title": "3. Delivery and Acceptance", "path": "Master Services Agreement › 3. Delivery and Acceptance", "summary": "Delivery DAP under Incoterms 2020 with risk passing on delivery, and the Customer's three business days to inspect goods and report a defect or shortfall in writing, after which they are deemed accepted.", "page_start": 2, "page_end": 2, "block_start": 10, "block_end": 13},
-        {"parent": null, "level": 1, "title": "4. Termination", "path": "Master Services Agreement › 4. Termination", "summary": "Termination for convenience on 90 days' written notice that may not expire in the first 12 months, termination for a material breach not remedied within 30 days, and the Customer's early termination penalty of 15% (months 13 to 18) or 8% (months 19 to 24) of the average monthly fees for each month remaining.", "page_start": 2, "page_end": 2, "block_start": 13, "block_end": 18},
-        {"parent": null, "level": 1, "title": "5. Liability", "path": "Master Services Agreement › 5. Liability", "summary": "The Supplier's liability limited to the fees of the 12 months before a claim and capped at EUR 250,000, no liability for indirect or consequential loss, and no limit for death, personal injury caused by negligence or fraud.", "page_start": 2, "page_end": 2, "block_start": 18, "block_end": 22},
-        {"parent": null, "level": 1, "title": "6. Governing Law", "path": "Master Services Agreement › 6. Governing Law", "summary": "The laws of England and Wales and the exclusive jurisdiction of the London courts, with the signatures of Helen Marsh for Acme on 20 February 2026 and Jonas Becker for Northwind on 21 February 2026.", "page_start": 2, "page_end": 2, "block_start": 22, "block_end": 25}
+        {"parent": null, "level": 1, "title": "Overview", "path": "Master Services Agreement › Overview", "summary": "Title, parties with addresses, effective date and initial term.", "page_start": 1, "page_end": 1, "block_start": 0, "block_end": 3},
+        {"parent": null, "level": 1, "title": "1. Scope of Services", "path": "Master Services Agreement › 1. Scope of Services", "summary": "Scope: Supplier delivers palletised fasteners, fittings and packaging to Hamburg and Rotterdam per weekly forecast; orders in writing five business days ahead.", "page_start": 1, "page_end": 1, "block_start": 3, "block_end": 5},
+        {"parent": null, "level": 1, "title": "2. Fees and Payment", "path": "Master Services Agreement › 2. Fees and Payment", "summary": "Fees and payment: Schedule A prices in EUR excl. VAT, monthly invoicing with 30-day terms, late interest, bank details and a volume discount table.", "page_start": 1, "page_end": 1, "block_start": 5, "block_end": 10},
+        {"parent": null, "level": 1, "title": "3. Delivery and Acceptance", "path": "Master Services Agreement › 3. Delivery and Acceptance", "summary": "Delivery DAP Incoterms 2020, risk passing on delivery, and 3-business-day inspection with deemed acceptance.", "page_start": 2, "page_end": 2, "block_start": 10, "block_end": 13},
+        {"parent": null, "level": 1, "title": "4. Termination", "path": "Master Services Agreement › 4. Termination", "summary": "Termination for convenience (90 days' notice), for cause (30-day remedy), and early termination penalty table for the initial term.", "page_start": 2, "page_end": 2, "block_start": 13, "block_end": 18},
+        {"parent": null, "level": 1, "title": "5. Liability", "path": "Master Services Agreement › 5. Liability", "summary": "Liability: Supplier cap of 12 months' fees up to EUR 250,000, exclusion of indirect loss, and unlimited liability carve-outs.", "page_start": 2, "page_end": 2, "block_start": 18, "block_end": 22},
+        {"parent": null, "level": 1, "title": "6. Governing Law", "path": "Master Services Agreement › 6. Governing Law", "summary": "English governing law, London courts, and signature block with names and dates.", "page_start": 2, "page_end": 2, "block_start": 22, "block_end": 25}
       ],
       "passages": [
         {"section": 0, "text": "Between Acme Industrial Supplies Ltd. (\"Supplier\"), 14 Foundry Lane, Leeds LS1 4AB, and Northwind Logistics GmbH (\"Customer\"), Hafenstrasse 22, 20457 Hamburg.\n\nEffective date: 1 March 2026. Initial term: 24 months.", "context": "Master Services Agreement › Overview", "page_start": 1, "page_end": 1, "block_start": 1, "block_end": 3},
@@ -60,72 +60,49 @@
         {"section": 6, "text": "| Signed for Acme Industrial Supplies Ltd. | Signed for Northwind Logistics GmbH |\n| --- | --- |\n| Name: Helen Marsh Title: Commercial Director Date: 20 February 2026 | Name: Jonas Becker Title: Head of Procurement Date: 21 February 2026 |", "context": "Master Services Agreement › 6. Governing Law", "page_start": 2, "page_end": 2, "block_start": 24, "block_end": 25}
       ],
       "facts": [
-        {"name": "party", "value_type": "text", "value": "Acme Industrial Supplies Ltd. (Supplier)", "number": null, "date": null, "currency": null, "quote": "Between Acme Industrial Supplies Ltd. (\"Supplier\")", "page": 1, "block_ordinal": 1, "passage": 0, "verified": true},
+        {"name": "party", "value_type": "text", "value": "Acme Industrial Supplies Ltd. (Supplier)", "number": null, "date": null, "currency": null, "quote": "Acme Industrial Supplies Ltd. (\"Supplier\"), 14 Foundry Lane, Leeds LS1 4AB", "page": 1, "block_ordinal": 1, "passage": 0, "verified": true},
         {"name": "party", "value_type": "text", "value": "Northwind Logistics GmbH (Customer)", "number": null, "date": null, "currency": null, "quote": "Northwind Logistics GmbH (\"Customer\"), Hafenstrasse 22, 20457 Hamburg", "page": 1, "block_ordinal": 1, "passage": 0, "verified": true},
         {"name": "effective_date", "value_type": "date", "value": "1 March 2026", "number": null, "date": "2026-03-01", "currency": null, "quote": "Effective date: 1 March 2026.", "page": 1, "block_ordinal": 2, "passage": 0, "verified": true},
         {"name": "term_length", "value_type": "text", "value": "24 months", "number": null, "date": null, "currency": null, "quote": "Initial term: 24 months.", "page": 1, "block_ordinal": 2, "passage": 0, "verified": true},
         {"name": "payment_terms", "value_type": "text", "value": "payable within thirty (30) days of the invoice date", "number": null, "date": null, "currency": null, "quote": "payable within thirty (30) days of the invoice date", "page": 1, "block_ordinal": 7, "passage": 2, "verified": true},
-        {"name": "notice_period", "value_type": "text", "value": "ninety (90) days' written notice", "number": null, "date": null, "currency": null, "quote": "terminate this Agreement for convenience by giving ninety (90) days' written notice", "page": 2, "block_ordinal": 14, "passage": 5, "verified": true},
-        {"name": "liability_cap", "value_type": "money", "value": "EUR 250,000", "number": 250000.0, "date": null, "currency": "EUR", "quote": "capped at EUR 250,000", "page": 2, "block_ordinal": 19, "passage": 7, "verified": true},
-        {"name": "governing_law", "value_type": "text", "value": "the laws of England and Wales", "number": null, "date": null, "currency": null, "quote": "This Agreement is governed by the laws of England and Wales.", "page": 2, "block_ordinal": 23, "passage": 8, "verified": true},
-        {"name": "volume_discount", "value_type": "text", "value": "3% for a monthly volume of 100 - 249 pallets", "number": null, "date": null, "currency": null, "quote": "| 100 - 249 | 3% |", "page": 1, "block_ordinal": 9, "passage": 3, "verified": true},
-        {"name": "volume_discount", "value_type": "text", "value": "6% for a monthly volume of 250+ pallets", "number": null, "date": null, "currency": null, "quote": "| 250+ | 6% |", "page": 1, "block_ordinal": 9, "passage": 3, "verified": true},
-        {"name": "early_termination_penalty", "value_type": "text", "value": "15% of average monthly fees x remaining months (termination in months 13 - 18)", "number": null, "date": null, "currency": null, "quote": "Months 13 - 18 | 15% of average monthly fees x remaining months", "page": 2, "block_ordinal": 17, "passage": 6, "verified": true},
-        {"name": "early_termination_penalty", "value_type": "text", "value": "8% of average monthly fees x remaining months (termination in months 19 - 24)", "number": null, "date": null, "currency": null, "quote": "Months 19 - 24 | 8% of average monthly fees x remaining months", "page": 2, "block_ordinal": 17, "passage": 6, "verified": true},
-        {"name": "signature_date", "value_type": "date", "value": "20 February 2026 (Acme Industrial Supplies Ltd.)", "number": null, "date": "2026-02-20", "currency": null, "quote": "Name: Helen Marsh Title: Commercial Director Date: 20 February 2026", "page": 2, "block_ordinal": 24, "passage": 9, "verified": true},
-        {"name": "signature_date", "value_type": "date", "value": "21 February 2026 (Northwind Logistics GmbH)", "number": null, "date": "2026-02-21", "currency": null, "quote": "Name: Jonas Becker Title: Head of Procurement Date: 21 February 2026", "page": 2, "block_ordinal": 24, "passage": 9, "verified": true},
-        {"name": "signatory", "value_type": "text", "value": "Helen Marsh, Commercial Director (Acme Industrial Supplies Ltd.)", "number": null, "date": null, "currency": null, "quote": "Name: Helen Marsh Title: Commercial Director", "page": 2, "block_ordinal": 24, "passage": 9, "verified": true},
-        {"name": "signatory", "value_type": "text", "value": "Jonas Becker, Head of Procurement (Northwind Logistics GmbH)", "number": null, "date": null, "currency": null, "quote": "Name: Jonas Becker Title: Head of Procurement", "page": 2, "block_ordinal": 24, "passage": 9, "verified": true},
-        {"name": "late_payment_interest", "value_type": "number", "value": "1.5% per month", "number": 1.5, "date": null, "currency": null, "quote": "Late payments accrue interest at 1.5% per month.", "page": 1, "block_ordinal": 7, "passage": 2, "verified": true},
-        {"name": "invoicing", "value_type": "text", "value": "monthly in arrears", "number": null, "date": null, "currency": null, "quote": "Invoices are issued monthly in arrears", "page": 1, "block_ordinal": 7, "passage": 2, "verified": true},
-        {"name": "price_currency", "value_type": "text", "value": "EUR, excluding VAT", "number": null, "date": null, "currency": null, "quote": "Prices are in EUR and exclude VAT.", "page": 1, "block_ordinal": 6, "passage": 2, "verified": true},
-        {"name": "account_number", "value_type": "text", "value": "IBAN GB29 NWBK 6016 1331 9268 19", "number": null, "date": null, "currency": null, "quote": "IBAN GB29 NWBK 6016 1331 9268 19", "page": 1, "block_ordinal": 8, "passage": 2, "verified": true},
-        {"name": "bic", "value_type": "text", "value": "NWBKGB2L", "number": null, "date": null, "currency": null, "quote": "BIC NWBKGB2L", "page": 1, "block_ordinal": 8, "passage": 2, "verified": true},
-        {"name": "order_lead_time", "value_type": "text", "value": "at least five (5) business days before delivery", "number": null, "date": null, "currency": null, "quote": "Orders are placed in writing at least five (5) business days before delivery.", "page": 1, "block_ordinal": 4, "passage": 1, "verified": true},
-        {"name": "delivery_location", "value_type": "text", "value": "the Customer's warehouses in Hamburg and Rotterdam", "number": null, "date": null, "currency": null, "quote": "to the Customer's warehouses in Hamburg and Rotterdam", "page": 1, "block_ordinal": 4, "passage": 1, "verified": true},
-        {"name": "delivery_terms", "value_type": "text", "value": "DAP (Incoterms 2020)", "number": null, "date": null, "currency": null, "quote": "Delivery is DAP (Incoterms 2020) to the address stated in the order.", "page": 2, "block_ordinal": 11, "passage": 4, "verified": true},
-        {"name": "inspection_period", "value_type": "text", "value": "three (3) business days", "number": null, "date": null, "currency": null, "quote": "The Customer shall inspect goods within three (3) business days", "page": 2, "block_ordinal": 12, "passage": 4, "verified": true},
-        {"name": "minimum_term", "value_type": "text", "value": "the first twelve (12) months", "number": null, "date": null, "currency": null, "quote": "provided the notice does not expire before the end of the first twelve (12) months", "page": 2, "block_ordinal": 14, "passage": 5, "verified": true},
+        {"name": "penalty", "value_type": "text", "value": "Late payments accrue interest at 1.5% per month", "number": null, "date": null, "currency": null, "quote": "Late payments accrue interest at 1.5% per month.", "page": 1, "block_ordinal": 7, "passage": 2, "verified": true},
+        {"name": "bank_account", "value_type": "text", "value": "IBAN GB29 NWBK 6016 1331 9268 19, BIC NWBKGB2L", "number": null, "date": null, "currency": null, "quote": "IBAN GB29 NWBK 6016 1331 9268 19, BIC NWBKGB2L", "page": 1, "block_ordinal": 8, "passage": 2, "verified": true},
+        {"name": "notice_period", "value_type": "text", "value": "ninety (90) days' written notice", "number": null, "date": null, "currency": null, "quote": "giving ninety (90) days' written notice", "page": 2, "block_ordinal": 14, "passage": 5, "verified": true},
         {"name": "cure_period", "value_type": "text", "value": "thirty (30) days", "number": null, "date": null, "currency": null, "quote": "fails to remedy it within thirty (30) days of being notified", "page": 2, "block_ordinal": 15, "passage": 5, "verified": true},
-        {"name": "liability_limit", "value_type": "text", "value": "the fees paid in the twelve (12) months preceding the claim", "number": null, "date": null, "currency": null, "quote": "limited to the fees paid in the twelve (12) months preceding the claim", "page": 2, "block_ordinal": 19, "passage": 7, "verified": true},
-        {"name": "jurisdiction", "value_type": "text", "value": "the courts of London", "number": null, "date": null, "currency": null, "quote": "The courts of London have exclusive jurisdiction.", "page": 2, "block_ordinal": 23, "passage": 8, "verified": true},
-        {"name": "address", "value_type": "text", "value": "14 Foundry Lane, Leeds LS1 4AB (Supplier)", "number": null, "date": null, "currency": null, "quote": "14 Foundry Lane, Leeds LS1 4AB", "page": 1, "block_ordinal": 1, "passage": 0, "verified": true},
-        {"name": "address", "value_type": "text", "value": "Hafenstrasse 22, 20457 Hamburg (Customer)", "number": null, "date": null, "currency": null, "quote": "Hafenstrasse 22, 20457 Hamburg", "page": 1, "block_ordinal": 1, "passage": 0, "verified": true}
+        {"name": "liability_cap", "value_type": "money", "value": "EUR 250,000", "number": 250000.0, "date": null, "currency": "EUR", "quote": "capped at EUR 250,000", "page": 2, "block_ordinal": 19, "passage": 7, "verified": true},
+        {"name": "governing_law", "value_type": "text", "value": "laws of England and Wales", "number": null, "date": null, "currency": null, "quote": "governed by the laws of England and Wales", "page": 2, "block_ordinal": 23, "passage": 8, "verified": true},
+        {"name": "signature_date", "value_type": "date", "value": "20 February 2026 (Acme)", "number": null, "date": "2026-02-20", "currency": null, "quote": "Date: 20 February 2026", "page": 2, "block_ordinal": 24, "passage": 9, "verified": true},
+        {"name": "signature_date", "value_type": "date", "value": "21 February 2026 (Northwind)", "number": null, "date": "2026-02-21", "currency": null, "quote": "Date: 21 February 2026", "page": 2, "block_ordinal": 24, "passage": 9, "verified": true}
       ]
     },
     {
       "filename": "delivery-log.xlsx",
       "sha256": "36ce5d7bb4090975552e0b11634d9b0ece57b1d3d3d4a0e5aaa384ab5a87c1d4",
-      "title": "Delivery log",
+      "title": "Deliveries",
       "doc_type": "delivery log",
       "doc_date": null,
-      "summary": "A log of five deliveries between 4 August and 1 September 2026, each with its date, order number, item, pallets and whether it arrived on time. Two deliveries of pipe fittings were not on time: PO-7708 of 25 pallets on 11 August and PO-7722 of 35 pallets on 25 August.",
+      "summary": "A spreadsheet log of five deliveries between 2026-08-04 and 2026-09-01, listing order number, item, pallets and whether each was delivered on time. Items are hex bolts M10, pipe fittings 1in and stretch film; two deliveries (PO-7708 and PO-7722) were not on time.",
       "page_count": null,
       "page_sizes": [],
-      "stages": {"parse": {"detail": "2 blocks", "status": "done"}, "structure": {"detail": "1 sections, 1 passages", "status": "done"}, "enrich": {"detail": "1 section summaries, 12 facts", "status": "done"}},
+      "stages": {"parse": {"detail": "2 blocks", "status": "done"}, "structure": {"detail": "1 sections, 1 passages", "status": "done"}, "enrich": {"detail": "1 section summaries, 7 facts", "status": "done"}},
       "blocks": [
         {"kind": "heading", "level": 1, "text": "Deliveries", "page": null, "bbox": null},
         {"kind": "table", "level": null, "text": "| Date | Order | Item | Pallets | Delivered on time |\n| --- | --- | --- | --- | --- |\n| 2026-08-04 | PO-7701 | Hex bolts M10 | 30 | Yes |\n| 2026-08-11 | PO-7708 | Pipe fittings 1in | 25 | No |\n| 2026-08-18 | PO-7715 | Stretch film | 40 | Yes |\n| 2026-08-25 | PO-7722 | Pipe fittings 1in | 35 | No |\n| 2026-09-01 | PO-7730 | Hex bolts M10 | 45 | Yes |", "page": null, "bbox": null}
       ],
       "sections": [
-        {"parent": null, "level": 1, "title": "Deliveries", "path": "Delivery log › Deliveries", "summary": "The five deliveries of hex bolts, pipe fittings and stretch film from 4 August to 1 September 2026 by date, order and pallets, with the two of pipe fittings marked as not delivered on time.", "page_start": null, "page_end": null, "block_start": 0, "block_end": 2}
+        {"parent": null, "level": 1, "title": "Deliveries", "path": "Deliveries › Deliveries", "summary": "Deliveries sheet with a table of five dated deliveries (PO-7701 to PO-7730) giving item, pallet count and on-time status.", "page_start": null, "page_end": null, "block_start": 0, "block_end": 2}
       ],
       "passages": [
-        {"section": 0, "text": "| Date | Order | Item | Pallets | Delivered on time |\n| --- | --- | --- | --- | --- |\n| 2026-08-04 | PO-7701 | Hex bolts M10 | 30 | Yes |\n| 2026-08-11 | PO-7708 | Pipe fittings 1in | 25 | No |\n| 2026-08-18 | PO-7715 | Stretch film | 40 | Yes |\n| 2026-08-25 | PO-7722 | Pipe fittings 1in | 35 | No |\n| 2026-09-01 | PO-7730 | Hex bolts M10 | 45 | Yes |", "context": "Delivery log › Deliveries", "page_start": null, "page_end": null, "block_start": 1, "block_end": 2}
+        {"section": 0, "text": "| Date | Order | Item | Pallets | Delivered on time |\n| --- | --- | --- | --- | --- |\n| 2026-08-04 | PO-7701 | Hex bolts M10 | 30 | Yes |\n| 2026-08-11 | PO-7708 | Pipe fittings 1in | 25 | No |\n| 2026-08-18 | PO-7715 | Stretch film | 40 | Yes |\n| 2026-08-25 | PO-7722 | Pipe fittings 1in | 35 | No |\n| 2026-09-01 | PO-7730 | Hex bolts M10 | 45 | Yes |", "context": "Deliveries › Deliveries", "page_start": null, "page_end": null, "block_start": 1, "block_end": 2}
       ],
       "facts": [
-        {"name": "late_delivery", "value_type": "text", "value": "PO-7708: 25 pallets of pipe fittings 1in, 2026-08-11", "number": null, "date": null, "currency": null, "quote": "| 2026-08-11 | PO-7708 | Pipe fittings 1in | 25 | No |", "page": null, "block_ordinal": 1, "passage": 0, "verified": true},
-        {"name": "late_delivery", "value_type": "text", "value": "PO-7722: 35 pallets of pipe fittings 1in, 2026-08-25", "number": null, "date": null, "currency": null, "quote": "| 2026-08-25 | PO-7722 | Pipe fittings 1in | 35 | No |", "page": null, "block_ordinal": 1, "passage": 0, "verified": true},
         {"name": "po_number", "value_type": "text", "value": "PO-7701", "number": null, "date": null, "currency": null, "quote": "| 2026-08-04 | PO-7701 | Hex bolts M10 | 30 | Yes |", "page": null, "block_ordinal": 1, "passage": 0, "verified": true},
         {"name": "po_number", "value_type": "text", "value": "PO-7708", "number": null, "date": null, "currency": null, "quote": "| 2026-08-11 | PO-7708 | Pipe fittings 1in | 25 | No |", "page": null, "block_ordinal": 1, "passage": 0, "verified": true},
         {"name": "po_number", "value_type": "text", "value": "PO-7715", "number": null, "date": null, "currency": null, "quote": "| 2026-08-18 | PO-7715 | Stretch film | 40 | Yes |", "page": null, "block_ordinal": 1, "passage": 0, "verified": true},
         {"name": "po_number", "value_type": "text", "value": "PO-7722", "number": null, "date": null, "currency": null, "quote": "| 2026-08-25 | PO-7722 | Pipe fittings 1in | 35 | No |", "page": null, "block_ordinal": 1, "passage": 0, "verified": true},
         {"name": "po_number", "value_type": "text", "value": "PO-7730", "number": null, "date": null, "currency": null, "quote": "| 2026-09-01 | PO-7730 | Hex bolts M10 | 45 | Yes |", "page": null, "block_ordinal": 1, "passage": 0, "verified": true},
-        {"name": "delivery_date", "value_type": "date", "value": "2026-08-04 (PO-7701)", "number": null, "date": "2026-08-04", "currency": null, "quote": "| 2026-08-04 | PO-7701 |", "page": null, "block_ordinal": 1, "passage": 0, "verified": true},
-        {"name": "delivery_date", "value_type": "date", "value": "2026-08-11 (PO-7708)", "number": null, "date": "2026-08-11", "currency": null, "quote": "| 2026-08-11 | PO-7708 |", "page": null, "block_ordinal": 1, "passage": 0, "verified": true},
-        {"name": "delivery_date", "value_type": "date", "value": "2026-08-18 (PO-7715)", "number": null, "date": "2026-08-18", "currency": null, "quote": "| 2026-08-18 | PO-7715 |", "page": null, "block_ordinal": 1, "passage": 0, "verified": true},
-        {"name": "delivery_date", "value_type": "date", "value": "2026-08-25 (PO-7722)", "number": null, "date": "2026-08-25", "currency": null, "quote": "| 2026-08-25 | PO-7722 |", "page": null, "block_ordinal": 1, "passage": 0, "verified": true},
-        {"name": "delivery_date", "value_type": "date", "value": "2026-09-01 (PO-7730)", "number": null, "date": "2026-09-01", "currency": null, "quote": "| 2026-09-01 | PO-7730 |", "page": null, "block_ordinal": 1, "passage": 0, "verified": true}
+        {"name": "late_delivery", "value_type": "text", "value": "PO-7708 not delivered on time", "number": null, "date": null, "currency": null, "quote": "| 2026-08-11 | PO-7708 | Pipe fittings 1in | 25 | No |", "page": null, "block_ordinal": 1, "passage": 0, "verified": true},
+        {"name": "late_delivery", "value_type": "text", "value": "PO-7722 not delivered on time", "number": null, "date": null, "currency": null, "quote": "| 2026-08-25 | PO-7722 | Pipe fittings 1in | 35 | No |", "page": null, "block_ordinal": 1, "passage": 0, "verified": true}
       ]
     },
     {
@@ -134,10 +111,10 @@
       "title": "Late delivery PO-7708",
       "doc_type": "email",
       "doc_date": "2026-08-14",
-      "summary": "An email of 14 August 2026 from Lena Vogt of Northwind Logistics to Helen Marsh of Acme reporting that order PO-7708, 25 pallets of pipe fittings, arrived three days late. She asks Acme to confirm the cause and whether a credit applies under clause 3.",
+      "summary": "Email from Lena Vogt (Northwind) to Helen Marsh (Acme) dated 14 August 2026. It reports that PO-7708, 25 pallets of pipe fittings, arrived three days late, and asks Helen to confirm the cause and whether a credit applies under clause 3.",
       "page_count": null,
       "page_sizes": [],
-      "stages": {"parse": {"detail": "4 blocks", "status": "done"}, "structure": {"detail": "1 sections, 1 passages", "status": "done"}, "enrich": {"detail": "1 section summaries, 9 facts", "status": "done"}},
+      "stages": {"parse": {"detail": "4 blocks", "status": "done"}, "structure": {"detail": "1 sections, 1 passages", "status": "done"}, "enrich": {"detail": "1 section summaries, 6 facts", "status": "done"}},
       "blocks": [
         {"kind": "paragraph", "level": null, "text": "From: Lena Vogt <lena.vogt@northwind.example> To: Helen Marsh <helen.marsh@acme.example> Date: 14 August 2026 Subject: Late delivery PO-7708", "page": null, "bbox": null},
         {"kind": "paragraph", "level": null, "text": "Hi Helen,", "page": null, "bbox": null},
@@ -145,21 +122,18 @@
         {"kind": "paragraph", "level": null, "text": "Thanks, Lena", "page": null, "bbox": null}
       ],
       "sections": [
-        {"parent": null, "level": 1, "title": "email-late-delivery", "path": "Late delivery PO-7708 › email-late-delivery", "summary": "Lena Vogt's report that PO-7708 arrived three days late, asking for the cause and whether a credit applies under clause 3 of the contract.", "page_start": null, "page_end": null, "block_start": 0, "block_end": 4}
+        {"parent": null, "level": 1, "title": "email-late-delivery", "path": "Late delivery PO-7708 › email-late-delivery", "summary": "Email about the three-day late delivery of PO-7708 (25 pallets of pipe fittings), asking for the cause and whether a clause 3 credit applies.", "page_start": null, "page_end": null, "block_start": 0, "block_end": 4}
       ],
       "passages": [
         {"section": 0, "text": "From: Lena Vogt <lena.vogt@northwind.example> To: Helen Marsh <helen.marsh@acme.example> Date: 14 August 2026 Subject: Late delivery PO-7708\n\nHi Helen,\n\nPO-7708 (25 pallets of pipe fittings) arrived three days late. Please confirm the cause and whether a credit applies under clause 3.\n\nThanks, Lena", "context": "Late delivery PO-7708 › email-late-delivery", "page_start": null, "page_end": null, "block_start": 0, "block_end": 4}
       ],
       "facts": [
+        {"name": "sender", "value_type": "text", "value": "Lena Vogt <lena.vogt@northwind.example>", "number": null, "date": null, "currency": null, "quote": "From: Lena Vogt <lena.vogt@northwind.example>", "page": null, "block_ordinal": 0, "passage": 0, "verified": true},
+        {"name": "recipient", "value_type": "text", "value": "Helen Marsh <helen.marsh@acme.example>", "number": null, "date": null, "currency": null, "quote": "To: Helen Marsh <helen.marsh@acme.example>", "page": null, "block_ordinal": 0, "passage": 0, "verified": true},
+        {"name": "email_date", "value_type": "date", "value": "14 August 2026", "number": null, "date": "2026-08-14", "currency": null, "quote": "Date: 14 August 2026", "page": null, "block_ordinal": 0, "passage": 0, "verified": true},
         {"name": "po_number", "value_type": "text", "value": "PO-7708", "number": null, "date": null, "currency": null, "quote": "PO-7708 (25 pallets of pipe fittings) arrived three days late.", "page": null, "block_ordinal": 2, "passage": 0, "verified": true},
-        {"name": "issue_date", "value_type": "date", "value": "14 August 2026", "number": null, "date": "2026-08-14", "currency": null, "quote": "Date: 14 August 2026", "page": null, "block_ordinal": 0, "passage": 0, "verified": true},
-        {"name": "sender", "value_type": "text", "value": "Lena Vogt", "number": null, "date": null, "currency": null, "quote": "From: Lena Vogt <lena.vogt@northwind.example>", "page": null, "block_ordinal": 0, "passage": 0, "verified": true},
-        {"name": "recipient", "value_type": "text", "value": "Helen Marsh", "number": null, "date": null, "currency": null, "quote": "To: Helen Marsh <helen.marsh@acme.example>", "page": null, "block_ordinal": 0, "passage": 0, "verified": true},
-        {"name": "contact_email", "value_type": "text", "value": "lena.vogt@northwind.example", "number": null, "date": null, "currency": null, "quote": "Lena Vogt <lena.vogt@northwind.example>", "page": null, "block_ordinal": 0, "passage": 0, "verified": true},
-        {"name": "contact_email", "value_type": "text", "value": "helen.marsh@acme.example", "number": null, "date": null, "currency": null, "quote": "Helen Marsh <helen.marsh@acme.example>", "page": null, "block_ordinal": 0, "passage": 0, "verified": true},
-        {"name": "subject", "value_type": "text", "value": "Late delivery PO-7708", "number": null, "date": null, "currency": null, "quote": "Subject: Late delivery PO-7708", "page": null, "block_ordinal": 0, "passage": 0, "verified": true},
-        {"name": "delay", "value_type": "text", "value": "three days", "number": null, "date": null, "currency": null, "quote": "arrived three days late", "page": null, "block_ordinal": 2, "passage": 0, "verified": true},
-        {"name": "requested_action", "value_type": "text", "value": "confirm the cause and whether a credit applies under clause 3", "number": null, "date": null, "currency": null, "quote": "Please confirm the cause and whether a credit applies under clause 3.", "page": null, "block_ordinal": 2, "passage": 0, "verified": true}
+        {"name": "quantity_pallets", "value_type": "number", "value": "25 pallets of pipe fittings", "number": 25.0, "date": null, "currency": null, "quote": "25 pallets of pipe fittings", "page": null, "block_ordinal": 2, "passage": 0, "verified": true},
+        {"name": "delay", "value_type": "text", "value": "three days late", "number": null, "date": null, "currency": null, "quote": "arrived three days late", "page": null, "block_ordinal": 2, "passage": 0, "verified": true}
       ]
     },
     {
@@ -168,10 +142,10 @@
       "title": "Invoice INV-2026-0412",
       "doc_type": "invoice",
       "doc_date": "2026-06-30",
-      "summary": "Invoice INV-2026-0412 of 30 June 2026 from Acme Industrial Supplies Ltd. to Northwind Logistics GmbH under the Master Services Agreement of 1 March 2026, for 40 pallets of hex bolts M10 and 40 pallets of washers M10. It totals EUR 11,781.00 with 19% VAT on a net EUR 9,900.00, payable within 30 days by 30 July 2026.",
+      "summary": "Invoice INV-2026-0412 issued by Acme Industrial Supplies Ltd. to Northwind Logistics GmbH on 2026-06-30, due 2026-07-30, under a Master Services Agreement (1 March 2026). It bills 40 pallets of hex bolts M10 and 40 pallets of washers M10, with a net total of 9,900.00 EUR, VAT 19% of 1,881.00 EUR and a total due of 11,781.00 EUR.",
       "page_count": 1,
       "page_sizes": [[595.28, 841.89]],
-      "stages": {"parse": {"detail": "8 blocks", "status": "done"}, "structure": {"detail": "1 sections, 4 passages", "status": "done"}, "enrich": {"detail": "1 section summaries, 14 facts", "status": "done"}},
+      "stages": {"parse": {"detail": "8 blocks", "status": "done"}, "structure": {"detail": "1 sections, 4 passages", "status": "done"}, "enrich": {"detail": "1 section summaries, 18 facts, by the invoice template", "status": "done"}},
       "blocks": [
         {"kind": "heading", "level": 1, "text": "Invoice INV-2026-0412", "page": 1, "bbox": [203.09, 66.42, 392.18, 84.42]},
         {"kind": "paragraph", "level": null, "text": "Acme Industrial Supplies Ltd.", "page": 1, "bbox": [68.36, 92.76, 208.95, 102.76]},
@@ -183,7 +157,7 @@
         {"kind": "paragraph", "level": null, "text": "Payment terms: 30 days. IBAN GB29 NWBK 6016 1331 9268 19.", "page": 1, "bbox": [68.36, 334.76, 357.95, 344.76]}
       ],
       "sections": [
-        {"parent": null, "level": 1, "title": "Invoice INV-2026-0412", "path": "Invoice INV-2026-0412 › Invoice INV-2026-0412", "summary": "The invoice's parties, dates and contract, its lines for 40 pallets of hex bolts M10 and 40 pallets of washers M10, the net total, VAT and total due, and the payment terms.", "page_start": 1, "page_end": 1, "block_start": 0, "block_end": 8}
+        {"parent": null, "level": 1, "title": "Invoice INV-2026-0412", "path": "Invoice INV-2026-0412 › Invoice INV-2026-0412", "summary": "Invoice INV-2026-0412 from Acme Industrial Supplies Ltd. to Northwind Logistics GmbH with dates, contract, two line items, totals with VAT, payment terms and IBAN.", "page_start": 1, "page_end": 1, "block_start": 0, "block_end": 8}
       ],
       "passages": [
         {"section": 0, "text": "Acme Industrial Supplies Ltd.\n\n14 Foundry Lane, Leeds LS1 4AB VAT ID: GB 123 4567 89\n\nBill to: Northwind Logistics GmbH, Hafenstrasse 22, 20457 Hamburg\n\nInvoice date: 2026-06-30 Due date: 2026-07-30 Contract: Master Services Agreement (1 March 2026)", "context": "Invoice INV-2026-0412 › Invoice INV-2026-0412", "page_start": 1, "page_end": 1, "block_start": 1, "block_end": 5},
@@ -192,20 +166,24 @@
         {"section": 0, "text": "Payment terms: 30 days. IBAN GB29 NWBK 6016 1331 9268 19.", "context": "Invoice INV-2026-0412 › Invoice INV-2026-0412", "page_start": 1, "page_end": 1, "block_start": 7, "block_end": 8}
       ],
       "facts": [
-        {"name": "document_number", "value_type": "text", "value": "INV-2026-0412", "number": null, "date": null, "currency": null, "quote": "Invoice INV-2026-0412", "page": 1, "block_ordinal": 0, "passage": null, "verified": true},
+        {"name": "invoice_number", "value_type": "text", "value": "INV-2026-0412", "number": null, "date": null, "currency": null, "quote": "Invoice INV-2026-0412", "page": 1, "block_ordinal": 0, "passage": null, "verified": true},
         {"name": "issue_date", "value_type": "date", "value": "2026-06-30", "number": null, "date": "2026-06-30", "currency": null, "quote": "Invoice date: 2026-06-30", "page": 1, "block_ordinal": 4, "passage": 0, "verified": true},
         {"name": "due_date", "value_type": "date", "value": "2026-07-30", "number": null, "date": "2026-07-30", "currency": null, "quote": "Due date: 2026-07-30", "page": 1, "block_ordinal": 4, "passage": 0, "verified": true},
-        {"name": "total_amount", "value_type": "money", "value": "11,781.00", "number": 11781.0, "date": null, "currency": "EUR", "quote": "Total due (EUR) | 11,781.00", "page": 1, "block_ordinal": 6, "passage": 2, "verified": true},
-        {"name": "subtotal_amount", "value_type": "money", "value": "9,900.00", "number": 9900.0, "date": null, "currency": "EUR", "quote": "Net total (EUR) | 9,900.00", "page": 1, "block_ordinal": 6, "passage": 2, "verified": true},
-        {"name": "tax_amount", "value_type": "money", "value": "1,881.00", "number": 1881.0, "date": null, "currency": "EUR", "quote": "VAT 19% (EUR) | 1,881.00", "page": 1, "block_ordinal": 6, "passage": 2, "verified": true},
         {"name": "vendor_name", "value_type": "text", "value": "Acme Industrial Supplies Ltd.", "number": null, "date": null, "currency": null, "quote": "Acme Industrial Supplies Ltd.", "page": 1, "block_ordinal": 1, "passage": 0, "verified": true},
         {"name": "customer_name", "value_type": "text", "value": "Northwind Logistics GmbH", "number": null, "date": null, "currency": null, "quote": "Bill to: Northwind Logistics GmbH", "page": 1, "block_ordinal": 3, "passage": 0, "verified": true},
         {"name": "contract_reference", "value_type": "text", "value": "Master Services Agreement (1 March 2026)", "number": null, "date": null, "currency": null, "quote": "Contract: Master Services Agreement (1 March 2026)", "page": 1, "block_ordinal": 4, "passage": 0, "verified": true},
-        {"name": "line_item", "value_type": "text", "value": "Hex bolts M10 (pallet): 40 x 185.00 = 7,400.00", "number": null, "date": null, "currency": null, "quote": "Hex bolts M10 (pallet) | 40 | 185.00 | 7,400.00", "page": 1, "block_ordinal": 5, "passage": 1, "verified": true},
-        {"name": "line_item", "value_type": "text", "value": "Washers M10 (pallet): 40 x 62.50 = 2,500.00", "number": null, "date": null, "currency": null, "quote": "Washers M10 (pallet) | 40 | 62.50 | 2,500.00", "page": 1, "block_ordinal": 5, "passage": 1, "verified": true},
-        {"name": "vat_id", "value_type": "text", "value": "GB 123 4567 89", "number": null, "date": null, "currency": null, "quote": "VAT ID: GB 123 4567 89", "page": 1, "block_ordinal": 2, "passage": 0, "verified": true},
+        {"name": "line_item", "value_type": "money", "value": "Hex bolts M10 (pallet), 40 x 185.00 = 7,400.00", "number": 7400.0, "date": null, "currency": "EUR", "quote": "| Hex bolts M10 (pallet) | 40 | 185.00 | 7,400.00 |", "page": 1, "block_ordinal": 5, "passage": 1, "verified": true},
+        {"name": "line_item", "value_type": "money", "value": "Washers M10 (pallet), 40 x 62.50 = 2,500.00", "number": 2500.0, "date": null, "currency": "EUR", "quote": "| Washers M10 (pallet) | 40 | 62.50 | 2,500.00 |", "page": 1, "block_ordinal": 5, "passage": 1, "verified": true},
+        {"name": "unit_price", "value_type": "money", "value": "Hex bolts M10 (pallet): 185.00", "number": 185.0, "date": null, "currency": "EUR", "quote": "| Hex bolts M10 (pallet) | 40 | 185.00 | 7,400.00 |", "page": 1, "block_ordinal": 5, "passage": 1, "verified": true},
+        {"name": "unit_price", "value_type": "money", "value": "Washers M10 (pallet): 62.50", "number": 62.5, "date": null, "currency": "EUR", "quote": "| Washers M10 (pallet) | 40 | 62.50 | 2,500.00 |", "page": 1, "block_ordinal": 5, "passage": 1, "verified": true},
+        {"name": "quantity", "value_type": "number", "value": "Hex bolts M10 (pallet): 40", "number": 40.0, "date": null, "currency": null, "quote": "| Hex bolts M10 (pallet) | 40 | 185.00 | 7,400.00 |", "page": 1, "block_ordinal": 5, "passage": 1, "verified": true},
+        {"name": "quantity", "value_type": "number", "value": "Washers M10 (pallet): 40", "number": 40.0, "date": null, "currency": null, "quote": "| Washers M10 (pallet) | 40 | 62.50 | 2,500.00 |", "page": 1, "block_ordinal": 5, "passage": 1, "verified": true},
+        {"name": "subtotal_amount", "value_type": "money", "value": "9,900.00", "number": 9900.0, "date": null, "currency": "EUR", "quote": "| Net total (EUR) | 9,900.00 |", "page": 1, "block_ordinal": 6, "passage": 2, "verified": true},
+        {"name": "tax_amount", "value_type": "money", "value": "VAT 19%: 1,881.00", "number": 1881.0, "date": null, "currency": "EUR", "quote": "| VAT 19% (EUR) | 1,881.00 |", "page": 1, "block_ordinal": 6, "passage": 2, "verified": true},
+        {"name": "total_amount", "value_type": "money", "value": "11,781.00", "number": 11781.0, "date": null, "currency": "EUR", "quote": "| Total due (EUR) | 11,781.00 |", "page": 1, "block_ordinal": 6, "passage": 2, "verified": true},
         {"name": "payment_terms", "value_type": "text", "value": "30 days", "number": null, "date": null, "currency": null, "quote": "Payment terms: 30 days.", "page": 1, "block_ordinal": 7, "passage": 3, "verified": true},
-        {"name": "account_number", "value_type": "text", "value": "IBAN GB29 NWBK 6016 1331 9268 19", "number": null, "date": null, "currency": null, "quote": "IBAN GB29 NWBK 6016 1331 9268 19", "page": 1, "block_ordinal": 7, "passage": 3, "verified": true}
+        {"name": "bank_account", "value_type": "text", "value": "GB29 NWBK 6016 1331 9268 19", "number": null, "date": null, "currency": null, "quote": "IBAN GB29 NWBK 6016 1331 9268 19.", "page": 1, "block_ordinal": 7, "passage": 3, "verified": true},
+        {"name": "vendor_tax_id", "value_type": "text", "value": "GB 123 4567 89", "number": null, "date": null, "currency": null, "quote": "VAT ID: GB 123 4567 89", "page": 1, "block_ordinal": 2, "passage": 0, "verified": true}
       ]
     },
     {
@@ -214,10 +192,10 @@
       "title": "Invoice INV-2026-0458",
       "doc_type": "invoice",
       "doc_date": "2026-07-31",
-      "summary": "Invoice INV-2026-0458 of 31 July 2026 from Acme Industrial Supplies Ltd. to Northwind Logistics GmbH under the Master Services Agreement of 1 March 2026, for 95 pallets of hex bolts M10, 60 pallets of pipe fittings and 120 roll boxes of stretch film. It totals EUR 43,476.65 with 19% VAT on a net EUR 36,535.00, payable within 30 days by 30 August 2026.",
+      "summary": "Invoice INV-2026-0458 from Acme Industrial Supplies Ltd. to Northwind Logistics GmbH, issued 2026-07-31 and due 2026-08-30 under a Master Services Agreement. It bills three lines of goods with a net total of EUR 36,535.00 plus 19% VAT, for a total due of EUR 43,476.65.",
       "page_count": 1,
       "page_sizes": [[595.28, 841.89]],
-      "stages": {"parse": {"detail": "8 blocks", "status": "done"}, "structure": {"detail": "1 sections, 4 passages", "status": "done"}, "enrich": {"detail": "1 section summaries, 15 facts", "status": "done"}},
+      "stages": {"parse": {"detail": "8 blocks", "status": "done"}, "structure": {"detail": "1 sections, 4 passages", "status": "done"}, "enrich": {"detail": "1 section summaries, 15 facts, by the invoice template", "status": "done"}},
       "blocks": [
         {"kind": "heading", "level": 1, "text": "Invoice INV-2026-0458", "page": 1, "bbox": [203.09, 66.42, 392.18, 84.42]},
         {"kind": "paragraph", "level": null, "text": "Acme Industrial Supplies Ltd.", "page": 1, "bbox": [68.36, 92.76, 208.95, 102.76]},
@@ -229,7 +207,7 @@
         {"kind": "paragraph", "level": null, "text": "Payment terms: 30 days. IBAN GB29 NWBK 6016 1331 9268 19.", "page": 1, "bbox": [68.36, 352.76, 357.95, 362.76]}
       ],
       "sections": [
-        {"parent": null, "level": 1, "title": "Invoice INV-2026-0458", "path": "Invoice INV-2026-0458 › Invoice INV-2026-0458", "summary": "The invoice's parties, dates and contract, its lines for 95 pallets of hex bolts M10, 60 pallets of pipe fittings and 120 roll boxes of stretch film, the net total, VAT and total due, and the payment terms.", "page_start": 1, "page_end": 1, "block_start": 0, "block_end": 8}
+        {"parent": null, "level": 1, "title": "Invoice INV-2026-0458", "path": "Invoice INV-2026-0458 › Invoice INV-2026-0458", "summary": "Single-page invoice INV-2026-0458 with vendor and customer details, dates, three billed line items, net/VAT/total amounts, payment terms and IBAN.", "page_start": 1, "page_end": 1, "block_start": 0, "block_end": 8}
       ],
       "passages": [
         {"section": 0, "text": "Acme Industrial Supplies Ltd.\n\n14 Foundry Lane, Leeds LS1 4AB VAT ID: GB 123 4567 89\n\nBill to: Northwind Logistics GmbH, Hafenstrasse 22, 20457 Hamburg\n\nInvoice date: 2026-07-31 Due date: 2026-08-30 Contract: Master Services Agreement (1 March 2026)", "context": "Invoice INV-2026-0458 › Invoice INV-2026-0458", "page_start": 1, "page_end": 1, "block_start": 1, "block_end": 5},
@@ -238,21 +216,21 @@
         {"section": 0, "text": "Payment terms: 30 days. IBAN GB29 NWBK 6016 1331 9268 19.", "context": "Invoice INV-2026-0458 › Invoice INV-2026-0458", "page_start": 1, "page_end": 1, "block_start": 7, "block_end": 8}
       ],
       "facts": [
-        {"name": "document_number", "value_type": "text", "value": "INV-2026-0458", "number": null, "date": null, "currency": null, "quote": "Invoice INV-2026-0458", "page": 1, "block_ordinal": 0, "passage": null, "verified": true},
+        {"name": "invoice_number", "value_type": "text", "value": "INV-2026-0458", "number": null, "date": null, "currency": null, "quote": "Invoice INV-2026-0458", "page": 1, "block_ordinal": 0, "passage": null, "verified": true},
         {"name": "issue_date", "value_type": "date", "value": "2026-07-31", "number": null, "date": "2026-07-31", "currency": null, "quote": "Invoice date: 2026-07-31", "page": 1, "block_ordinal": 4, "passage": 0, "verified": true},
         {"name": "due_date", "value_type": "date", "value": "2026-08-30", "number": null, "date": "2026-08-30", "currency": null, "quote": "Due date: 2026-08-30", "page": 1, "block_ordinal": 4, "passage": 0, "verified": true},
-        {"name": "total_amount", "value_type": "money", "value": "43,476.65", "number": 43476.65, "date": null, "currency": "EUR", "quote": "Total due (EUR) | 43,476.65", "page": 1, "block_ordinal": 6, "passage": 2, "verified": true},
-        {"name": "subtotal_amount", "value_type": "money", "value": "36,535.00", "number": 36535.0, "date": null, "currency": "EUR", "quote": "Net total (EUR) | 36,535.00", "page": 1, "block_ordinal": 6, "passage": 2, "verified": true},
-        {"name": "tax_amount", "value_type": "money", "value": "6,941.65", "number": 6941.65, "date": null, "currency": "EUR", "quote": "VAT 19% (EUR) | 6,941.65", "page": 1, "block_ordinal": 6, "passage": 2, "verified": true},
         {"name": "vendor_name", "value_type": "text", "value": "Acme Industrial Supplies Ltd.", "number": null, "date": null, "currency": null, "quote": "Acme Industrial Supplies Ltd.", "page": 1, "block_ordinal": 1, "passage": 0, "verified": true},
         {"name": "customer_name", "value_type": "text", "value": "Northwind Logistics GmbH", "number": null, "date": null, "currency": null, "quote": "Bill to: Northwind Logistics GmbH", "page": 1, "block_ordinal": 3, "passage": 0, "verified": true},
         {"name": "contract_reference", "value_type": "text", "value": "Master Services Agreement (1 March 2026)", "number": null, "date": null, "currency": null, "quote": "Contract: Master Services Agreement (1 March 2026)", "page": 1, "block_ordinal": 4, "passage": 0, "verified": true},
-        {"name": "line_item", "value_type": "text", "value": "Hex bolts M10 (pallet): 95 x 185.00 = 17,575.00", "number": null, "date": null, "currency": null, "quote": "Hex bolts M10 (pallet) | 95 | 185.00 | 17,575.00", "page": 1, "block_ordinal": 5, "passage": 1, "verified": true},
-        {"name": "line_item", "value_type": "text", "value": "Pipe fittings 1in (pallet): 60 x 240.00 = 14,400.00", "number": null, "date": null, "currency": null, "quote": "Pipe fittings 1in (pallet) | 60 | 240.00 | 14,400.00", "page": 1, "block_ordinal": 5, "passage": 1, "verified": true},
-        {"name": "line_item", "value_type": "text", "value": "Stretch film (roll box): 120 x 38.00 = 4,560.00", "number": null, "date": null, "currency": null, "quote": "Stretch film (roll box) | 120 | 38.00 | 4,560.00", "page": 1, "block_ordinal": 5, "passage": 1, "verified": true},
-        {"name": "vat_id", "value_type": "text", "value": "GB 123 4567 89", "number": null, "date": null, "currency": null, "quote": "VAT ID: GB 123 4567 89", "page": 1, "block_ordinal": 2, "passage": 0, "verified": true},
+        {"name": "line_item", "value_type": "money", "value": "Hex bolts M10 (pallet), 95 x 185.00 = 17,575.00", "number": 17575.0, "date": null, "currency": "EUR", "quote": "| Hex bolts M10 (pallet) | 95 | 185.00 | 17,575.00 |", "page": 1, "block_ordinal": 5, "passage": 1, "verified": true},
+        {"name": "line_item", "value_type": "money", "value": "Pipe fittings 1in (pallet), 60 x 240.00 = 14,400.00", "number": 14400.0, "date": null, "currency": "EUR", "quote": "| Pipe fittings 1in (pallet) | 60 | 240.00 | 14,400.00 |", "page": 1, "block_ordinal": 5, "passage": 1, "verified": true},
+        {"name": "line_item", "value_type": "money", "value": "Stretch film (roll box), 120 x 38.00 = 4,560.00", "number": 4560.0, "date": null, "currency": "EUR", "quote": "| Stretch film (roll box) | 120 | 38.00 | 4,560.00 |", "page": 1, "block_ordinal": 5, "passage": 1, "verified": true},
+        {"name": "subtotal_amount", "value_type": "money", "value": "36,535.00", "number": 36535.0, "date": null, "currency": "EUR", "quote": "| Net total (EUR) | 36,535.00 |", "page": 1, "block_ordinal": 6, "passage": 2, "verified": true},
+        {"name": "tax_amount", "value_type": "money", "value": "VAT 19%: 6,941.65", "number": 6941.65, "date": null, "currency": "EUR", "quote": "| VAT 19% (EUR) | 6,941.65 |", "page": 1, "block_ordinal": 6, "passage": 2, "verified": true},
+        {"name": "total_amount", "value_type": "money", "value": "43,476.65", "number": 43476.65, "date": null, "currency": "EUR", "quote": "| Total due (EUR) | 43,476.65 |", "page": 1, "block_ordinal": 6, "passage": 2, "verified": true},
         {"name": "payment_terms", "value_type": "text", "value": "30 days", "number": null, "date": null, "currency": null, "quote": "Payment terms: 30 days.", "page": 1, "block_ordinal": 7, "passage": 3, "verified": true},
-        {"name": "account_number", "value_type": "text", "value": "IBAN GB29 NWBK 6016 1331 9268 19", "number": null, "date": null, "currency": null, "quote": "IBAN GB29 NWBK 6016 1331 9268 19", "page": 1, "block_ordinal": 7, "passage": 3, "verified": true}
+        {"name": "bank_account", "value_type": "text", "value": "GB29 NWBK 6016 1331 9268 19", "number": null, "date": null, "currency": null, "quote": "IBAN GB29 NWBK 6016 1331 9268 19.", "page": 1, "block_ordinal": 7, "passage": 3, "verified": true},
+        {"name": "vendor_tax_id", "value_type": "text", "value": "GB 123 4567 89", "number": null, "date": null, "currency": null, "quote": "VAT ID: GB 123 4567 89", "page": 1, "block_ordinal": 2, "passage": 0, "verified": true}
       ]
     },
     {
@@ -261,10 +239,10 @@
       "title": "Invoice INV-2026-0503",
       "doc_type": "invoice",
       "doc_date": "2026-09-30",
-      "summary": "Invoice INV-2026-0503 of 30 September 2026 from Acme Industrial Supplies Ltd. to Northwind Logistics GmbH under the Master Services Agreement of 1 March 2026, for 210 pallets of pipe fittings, 130 pallets of hex bolts M10 and 300 boxes of corner protectors. It totals EUR 96,271.00 with 19% VAT on a net EUR 80,900.00, payable within 30 days by 30 October 2026.",
+      "summary": "Invoice INV-2026-0503 from Acme Industrial Supplies Ltd. to Northwind Logistics GmbH, dated 2026-09-30 and due 2026-10-30, under a Master Services Agreement (1 March 2026). It bills pipe fittings, hex bolts and corner protectors for a net total of EUR 80,900.00 plus 19% VAT, total due EUR 96,271.00.",
       "page_count": 1,
       "page_sizes": [[595.28, 841.89]],
-      "stages": {"parse": {"detail": "8 blocks", "status": "done"}, "structure": {"detail": "1 sections, 4 passages", "status": "done"}, "enrich": {"detail": "1 section summaries, 15 facts", "status": "done"}},
+      "stages": {"parse": {"detail": "8 blocks", "status": "done"}, "structure": {"detail": "1 sections, 4 passages", "status": "done"}, "enrich": {"detail": "1 section summaries, 21 facts, by the invoice template", "status": "done"}},
       "blocks": [
         {"kind": "heading", "level": 1, "text": "Invoice INV-2026-0503", "page": 1, "bbox": [203.09, 66.42, 392.18, 84.42]},
         {"kind": "paragraph", "level": null, "text": "Acme Industrial Supplies Ltd.", "page": 1, "bbox": [68.36, 92.76, 208.95, 102.76]},
@@ -276,7 +254,7 @@
         {"kind": "paragraph", "level": null, "text": "Payment terms: 30 days. IBAN GB29 NWBK 6016 1331 9268 19.", "page": 1, "bbox": [68.36, 352.76, 357.95, 362.76]}
       ],
       "sections": [
-        {"parent": null, "level": 1, "title": "Invoice INV-2026-0503", "path": "Invoice INV-2026-0503 › Invoice INV-2026-0503", "summary": "The invoice's parties, dates and contract, its lines for 210 pallets of pipe fittings, 130 pallets of hex bolts M10 and 300 boxes of corner protectors, the net total, VAT and total due, and the payment terms.", "page_start": 1, "page_end": 1, "block_start": 0, "block_end": 8}
+        {"parent": null, "level": 1, "title": "Invoice INV-2026-0503", "path": "Invoice INV-2026-0503 › Invoice INV-2026-0503", "summary": "Invoice INV-2026-0503 with issuer and customer details, dates, three billed lines, net total, VAT and total due in EUR, and payment terms with IBAN.", "page_start": 1, "page_end": 1, "block_start": 0, "block_end": 8}
       ],
       "passages": [
         {"section": 0, "text": "Acme Industrial Supplies Ltd.\n\n14 Foundry Lane, Leeds LS1 4AB VAT ID: GB 123 4567 89\n\nBill to: Northwind Logistics GmbH, Hafenstrasse 22, 20457 Hamburg\n\nInvoice date: 2026-09-30 Due date: 2026-10-30 Contract: Master Services Agreement (1 March 2026)", "context": "Invoice INV-2026-0503 › Invoice INV-2026-0503", "page_start": 1, "page_end": 1, "block_start": 1, "block_end": 5},
@@ -285,21 +263,27 @@
         {"section": 0, "text": "Payment terms: 30 days. IBAN GB29 NWBK 6016 1331 9268 19.", "context": "Invoice INV-2026-0503 › Invoice INV-2026-0503", "page_start": 1, "page_end": 1, "block_start": 7, "block_end": 8}
       ],
       "facts": [
-        {"name": "document_number", "value_type": "text", "value": "INV-2026-0503", "number": null, "date": null, "currency": null, "quote": "Invoice INV-2026-0503", "page": 1, "block_ordinal": 0, "passage": null, "verified": true},
+        {"name": "invoice_number", "value_type": "text", "value": "INV-2026-0503", "number": null, "date": null, "currency": null, "quote": "Invoice INV-2026-0503", "page": 1, "block_ordinal": 0, "passage": null, "verified": true},
         {"name": "issue_date", "value_type": "date", "value": "2026-09-30", "number": null, "date": "2026-09-30", "currency": null, "quote": "Invoice date: 2026-09-30", "page": 1, "block_ordinal": 4, "passage": 0, "verified": true},
         {"name": "due_date", "value_type": "date", "value": "2026-10-30", "number": null, "date": "2026-10-30", "currency": null, "quote": "Due date: 2026-10-30", "page": 1, "block_ordinal": 4, "passage": 0, "verified": true},
-        {"name": "total_amount", "value_type": "money", "value": "96,271.00", "number": 96271.0, "date": null, "currency": "EUR", "quote": "Total due (EUR) | 96,271.00", "page": 1, "block_ordinal": 6, "passage": 2, "verified": true},
-        {"name": "subtotal_amount", "value_type": "money", "value": "80,900.00", "number": 80900.0, "date": null, "currency": "EUR", "quote": "Net total (EUR) | 80,900.00", "page": 1, "block_ordinal": 6, "passage": 2, "verified": true},
-        {"name": "tax_amount", "value_type": "money", "value": "15,371.00", "number": 15371.0, "date": null, "currency": "EUR", "quote": "VAT 19% (EUR) | 15,371.00", "page": 1, "block_ordinal": 6, "passage": 2, "verified": true},
         {"name": "vendor_name", "value_type": "text", "value": "Acme Industrial Supplies Ltd.", "number": null, "date": null, "currency": null, "quote": "Acme Industrial Supplies Ltd.", "page": 1, "block_ordinal": 1, "passage": 0, "verified": true},
         {"name": "customer_name", "value_type": "text", "value": "Northwind Logistics GmbH", "number": null, "date": null, "currency": null, "quote": "Bill to: Northwind Logistics GmbH", "page": 1, "block_ordinal": 3, "passage": 0, "verified": true},
         {"name": "contract_reference", "value_type": "text", "value": "Master Services Agreement (1 March 2026)", "number": null, "date": null, "currency": null, "quote": "Contract: Master Services Agreement (1 March 2026)", "page": 1, "block_ordinal": 4, "passage": 0, "verified": true},
-        {"name": "line_item", "value_type": "text", "value": "Pipe fittings 1in (pallet): 210 x 240.00 = 50,400.00", "number": null, "date": null, "currency": null, "quote": "Pipe fittings 1in (pallet) | 210 | 240.00 | 50,400.00", "page": 1, "block_ordinal": 5, "passage": 1, "verified": true},
-        {"name": "line_item", "value_type": "text", "value": "Hex bolts M10 (pallet): 130 x 185.00 = 24,050.00", "number": null, "date": null, "currency": null, "quote": "Hex bolts M10 (pallet) | 130 | 185.00 | 24,050.00", "page": 1, "block_ordinal": 5, "passage": 1, "verified": true},
-        {"name": "line_item", "value_type": "text", "value": "Corner protectors (box): 300 x 21.50 = 6,450.00", "number": null, "date": null, "currency": null, "quote": "Corner protectors (box) | 300 | 21.50 | 6,450.00", "page": 1, "block_ordinal": 5, "passage": 1, "verified": true},
-        {"name": "vat_id", "value_type": "text", "value": "GB 123 4567 89", "number": null, "date": null, "currency": null, "quote": "VAT ID: GB 123 4567 89", "page": 1, "block_ordinal": 2, "passage": 0, "verified": true},
+        {"name": "line_item", "value_type": "money", "value": "Pipe fittings 1in (pallet), 210 x 240.00 = 50,400.00", "number": 50400.0, "date": null, "currency": "EUR", "quote": "| Pipe fittings 1in (pallet) | 210 | 240.00 | 50,400.00 |", "page": 1, "block_ordinal": 5, "passage": 1, "verified": true},
+        {"name": "line_item", "value_type": "money", "value": "Hex bolts M10 (pallet), 130 x 185.00 = 24,050.00", "number": 24050.0, "date": null, "currency": "EUR", "quote": "| Hex bolts M10 (pallet) | 130 | 185.00 | 24,050.00 |", "page": 1, "block_ordinal": 5, "passage": 1, "verified": true},
+        {"name": "line_item", "value_type": "money", "value": "Corner protectors (box), 300 x 21.50 = 6,450.00", "number": 6450.0, "date": null, "currency": "EUR", "quote": "| Corner protectors (box) | 300 | 21.50 | 6,450.00 |", "page": 1, "block_ordinal": 5, "passage": 1, "verified": true},
+        {"name": "unit_price", "value_type": "money", "value": "Pipe fittings 1in (pallet): 240.00", "number": 240.0, "date": null, "currency": "EUR", "quote": "| Pipe fittings 1in (pallet) | 210 | 240.00 | 50,400.00 |", "page": 1, "block_ordinal": 5, "passage": 1, "verified": true},
+        {"name": "unit_price", "value_type": "money", "value": "Hex bolts M10 (pallet): 185.00", "number": 185.0, "date": null, "currency": "EUR", "quote": "| Hex bolts M10 (pallet) | 130 | 185.00 | 24,050.00 |", "page": 1, "block_ordinal": 5, "passage": 1, "verified": true},
+        {"name": "unit_price", "value_type": "money", "value": "Corner protectors (box): 21.50", "number": 21.5, "date": null, "currency": "EUR", "quote": "| Corner protectors (box) | 300 | 21.50 | 6,450.00 |", "page": 1, "block_ordinal": 5, "passage": 1, "verified": true},
+        {"name": "quantity", "value_type": "number", "value": "Pipe fittings 1in (pallet): 210", "number": 210.0, "date": null, "currency": null, "quote": "| Pipe fittings 1in (pallet) | 210 | 240.00 | 50,400.00 |", "page": 1, "block_ordinal": 5, "passage": 1, "verified": true},
+        {"name": "quantity", "value_type": "number", "value": "Hex bolts M10 (pallet): 130", "number": 130.0, "date": null, "currency": null, "quote": "| Hex bolts M10 (pallet) | 130 | 185.00 | 24,050.00 |", "page": 1, "block_ordinal": 5, "passage": 1, "verified": true},
+        {"name": "quantity", "value_type": "number", "value": "Corner protectors (box): 300", "number": 300.0, "date": null, "currency": null, "quote": "| Corner protectors (box) | 300 | 21.50 | 6,450.00 |", "page": 1, "block_ordinal": 5, "passage": 1, "verified": true},
+        {"name": "subtotal_amount", "value_type": "money", "value": "80,900.00", "number": 80900.0, "date": null, "currency": "EUR", "quote": "| Net total (EUR) | 80,900.00 |", "page": 1, "block_ordinal": 6, "passage": 2, "verified": true},
+        {"name": "tax_amount", "value_type": "money", "value": "VAT 19%: 15,371.00", "number": 15371.0, "date": null, "currency": "EUR", "quote": "| VAT 19% (EUR) | 15,371.00 |", "page": 1, "block_ordinal": 6, "passage": 2, "verified": true},
+        {"name": "total_amount", "value_type": "money", "value": "96,271.00", "number": 96271.0, "date": null, "currency": "EUR", "quote": "| Total due (EUR) | 96,271.00 |", "page": 1, "block_ordinal": 6, "passage": 2, "verified": true},
         {"name": "payment_terms", "value_type": "text", "value": "30 days", "number": null, "date": null, "currency": null, "quote": "Payment terms: 30 days.", "page": 1, "block_ordinal": 7, "passage": 3, "verified": true},
-        {"name": "account_number", "value_type": "text", "value": "IBAN GB29 NWBK 6016 1331 9268 19", "number": null, "date": null, "currency": null, "quote": "IBAN GB29 NWBK 6016 1331 9268 19", "page": 1, "block_ordinal": 7, "passage": 3, "verified": true}
+        {"name": "bank_account", "value_type": "text", "value": "GB29 NWBK 6016 1331 9268 19", "number": null, "date": null, "currency": null, "quote": "IBAN GB29 NWBK 6016 1331 9268 19.", "page": 1, "block_ordinal": 7, "passage": 3, "verified": true},
+        {"name": "vendor_tax_id", "value_type": "text", "value": "GB 123 4567 89", "number": null, "date": null, "currency": null, "quote": "VAT ID: GB 123 4567 89", "page": 1, "block_ordinal": 2, "passage": 0, "verified": true}
       ]
     },
     {
@@ -308,15 +292,15 @@
       "title": "Price list",
       "doc_type": "price list",
       "doc_date": null,
-      "summary": "Acme's price list of five items by SKU, with the unit each is sold by and its price in EUR: hex bolts M10 at 185.00, washers M10 at 62.50 and pipe fittings 1in at 240.00 a pallet, stretch film at 38.00 a roll box and corner protectors at 21.50 a box.",
+      "summary": "A CSV price list with five items, each with a SKU, description, unit and price in EUR. Items include hex bolts, washers, pipe fittings, stretch film and corner protectors. No vendor name or date is stated.",
       "page_count": null,
       "page_sizes": [],
-      "stages": {"parse": {"detail": "1 blocks", "status": "done"}, "structure": {"detail": "1 sections, 1 passages", "status": "done"}, "enrich": {"detail": "1 section summaries, 5 facts", "status": "done"}},
+      "stages": {"parse": {"detail": "1 blocks", "status": "done"}, "structure": {"detail": "1 sections, 1 passages", "status": "done"}, "enrich": {"detail": "1 section summaries, 5 facts, by the price list template (not found: vendor_name)", "status": "done"}},
       "blocks": [
         {"kind": "table", "level": null, "text": "| sku | description | unit | price_eur |\n| --- | --- | --- | --- |\n| FB-M10 | Hex bolts M10 | pallet | 185.00 |\n| WS-M10 | Washers M10 | pallet | 62.50 |\n| PF-1IN | Pipe fittings 1in | pallet | 240.00 |\n| SF-01 | Stretch film | roll box | 38.00 |\n| CP-04 | Corner protectors | box | 21.50 |", "page": null, "bbox": null}
       ],
       "sections": [
-        {"parent": null, "level": 1, "title": "price-list", "path": "Price list › price-list", "summary": "The SKUs, descriptions, units and prices in EUR of hex bolts, washers, pipe fittings, stretch film and corner protectors.", "page_start": null, "page_end": null, "block_start": 0, "block_end": 1}
+        {"parent": null, "level": 1, "title": "price-list", "path": "Price list › price-list", "summary": "Table of five SKUs with description, unit (pallet, roll box, box) and price in EUR, from 21.50 to 240.00.", "page_start": null, "page_end": null, "block_start": 0, "block_end": 1}
       ],
       "passages": [
         {"section": 0, "text": "| sku | description | unit | price_eur |\n| --- | --- | --- | --- |\n| FB-M10 | Hex bolts M10 | pallet | 185.00 |\n| WS-M10 | Washers M10 | pallet | 62.50 |\n| PF-1IN | Pipe fittings 1in | pallet | 240.00 |\n| SF-01 | Stretch film | roll box | 38.00 |\n| CP-04 | Corner protectors | box | 21.50 |", "context": "Price list › price-list", "page_start": null, "page_end": null, "block_start": 0, "block_end": 1}
@@ -335,10 +319,10 @@
       "title": "Supplier Review Meeting",
       "doc_type": "minutes",
       "doc_date": "2026-09-12",
-      "summary": "Notes of the supplier review meeting of 12 September 2026 between Helen Marsh of Acme and Jonas Becker and Lena Vogt of Northwind. On-time delivery was 94% in August against a 97% target, the late pipe fittings having been held up by a carrier strike in Rotterdam; Northwind asked for the 6% volume discount to start at 200 pallets a month, and three actions were agreed with their owners and due dates.",
+      "summary": "Minutes of a supplier review meeting dated 12 September 2026 between Acme and Northwind. It covers August on-time delivery of 94% against a 97% target, Northwind's request for the 6% volume discount tier to start at 200 pallets per month, and three action items with owners and due dates.",
       "page_count": null,
       "page_sizes": [],
-      "stages": {"parse": {"detail": "8 blocks", "status": "done"}, "structure": {"detail": "4 sections, 4 passages", "status": "done"}, "enrich": {"detail": "4 section summaries, 15 facts", "status": "done"}},
+      "stages": {"parse": {"detail": "8 blocks", "status": "done"}, "structure": {"detail": "4 sections, 4 passages", "status": "done"}, "enrich": {"detail": "4 section summaries, 8 facts", "status": "done"}},
       "blocks": [
         {"kind": "heading", "level": 1, "text": "Supplier Review Meeting", "page": null, "bbox": null},
         {"kind": "paragraph", "level": null, "text": "Date: 12 September 2026\nAttendees: Helen Marsh (Acme), Jonas Becker, Lena Vogt (Northwind)", "page": null, "bbox": null},
@@ -350,10 +334,10 @@
         {"kind": "table", "level": null, "text": "| Owner | Action | Due |\n| --- | --- | --- |\n| Helen Marsh | Propose revised discount tiers | 2026-09-30 |\n| Lena Vogt | Share Q4 volume forecast | 2026-09-25 |\n| Jonas Becker | Review liability cap with legal | 2026-10-15 |", "page": null, "bbox": null}
       ],
       "sections": [
-        {"parent": null, "level": 1, "title": "Supplier Review Meeting", "path": "Supplier Review Meeting › Supplier Review Meeting", "summary": "The meeting's date, 12 September 2026, and its attendees from Acme and Northwind.", "page_start": null, "page_end": null, "block_start": 0, "block_end": 2},
-        {"parent": null, "level": 1, "title": "Delivery performance", "path": "Supplier Review Meeting › Delivery performance", "summary": "August's on-time delivery of 94% against the 97% target, and the carrier strike in Rotterdam that caused two late pallets of pipe fittings.", "page_start": null, "page_end": null, "block_start": 2, "block_end": 4},
-        {"parent": null, "level": 1, "title": "Pricing", "path": "Supplier Review Meeting › Pricing", "summary": "Northwind's request that the 6% volume discount tier start at 200 pallets a month, to which Acme will respond by 30 September.", "page_start": null, "page_end": null, "block_start": 4, "block_end": 6},
-        {"parent": null, "level": 1, "title": "Action items", "path": "Supplier Review Meeting › Action items", "summary": "Three actions with their owners and due dates: revised discount tiers from Helen Marsh by 30 September, the Q4 volume forecast from Lena Vogt by 25 September and a review of the liability cap by Jonas Becker by 15 October.", "page_start": null, "page_end": null, "block_start": 6, "block_end": 8}
+        {"parent": null, "level": 1, "title": "Supplier Review Meeting", "path": "Supplier Review Meeting › Supplier Review Meeting", "summary": "Title, meeting date and attendees (Helen Marsh of Acme, Jonas Becker, Lena Vogt of Northwind).", "page_start": null, "page_end": null, "block_start": 0, "block_end": 2},
+        {"parent": null, "level": 1, "title": "Delivery performance", "path": "Supplier Review Meeting › Delivery performance", "summary": "Delivery performance: 94% on-time delivery in August versus 97% target, with two late pallets of pipe fittings due to a carrier strike in Rotterdam.", "page_start": null, "page_end": null, "block_start": 2, "block_end": 4},
+        {"parent": null, "level": 1, "title": "Pricing", "path": "Supplier Review Meeting › Pricing", "summary": "Pricing: Northwind's request for the 6% volume discount tier to start at 200 pallets per month, with Acme to respond by 30 September.", "page_start": null, "page_end": null, "block_start": 4, "block_end": 6},
+        {"parent": null, "level": 1, "title": "Action items", "path": "Supplier Review Meeting › Action items", "summary": "Action items table assigning owners, actions and due dates for discount tiers, Q4 forecast and liability cap review.", "page_start": null, "page_end": null, "block_start": 6, "block_end": 8}
       ],
       "passages": [
         {"section": 0, "text": "Date: 12 September 2026\nAttendees: Helen Marsh (Acme), Jonas Becker, Lena Vogt (Northwind)", "context": "Supplier Review Meeting › Supplier Review Meeting", "page_start": null, "page_end": null, "block_start": 1, "block_end": 2},
@@ -363,20 +347,13 @@
       ],
       "facts": [
         {"name": "meeting_date", "value_type": "date", "value": "12 September 2026", "number": null, "date": "2026-09-12", "currency": null, "quote": "Date: 12 September 2026", "page": null, "block_ordinal": 1, "passage": 0, "verified": true},
-        {"name": "attendee", "value_type": "text", "value": "Helen Marsh (Acme)", "number": null, "date": null, "currency": null, "quote": "Attendees: Helen Marsh (Acme), Jonas Becker, Lena Vogt (Northwind)", "page": null, "block_ordinal": 1, "passage": 0, "verified": true},
-        {"name": "attendee", "value_type": "text", "value": "Jonas Becker (Northwind)", "number": null, "date": null, "currency": null, "quote": "Attendees: Helen Marsh (Acme), Jonas Becker, Lena Vogt (Northwind)", "page": null, "block_ordinal": 1, "passage": 0, "verified": true},
-        {"name": "attendee", "value_type": "text", "value": "Lena Vogt (Northwind)", "number": null, "date": null, "currency": null, "quote": "Attendees: Helen Marsh (Acme), Jonas Becker, Lena Vogt (Northwind)", "page": null, "block_ordinal": 1, "passage": 0, "verified": true},
-        {"name": "on_time_delivery_rate", "value_type": "number", "value": "94% (August)", "number": 94.0, "date": null, "currency": null, "quote": "On-time delivery was 94% in August", "page": null, "block_ordinal": 3, "passage": 1, "verified": true},
+        {"name": "attendee", "value_type": "text", "value": "Helen Marsh (Acme)", "number": null, "date": null, "currency": null, "quote": "Helen Marsh (Acme)", "page": null, "block_ordinal": 1, "passage": 0, "verified": true},
+        {"name": "attendee", "value_type": "text", "value": "Lena Vogt (Northwind)", "number": null, "date": null, "currency": null, "quote": "Lena Vogt (Northwind)", "page": null, "block_ordinal": 1, "passage": 0, "verified": true},
+        {"name": "attendee", "value_type": "text", "value": "Jonas Becker", "number": null, "date": null, "currency": null, "quote": "Jonas Becker", "page": null, "block_ordinal": 1, "passage": 0, "verified": true},
+        {"name": "on_time_delivery_august", "value_type": "number", "value": "94%", "number": 94.0, "date": null, "currency": null, "quote": "On-time delivery was 94% in August", "page": null, "block_ordinal": 3, "passage": 1, "verified": true},
         {"name": "on_time_delivery_target", "value_type": "number", "value": "97%", "number": 97.0, "date": null, "currency": null, "quote": "below the 97% target", "page": null, "block_ordinal": 3, "passage": 1, "verified": true},
-        {"name": "late_delivery_cause", "value_type": "text", "value": "a carrier strike in Rotterdam", "number": null, "date": null, "currency": null, "quote": "Two late pallets of pipe fittings were caused by a carrier strike in Rotterdam.", "page": null, "block_ordinal": 3, "passage": 1, "verified": true},
-        {"name": "discount_request", "value_type": "text", "value": "the 6% volume discount tier to start at 200 pallets per month", "number": null, "date": null, "currency": null, "quote": "Northwind asked for the 6% volume discount tier to start at 200 pallets per month.", "page": null, "block_ordinal": 5, "passage": 2, "verified": true},
-        {"name": "response_due_date", "value_type": "date", "value": "30 September", "number": null, "date": "2026-09-30", "currency": null, "quote": "Acme will respond by 30 September.", "page": null, "block_ordinal": 5, "passage": 2, "verified": true},
-        {"name": "action_item", "value_type": "text", "value": "Propose revised discount tiers (Helen Marsh, due 2026-09-30)", "number": null, "date": null, "currency": null, "quote": "| Helen Marsh | Propose revised discount tiers | 2026-09-30 |", "page": null, "block_ordinal": 7, "passage": 3, "verified": true},
-        {"name": "action_item", "value_type": "text", "value": "Share Q4 volume forecast (Lena Vogt, due 2026-09-25)", "number": null, "date": null, "currency": null, "quote": "| Lena Vogt | Share Q4 volume forecast | 2026-09-25 |", "page": null, "block_ordinal": 7, "passage": 3, "verified": true},
-        {"name": "action_item", "value_type": "text", "value": "Review liability cap with legal (Jonas Becker, due 2026-10-15)", "number": null, "date": null, "currency": null, "quote": "| Jonas Becker | Review liability cap with legal | 2026-10-15 |", "page": null, "block_ordinal": 7, "passage": 3, "verified": true},
-        {"name": "due_date", "value_type": "date", "value": "2026-09-30 (Propose revised discount tiers)", "number": null, "date": "2026-09-30", "currency": null, "quote": "Propose revised discount tiers | 2026-09-30", "page": null, "block_ordinal": 7, "passage": 3, "verified": true},
-        {"name": "due_date", "value_type": "date", "value": "2026-09-25 (Share Q4 volume forecast)", "number": null, "date": "2026-09-25", "currency": null, "quote": "Share Q4 volume forecast | 2026-09-25", "page": null, "block_ordinal": 7, "passage": 3, "verified": true},
-        {"name": "due_date", "value_type": "date", "value": "2026-10-15 (Review liability cap with legal)", "number": null, "date": "2026-10-15", "currency": null, "quote": "Review liability cap with legal | 2026-10-15", "page": null, "block_ordinal": 7, "passage": 3, "verified": true}
+        {"name": "volume_discount_tier", "value_type": "text", "value": "6% discount starting at 200 pallets per month", "number": null, "date": null, "currency": null, "quote": "6% volume discount tier to start at 200 pallets per month", "page": null, "block_ordinal": 5, "passage": 2, "verified": true},
+        {"name": "response_deadline", "value_type": "text", "value": "30 September", "number": null, "date": null, "currency": null, "quote": "Acme will respond by 30 September.", "page": null, "block_ordinal": 5, "passage": 2, "verified": true}
       ]
     }
   ]
