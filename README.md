@@ -24,8 +24,7 @@ you choose.
   price list, or a template of your own) into a facts table you sort, filter, check and correct,
   and download as CSV.
 - **Verify**: cross-checks compare documents' facts (an invoice against its purchase order, the
-  contract, the price list) when you ask or as documents arrive, with question sets asked on a
-  schedule.
+  contract, the price list) when you ask or as documents arrive.
 - **Create**: the agent writes letters, replies, memos and reports from the documents as Word
   documents in your own files, to your project's templates, and makes and edits Excel
   workbooks; ask in a chat for a disputed invoice's dispute letter and it is in your files.

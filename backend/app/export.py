@@ -74,7 +74,6 @@ from app.models import (
     Project,
     ProjectExport,
     ProjectMember,
-    QuestionSet,
     Section,
     ShareLink,
     UsageEvent,
@@ -108,7 +107,6 @@ from app.schemas import (
     ExportedProject,
     ExportedProjectChat,
     ExportedProjectShareLink,
-    ExportedQuestionSet,
     ExportedSection,
     ExportedSession,
     ExportedShareLink,
@@ -132,13 +130,12 @@ ABOUT = (
     "signed in from in the last month and when each browser you signed in with did so first and "
     "last, the chats you started with every question and answer, the chats you pinned, the "
     "documents you starred and the ones you opened lately, the links you made that show a "
-    "document or an answer to whoever holds them, the question sets you made with their "
-    "questions, the files of your My files with their versions (download the files themselves "
-    "from the app), the notices in your notification centre, the usage counted to you, and what "
-    "the audit logs of your organisations recorded you doing. Answers cite passages of documents "
-    "as [P<number>]. The documents themselves are not in this file: they belong to the "
-    "organisation that holds them. Your password and recovery codes are kept only as hashes, and "
-    "they and your authenticator secret are left out."
+    "document or an answer to whoever holds them, the files of your My files with their versions "
+    "(download the files themselves from the app), the notices in your notification centre, the "
+    "usage counted to you, and what the audit logs of your organisations recorded you doing. "
+    "Answers cite passages of documents as [P<number>]. The documents themselves are not in this "
+    "file: they belong to the organisation that holds them. Your password and recovery codes are "
+    "kept only as hashes, and they and your authenticator secret are left out."
 )
 
 # How long a project's export is kept for the member who asked for it, once it is ready: long
@@ -265,13 +262,6 @@ def account_export(session: Session, user: User) -> AccountExport:
         .order_by(MyFileVersion.file_id, MyFileVersion.number)
     ):
         my_versions[version.file_id].append(version)
-    question_sets = session.execute(
-        select(QuestionSet, Organization.slug, Project.name)
-        .join(Organization, Organization.id == QuestionSet.org_id)
-        .join(Project, Project.id == QuestionSet.project_id)
-        .where(QuestionSet.created_by == user.id)
-        .order_by(QuestionSet.id)
-    ).all()
     notifications = session.execute(
         select(Notification, Organization.slug)
         .join(Organization, Organization.id == Notification.org_id)
@@ -322,7 +312,6 @@ def account_export(session: Session, user: User) -> AccountExport:
                 role=membership.role,
                 joined_at=membership.created_at,
                 private_projects=private_projects[organization.id],
-                digested_on=membership.digested_on,
             )
             for membership, organization in memberships
         ],
@@ -391,23 +380,6 @@ def account_export(session: Session, user: User) -> AccountExport:
                 last_viewed_at=link.last_viewed_at,
             )
             for link, slug, project, filename in share_links
-        ],
-        question_sets=[
-            ExportedQuestionSet(
-                organization=slug,
-                project=project,
-                title=row.title,
-                questions=row.questions,
-                schedule=row.schedule,
-                weekday=row.weekday,
-                hour=row.hour,
-                on_arrivals=row.on_arrivals,
-                audience=row.audience,
-                enabled=row.enabled,
-                created_at=row.created_at,
-                updated_at=row.updated_at,
-            )
-            for row, slug, project in question_sets
         ],
         my_files=[
             ExportedMyFile(

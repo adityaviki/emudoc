@@ -22,7 +22,6 @@ from app.schemas import (
     MessageStatus,
     ProjectVisibility,
     ReportStatus,
-    ReportTrigger,
     RunStatus,
 )
 
@@ -493,53 +492,6 @@ class FindingList(BaseModel):
     next: str | None
 
 
-class ReportAnswer(BaseModel):
-    """One question of a report, as it was asked, and its answer, which cites the passages of
-    `sources` as [P<passage_id>]. `status` is `queued` until it is asked and `running` while it
-    is, then `done`, or `failed` with `error` saying why: the day's spending was used up, or the
-    agent's run failed."""
-
-    question: str
-    status: RunStatus
-    answer: str
-    sources: list[Source]
-    error: str | None
-
-
-class ReportSummary(BaseModel):
-    """A report of a project's question set: its questions asked of the project's documents on
-    the set's schedule, after documents arrived (`arrived` of them), or by a member there and
-    then (`trigger`), each answered by the agent. `status` is `queued` or `running` until every
-    question is answered or refused, then `done`, or `failed` when the run itself failed.
-    `question_set_id` is None once the set is deleted, `title` its name as it was."""
-
-    id: int
-    project_id: int
-    question_set_id: int | None
-    title: str
-    trigger: ReportTrigger
-    status: RunStatus
-    questions: int
-    answered: int
-    arrived: int
-    error: str | None
-    created_at: dt.datetime
-    finished_at: dt.datetime | None
-
-
-class Report(ReportSummary):
-    """A report whole, with every question and its answer, in the order they were asked."""
-
-    answers: list[ReportAnswer]
-
-
-class ReportList(BaseModel):
-    """A page of a project's reports, the newest first, without their answers."""
-
-    data: list[ReportSummary]
-    next: str | None
-
-
 class DocumentEvent(BaseModel):
     """A document's indexing ended, posted to the organisation's webhooks that listen for it:
     `document.ready` once it can be searched and asked about (`data.partly_indexed` says whether
@@ -550,18 +502,6 @@ class DocumentEvent(BaseModel):
     type: Literal["document.ready", "document.failed"]
     created_at: dt.datetime
     data: Document
-
-
-class ReportEvent(BaseModel):
-    """A report of a project's question set kept, its questions answered or refused, or failed,
-    posted to the organisation's webhooks that listen for it. `data` says what the report is,
-    never what an answer says: the answers are read by its id, with a key that may read the
-    project. `id` names the event, the same in every try of it."""
-
-    id: str
-    type: Literal["report.completed"]
-    created_at: dt.datetime
-    data: ReportSummary
 
 
 class CheckRunEvent(BaseModel):

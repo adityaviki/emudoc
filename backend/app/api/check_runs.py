@@ -250,9 +250,8 @@ def delete_run(run: EditableRunDep, session: SessionDep, account: AccountDep, re
 
 
 def refuse_agent_run(session: Session, account: Account, what: str) -> None:
-    """Refuse a run of the agent asked for without a question, a report or a question set's run
-    (app/api/question_sets.py), past what holds a question: the agent's runs in flight and the
-    day's spending; `what` names it for the log."""
+    """Refuse a run of the agent asked for without a question, a report, past what holds a
+    question: the agent's runs in flight and the day's spending; `what` names it for the log."""
     refuse_past_answers_in_flight(session, account, what)
     refuse_past_spending(session, what)
 

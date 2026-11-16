@@ -85,7 +85,6 @@ from app.connectors.sync import abandon_sync, queue_due_syncs, run_sync
 from app.conversion import abandon_view, check_converter, convert_document
 from app.db import SessionLocal, connection_lost
 from app.deadletters import alert_failed_jobs
-from app.digests import send_digests
 from app.errors import summary
 from app.export import abandon_export, make_export
 from app.indexing.pipeline import (
@@ -107,14 +106,11 @@ from app.jobs import (
     RECEIVE_MAIL,
     RENDER_PAGES,
     RUN_AUTOMATION,
-    RUN_QUESTION_SET,
     RUN_WORKFLOW,
     SEEN_WITHIN,
-    SEND_DIGESTS,
     SEND_EMAIL,
     SYNC_CONNECTOR,
     VIEW_MY_FILE,
-    WRITE_QUESTION_REPORT,
     Lease,
     LeaseLost,
     beat,
@@ -147,7 +143,6 @@ from app.my_files import abandon_view as abandon_my_file_view
 from app.my_files import view_my_file
 from app.notices import after_index
 from app.postbox import abandon_email, run_email
-from app.question_reports import abandon_report, run_question_set, write_report
 from app.receiving import SES, abandon_receive, read_inbound, run_receive
 from app.rendering import draw_ahead
 from app.scanning import ScanError, alert_quarantines
@@ -161,7 +156,6 @@ from app.watch import watch
 from app.webhooks import (
     abandon_delivery,
     announce_document,
-    announce_report,
     announce_run,
     run_delivery,
 )
@@ -426,39 +420,6 @@ def _abandon_automation(job: Job, services: Services) -> None:
     pass
 
 
-def _run_question_set(job: Job, services: Services) -> str | None:
-    return run_question_set(job.payload["set_id"], Lease(job.id, job.worker_id))
-
-
-def _abandon_question_set(job: Job, services: Services) -> None:
-    # The arrivals stay with the set, and the housekeeper queues a scheduled set's job again.
-    pass
-
-
-def _write_report(job: Job, services: Services) -> str | None:
-    write_report(job.payload["report_id"], services, Lease(job.id, job.worker_id))
-    return None
-
-
-def _abandon_report(job: Job, services: Services) -> None:
-    abandon_report(job.payload["report_id"], job.max_attempts)
-
-
-def _after_report(job: Job, services: Services) -> None:
-    # Kept, or failed, however the job ended: the webhooks are told.
-    announce_report(job.payload["report_id"], job.id)
-
-
-def _send_digests(job: Job, services: Services) -> str | None:
-    send_digests(Lease(job.id, job.worker_id))
-    return None
-
-
-def _abandon_digests(job: Job, services: Services) -> None:
-    # Nobody told this hour is told the next, and the housekeeper queues the job again.
-    pass
-
-
 def _abandon_language(job: Job, services: Services) -> None:
     # The passages not moved yet are searched in the language they have, as before the change;
     # the next change of language, or indexing a document again, moves them.
@@ -468,12 +429,10 @@ def _abandon_language(job: Job, services: Services) -> None:
 # The kinds this worker runs. A kind in JOB_KINDS that is missing here is left in the queue for
 # a worker that has it. The answers and the mail have a lane of threads each (`LANE_KINDS`),
 # the runs of cross-checks and the automations that make them the answers', since a member
-# waits for them and their reports are the agent's, and so the question sets' reports, with the
-# jobs that make those on a schedule or as documents arrive; every other kind shares the
-# indexers, a message sent to a project's address among them (app/receiving.py), which is an
-# upload, and so is a connected folder's sync (app/connectors/sync.py), the deliveries of the
-# webhooks (app/webhooks.py), whose answers come within seconds, and the hour's weekly digests
-# (app/digests.py), a few statements a member.
+# waits for them and their reports are the agent's; every other kind shares the indexers, a
+# message sent to a project's address among them (app/receiving.py), which is an upload, and so
+# is a connected folder's sync (app/connectors/sync.py), and the deliveries of the webhooks
+# (app/webhooks.py), whose answers come within seconds.
 HANDLERS: dict[str, Handler] = {
     INDEX_DOCUMENT: Handler(_run_index, _abandon_index, _after_index),
     ANSWER_QUESTION: Handler(run_answer, abandon_answer),
@@ -486,9 +445,6 @@ HANDLERS: dict[str, Handler] = {
     RECEIVE_MAIL: Handler(_run_receive, _abandon_receive),
     SYNC_CONNECTOR: Handler(_run_sync, _abandon_sync),
     DELIVER_WEBHOOK: Handler(run_delivery, abandon_delivery),
-    RUN_QUESTION_SET: Handler(_run_question_set, _abandon_question_set),
-    WRITE_QUESTION_REPORT: Handler(_write_report, _abandon_report, _after_report),
-    SEND_DIGESTS: Handler(_send_digests, _abandon_digests),
     CONVERT_DOCUMENT: Handler(_run_conversion, _abandon_conversion),
     VIEW_MY_FILE: Handler(_run_my_file_view, _abandon_my_file_view),
 }
@@ -497,8 +453,6 @@ LANE_KINDS = {
         ANSWER_QUESTION,
         RUN_WORKFLOW,
         RUN_AUTOMATION,
-        RUN_QUESTION_SET,
-        WRITE_QUESTION_REPORT,
     ],
     MAILER: [SEND_EMAIL],
 }

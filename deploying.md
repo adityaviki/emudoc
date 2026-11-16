@@ -1177,9 +1177,9 @@ failed answer whole, the versions of the prompts and what the run cost, and exit
 instruction was followed or an answer was not right. Run it after a change to the agent's or the
 indexing model's prompts and after changing either model.
 
-**The prompts' versions.** Each kind of model work (an answer, a question set's answer, a
-discrepancy report, reading a scan, finding a document's sections, enriching it, the golden
-questions' judge) asks with prompts whose version is the first
+**The prompts' versions.** Each kind of model work (an answer, a discrepancy report, reading a
+scan, finding a document's sections, enriching it, the golden questions' judge) asks with prompts
+whose version is the first
 eight hex digits of a hash of what the model is told for it (`backend/app/prompts.py`): its
 instructions, the tools it is offered and the schema of its reply, never the documents or the
 member's words. Nobody bumps a version: an edit to any of them gives a new one with the release
@@ -1740,28 +1740,19 @@ What the app mails, and to whom:
   everyone who sees the project, or nobody), once the run it made after documents arrived is
   worked out and its report written or failed, what its cross-checks found about them, in counts
   and file names, never a value a document states, and nothing when they found nothing about them
-  (`tell_run` in `backend/app/check_runs.py`); to whom a project's question set names (its maker, everyone who sees the
-  project, or nobody; a member's own run to them), once its report is answered, the set's name
-  and how many of its questions were answered, never a question or an answer (`tell_report` in
-  `backend/app/question_reports.py`); and to a member who turned on the weekly digest (off until
-  chosen, by them or as the organisation's default), on Monday from 08:00 of their zone, the
-  documents that arrived over the week in each project of the organisation they see, by name
-  and count, nothing for a week with none (`backend/app/digests.py`: a `send_digests` job that
-  wakes at the top of every hour, queued again by the housekeeper when lost). Each notice
-  is told twice, in the same transaction: in the member's notification centre, under the bell
-  in the app's header (`notifications`, kept `NOTIFICATION_DAYS`, 90, read or not, and gone
-  with the membership of the organisation it is about), and by email. A member chooses each
-  way of each kind on the account page (`users.notices`, every way on until they choose but the
-  weekly digest's, off until chosen); the
-  link at the foot of a notice turns its kind's email off, and a mail program's own
-  "Unsubscribe" does in one click: a notice carries `List-Unsubscribe` and
-  `List-Unsubscribe-Post: List-Unsubscribe=One-Click` (RFC 8058), whose address
-  `/api/mail/unsubscribe` takes the token in it, the member's id and the kind encrypted with
-  `ENCRYPTION_KEYS`, as a mail program posts it, without a session (a token mailed before the
-  kinds were chosen apart names the member alone, and turns every kind's email off). A notice
-  is not mailed to an address the provider said to spare (below). A browser may show the
-  notices as they come too, as the computer's own notifications while the app is open in a tab
-  in the background: the browser's choice, on the account page, kept in its own storage.
+  (`tell_run` in `backend/app/check_runs.py`). Each notice is told twice, in the same
+  transaction: in the member's notification centre, under the bell in the app's header
+  (`notifications`, kept `NOTIFICATION_DAYS`, 90, read or not, and gone with the membership of
+  the organisation it is about), and by email. A member chooses each way of each kind on the
+  account page (`users.notices`, every way on until they choose); the link at the foot of a
+  notice turns its kind's email off, and a mail program's own "Unsubscribe" does in one click: a
+  notice carries `List-Unsubscribe` and `List-Unsubscribe-Post: List-Unsubscribe=One-Click` (RFC
+  8058), whose address `/api/mail/unsubscribe` takes the token in it, the member's id and the
+  kind encrypted with `ENCRYPTION_KEYS`, as a mail program posts it, without a session (a token
+  mailed before the kinds were chosen apart names the member alone, and turns every kind's email
+  off). A notice is not mailed to an address the provider said to spare (below). A browser may
+  show the notices as they come too, as the computer's own notifications while the app is open
+  in a tab in the background: the browser's choice, on the account page, kept in its own storage.
 - **The operator's reports** to `ALERT_EMAIL` ("What the worker mails").
 
 Every message has a plain text and an HTML part, both made from the same template, in one
@@ -2071,9 +2062,7 @@ An organisation's owners and admins give its programs addresses to hear of its w
 (`backend/app/webhooks.py`; the organisation page's Webhooks section says how a program checks a signature): `document.ready` and
 `document.failed` once a document's indexing ended and none is to run after it,
 `check_run.completed` once a run of cross-checks is worked out and its report, when asked for,
-written, and `report.completed` once a question set's report is answered or failed, its body
-what the report is and never what an answer says. The end of the job that brings each about
-announces it, and each delivery is a job of
+written. The end of the job that brings each about announces it, and each delivery is a job of
 its own, `deliver_webhook`, with the indexers: the body is the versioned API's document or run
 in an envelope (`{id, type, created_at, data}`, listed in the contract's `webhooks`), signed
 with the webhook's secret as Stripe signs its own (`Emudoc-Signature: t=…,v1=…`), the secret
@@ -2110,10 +2099,6 @@ every six hours), and so what a team can tell its members is kept, and for how l
   `backend/app/check_runs.py`) go as a chat would, counted from when the run was made
   (`prune_runs` in `backend/app/retention.py`), never one the worker is still working out or
   writing a report for.
-- **Reports of question sets** (`question_reports`, with their answers,
-  `backend/app/question_reports.py`) go as a chat would, counted from when the report was made
-  (`prune_reports`), never one the worker is still answering. A member deletes one for good; the
-  question sets themselves stay until a member deletes them or their project goes.
 - **The trash**: a project, folder, document or chat a member deleted goes for good, rows and
   files, 30 days after it was deleted (`TRASH_DAYS` in `backend/app/trash.py`, `purge_trash` in
   the housekeeping round), unless a member restores it or deletes it for good there first. Its
@@ -2148,10 +2133,8 @@ every six hours), and so what a team can tell its members is kept, and for how l
 - **What the notices were about** ("Mail"): an upload's row, which names who sent
   its files, stays as long as its project, and forgets them when their account goes; a document
   waiting for an automation's run (`automation_arrivals`) goes as the run is made, within a
-  quarter of an hour of its arrival while a worker runs, or with the document, and so does one
-  waiting for a question set's report (`question_set_arrivals`); a membership keeps the Monday
-  of its last weekly digest (`memberships.digested_on`), as long as the membership; a notice
-  in a member's notification centre goes after `NOTIFICATION_DAYS` (90), read or not, and those
+  quarter of an hour of its arrival while a worker runs, or with the document; a notice in a
+  member's notification centre goes after `NOTIFICATION_DAYS` (90), read or not, and those
   about the workspace when they are removed from it.
 
 Backups (and a bucket's object versions) keep a purged account until they expire, so that window,
@@ -3062,10 +3045,8 @@ By kind of work and version of its prompts, the latest first, with the days seen
 ```
 
 The days are those within the span, and a version's calls are many answers' or documents' that
-vary: compare tokens per call, and a golden run for what the answers say. A question set's
-answers are `answer` work with a task of their own after the prompt, so they show as a version
-beside the chats' at once. The embeddings, uploads and pages drawn ask no prompt and are in no
-line.
+vary: compare tokens per call, and a golden run for what the answers say. The embeddings, uploads
+and pages drawn ask no prompt and are in no line.
 
 A day that reached the cap is one on which every question was refused and indexing waited
 for midnight UTC; the answers are those that called a model, counted once

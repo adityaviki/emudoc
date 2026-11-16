@@ -42,9 +42,6 @@ describe('libraryPlace', () => {
       libraryPlace({ folderId: null, facts: 'invoice' }),
       libraryPlace({ folderId: null, facts: 'purchase order' }),
       libraryPlace({ folderId: null, changes: 'invoice' }),
-      libraryPlace({ folderId: null, questionSets: true }),
-      libraryPlace({ folderId: null, report: 12 }),
-      libraryPlace({ folderId: null, report: 13 }),
     ]
     expect(new Set(places).size).toBe(places.length)
   })

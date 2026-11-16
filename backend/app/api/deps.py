@@ -86,8 +86,6 @@ from app.models import (
     MyFile,
     Passage,
     Project,
-    QuestionReport,
-    QuestionSet,
     User,
     WorkflowRun,
 )
@@ -415,33 +413,6 @@ def get_automation(automation_id: int, session: SessionDep, account: AccountDep)
     return automation
 
 
-def get_question_set(set_id: int, session: SessionDep, account: AccountDep) -> QuestionSet:
-    """A project's question set (app/question_sets.py), provided the account sees the project
-    and it is out of the trash."""
-    row = session.scalar(
-        select(QuestionSet)
-        .join(Project, Project.id == QuestionSet.project_id)
-        .where(QuestionSet.id == set_id, visible_to(account))
-    )
-    if row is None:
-        raise HTTPException(404, "Question set not found")
-    about(project_id=row.project_id)
-    return row
-
-
-def get_report(report_id: int, session: SessionDep, account: AccountDep) -> QuestionReport:
-    """A report of a project's question set (app/question_reports.py), under the same terms."""
-    report = session.scalar(
-        select(QuestionReport)
-        .join(Project, Project.id == QuestionReport.project_id)
-        .where(QuestionReport.id == report_id, visible_to(account))
-    )
-    if report is None:
-        raise HTTPException(404, "Report not found")
-    about(project_id=report.project_id)
-    return report
-
-
 def get_my_file(file_id: int, session: SessionDep, account: AccountDep) -> MyFile:
     """A file of the account's own My files (app/my_files.py), provided it still sees the
     project and the project is out of the trash. Another member's file, the project's owners'
@@ -540,21 +511,6 @@ def get_editable_run(
     return run
 
 
-def get_editable_question_set(
-    row: Annotated[QuestionSet, Depends(get_question_set)],
-    account: AccountDep,
-) -> QuestionSet:
-    _refuse_viewer(account)
-    return row
-
-
-def get_editable_report(
-    report: Annotated[QuestionReport, Depends(get_report)], account: AccountDep
-) -> QuestionReport:
-    _refuse_viewer(account)
-    return report
-
-
 def get_editable_fact(fact: Annotated[Fact, Depends(get_fact)], account: AccountDep) -> Fact:
     _refuse_viewer(account)
     return fact
@@ -586,10 +542,6 @@ RunDep = Annotated[WorkflowRun, Depends(get_run)]
 EditableRunDep = Annotated[WorkflowRun, Depends(get_editable_run)]
 AutomationDep = Annotated[Automation, Depends(get_automation)]
 EditableAutomationDep = Annotated[Automation, Depends(get_editable_automation)]
-QuestionSetDep = Annotated[QuestionSet, Depends(get_question_set)]
-EditableQuestionSetDep = Annotated[QuestionSet, Depends(get_editable_question_set)]
-ReportDep = Annotated[QuestionReport, Depends(get_report)]
-EditableReportDep = Annotated[QuestionReport, Depends(get_editable_report)]
 EditableFactDep = Annotated[Fact, Depends(get_editable_fact)]
 EditableFactCheckDep = Annotated[FactCheck, Depends(get_editable_fact_check)]
 OwnChatDep = Annotated[Chat, Depends(get_own_chat)]

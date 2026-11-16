@@ -25,7 +25,6 @@ from app.config import Settings, parse_converter_url, parse_scanner_url
 from app.connectors import providers as folder_services
 from app.connectors.sync import SYNC_INTERVAL
 from app.cross_checks import MAX_CROSS_CHECKS
-from app.digests import DIGEST_HOUR
 from app.export import EXPORT_DAYS
 from app.extraction import BUILT_IN, MAX_TEMPLATES
 from app.idempotency import KEPT as IDEMPOTENCY_KEPT
@@ -38,7 +37,6 @@ from app.my_files import MAX_FILES as MAX_MY_FILES
 from app.notices import NOTICE_AFTER, NOTIFICATION_DAYS
 from app.oidc import providers as sign_in_providers
 from app.parsing import IMAGE_TYPES, SCAN_TYPES, SUPPORTED_EXTENSIONS
-from app.question_sets import MAX_QUESTION_SETS, MAX_SET_QUESTIONS
 from app.recents import RECENT
 from app.retention import DELETION_GRACE
 from app.sample import NAME as SAMPLE_NAME
@@ -62,7 +60,7 @@ ARTICLES = (
     ("asking", "Searching a project and every project, asking, citations, and who sees a chat."),
     (
         "checking",
-        "Extraction templates, the facts table, cross-checks, automations and question sets.",
+        "Extraction templates, the facts table, cross-checks and automations.",
     ),
     (
         "working-together",
@@ -101,7 +99,6 @@ IMAGE_FORMATS = {
     ".heic": "HEIC",
     ".heif": "HEIC",
 }
-WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 
 
 @dataclass(frozen=True)
@@ -180,10 +177,6 @@ def _values(settings: Settings) -> dict[str, str]:
         "max_cross_checks": str(MAX_CROSS_CHECKS),
         "max_automations": str(MAX_AUTOMATIONS),
         "automation_wait": _span(timedelta(seconds=settings.automation_wait)),
-        "max_question_sets": str(MAX_QUESTION_SETS),
-        "max_set_questions": str(MAX_SET_QUESTIONS),
-        "digest_hour": f"{DIGEST_HOUR}:00",
-        "digest_day": WEEKDAYS[0],
         "told": _told(mail),
         # Working together.
         "my_files": str(MAX_MY_FILES),

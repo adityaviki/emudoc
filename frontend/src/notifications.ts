@@ -19,14 +19,6 @@ export const NOTICE_KINDS: Record<NoticeKind, { label: string; detail: string }>
     label: 'An automation ran the cross-checks',
     detail: 'When documents arrived and an automation that tells you ran a project’s cross-checks: what they found about them.',
   },
-  report_ready: {
-    label: 'A question set’s report is ready',
-    detail: 'When a question set that tells you, or one you ran, has its answers ready: how many of its questions were answered.',
-  },
-  weekly_digest: {
-    label: 'What arrived this week',
-    detail: 'On Monday morning, the documents that arrived over the week in the projects you see, by name. Off until you turn it on.',
-  },
 }
 
 /** The kinds of notice no longer told, as the account page named them, for the audit log's rows of a choice made before they went. */
@@ -34,6 +26,8 @@ export const PAST_NOTICE_KINDS: Record<PastNoticeKind, string> = {
   mentioned: 'You are mentioned in a comment',
   thread_replied: 'A reply in a thread you wrote in',
   review_assigned: 'A document is assigned to you',
+  report_ready: 'A question set’s report is ready',
+  weekly_digest: 'What arrived this week',
 }
 
 /** Where the notices are kept in the cache: the newest page, which the bell asks every minute. */

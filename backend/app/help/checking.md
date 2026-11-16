@@ -49,22 +49,8 @@ uploads have stopped for
 $automation_wait, so that a batch is checked once. A project has up to $max_automations, each
 turned off and on again with a press.
 
-## Question sets
-
-A question set asks the questions you ask again and again for you: **Question sets**, "New
-question set", up to $max_set_questions questions, one a line, asked every day, one day a week at
-an hour of your time zone, once new documents arrive, or both. Each round of answers is a
-report, citing the passages as a chat does, and its reports are told to whoever made it,
-everyone who sees the project, or nobody. "Run now" asks them at once, and that report is told to
-you alone. A project has up to $max_question_sets sets.
-
-"What arrived this week", a notice you turn on from your [account page](/account), names on
-$digest_day morning, after $digest_hour in your time zone, the documents that arrived over the week
-in each project you see.
-
 ## Who is told
 
-A run an automation made is told when it finds something about what arrived, and a question
-set's report as its set says: $told. A notice says what happened and where, never an answer.
-Choose how each kind reaches you on your [account page](/account)
-([Your account and sign-in](/help/account)).
+A run an automation made is told when it finds something about what arrived: $told. A notice
+says what happened and where, never an answer. Choose how each kind reaches you on your
+[account page](/account) ([Your account and sign-in](/help/account)).

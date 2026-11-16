@@ -20,7 +20,9 @@ model calls that wrote a project's suggested questions until 2026-11-11, when an
 stopped offering any, and `draft` those of a document the agent wrote into a member's My files
 outside a chat, a disputed document's dispute letter, until reviews went on 2026-11-16 (the
 drafts' until they went on 2026-11-13): nothing records either now, and their rows stay, being
-what those calls cost.
+what those calls cost. So do the rows of a question set's reports, until question sets went on
+2026-11-16: `answer`, the model calls and the questions each report asked, the calls naming the
+report as `question_report`.
 
 The code that spent something records it, from what it counted, when its work ends however it
 ends: a stop, a lost lease or a crash ends an answer's run too, and the calls it made were
@@ -77,7 +79,6 @@ from app.models import (
     MyFile,
     MyFileVersion,
     Project,
-    QuestionReport,
     UsageEvent,
     WorkflowRun,
 )
@@ -95,7 +96,6 @@ REPORT = "report"
 CHAT_MESSAGE = "chat_message"
 DOCUMENT = "document"
 WORKFLOW_RUN = "workflow_run"
-QUESTION_REPORT = "question_report"
 MB = 1_000_000
 GB = 1_000 * MB
 MONTHS = (
@@ -123,7 +123,6 @@ _REFERENCED = {
     CHAT_MESSAGE: ChatMessage,
     DOCUMENT: Document,
     WORKFLOW_RUN: WorkflowRun,
-    QUESTION_REPORT: QuestionReport,
 }
 
 _DAILY = text(
@@ -470,7 +469,7 @@ def add(usage: Mapping[str, Mapping[str, Any]], rows: Iterable[UsageEvent]) -> d
 
 
 def _keep(session: Session, ref: tuple[str, int], rows: Iterable[UsageEvent]) -> None:
-    """Add the rows to the usage the message, document, run or report they were for shows."""
+    """Add the rows to the usage the message, document or run they were for shows."""
     ref_type, ref_id = ref
     # Read again under the row's lock: the object the session holds may be behind the row (a
     # page rendered while the stage ran, the run that was lost charging beside this one), and

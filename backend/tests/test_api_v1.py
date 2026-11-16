@@ -35,10 +35,8 @@ from app.idempotency import (
 from app.indexing.pipeline import process_document
 from app.maintenance import housekeeping
 from app.models import ApiKey, ChatEvent, Document, IdempotencyKey, Project
-from app.question_reports import write_report
 from app.versions import SAME_FILE
 from tests.conftest import FakeTurn
-from tests.test_authorization import QUESTION_SET
 from tests.test_chats import questions_counted
 from tests.test_check_runs import TOTAL, invoices, work
 from tests.test_cross_checks import CROSS_CHECK, DUE
@@ -511,31 +509,6 @@ def test_a_run_of_the_cross_checks_followed_to_its_findings(client, api, session
     assert len(every_one) == got(api, f"/api/v1/check-runs/{run['id']}/findings", rule=0)["total"]
 
 
-def test_a_program_reads_the_reports_of_a_projects_question_sets(client, api, services):
-    project = made(api, "/api/v1/projects", {"name": "Invoices"})
-    question_set = client.post(f"/api/projects/{project['id']}/question-sets", json=QUESTION_SET)
-    report = client.post(f"/api/question-sets/{question_set.json()['id']}/run").json()
-    services.llm.agent_turns.append(FakeTurn(TextPart("Nothing is due.")))
-    write_report(report["id"], services)
-
-    page = got(api, f"/api/v1/projects/{project['id']}/reports")
-    (summary,) = page["data"]
-    assert (summary["id"], summary["trigger"]) == (report["id"], "member")
-    assert (summary["status"], summary["questions"], summary["answered"]) == ("done", 1, 1)
-    assert page["next"] is None
-    assert "answers" not in summary
-    whole = got(api, f"/api/v1/reports/{report['id']}")
-    assert whole["answers"] == [
-        {
-            "question": "What is due?",
-            "status": "done",
-            "answer": "Nothing is due.",
-            "sources": [],
-            "error": None,
-        }
-    ]
-
-
 def test_a_program_gives_a_document_a_new_version_once_and_downloads_the_earlier_file(
     api, services
 ):
@@ -570,9 +543,8 @@ def test_a_program_gives_a_document_a_new_version_once_and_downloads_the_earlier
 
 @dataclass
 class World:
-    """A project with a folder, an indexed document, a chat with one answered question, a run of
-    its cross-check, all made by a program with the local owner's write key, and a report of a
-    question set the owner made and ran in the app."""
+    """A project with a folder, an indexed document, a chat with one answered question and a run of
+    its cross-check, all made by a program with the local owner's write key."""
 
     project_id: int
     folder_id: int
@@ -581,7 +553,6 @@ class World:
     chat_id: int
     message_id: int
     run_id: int
-    report_id: int
 
 
 @pytest.fixture
@@ -605,10 +576,6 @@ def world(client, api, session, services, sample_pdf) -> World:
     )
     run = made(api, f"/api/v1/projects/{project['id']}/check-runs", {})
     run_workflow(run["id"], services)
-    question_set = client.post(f"/api/projects/{project['id']}/question-sets", json=QUESTION_SET)
-    report = client.post(f"/api/question-sets/{question_set.json()['id']}/run").json()
-    services.llm.agent_turns.append(FakeTurn(TextPart("Nothing is due.")))
-    write_report(report["id"], services)
     return World(
         project["id"],
         folder["id"],
@@ -617,7 +584,6 @@ def world(client, api, session, services, sample_pdf) -> World:
         chat["id"],
         asked["answer"]["id"],
         run["id"],
-        report["id"],
     )
 
 
@@ -641,8 +607,6 @@ def reads(w: World) -> list[Route]:
         ("GET", f"/api/v1/projects/{w.project_id}/check-runs", {}),
         ("GET", f"/api/v1/check-runs/{w.run_id}", {}),
         ("GET", f"/api/v1/check-runs/{w.run_id}/findings", {"params": {"rule": 0}}),
-        ("GET", f"/api/v1/projects/{w.project_id}/reports", {}),
-        ("GET", f"/api/v1/reports/{w.report_id}", {}),
     ]
 
 

@@ -106,15 +106,6 @@ TAGS = [
         ),
     },
     {
-        "name": "reports",
-        "x-displayName": "Reports",
-        "description": (
-            "The answers to a project's question sets, asked on a schedule or as documents "
-            "arrive, which members write in the app; 404 for an organisation that does not have "
-            "them yet."
-        ),
-    },
-    {
         "name": "webhooks",
         "x-displayName": "Webhooks",
         "description": (
