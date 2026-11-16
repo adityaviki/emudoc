@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Document } from './api.ts'
+import type { Document, Folder } from './api.ts'
 import { formatDate } from './format.ts'
 import {
   EMPTY_FILTER,
@@ -7,6 +7,7 @@ import {
   emptyPlaceWords,
   filterParts,
   filterWords,
+  folderChoices,
   gridMove,
   datesProblem,
   hasThumbnail,
@@ -142,5 +143,26 @@ describe('the grid', () => {
     expect(hasThumbnail({ ...word, view_state: 'ready' })).toBe(true)
     expect(hasThumbnail({ ...word, view_state: 'queued' })).toBe(false)
     expect(hasThumbnail({ ...word, view_state: null })).toBe(false)
+  })
+})
+
+describe('the folders a form offers', () => {
+  const folder = (id: number, name: string, parent_id: number | null = null): Folder => ({
+    id,
+    project_id: 1,
+    parent_id,
+    name,
+    created_at: '2026-10-23T14:05:00Z',
+    document_count: 0,
+  })
+
+  it('are in the library’s order, each by its path', () => {
+    const folders = [folder(1, 'Inbox'), folder(2, 'invoices 10', 1), folder(3, 'Invoices 2', 1), folder(4, 'Archive')]
+    expect(folderChoices(folders)).toEqual([
+      { id: 4, label: 'Archive' },
+      { id: 1, label: 'Inbox' },
+      { id: 3, label: 'Inbox/Invoices 2' },
+      { id: 2, label: 'Inbox/invoices 10' },
+    ])
   })
 })

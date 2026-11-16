@@ -80,6 +80,15 @@ def set_lease(session, job_id: int, hours_from_now: float) -> None:
     session.commit()
 
 
+def next_job(services, kind: str) -> Job | None:
+    """Run the next due job of the kind as the worker does, its row ended after."""
+    worker = Worker(services, concurrency=1)
+    job = claim(worker.id, [kind])
+    if job is not None:
+        worker._run(job)
+    return job
+
+
 def lose(session, job_id: int, attempts: int = 1) -> None:
     """Leave the job as a worker that died mid-run does: running, with its lease run out."""
     session.execute(

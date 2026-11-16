@@ -109,9 +109,6 @@ describe('buildWorkspaceUrl', () => {
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, templates: true } })).toBe('/projects/3?templates=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, facts: 'purchase order' } })).toBe('/projects/3?facts=purchase+order')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, changes: 'invoice' } })).toBe('/projects/3?changes=invoice')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, checks: true } })).toBe('/projects/3?checks=')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, check: 5 } })).toBe('/projects/3?check=5')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, run: 8 } })).toBe('/projects/3?run=8')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, writingTemplates: true } })).toBe('/projects/3?writing-templates=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, mail: true } })).toBe('/projects/3?mail=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, connectors: true } })).toBe('/projects/3?connectors=')
@@ -137,9 +134,6 @@ describe('buildWorkspaceUrl', () => {
       { ...home, library: { folderId: null, templates: true }, document: { id: 41, focus: null } },
       { ...home, library: { folderId: null, facts: 'delivery note' }, document: { id: 41, focus: { block: 7 } } },
       { ...home, library: { folderId: null, changes: 'delivery note' }, chatId: 12 },
-      { ...home, library: { folderId: null, checks: true }, chatId: 12 },
-      { ...home, library: { folderId: null, check: 5 }, document: { id: 41, focus: { block: 2 } } },
-      { ...home, library: { folderId: null, run: 8 }, document: { id: 41, focus: { block: 2 } } },
       { ...home, library: { folderId: null, writingTemplates: true }, chatId: 12 },
       { ...home, library: { folderId: null, mail: true }, chatId: 12 },
       { ...home, library: { folderId: null, connectors: true } },
@@ -166,6 +160,11 @@ describe('buildWorkspaceUrl', () => {
     // sets' own place.
     expect(buildWorkspaceUrl(parse('/projects/3?report=12')!)).toBe('/projects/3')
     expect(buildWorkspaceUrl(parse('/projects/3?question-sets')!)).toBe('/projects/3')
+    // A notice's link to an automation's run, from before cross-checks went, opens the library, and so do the
+    // cross-checks' own place and a rule's findings.
+    expect(buildWorkspaceUrl(parse('/projects/3?run=8')!)).toBe('/projects/3')
+    expect(buildWorkspaceUrl(parse('/projects/3?checks')!)).toBe('/projects/3')
+    expect(buildWorkspaceUrl(parse('/projects/3?check=5')!)).toBe('/projects/3')
   })
 })
 

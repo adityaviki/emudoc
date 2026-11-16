@@ -8,7 +8,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Header
 
-from app.api.v1.schemas import CheckRunEvent, DocumentEvent
+from app.api.v1.schemas import DocumentEvent
 from app.webhooks import FIRST_WAIT, MAX_TRIES, TIMEOUT, TOLERANCE
 
 events = APIRouter(tags=["webhooks"])
@@ -45,11 +45,3 @@ def document_ready(body: DocumentEvent, signature: Signature, event: Event) -> N
 def document_failed(body: DocumentEvent, signature: Signature, event: Event) -> None:
     """A document could not be read, or the malware scan quarantined it: its indexing ended, and
     no other is to run after it. `data.error` says why."""
-
-
-@events.post(
-    "check_run.completed", summary="A run of cross-checks is worked out", response_description=TAKEN
-)
-def check_run_completed(body: CheckRunEvent, signature: Signature, event: Event) -> None:
-    """A run of a project's cross-checks was worked out, or failed, and its discrepancy report,
-    when one was asked for, was written or failed. Sent again when a report is asked for after."""

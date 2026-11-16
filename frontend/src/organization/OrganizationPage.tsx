@@ -609,7 +609,7 @@ function WebhooksSection() {
     <Section
       id="webhooks"
       title="Webhooks"
-      description="Emudoc posts what happens in the workspace's projects to your programs' addresses as it happens, each event signed with the webhook's secret: a document indexed, or not, and a run of cross-checks worked out."
+      description="Emudoc posts what happens in the workspace's projects to your programs' addresses as it happens, each event signed with the webhook's secret: a document indexed, or not."
     >
       {shown && <NewSecret made={shown} onDone={() => setShown(null)} />}
       <WebhookForm

@@ -4,17 +4,16 @@ rather than asked again and again.
 An organisation's owners and admins add a webhook on its page (app/api/webhooks.py): an address
 and the events it is told of, of WEBHOOK_EVENTS. A document's indexing that ends, ready or not,
 is `document.ready` or `document.failed`, once its document is settled, its index job ended and
-none queued after it (a retry waiting is not settled); a run of cross-checks worked out, its
-report written or failed when one was asked for, is `check_run.completed`; a report of a
-question set's answers kept was `report.completed` until question sets went (S.6, 2026-11-16).
-Each is announced from the end of the job that brought it about (`Handler.after` in
-app/worker.py), once the job's row says it ended, and a job's end looked at twice announces
-nothing twice: a delivery is unique by its hook and that job. A document indexed again, or a
-run whose report is asked for after, settles again and is announced again, under a new event.
+none queued after it (a retry waiting is not settled). A report of a question set's answers kept
+was `report.completed`, and a run of cross-checks worked out `check_run.completed`, until question
+sets and cross-checks went (S.6, 2026-11-16). Each is announced from the end of the job that
+brought it about (`Handler.after` in app/worker.py), once the job's row says it ended, and a
+job's end looked at twice announces nothing twice: a delivery is unique by its hook and that
+job. A document indexed again settles again and is announced again, under a new event.
 
 An event's body is the versioned API's own (app/api/v1/): `{id, type, created_at, data}`, `data`
-what `GET /api/v1/…` answers for the document or the run, so that a program reads one model
-however it heard, and the contract lists the events beside the routes (OpenAPI's `webhooks`).
+what `GET /api/v1/…` answers for the document, so that a program reads one model however it
+heard, and the contract lists the events beside the routes (OpenAPI's `webhooks`).
 The body is made once, as the event is announced, and every try sends those bytes, so that the
 event's `id` names one body however often it is sent.
 
@@ -79,7 +78,6 @@ from app.models import (
     Project,
     Webhook,
     WebhookDelivery,
-    WorkflowRun,
 )
 from app.network import on_own_network, reaches_out
 from app.version import VERSION
@@ -90,7 +88,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-DOCUMENT_READY, DOCUMENT_FAILED, CHECK_RUN_COMPLETED = WEBHOOK_EVENTS
+DOCUMENT_READY, DOCUMENT_FAILED = WEBHOOK_EVENTS
 PREFIX = "whsec_"
 # The most webhooks one organisation holds, so that one event is not posted a hundred times.
 MAX_WEBHOOKS = 10
@@ -234,38 +232,6 @@ def announce_document(document_id: int, job_id: int) -> int:
             job_id,
             lambda event_id, created_at: DocumentEvent(
                 id=event_id, type=event, created_at=created_at, data=document_of(document)
-            ),
-        )
-        session.commit()
-        return told
-
-
-def announce_run(run_id: int, job_id: int) -> int:
-    """Announce a run of cross-checks worked out to the organisation's webhooks that listen for
-    it, once the job `job_id` that worked it out or wrote its report ended; returns to how many.
-    A run still under way, or whose report is, or in a project in the trash, announces nothing."""
-    from app.api.v1.runs import run_of
-    from app.api.v1.schemas import CheckRunEvent
-
-    with SessionLocal() as session:
-        run = session.get(WorkflowRun, run_id)
-        if (
-            run is None
-            or run.status not in ("done", "failed")
-            or run.report_status in ("queued", "writing")
-        ):
-            return 0
-        project = session.get(Project, run.project_id)
-        if project.deleted_at is not None:
-            return 0
-        told = _announce(
-            session,
-            project.organization,
-            CHECK_RUN_COMPLETED,
-            run_id,
-            job_id,
-            lambda event_id, created_at: CheckRunEvent(
-                id=event_id, type=CHECK_RUN_COMPLETED, created_at=created_at, data=run_of(run)
             ),
         )
         session.commit()

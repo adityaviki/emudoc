@@ -88,20 +88,19 @@ def test_owners_and_admins_change_the_settings_and_each_change_is_audited(
         language="german",
         chat_days=90,
         audit_days=730,
-        notices=[{"kind": "checks_run", "email": False}],
+        notices=[{"kind": "project_export", "email": False}],
     )
     assert (organization["language"], organization["chat_days"]) == ("german", 90)
     assert organization["audit_days"] == 730
     assert organization["notice_defaults"] == [
         {"kind": "upload_indexed", "app": True, "email": True},
-        {"kind": "project_export", "app": True, "email": True},
-        {"kind": "checks_run", "app": True, "email": False},
+        {"kind": "project_export", "app": True, "email": False},
     ]
     assert settings_changed(session, org_id) == [
         {"setting": "language", "from": None, "to": "german"},
         {"setting": "chat_days", "from": None, "to": 90},
         {"setting": "audit_days", "from": 365, "to": 730},
-        {"setting": "notices", "kind": "checks_run", "way": "email", "from": True, "to": False},
+        {"setting": "notices", "kind": "project_export", "way": "email", "from": True, "to": False},
     ]
     # The same again changes nothing, and writes nothing.
     change(
@@ -109,7 +108,7 @@ def test_owners_and_admins_change_the_settings_and_each_change_is_audited(
         language="german",
         chat_days=90,
         audit_days=730,
-        notices=[{"kind": "checks_run", "email": False}],
+        notices=[{"kind": "project_export", "email": False}],
     )
     assert len(settings_changed(session, org_id)) == 4
 
@@ -284,25 +283,25 @@ def test_members_are_told_as_the_organisation_says_until_they_choose(
 ):
     ann = make_account("ann@globex.example")
     act_as(ann)
-    change(client, notices=[{"kind": "checks_run", "app": False, "email": False}])
+    change(client, notices=[{"kind": "project_export", "app": False, "email": False}])
     session.expire_all()
     organization = session.get(Organization, ann.organization.id)
     user = session.get(User, ann.user.id)
 
-    assert not tell(session, user, organization.id, "checks_run", news(), "/projects/1", APP)
+    assert not tell(session, user, organization.id, "project_export", news(), "/projects/1", APP)
     session.commit()
     assert session.scalar(select(Notification.id)) is None and told(mailer) == []
     # The account page shows what the organisation says, where the member did not choose.
-    choice = next(c for c in me(client).json()["notices"] if c["kind"] == "checks_run")
-    assert choice == {"kind": "checks_run", "app": False, "email": False}
+    choice = next(c for c in me(client).json()["notices"] if c["kind"] == "project_export")
+    assert choice == {"kind": "project_export", "app": False, "email": False}
 
     # The member's own choice wins over it.
-    chosen = {"notices": [{"kind": "checks_run", "email": True}]}
+    chosen = {"notices": [{"kind": "project_export", "email": True}]}
     response = client.patch("/api/auth/profile", json=chosen)
     assert response.status_code == 200, response.text
     session.expire_all()
-    assert user.notices == {"checks_run": {"email": True}}
-    assert tell(session, user, organization.id, "checks_run", news(), "/projects/1", APP)
+    assert user.notices == {"project_export": {"email": True}}
+    assert tell(session, user, organization.id, "project_export", news(), "/projects/1", APP)
     session.commit()
     assert session.scalar(select(Notification.id)) is None and len(told(mailer)) == 1
     # Another kind is told as before.

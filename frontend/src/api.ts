@@ -29,7 +29,7 @@ export type UsageKind =
   | 'suggestions'
 
 /**
- * What one kind of work used for a document, an answer or a run of cross-checks, summed over every run for it. A
+ * What one kind of work used for a document or an answer, summed over every run for it. A
  * unit the work did not count is 0 from the API and absent from the `done` event; the cost
  * is in millionths of the currency the status names, and null without a price for the model.
  */
@@ -533,155 +533,6 @@ export interface FactTable {
   next_after: string | null
 }
 
-/** How a cross-check pairs a checked document with those it is compared with: itself, those of the other kind stating the same key, or every one of the other kind. */
-export type CrossCheckPairing = 'same' | 'key' | 'every'
-export type CrossCheckComparison = 'equal' | 'at_most' | 'at_least' | 'same_words' | 'same_numbers'
-export type FindingOutcome = 'differs' | 'missing' | 'holds'
-/** Why a finding is what it is (OUTCOME_OF in backend/app/cross_checks.py). */
-export type FindingReason =
-  | 'holds'
-  | 'differs'
-  | 'currency'
-  | 'no_value'
-  | 'no_key'
-  | 'no_partner'
-  | 'no_partner_value'
-  | 'no_item'
-  | 'untyped'
-
-/** A cross-check as a member writes it, whole (CrossCheckIn in backend/app/schemas.py): the server makes the kinds lowercase words and the fields' names snake_case. */
-export interface CrossCheckInput {
-  title: string
-  left_kind: string
-  left_field: string
-  right_kind: string
-  right_field: string
-  pairing: CrossCheckPairing
-  left_key: string | null
-  right_key: string | null
-  by_item: boolean
-  comparison: CrossCheckComparison
-  /** How far apart the two may be and still agree: days between dates, else in the values' units. */
-  margin: number
-  /** Whether the values of every document paired are added up before they are compared. */
-  summed: boolean
-}
-
-/** A rule offered to the project (CrossCheckSuggestionOut), added as it is. */
-export interface CrossCheckSuggestion extends CrossCheckInput {
-  left_type: FactType
-  right_type: FactType
-}
-
-export type FindingCounts = Record<FindingOutcome, number>
-
-/** A project's cross-check (CrossCheckOut): the rule, the types of the fields it compares as its templates hold them now (null for one gone), why it cannot be worked out with them if it cannot, and what it finds now. */
-export interface CrossCheck extends CrossCheckInput {
-  id: number
-  left_type: FactType | null
-  right_type: FactType | null
-  problem: string | null
-  counts: FindingCounts | null
-  updated_at: string
-}
-
-/** What a cross-check found for a value of one of the documents it checks (FindingOut): the value checked, those it was compared with, each with where it was found, the documents paired with it, and how far apart the two were, in days for dates. */
-export interface Finding {
-  document_id: number
-  title: string
-  filename: string
-  outcome: FindingOutcome
-  reason: FindingReason
-  left: Fact | null
-  right: Fact[]
-  partners: { document_id: number; title: string }[]
-  difference: number | null
-}
-
-/** A page of a cross-check's findings (FindingsOut), those of one outcome or all. */
-export interface Findings {
-  check: CrossCheck
-  outcome: FindingOutcome | null
-  findings: Finding[]
-  total: number
-  next_after: string | null
-}
-
-/** How far a run of cross-checks is (backend/app/check_runs.py), and its discrepancy report. */
-export type RunStatus = 'queued' | 'running' | 'done' | 'failed'
-export type ReportStatus = 'queued' | 'writing' | 'done' | 'failed'
-
-/** A rule of a run as it was when the run was made (CheckRunRuleOut): its cross-check's id, which may be gone since, and once worked out, why it could not be or what it found. */
-export interface CheckRunRule extends CrossCheckInput {
-  check_id: number
-  left_type: FactType | null
-  right_type: FactType | null
-  problem: string | null
-  counts: FindingCounts | null
-}
-
-/** What an automation's run was made for (RunTriggerOut): the automation, its id null once it is deleted, and how many documents arrived, those it watches and those its checks compare them with, the first few by name. */
-export interface RunTrigger {
-  automation_id: number | null
-  automation: string
-  documents: number
-  partners: number
-  names: string[]
-}
-
-/** A run as the project's list shows it (CheckRunSummaryOut): who ran it (null once their account is gone, or for an automation's run, which `trigger` names), its rules' names and what they found together. */
-export interface CheckRunSummary {
-  id: number
-  status: RunStatus
-  report_status: ReportStatus | null
-  run_by: string | null
-  trigger: RunTrigger | null
-  titles: string[]
-  counts: FindingCounts | null
-  created_at: string
-  finished_at: string | null
-}
-
-/** A run whole (CheckRunOut): its rules, why it failed, and its report, which cites `report_sources` as [P<id>]. */
-export interface CheckRun extends CheckRunSummary {
-  project_id: number
-  user_id: number | null
-  error: string | null
-  rules: CheckRunRule[]
-  report: string
-  report_sources: Source[]
-  report_notice: string | null
-  report_error: string | null
-  usage: Record<string, Usage>
-}
-
-/** Whom an automation tells what a run found (backend/app/automations.py): its maker, everyone who sees the project, or nobody. */
-export type AutomationAudience = 'maker' | 'project' | 'nobody'
-
-/** An automation as a member writes it, whole (AutomationIn): the kind it watches (null for any document), the folder (null for the whole project), the cross-checks it runs (null for every one), its report, whom it tells, whether what its checks compare with runs it again, and whether it is on. */
-export interface AutomationInput {
-  title: string
-  kind: string | null
-  folder_id: number | null
-  check_ids: number[] | null
-  report: boolean
-  audience: AutomationAudience
-  recheck: boolean
-  enabled: boolean
-}
-
-/** A project's automation (AutomationOut): its folder's path and its chosen cross-checks' names as they are now, who made it, why it would run nothing as the project stands, and when it last ran. */
-export interface Automation extends AutomationInput {
-  id: number
-  folder: string | null
-  checks: string[] | null
-  created_by: number | null
-  made_by: string | null
-  problem: string | null
-  last_run_at: string | null
-  updated_at: string
-}
-
 /** A project's address as its members set it (MailboxIn): whom it takes mail from besides themselves, each an address or a domain, and the folder what arrives goes into, the root when null. */
 export interface MailboxInput {
   senders: string[]
@@ -757,16 +608,6 @@ export interface RemoteFolder {
   ref: string
   name: string
   choosable: boolean
-}
-
-/** A page of what one rule of a run found, as it was found (RunFindingsOut); `gone` the documents it names that were deleted or put in the trash since. */
-export interface RunFindings {
-  rule: CheckRunRule
-  outcome: FindingOutcome | null
-  findings: Finding[]
-  total: number
-  next_after: number | null
-  gone: number[]
 }
 
 /** What a file of a member's My files is (MY_FILE_KINDS in backend/app/models.py). */
@@ -1263,10 +1104,10 @@ export interface Member {
 }
 
 /** The kinds of notice (NOTICE_KINDS in backend/app/models.py, backend/app/notices.py). */
-export type NoticeKind = 'upload_indexed' | 'project_export' | 'checks_run'
+export type NoticeKind = 'upload_indexed' | 'project_export'
 
 /** The kinds of notice no longer told, whose notices stay in the centre to read (PAST_NOTICE_KINDS in backend/app/models.py). */
-export type PastNoticeKind = 'mentioned' | 'thread_replied' | 'review_assigned' | 'report_ready' | 'weekly_digest'
+export type PastNoticeKind = 'mentioned' | 'thread_replied' | 'review_assigned' | 'report_ready' | 'weekly_digest' | 'checks_run'
 
 /** How one kind of notice is told: in the notification centre, by email, both or neither. */
 export interface NoticeChoice {
@@ -1567,7 +1408,7 @@ export interface ApiKeyMade extends ApiKey {
 }
 
 /** What a webhook is told of (WEBHOOK_EVENTS in backend/app/models.py), and how a delivery to it stands. */
-export type WebhookEvent = 'document.ready' | 'document.failed' | 'check_run.completed'
+export type WebhookEvent = 'document.ready' | 'document.failed'
 export type WebhookDeliveryStatus = 'pending' | 'delivered' | 'failed'
 
 /** An event sent to a webhook, as its delivery log shows it (WebhookDeliveryOut in backend/app/schemas.py): never what it said. */
@@ -2274,46 +2115,6 @@ export const api = {
   /** Take a check back: its fact reads as the model read it again. */
   removeCheck: (id: number) => request<void>(`/fact-checks/${id}`, { method: 'DELETE' }),
 
-  /** The project's cross-checks, each with what it finds now, and the suggested rules its templates allow. */
-  crossChecks: (projectId: number) =>
-    request<{ checks: CrossCheck[]; suggestions: CrossCheckSuggestion[]; max_checks: number }>(`/projects/${projectId}/cross-checks`),
-  createCrossCheck: (projectId: number, body: CrossCheckInput) =>
-    request<CrossCheck>(`/projects/${projectId}/cross-checks`, json('POST', body)),
-  updateCrossCheck: (id: number, body: CrossCheckInput) => request<CrossCheck>(`/cross-checks/${id}`, json('PUT', body)),
-  deleteCrossCheck: (id: number) => request<void>(`/cross-checks/${id}`, { method: 'DELETE' }),
-  /** A page of what the cross-check finds now, those of one outcome or all, past `after`. */
-  findings: (id: number, outcome: FindingOutcome | null, after: string | null = null) => {
-    const query = new URLSearchParams()
-    if (outcome) query.set('outcome', outcome)
-    if (after) query.set('after', after)
-    return request<Findings>(`/cross-checks/${id}/findings${query.size ? `?${query}` : ''}`)
-  },
-  /** Run the project's cross-checks, those named or all of them, and have the agent write the report once they are worked out when `report`. */
-  runChecks: (projectId: number, body: { check_ids?: number[]; report: boolean }) =>
-    request<CheckRun>(`/projects/${projectId}/check-runs`, json('POST', body)),
-  /** A page of the project's runs, newest first, before the run `before` names. */
-  checkRuns: (projectId: number, before: number | null = null) =>
-    request<{ runs: CheckRunSummary[]; next_before: number | null }>(
-      `/projects/${projectId}/check-runs${before != null ? `?before=${before}` : ''}`,
-    ),
-  checkRun: (id: number) => request<CheckRun>(`/check-runs/${id}`),
-  /** A page of what one rule of the run found, those of one outcome or all, past `after`. */
-  runFindings: (id: number, rule: number, outcome: FindingOutcome | null, after: number | null = null) => {
-    const query = new URLSearchParams({ rule: String(rule) })
-    if (outcome) query.set('outcome', outcome)
-    if (after != null) query.set('after', String(after))
-    return request<RunFindings>(`/check-runs/${id}/findings?${query}`)
-  },
-  /** Have the agent write the run's discrepancy report, or write it again. */
-  askReport: (id: number) => request<CheckRun>(`/check-runs/${id}/report`, { method: 'POST' }),
-  deleteCheckRun: (id: number) => request<void>(`/check-runs/${id}`, { method: 'DELETE' }),
-  /** The project's automations, which run its cross-checks as documents arrive. */
-  automations: (projectId: number) =>
-    request<{ automations: Automation[]; max_automations: number }>(`/projects/${projectId}/automations`),
-  createAutomation: (projectId: number, body: AutomationInput) =>
-    request<Automation>(`/projects/${projectId}/automations`, json('POST', body)),
-  updateAutomation: (id: number, body: AutomationInput) => request<Automation>(`/automations/${id}`, json('PUT', body)),
-  deleteAutomation: (id: number) => request<void>(`/automations/${id}`, { method: 'DELETE' }),
   /** The project's address, with what it received lately. */
   mailbox: (projectId: number) => request<Mailbox>(`/projects/${projectId}/mailbox`),
   /** Give the project an address, or change whom it takes mail from and where it goes. */

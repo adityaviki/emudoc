@@ -3,13 +3,13 @@
 prompts from one after it.
 
 A version is the first eight hex digits of a SHA-256 over what the app tells the model to do for
-one kind of work: its instructions (the system prompt, the task said after it, a request's own
-words), the tools it is offered, by name, description and input schema, and the schema its reply
-is held to. Nothing is bumped by hand: an edit to any of them gives a new version, so a version
-that stayed means none was edited. What the model is given to work on is in none, since it varies
-by run: the documents, the member's words, a tool's result, the input a draft or a report is
-written from, a template's fields, the project's name and the date. Nor are the model's settings,
-nor what Pydantic AI writes around a request, which a release of it may change under one version.
+one kind of work: its instructions (the system prompt, a request's own words), the tools it is
+offered, by name, description and input schema, and the schema its reply is held to. Nothing is
+bumped by hand: an edit to any of them gives a new version, so a version that stayed means none
+was edited. What the model is given to work on is in none, since it varies by run: the
+documents, the member's words, a tool's result, a template's fields, the project's name and the
+date. Nor are the model's settings, nor what Pydantic AI writes around a request, which a release
+of it may change under one version.
 
 Each module that asks the model works out its kind's version beside its prompts, once, as it is
 imported (`ANSWER_PROMPT_VERSION` in app/answers.py, `ENRICH_PROMPT_VERSION` in
@@ -22,9 +22,9 @@ other change to its code, which is why only the functions that write instruction
 Python or Pydantic release that prints code or a schema differently changes every version once.
 
 The usage rows a kind's model calls are recorded in carry its version (`prompt_version` in
-app/usage.py), and the usage an answer, a document, a run or a draft shows keeps the latest by
-kind; the `costs` command splits each kind's cost by version (`prompt_costs`), and the `golden`
-and `fact-accuracy` reports name the versions they ran.
+app/usage.py), and the usage an answer or a document shows keeps the latest by kind; the
+`costs` command splits each kind's cost by version (`prompt_costs`), and the `golden` and
+`fact-accuracy` reports name the versions they ran.
 
 What the model works on is shown inside tags the prompt names (`<document>`, the
 agent's `<project_data>`), which the prompt says hold data and never instructions. `untagged`

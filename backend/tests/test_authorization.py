@@ -9,7 +9,6 @@ from docx import Document as WordDocument
 from pydantic_ai.messages import TextPart
 
 from app.answers import answer
-from app.check_runs import run_workflow
 from app.config import get_settings
 from app.encrypted import CONNECTOR_TOKENS, encrypt
 from app.indexing.pipeline import process_document
@@ -17,13 +16,10 @@ from app.models import Connector
 from tests.conftest import FakeTurn
 from tests.test_api import create_project
 from tests.test_chats import answered, ask, new_chat
-from tests.test_cross_checks import CROSS_CHECK
 from tests.test_folders import make_folder
 from tests.test_templates import INVOICE
 
 Route = tuple[str, str, dict]
-# An automation of the world's project (tests/test_automations.py imports this module).
-AUTOMATION = {"title": "New invoices", "kind": "invoice"}
 
 
 def word(text: str) -> bytes:
@@ -38,11 +34,11 @@ def word(text: str) -> bytes:
 @dataclass
 class World:
     """A project with a folder, an indexed document with a fact a member checked, the upload it came
-    in with, an extraction template of its own, a cross-check with a run of it and an automation,
-    and a chat holding one answered question, and in its trash a folder, a document and a chat;
-    another project in the trash; an invitation to the organisation and an API key of it, all made
-    by the local owner in the local organisation, and another member of it; the project has an
-    address, a folder of the owner's Google Drive connected, and its document a share link."""
+    in with, an extraction template of its own, and a chat holding one answered question, and in
+    its trash a folder, a document and a chat; another project in the trash; an invitation to the
+    organisation and an API key of it, all made by the local owner in the local organisation, and
+    another member of it; the project has an address, a folder of the owner's Google Drive
+    connected, and its document a share link."""
 
     org_id: int
     project_id: int
@@ -63,9 +59,6 @@ class World:
     template_id: int
     fact_id: int
     check_id: int
-    cross_check_id: int
-    run_id: int
-    automation_id: int
     connector_id: int
     webhook_id: int
     link_id: int
@@ -111,10 +104,6 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
     template = client.post(f"/api/projects/{project['id']}/templates", json=INVOICE)
     fact = client.get(f"/api/documents/{document['id']}/facts").json()[0]
     checked = client.put(f"/api/facts/{fact['id']}/check", json={}).json()
-    cross_check = client.post(f"/api/projects/{project['id']}/cross-checks", json=CROSS_CHECK)
-    checked_run = client.post(f"/api/projects/{project['id']}/check-runs", json={}).json()
-    run_workflow(checked_run["id"], services)
-    automation = client.post(f"/api/projects/{project['id']}/automations", json=AUTOMATION)
     given = client.put(f"/api/projects/{project['id']}/mailbox", json={"senders": ["acme.example"]})
     assert given.status_code == 200, given.text
     connector = Connector(
@@ -162,9 +151,6 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
         template.json()["id"],
         fact["id"],
         checked["check"]["id"],
-        cross_check.json()["id"],
-        checked_run["id"],
-        automation.json()["id"],
         connector.id,
         hook.json()["id"],
         link.json()["id"],
@@ -195,12 +181,6 @@ def reads(w: World) -> list[Route]:
             {"params": {"kind": "invoice"}},
         ),
         ("GET", f"/api/projects/{w.project_id}/fact-changes", {"params": {"kind": "invoice"}}),
-        ("GET", f"/api/projects/{w.project_id}/cross-checks", {}),
-        ("GET", f"/api/cross-checks/{w.cross_check_id}/findings", {}),
-        ("GET", f"/api/projects/{w.project_id}/check-runs", {}),
-        ("GET", f"/api/check-runs/{w.run_id}", {}),
-        ("GET", f"/api/check-runs/{w.run_id}/findings", {"params": {"rule": 0}}),
-        ("GET", f"/api/projects/{w.project_id}/automations", {}),
         ("GET", f"/api/projects/{w.project_id}/mailbox", {}),
         ("GET", f"/api/projects/{w.project_id}/connectors", {}),
         ("GET", f"/api/projects/{w.project_id}/draft-templates", {}),
@@ -248,12 +228,6 @@ def writes(w: World) -> list[Route]:
             {"json": {**INVOICE, "doc_type": "credit note"}},
         ),
         ("PUT", f"/api/templates/{w.template_id}", {"json": INVOICE}),
-        ("POST", f"/api/projects/{w.project_id}/cross-checks", {"json": CROSS_CHECK}),
-        ("PUT", f"/api/cross-checks/{w.cross_check_id}", {"json": CROSS_CHECK}),
-        ("POST", f"/api/projects/{w.project_id}/check-runs", {"json": {}}),
-        ("POST", f"/api/check-runs/{w.run_id}/report", {}),
-        ("POST", f"/api/projects/{w.project_id}/automations", {"json": AUTOMATION}),
-        ("PUT", f"/api/automations/{w.automation_id}", {"json": AUTOMATION}),
         (
             "PUT",
             f"/api/projects/{w.project_id}/draft-templates/report",
@@ -288,12 +262,9 @@ def writes(w: World) -> list[Route]:
         ),
         ("POST", f"/api/documents/{w.document_id}/share-links", {"json": {}}),
         ("DELETE", f"/api/fact-checks/{w.check_id}", {}),
-        ("DELETE", f"/api/check-runs/{w.run_id}", {}),
         ("DELETE", f"/api/projects/{w.project_id}/draft-templates/report", {}),
-        ("DELETE", f"/api/automations/{w.automation_id}", {}),
         ("DELETE", f"/api/projects/{w.project_id}/mailbox", {}),
         ("DELETE", f"/api/projects/{w.project_id}/connectors/{w.connector_id}", {}),
-        ("DELETE", f"/api/cross-checks/{w.cross_check_id}", {}),
         ("DELETE", f"/api/templates/{w.template_id}", {}),
         ("DELETE", f"/api/folders/{w.folder_id}", {}),
         ("DELETE", f"/api/documents/{w.document_id}", {}),

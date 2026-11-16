@@ -1,5 +1,5 @@
-// What an answer or a run's report used, put into words (ChatPane and RunView show it), and the days and months of
-// the workspace's usage page (backend/app/api/usage.py).
+// What an answer used, put into words (ChatPane shows it), and the days and months of the workspace's usage page
+// (backend/app/api/usage.py).
 
 import type { Usage } from './api.ts'
 

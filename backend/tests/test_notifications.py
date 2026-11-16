@@ -48,7 +48,13 @@ def titles(page: dict) -> list[str]:
 
 def test_a_notice_is_told_in_the_app_beside_its_mail(client, session, mailer, ann):
     told_in_app = tell(
-        session, ann.user, ann.organization.id, "checks_run", news("Checked"), "/projects/1", APP
+        session,
+        ann.user,
+        ann.organization.id,
+        "project_export",
+        news("Checked"),
+        "/projects/1",
+        APP,
     )
     assert told_in_app
     session.commit()
@@ -60,7 +66,7 @@ def test_a_notice_is_told_in_the_app_beside_its_mail(client, session, mailer, an
     assert notice.pop("created_at") and notice.pop("id")
     # Its words are the mail's but the greeting and the link, which leads to the same page.
     assert notice == {
-        "kind": "checks_run",
+        "kind": "project_export",
         "title": mail.subject,
         "body": "Said.",
         "link": "/projects/1",
@@ -71,8 +77,8 @@ def test_a_notice_is_told_in_the_app_beside_its_mail(client, session, mailer, an
 
 def test_each_way_of_each_kind_is_chosen_apart(client, session, mailer, ann):
     user, org_id = ann.user, ann.organization.id
-    user.choose("checks_run", "app", False)
-    assert tell(session, user, org_id, "checks_run", news("By email"), "/projects/1", APP)
+    user.choose("project_export", "app", False)
+    assert tell(session, user, org_id, "project_export", news("By email"), "/projects/1", APP)
     user.choose("upload_indexed", "email", False)
     assert tell(session, user, org_id, "upload_indexed", news("In the app"), "/projects/1", APP)
     user.choose("upload_indexed", "app", False)
@@ -107,7 +113,7 @@ def test_notices_are_marked_read_one_or_all_and_only_the_members_own(
 ):
     bob = make_account("bob@globex.example", ann.organization, "member")
     for user in (ann.user, ann.user, bob.user):
-        tell(session, user, ann.organization.id, "checks_run", news(user.name), "/", APP)
+        tell(session, user, ann.organization.id, "project_export", news(user.name), "/", APP)
     session.commit()
     ids = [notice["id"] for notice in centre(client)["notifications"]]
     bobs = session.scalar(select(Notification.id).where(Notification.user_id == bob.user.id))
@@ -129,7 +135,15 @@ def test_a_member_removed_loses_the_workspaces_notices(client, session, request)
     # Ada and Bob, a member of her workspace, each signed in (`team`).
     ada, bob, bob_client = request.getfixturevalue("team")
     workspace = ada["organization"]["id"]
-    tell(session, session.get(User, bob["id"]), workspace, "checks_run", news("About it"), "/", APP)
+    tell(
+        session,
+        session.get(User, bob["id"]),
+        workspace,
+        "project_export",
+        news("About it"),
+        "/",
+        APP,
+    )
     session.commit()
     assert titles(centre(bob_client)) == ["About it"]
 
@@ -141,7 +155,7 @@ def test_a_member_removed_loses_the_workspaces_notices(client, session, request)
 
 def test_the_housekeeper_removes_notices_older_than_their_days(client, session, ann):
     for subject in ("Old", "New"):
-        tell(session, ann.user, ann.organization.id, "checks_run", news(subject), "/", APP)
+        tell(session, ann.user, ann.organization.id, "project_export", news(subject), "/", APP)
     session.commit()
     session.execute(
         text(

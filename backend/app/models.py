@@ -36,33 +36,6 @@ STAGES = ("scan", "parse", "structure", "enrich", "embed")
 # What a fact's value is (`Fact.value_type`), and so what a field of an extraction template may
 # be (app/extraction.py).
 FACT_TYPES = ("text", "number", "date", "money")
-# How a cross-check (app/cross_checks.py) pairs a document with those it is compared with, and how
-# it compares their values.
-CROSS_CHECK_PAIRINGS = ("same", "key", "every")
-CROSS_CHECK_COMPARISONS = ("equal", "at_most", "at_least", "same_words", "same_numbers")
-# What a cross-check found for one value (app/cross_checks.py, OUTCOME_OF): the outcome a
-# member filters by, and the reason that gives it, as a run keeps them (`WorkflowFinding`).
-FINDING_OUTCOMES = ("differs", "missing", "holds")
-FINDING_REASONS = (
-    "holds",
-    "differs",
-    "currency",
-    "no_value",
-    "no_key",
-    "no_partner",
-    "no_partner_value",
-    "no_item",
-    "untyped",
-)
-# How far a run of a project's cross-checks is (app/check_runs.py): waiting for the worker,
-# being worked out, kept with what it found, or failed; and the discrepancy report the agent
-# writes from it when a member asks for one: waiting, being written, written, or failed.
-RUN_STATUSES = ("queued", "running", "done", "failed")
-REPORT_STATUSES = ("queued", "writing", "done", "failed")
-# Whom an automation (app/automations.py) tells what a run it made found: the member who made it,
-# everyone who sees its project, each as they chose for the kind of notice, or nobody, the run
-# being listed with the project's either way.
-AUTOMATION_AUDIENCES = ("maker", "project", "nobody")
 # Where a document's view stands, the PDF of its file the document pane shows a Word, PowerPoint
 # or Excel file by (app/conversion.py): being made, made, or not made for the reason
 # `view_error` gives; null for none (a type that is not converted, or one not asked for yet).
@@ -94,11 +67,12 @@ PROJECT_VISIBILITIES = ("organization", "private")
 # What an API key may do (app/apikeys.py): read, by the methods that change nothing, or write,
 # which reads too; either within the role of the member who made it.
 API_KEY_SCOPES = ("read", "write")
-# What an organisation's webhooks are told of (app/webhooks.py): a document indexed, one that
-# could not be, and a run of cross-checks worked out; and how a delivery to one stands: being
-# tried, answered with a 2xx, or given up. A report of a question set's answers kept was told
-# (`report.completed`) until question sets went (S.6, 2026-11-16).
-WEBHOOK_EVENTS = ("document.ready", "document.failed", "check_run.completed")
+# What an organisation's webhooks are told of (app/webhooks.py): a document indexed, and one that
+# could not be; and how a delivery to one stands: being tried, answered with a 2xx, or given up.
+# A report of a question set's answers kept was told (`report.completed`) until question sets
+# went, and a run of cross-checks worked out (`check_run.completed`) until cross-checks went
+# (S.6, 2026-11-16).
+WEBHOOK_EVENTS = ("document.ready", "document.failed")
 WEBHOOK_DELIVERY_STATUSES = ("pending", "delivered", "failed")
 # What a background job can be (app/jobs.py). A worker only claims the kinds it has a handler
 # for, so a kind can be queued by a newer API before an older worker knows it.
@@ -110,8 +84,6 @@ JOB_KINDS = (
     "apply_language",
     "export_project",
     "sync_connector",
-    "run_workflow",
-    "run_automation",
     "receive_mail",
     "deliver_webhook",
     "convert_document",
@@ -128,14 +100,15 @@ EXPORT_STATUSES = ("queued", "ready", "failed")
 # user, or failed. A question is always `done`.
 MESSAGE_STATUSES = ("streaming", "done", "stopped", "failed")
 # What an organisation is metered for (app/usage.py): the activity a row counts, and what the
-# count is in. The stored `usage` of a document, a message or a run of cross-checks
-# (`Document.usage`, `ChatMessage.usage`, `WorkflowRun.usage`) is keyed by the same kinds. The
-# answers of a question set's reports were recorded under `answer` until question sets went
-# (S.6, 2026-11-16), and their rows stay, naming the report they were for as `question_report`.
-# Nothing records `suggestions` since 2026-11-11 (the model wrote a project's suggested
-# questions), nor `draft` since 2026-11-16 (the drafts' until they went on 2026-11-13, then a
-# document the agent wrote into My files outside a chat, a disputed document's dispute letter,
-# until reviews went, S.6): their rows stay, being what those calls cost.
+# count is in. The stored `usage` of a document or a message (`Document.usage`,
+# `ChatMessage.usage`) is keyed by the same kinds. The answers of a question set's reports were
+# recorded under `answer` until question sets went (S.6, 2026-11-16), and their rows stay, naming
+# the report they were for as `question_report`. Nothing records `suggestions` since 2026-11-11
+# (the model wrote a project's suggested questions), nor `draft` since 2026-11-16 (the drafts'
+# until they went on 2026-11-13, then a document the agent wrote into My files outside a chat, a
+# disputed document's dispute letter, until reviews went, S.6), nor `report` since 2026-11-16 (a
+# run of cross-checks' discrepancy report, until cross-checks went, S.6, the rows naming the run
+# as `workflow_run`): their rows stay, being what those calls cost.
 USAGE_KINDS = (
     "answer",
     "upload",
@@ -156,22 +129,20 @@ AUDIT_DAYS = 365
 # The kinds of notice the app tells members about their work (app/notices.py), and the ways each
 # reaches them: the notification centre in the app, and email. A member chooses each way of
 # each kind (`User.notices`); every kind is told until it is turned off.
-NOTICE_KINDS = (
-    "upload_indexed",
-    "project_export",
-    "checks_run",
-)
+NOTICE_KINDS = ("upload_indexed", "project_export")
 # The kinds of notice no longer told, whose notices in the centres stay to read until
 # NOTIFICATION_DAYS take them: a member mentioned in a comment and a reply in a thread they wrote
 # in, until comments went, a document's review assigned to a member, until reviews went, and a
 # question set's report ready and the weekly digest of what arrived (off until a member turned it
-# on), until question sets went (S.6, 2026-11-16).
+# on), until question sets went, and what an automation's run of the cross-checks found, until
+# cross-checks went (S.6, 2026-11-16).
 PAST_NOTICE_KINDS = (
     "mentioned",
     "thread_replied",
     "review_assigned",
     "report_ready",
     "weekly_digest",
+    "checks_run",
 )
 NOTICE_CHANNELS = ("app", "email")
 # What became of a message sent to a project's address (app/inbound.py): documents were kept
@@ -199,12 +170,9 @@ NATURAL_ORDER = "natural_order"
 # or admin switches a model provider off or on again for the install (app/switches.py). A
 # project, folder, document or chat `_deleted` went into the trash (app/trash.py), `_restored`
 # came out of it, and `_purged` was deleted for good from it by a member. A project's extraction
-# templates (app/extraction.py) and cross-checks (app/cross_checks.py) are made, changed and
-# deleted for good, with no trash, and its facts tables downloaded (app/fact_export.py), which is
-# its documents' content leaving the app; a run of its cross-checks is made, by a member or by an
-# automation, a discrepancy report asked of the agent and the run deleted for good
-# (app/check_runs.py), and its automations made, changed and deleted (app/automations.py); its
-# filing rules were made, changed and deleted until they were removed on 2026-11-05, and their
+# templates (app/extraction.py) are made, changed and deleted for good, with no trash, and its
+# facts tables downloaded (app/fact_export.py), which is its documents' content leaving the app;
+# its filing rules were made, changed and deleted until they were removed on 2026-11-05, and their
 # actions stay so that those entries still read. Until 2026-11-13 a
 # draft was asked of the agent, changed and deleted, and a version of it downloaded, whose actions
 # stay so that those entries still read; a project's own template of a kind the agent writes is
@@ -227,7 +195,10 @@ NATURAL_ORDER = "natural_order"
 # (S.6, 2026-11-16), a document's review moved from state to state, by a member or an automation,
 # and was assigned to a member; and until question sets went (S.6, 2026-11-16), a project's
 # question set was made, changed and deleted, and run by a member or by the app, and a report of
-# its answers deleted for good. Those actions stay so that their entries still read.
+# its answers deleted for good; and until cross-checks went (S.6, 2026-11-16), a project's
+# cross-checks were made, changed and deleted, run by a member or by an automation, a discrepancy
+# report asked of the agent and a run deleted for good, and its automations made, changed and
+# deleted. Those actions stay so that their entries still read.
 AUDIT_ACTIONS = (
     "sign_up",
     "sign_in",
@@ -434,11 +405,11 @@ class User(Base):
     # set, the account can do nothing but keep itself, export its data and sign out.
     deletion_due_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     # How the user is told each kind of notice, the news they may do without (app/notices.py):
-    # NOTICE_KINDS by NOTICE_CHANNELS as they chose them, such as {"checks_run": {"email": false}}.
-    # A kind or a way not named is on, so that a kind added later reaches everyone until they
-    # choose. Chosen on the account page, and a kind's email turned off by its notices' own
-    # unsubscribe link. The mail about the account, its organisations' invitations and billing
-    # is sent whatever it says.
+    # NOTICE_KINDS by NOTICE_CHANNELS as they chose them, such as
+    # {"upload_indexed": {"email": false}}. A kind or a way not named is on, so that a kind added
+    # later reaches everyone until they choose. Chosen on the account page, and a kind's email
+    # turned off by its notices' own unsubscribe link. The mail about the account, its
+    # organisations' invitations and billing is sent whatever it says.
     notices: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
     # When the user hid the projects page's list of first steps, when they ended the tour of a
     # project's workspace, by finishing or skipping it, and when they hid the chat's suggestion
@@ -780,8 +751,8 @@ class WebhookDelivery(Base):
     webhook_id: Mapped[int] = mapped_column(ForeignKey("webhooks.id", ondelete="CASCADE"))
     event_id: Mapped[str] = mapped_column(String(40))
     event_type: Mapped[str] = mapped_column(String(40))
-    # The document's or the run's id, which the event's `data` is, and the job whose end
-    # announced it, no foreign key, since the jobs are pruned first.
+    # The document's id, which the event's `data` is, and the job whose end announced it, no
+    # foreign key, since the jobs are pruned first.
     subject_id: Mapped[int] = mapped_column(BigInteger)
     job_id: Mapped[int] = mapped_column(BigInteger)
     status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending")
@@ -1063,7 +1034,7 @@ class InboundMessage(Base):
     rejected: Mapped[list[dict]] = mapped_column(
         JSONB, default=list, server_default=text("'[]'::jsonb")
     )
-    # The upload its documents are, which their notice and the automations follow.
+    # The upload its documents are, which their notice follows.
     upload_id: Mapped[int | None] = mapped_column(ForeignKey("uploads.id", ondelete="SET NULL"))
 
 
@@ -1655,258 +1626,6 @@ class ExtractionTemplate(Base):
     )
     updated_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
-
-
-class CrossCheck(Base):
-    """A rule a project's documents are checked by (app/cross_checks.py): a field of one kind's
-    documents compared with a field of the same document, of the documents of another kind that
-    state the same key, or of every document of another kind, value by value or line by line.
-    What it finds is worked out from the facts whenever it is asked, so nothing here goes stale
-    when a document is read again."""
-
-    __tablename__ = "cross_checks"
-    __table_args__ = (
-        _one_of("pairing", CROSS_CHECK_PAIRINGS, "cross_checks"),
-        _one_of("comparison", CROSS_CHECK_COMPARISONS, "cross_checks"),
-        # The keys name the fields a pairing by key goes by, and nothing otherwise.
-        CheckConstraint(
-            "(pairing = 'key' AND left_key IS NOT NULL AND right_key IS NOT NULL) "
-            "OR (pairing <> 'key' AND left_key IS NULL AND right_key IS NULL)",
-            name="ck_cross_checks_keys",
-        ),
-        CheckConstraint("margin >= 0", name="ck_cross_checks_margin"),
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    # The tenant, as for every row a member reaches by its id.
-    org_id: Mapped[int] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
-    )
-    project_id: Mapped[int] = mapped_column(
-        ForeignKey("projects.id", ondelete="CASCADE"), index=True
-    )
-    title: Mapped[str] = mapped_column(String(200))
-    # The kinds of document and the fields compared, as the project's templates name them: the
-    # documents checked are those read for the left kind's template.
-    left_kind: Mapped[str] = mapped_column(String(100))
-    left_field: Mapped[str] = mapped_column(String(100))
-    right_kind: Mapped[str] = mapped_column(String(100))
-    right_field: Mapped[str] = mapped_column(String(100))
-    # One of CROSS_CHECK_PAIRINGS, and for a pairing by key the field of each side it goes by.
-    pairing: Mapped[str] = mapped_column(String(20))
-    left_key: Mapped[str | None] = mapped_column(String(100))
-    right_key: Mapped[str | None] = mapped_column(String(100))
-    # Whether each of the fields' values is compared, line by line, with the value of the other
-    # side that names the same item, rather than the first value of each side.
-    by_item: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
-    # One of CROSS_CHECK_COMPARISONS.
-    comparison: Mapped[str] = mapped_column(String(20))
-    # How far apart the two may be and still agree: days for dates, else in the values' units.
-    margin: Mapped[float] = mapped_column(Float, default=0, server_default=text("0"))
-    # Whether the values of every document paired are added up before they are compared.
-    summed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
-    # Who made it; null once their account is gone. Indexed for the account purge.
-    created_by: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), index=True
-    )
-    created_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-    updated_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
-
-
-class WorkflowRun(Base):
-    """A run of a project's cross-checks (app/check_runs.py): the rules as they were when a
-    member ran them, what each found over the documents as they read then, and the discrepancy
-    report the agent wrote from that when a member asked for one.
-
-    What a rule finds is otherwise worked out at each request and kept nowhere; a run keeps it as
-    it was found, in `workflow_findings`. The facts and passages a finding came from are written
-    anew at every reading of their document, so a run names the documents by id and keeps the
-    values, quotes and places as read, never a fact to join on later. The worker works a run out
-    (`run_workflow` jobs), and the page follows `status` and `report_status` until they settle.
-    """
-
-    __tablename__ = "workflow_runs"
-    __table_args__ = (
-        _one_of("status", RUN_STATUSES, "workflow_runs"),
-        _one_of("report_status", REPORT_STATUSES, "workflow_runs"),
-        # The project's runs, newest first, as its list pages them.
-        Index("ix_workflow_runs_project", "project_id", "id"),
-        # What the agent's runs in flight count (app/answers.py): the few reports being written.
-        Index(
-            "ix_workflow_runs_reporting",
-            "org_id",
-            postgresql_where=text("report_status IN ('queued', 'writing')"),
-        ),
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    # The tenant, as for every row a member reaches by its id.
-    org_id: Mapped[int] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
-    )
-    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
-    # Who ran it; null once their account is gone. Indexed for the account purge.
-    user_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), index=True
-    )
-    # One of RUN_STATUSES.
-    status: Mapped[str] = mapped_column(String(20), default="queued", server_default="queued")
-    # The rules as they were when the run was made, in the order their findings are kept: each a
-    # cross-check's id (which may be gone since), its title and what it compares, and once the
-    # run is worked out, why it could not be (`problem`) or what it found by outcome (`counts`).
-    rules: Mapped[list] = mapped_column(JSONB)
-    # Why the run failed, in the sentence its members read.
-    error: Mapped[str | None] = mapped_column(Text)
-    # One of REPORT_STATUSES; null while no report was asked for.
-    report_status: Mapped[str | None] = mapped_column(String(20))
-    # The report as the agent wrote it, citing passages as [P<id>], the passages it was shown,
-    # which it may cite, and how its run ended when not as it should (cut off, failed).
-    report: Mapped[str] = mapped_column(Text, default="", server_default="")
-    report_sources: Mapped[list] = mapped_column(
-        JSONB, default=list, server_default=text("'[]'::jsonb")
-    )
-    report_notice: Mapped[str | None] = mapped_column(Text)
-    report_error: Mapped[str | None] = mapped_column(Text)
-    # What the run used, by kind (`report`: the report's model calls, tokens and cost), as
-    # app/usage.py keeps it; the findings are worked out without a model and cost nothing.
-    usage: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
-    # The automation that made the run, when one did rather than a member (app/automations.py);
-    # null for a member's run, and once the automation is deleted, `trigger` still naming it.
-    automation_id: Mapped[int | None] = mapped_column(
-        ForeignKey("automations.id", ondelete="SET NULL"), index=True
-    )
-    # What an automation's run was made for: the automation's name as it was, the ids of the
-    # documents that arrived (`documents`, those it watches; `partners`, those its checks compare
-    # them with), the names of the first few, and the job that made it, which makes it once.
-    trigger: Mapped[dict | None] = mapped_column(JSONB)
-    # When an automation's run told whom it names what it found: once, as the run settles.
-    told_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-    # When its findings were kept, or it failed.
-    finished_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
-
-
-class WorkflowFinding(Base):
-    """What one rule of a run found for one value of a document it checked, as it was found
-    (app/check_runs.py): the document by id and by name as they were, the outcome and its
-    reason, the value checked and the values it was compared with as `FactOut`s were then, the
-    documents paired with it, and how far apart the two were. Nothing here joins a fact, a
-    passage or a document: they change or go, and the finding stays what it was."""
-
-    __tablename__ = "workflow_findings"
-    __table_args__ = (
-        _one_of("outcome", FINDING_OUTCOMES, "workflow_findings"),
-        _one_of("reason", FINDING_REASONS, "workflow_findings"),
-    )
-
-    run_id: Mapped[int] = mapped_column(
-        ForeignKey("workflow_runs.id", ondelete="CASCADE"), primary_key=True
-    )
-    # The rule's place in the run's `rules`, and the finding's in what the rule found, in the
-    # order the rule lists them: those that differ first, then by the document's name.
-    rule: Mapped[int] = mapped_column(Integer, primary_key=True)
-    seq: Mapped[int] = mapped_column(Integer, primary_key=True)
-    outcome: Mapped[str] = mapped_column(String(20))
-    reason: Mapped[str] = mapped_column(String(20))
-    document_id: Mapped[int] = mapped_column(Integer)
-    title: Mapped[str] = mapped_column(Text)
-    filename: Mapped[str] = mapped_column(Text)
-    left: Mapped[dict | None] = mapped_column(JSONB)
-    right: Mapped[list] = mapped_column(JSONB, default=list)
-    partners: Mapped[list] = mapped_column(JSONB, default=list)
-    difference: Mapped[float | None] = mapped_column(Float)
-
-
-class Automation(Base):
-    """A project's rule for running its cross-checks on its own (app/automations.py): when
-    documents of a kind, or any, arrive in a folder or anywhere in the project, and when it says
-    so, documents its checks compare them with anywhere, the worker runs the checks it names, or
-    every one the project has, once the arrivals have gone quiet, with the model's discrepancy
-    report when asked, and tells whom it names what they found about what arrived."""
-
-    __tablename__ = "automations"
-    __table_args__ = (_one_of("audience", AUTOMATION_AUDIENCES, "automations"),)
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    # The tenant, as for every row a member reaches by its id.
-    org_id: Mapped[int] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
-    )
-    project_id: Mapped[int] = mapped_column(
-        ForeignKey("projects.id", ondelete="CASCADE"), index=True
-    )
-    title: Mapped[str] = mapped_column(String(200))
-    # The kind of document it watches, as `documents.template` names the kind a document was
-    # read for; null for any document.
-    kind: Mapped[str | None] = mapped_column(String(100))
-    # The folder whose documents it watches, its subfolders' with them; null for the whole
-    # project. A folder deleted for good takes its automations with it.
-    folder_id: Mapped[int | None] = mapped_column(
-        ForeignKey("folders.id", ondelete="CASCADE"), index=True
-    )
-    # Whether it runs every cross-check the project has when it runs, or the ones
-    # `automation_checks` names.
-    every_check: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
-    # Whether the model writes the run's discrepancy report.
-    report: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
-    # One of AUTOMATION_AUDIENCES.
-    audience: Mapped[str] = mapped_column(String(20), default="maker", server_default="maker")
-    # Whether it also runs when documents arrive anywhere in the project that its checks compare
-    # the ones it watches with: a delivery note that lets an invoice's quantities be checked.
-    recheck: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
-    # Off, nothing that arrives runs it.
-    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
-    # Who made it, whom `maker` tells; null once their account is gone. Indexed for the account
-    # purge.
-    created_by: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), index=True
-    )
-    created_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-    updated_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
-
-
-class AutomationCheck(Base):
-    """A cross-check an automation runs, for one that runs chosen ones rather than every one;
-    a cross-check deleted goes from the automations that chose it."""
-
-    __tablename__ = "automation_checks"
-
-    automation_id: Mapped[int] = mapped_column(
-        ForeignKey("automations.id", ondelete="CASCADE"), primary_key=True
-    )
-    cross_check_id: Mapped[int] = mapped_column(
-        ForeignKey("cross_checks.id", ondelete="CASCADE"), primary_key=True, index=True
-    )
-
-
-class AutomationArrival(Base):
-    """A document that arrived for an automation and waits for its next run
-    (app/automations.py): one it watches, or with `recheck`, one its checks compare those with.
-    The run takes the automation's arrivals as it is made, and a document deleted meanwhile goes
-    with its row."""
-
-    __tablename__ = "automation_arrivals"
-
-    automation_id: Mapped[int] = mapped_column(
-        ForeignKey("automations.id", ondelete="CASCADE"), primary_key=True
-    )
-    document_id: Mapped[int] = mapped_column(
-        ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True, index=True
-    )
-    recheck: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
-    arrived_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
     )
 
 

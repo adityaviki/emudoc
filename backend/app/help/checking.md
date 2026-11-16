@@ -25,32 +25,8 @@ quote, and "Open in the document" there. "Check" marks a value as checked, under
 "Correct…" sets the right one, which a later reading keeps. "Download" gives the table as a CSV
 file, or as an Excel workbook with each fact's source.
 
-## Cross-checks
+## Checking documents against each other
 
-A cross-check compares a fact of one kind of document with another's: an invoice's prices with
-the price list, its total with its purchase order, its payment terms with the contract.
-**Cross-checks** offers some suggested for the project's templates, each added with "Add", and
-"New cross-check" makes one of your own, up to $max_cross_checks a project: what it checks, how it
-compares (an amount or a date equal to the other, at most or at least it, within a margin if you
-like; a text the same words or numbers), what with, and which documents are paired.
-"What it finds" lists, document by document, where the facts differ, where one is missing and
-where they hold, worked out afresh each time it is opened, without the AI model.
-
-"Run the checks" keeps what every cross-check finds at that moment as a run, which stays as it
-was while the documents change; "With a discrepancy report by the model" adds a report that the
-AI model writes of what differs, citing where each figure is written, as an answer does.
-
-## Automations
-
-An automation runs the cross-checks for you as documents arrive: under Cross-checks, "New
-automation" says what it waits for (a kind of document, in a folder or anywhere in the project),
-which cross-checks it runs, with a report or not, and who is told what it found. It runs once
-uploads have stopped for
-$automation_wait, so that a batch is checked once. A project has up to $max_automations, each
-turned off and on again with a press.
-
-## Who is told
-
-A run an automation made is told when it finds something about what arrived: $told. A notice
-says what happened and where, never an answer. Choose how each kind reaches you on your
-[account page](/account) ([Your account and sign-in](/help/account)).
+To check one document against others, an invoice's prices against the price list or its total
+against its purchase order, ask the agent in a chat: it reads the facts of each, compares them
+and cites where each figure is written, as any answer does ([Searching and asking](/help/asking)).

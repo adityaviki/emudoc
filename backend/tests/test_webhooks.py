@@ -16,25 +16,11 @@ from sqlalchemy import func, select, text, update
 
 from app import webhooks
 from app.api.v1.library import document_of
-from app.api.v1.runs import run_of
 from app.config import get_settings
 from app.encrypted import WEBHOOK_SECRETS, decrypt, encrypt_secrets
-from app.jobs import (
-    DELIVER_WEBHOOK,
-    INDEX_DOCUMENT,
-    RUN_WORKFLOW,
-    Lease,
-    LeaseLost,
-    claim,
-)
+from app.jobs import DELIVER_WEBHOOK, INDEX_DOCUMENT, Lease, LeaseLost, claim
 from app.keyring import key_of
-from app.models import (
-    Document,
-    Job,
-    Webhook,
-    WebhookDelivery,
-    WorkflowRun,
-)
+from app.models import Document, Job, Webhook, WebhookDelivery
 from app.webhooks import (
     GAVE_UP,
     NO_CREDENTIALS,
@@ -57,7 +43,6 @@ from app.webhooks import (
 from app.worker import Worker
 from tests.test_api import create_project
 from tests.test_audit import actions
-from tests.test_check_runs import TOTAL, invoices, made, run
 from tests.test_encrypted import fingerprint, keyed, new_key  # noqa: F401 (a fixture)
 
 # Names the receivers are reached by, and the addresses they resolve to: really public ones,
@@ -188,9 +173,11 @@ def test_an_admin_adds_a_webhook_whose_secret_is_shown_once(client, session, acc
     )
     listed = hooks(client)
     assert [hook["url"] for hook in listed] == [HOOK] and "secret" not in listed[0]
-    # A question set's report was an event until question sets went (S.6): no longer one.
-    gone = {"url": HOOK, "events": ["report.completed"]}
-    assert client.post("/api/organization/webhooks", json=gone).status_code == 422
+    # A question set's report and a run of cross-checks were events until question sets and
+    # cross-checks went (S.6): no longer ones.
+    for event in ("report.completed", "check_run.completed"):
+        gone = {"url": HOOK, "events": [event]}
+        assert client.post("/api/organization/webhooks", json=gone).status_code == 422
 
     # Kept encrypted for its row, and read back to sign with.
     row = session.get(Webhook, made_now["id"])
@@ -276,7 +263,7 @@ def test_only_a_settled_document_is_announced_once_to_the_hooks_that_listen(
     client, session, services, receiver, make_account
 ):
     listening = add(client)
-    add(client, "https://hooks.example.com/runs", ["check_run.completed"])
+    add(client, "https://hooks.example.com/failures", ["document.failed"])
     paused = add(client, "https://hooks.example.com/paused")
     client.patch(f"/api/organization/webhooks/{paused['id']}", json={"enabled": False})
     elsewhere = make_account("eve@globex.com")
@@ -436,41 +423,6 @@ def test_development_sends_to_its_own_receivers(client, services, receiver):
     assert log_of(client, hook["id"])["deliveries"][0]["status"] == "delivered"
 
 
-def test_a_run_of_cross_checks_worked_out_is_announced(client, session, services, receiver):
-    hook = add(client, events=["check_run.completed"])
-    project = create_project(client)
-    invoices(session, project["id"])
-    made(client, project["id"], TOTAL)
-    started = run(client, project["id"])
-    assert run_due(services, RUN_WORKFLOW) == 1
-    run_due(services, DELIVER_WEBHOOK)
-    [event] = receiver.bodies()
-    assert event["type"] == "check_run.completed"
-    worked_out = session.get(WorkflowRun, started["id"], populate_existing=True)
-    assert event["data"] == run_of(worked_out).model_dump(mode="json")
-    assert event["data"]["counts"] == {"differs": 1, "missing": 1, "holds": 0}
-
-    # A report asked for after is announced again once it is written.
-    services.llm.agent_turns.append(_report())
-    asked = client.post(f"/api/check-runs/{started['id']}/report")
-    assert asked.status_code == 200, asked.text
-    run_due(services, RUN_WORKFLOW)
-    run_due(services, DELIVER_WEBHOOK)
-    later = receiver.bodies()[1]
-    assert (later["data"]["report_status"], later["id"] != event["id"]) == ("done", True)
-    assert [d["subject_id"] for d in log_of(client, hook["id"])["deliveries"]] == [
-        started["id"]
-    ] * 2
-
-
-def _report():
-    from pydantic_ai.messages import TextPart
-
-    from tests.conftest import FakeTurn
-
-    return FakeTurn(TextPart("INV-1 is 5 EUR over its order."))
-
-
 def test_a_paused_or_removed_hook_is_sent_nothing(client, session, services, receiver, account):
     hook = add(client)
     project = create_project(client)
@@ -530,12 +482,12 @@ def test_changes_to_a_webhook_are_audited_by_what_changed(client, session, accou
     path = f"/api/organization/webhooks/{hook['id']}"
     changed = client.patch(
         path,
-        json={"url": "https://six.example.com/in", "events": ["check_run.completed"]},
+        json={"url": "https://six.example.com/in", "events": ["document.failed"]},
     )
     assert changed.status_code == 200, changed.text
     assert (changed.json()["url"], changed.json()["events"]) == (
         "https://six.example.com/in",
-        ["check_run.completed"],
+        ["document.failed"],
     )
     # Nothing changed, nothing audited; an address refused changes nothing.
     assert client.patch(path, json={"url": "https://six.example.com/in"}).status_code == 200
@@ -553,10 +505,10 @@ def test_changes_to_a_webhook_are_audited_by_what_changed(client, session, accou
                 "host": "hooks.example.com",
                 "to_host": "six.example.com",
                 "from": ["document.ready"],
-                "to": ["check_run.completed"],
+                "to": ["document.failed"],
             },
         ),
-        ("webhook_deleted", {"host": "six.example.com", "events": ["check_run.completed"]}),
+        ("webhook_deleted", {"host": "six.example.com", "events": ["document.failed"]}),
     ]
 
 

@@ -74,7 +74,6 @@ export SOURCE_URL=
 export SAMPLE_PROJECT=true
 export MODEL_PRICES=
 export DAILY_SPEND_CAP=0
-export AUTOMATION_WAIT=1
 export SENTRY_DSN=
 export METRICS_ADDRESS=
 

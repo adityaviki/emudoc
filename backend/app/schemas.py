@@ -682,115 +682,6 @@ class FactTableOut(BaseModel):
     next_after: str | None
 
 
-CrossCheckPairing = Literal["same", "key", "every"]
-CrossCheckComparison = Literal["equal", "at_most", "at_least", "same_words", "same_numbers"]
-FindingOutcome = Literal["differs", "missing", "holds"]
-# Why a finding is what it is (app/cross_checks.py, OUTCOME_OF).
-FindingReason = Literal[
-    "holds",
-    "differs",
-    "currency",
-    "no_value",
-    "no_key",
-    "no_partner",
-    "no_partner_value",
-    "no_item",
-    "untyped",
-]
-_FieldName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
-
-
-class CrossCheckIn(BaseModel):
-    """A cross-check as a member writes it, whole (app/cross_checks.py): its name; the kind and
-    field of the documents checked and the kind and field they are compared with; how documents
-    are paired (`same`, `key` with the field of each side whose values pair them, `every`);
-    whether line by line; and the comparison, its margin (days between dates, else in the values'
-    units) and whether the paired documents' values are added up first."""
-
-    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
-    left_kind: _Kind
-    left_field: _FieldName
-    right_kind: _Kind
-    right_field: _FieldName
-    pairing: CrossCheckPairing
-    left_key: _FieldName | None = None
-    right_key: _FieldName | None = None
-    by_item: bool = False
-    comparison: CrossCheckComparison
-    margin: float = Field(default=0, ge=0, le=1e12)
-    summed: bool = False
-
-
-class CrossCheckSuggestionOut(CrossCheckIn):
-    """A rule offered to the project, which a member adds as it is, with the types of the fields
-    it compares."""
-
-    left_type: FactType
-    right_type: FactType
-
-
-class FindingCountsOut(BaseModel):
-    differs: int
-    missing: int
-    holds: int
-
-
-class CrossCheckOut(CrossCheckIn):
-    id: int
-    # The types of the fields compared, as the project's templates hold them now, which the page
-    # words the rule by; None for a field gone.
-    left_type: FactType | None
-    right_type: FactType | None
-    # Why the rule cannot be worked out with the project's templates as they are now, such as a
-    # field taken out of one since; None when it can.
-    problem: str | None
-    # What it finds now, by outcome; None while it has a problem.
-    counts: FindingCountsOut | None
-    updated_at: dt.datetime
-
-
-class CrossChecksOut(BaseModel):
-    """A project's cross-checks, by name, the rules offered that it has none of, and how many it
-    may have."""
-
-    checks: list[CrossCheckOut]
-    suggestions: list[CrossCheckSuggestionOut]
-    max_checks: int
-
-
-class PartnerOut(BaseModel):
-    document_id: int
-    title: str
-
-
-class FindingOut(BaseModel):
-    """What a cross-check found for a value of one of the documents it checks: the document, the
-    outcome and why, the value checked and those it was compared with, each with where it was
-    found, the documents paired with it, and how far apart the two were: the checked value less
-    the other (or their sum), in days for dates."""
-
-    document_id: int
-    title: str
-    filename: str
-    outcome: FindingOutcome
-    reason: FindingReason
-    left: FactOut | None
-    right: list[FactOut]
-    partners: list[PartnerOut]
-    difference: float | None
-
-
-class FindingsOut(BaseModel):
-    """A page of a cross-check's findings, those of one outcome or all, differing first: how many
-    the outcome holds, and where the next page starts."""
-
-    check: CrossCheckOut
-    outcome: FindingOutcome | None
-    findings: list[FindingOut]
-    total: int
-    next_after: str | None
-
-
 class FactName(BaseModel):
     name: str
     count: int
@@ -1015,124 +906,6 @@ class RetryOut(BaseModel):
     last_event_id: int | None
 
 
-# How far a run of cross-checks is (app/check_runs.py), and its discrepancy report.
-RunStatus = Literal["queued", "running", "done", "failed"]
-ReportStatus = Literal["queued", "writing", "done", "failed"]
-
-
-class CheckRunIn(BaseModel):
-    """A run a member asks for: the project's cross-checks by id, or every one of them when
-    null, and whether the agent writes the discrepancy report once they are worked out."""
-
-    check_ids: list[int] | None = Field(default=None, min_length=1, max_length=100)
-    report: bool = False
-
-
-class CheckRunRuleOut(CrossCheckIn):
-    """A rule of a run as it was when the run was made: the cross-check's id (which may be gone
-    since), what it compares and the types of its fields, and once the run is worked out, why it
-    could not be or what it found by outcome."""
-
-    check_id: int
-    left_type: FactType | None
-    right_type: FactType | None
-    problem: str | None
-    counts: FindingCountsOut | None
-
-
-class RunTriggerOut(BaseModel):
-    """What an automation's run was made for: the automation, by its id while it is there and
-    its name as it was, and how many documents arrived, those it watches and those its checks
-    compare them with, the first few by their names."""
-
-    automation_id: int | None
-    automation: str
-    documents: int
-    partners: int
-    names: list[str]
-
-
-class CheckRunSummaryOut(BaseModel):
-    """A run as the project's list shows it: when, by whom (their name as it is now, None once
-    their account is gone, or for an automation's run, `trigger` saying which and why), how far
-    it and its report are, its rules' names and what they found together."""
-
-    id: int
-    status: RunStatus
-    report_status: ReportStatus | None
-    run_by: str | None
-    trigger: RunTriggerOut | None
-    titles: list[str]
-    counts: FindingCountsOut | None
-    created_at: dt.datetime
-    finished_at: dt.datetime | None
-
-
-class CheckRunOut(CheckRunSummaryOut):
-    """A run whole: its rules, why it failed, and its report, which cites the passages it was
-    shown as [P<id>], with what the report used."""
-
-    project_id: int
-    user_id: int | None
-    error: str | None
-    rules: list[CheckRunRuleOut]
-    report: str
-    report_sources: list[SourceOut]
-    report_notice: str | None
-    report_error: str | None
-    usage: dict[str, UsageOut]
-
-
-AutomationAudience = Literal["maker", "project", "nobody"]
-
-
-class AutomationIn(BaseModel):
-    """An automation as a member writes it, whole (app/automations.py): its name; the kind of
-    document it watches (as templates name kinds), or any; the folder it watches, its subfolders
-    with it, or the whole project; the cross-checks it runs by id, or every one of the project's
-    when null; whether the model writes the discrepancy report; whom it tells what a run found;
-    whether documents its checks compare the watched ones with run it again; and whether it is
-    on."""
-
-    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
-    kind: _Kind | None = None
-    folder_id: int | None = None
-    check_ids: list[int] | None = Field(default=None, min_length=1, max_length=100)
-    report: bool = False
-    audience: AutomationAudience = "maker"
-    recheck: bool = False
-    enabled: bool = True
-
-
-class AutomationOut(AutomationIn):
-    id: int
-    # The cross-checks it chose that are still there, which may be none; None when it runs
-    # every one.
-    check_ids: list[int] | None
-    # The folder's path as it is now, from the project's root, to word it by; None for the
-    # whole project.
-    folder: str | None
-    # The names of the cross-checks it chose, by name; None when it runs every one.
-    checks: list[str] | None
-    # Who made it, whom `maker` tells, by their id and their name as it is now; None once their
-    # account is gone.
-    created_by: int | None
-    made_by: str | None
-    # Why it would run nothing or tell nobody as the project stands now; None when it runs as
-    # it says.
-    problem: str | None
-    # When it last made a run, of those kept.
-    last_run_at: dt.datetime | None
-    updated_at: dt.datetime
-
-
-class AutomationsOut(BaseModel):
-    """A project's automations, by name, and how many it may have."""
-
-    automations: list[AutomationOut]
-    max_automations: int
-
-
 class MailboxIn(BaseModel):
     """A project's address as its members set it (app/inbound.py): whom it takes mail from
     besides themselves, each an address or a domain, and the folder what arrives goes into, the
@@ -1272,26 +1045,6 @@ class RemoteFolderOut(BaseModel):
 
 class RemoteFoldersOut(BaseModel):
     folders: list[RemoteFolderOut]
-
-
-class CheckRunsOut(BaseModel):
-    """A page of the project's runs, newest first, and the id the next page starts before."""
-
-    runs: list[CheckRunSummaryOut]
-    next_before: int | None
-
-
-class RunFindingsOut(BaseModel):
-    """A page of what one rule of a run found, as it was found, those of one outcome or all,
-    differing first; and of the documents the page names, those deleted or in the trash since,
-    which cannot be opened."""
-
-    rule: CheckRunRuleOut
-    outcome: FindingOutcome | None
-    findings: list[FindingOut]
-    total: int
-    next_after: int | None
-    gone: list[int]
 
 
 # The kinds of document the agent writes to a template of the project's (app/draft_templates.py).
@@ -1529,11 +1282,11 @@ class AccountDeletionIn(BaseModel):
 
 
 # The kinds of notice (NOTICE_KINDS in app/models.py, app/notices.py).
-NoticeKind = Literal["upload_indexed", "project_export", "checks_run"]
+NoticeKind = Literal["upload_indexed", "project_export"]
 # The kinds of notice no longer told, whose notices stay in the centres to read
 # (PAST_NOTICE_KINDS in app/models.py).
 PastNoticeKind = Literal[
-    "mentioned", "thread_replied", "review_assigned", "report_ready", "weekly_digest"
+    "mentioned", "thread_replied", "review_assigned", "report_ready", "weekly_digest", "checks_run"
 ]
 
 
@@ -1951,7 +1704,7 @@ SharedOut = Annotated[SharedDocumentOut | SharedAnswerOut, Field(discriminator="
 
 # WEBHOOK_EVENTS and WEBHOOK_DELIVERY_STATUSES in app/models.py, which the database's check
 # constraints hold.
-WebhookEvent = Literal["document.ready", "document.failed", "check_run.completed"]
+WebhookEvent = Literal["document.ready", "document.failed"]
 WebhookDeliveryStatus = Literal["pending", "delivered", "failed"]
 # The longest address a webhook takes, as `webhooks.url` holds it.
 WEBHOOK_URL_CHARS = 2000
@@ -1981,7 +1734,7 @@ class WebhookDeliveryOut(BaseModel):
     id: int
     event_id: str
     event_type: WebhookEvent
-    # The document's or the run's id.
+    # The document's id.
     subject_id: int
     status: WebhookDeliveryStatus
     attempts: int

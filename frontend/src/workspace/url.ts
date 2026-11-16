@@ -15,7 +15,7 @@ export interface WorkspaceSearch {
   filter: DocumentFilter
 }
 
-/** The folder the library shows, with `search` the project's search in its place (the files whose names hold its words, wherever they are, then the passages it finds); or, with `trash`, the project's trash, with `templates`, its extraction templates, with `facts`, the facts table of its documents of that kind, with `changes`, what their last readings changed, with `checks`, its cross-checks, with `check`, what that one finds, with `run`, a run of them kept with what it found, with `mail`, its address and what it received, with `connectors`, the folders of its members' Google Drive, Dropbox or OneDrive it keeps in step with, with `myFiles`, the member's own files in it, with `myFile`, one of them, with `writingTemplates`, how the agent writes each kind of document into them; with `favorites`, the member's favourites, and with `recent`, the documents they opened lately. The favourites and the recent
+/** The folder the library shows, with `search` the project's search in its place (the files whose names hold its words, wherever they are, then the passages it finds); or, with `trash`, the project's trash, with `templates`, its extraction templates, with `facts`, the facts table of its documents of that kind, with `changes`, what their last readings changed, with `mail`, its address and what it received, with `connectors`, the folders of its members' Google Drive, Dropbox or OneDrive it keeps in step with, with `myFiles`, the member's own files in it, with `myFile`, one of them, with `writingTemplates`, how the agent writes each kind of document into them; with `favorites`, the member's favourites, and with `recent`, the documents they opened lately. The favourites and the recent
 documents take `search` too, which then matches their names alone. */
 export interface LibraryView {
   folderId: number | null
@@ -24,9 +24,6 @@ export interface LibraryView {
   templates?: true
   facts?: string
   changes?: string
-  checks?: true
-  check?: number
-  run?: number
   mail?: true
   connectors?: true
   myFiles?: true
@@ -71,9 +68,6 @@ export function parseWorkspaceUrl(pathname: string, query: string): WorkspaceUrl
   else if (params.has('templates')) library.templates = true
   else if (params.get('facts')) library.facts = params.get('facts') ?? undefined
   else if (params.get('changes')) library.changes = params.get('changes') ?? undefined
-  else if (id(params.get('check')) != null) library.check = id(params.get('check')) ?? undefined
-  else if (id(params.get('run')) != null) library.run = id(params.get('run')) ?? undefined
-  else if (params.has('checks')) library.checks = true
   else if (params.has('mail')) library.mail = true
   else if (params.has('connectors')) library.connectors = true
   else if (id(params.get('my-file')) != null) library.myFile = id(params.get('my-file')) ?? undefined
@@ -165,9 +159,6 @@ export function buildWorkspaceUrl(url: Omit<WorkspaceUrl, 'canonical'>): string 
   if (url.library.templates) params.set('templates', '')
   if (url.library.facts) params.set('facts', url.library.facts)
   if (url.library.changes) params.set('changes', url.library.changes)
-  if (url.library.checks) params.set('checks', '')
-  if (url.library.check != null) params.set('check', String(url.library.check))
-  if (url.library.run != null) params.set('run', String(url.library.run))
   if (url.library.mail) params.set('mail', '')
   if (url.library.connectors) params.set('connectors', '')
   if (url.library.myFiles) params.set('my-files', '')

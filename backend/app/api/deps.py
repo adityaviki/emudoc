@@ -75,9 +75,7 @@ from app.fact_checks import CHECK_GONE, FACT_GONE
 from app.indexing.pipeline import Services
 from app.logs import about
 from app.models import (
-    Automation,
     Chat,
-    CrossCheck,
     Document,
     ExtractionTemplate,
     Fact,
@@ -87,7 +85,6 @@ from app.models import (
     Passage,
     Project,
     User,
-    WorkflowRun,
 )
 from app.ratelimit import API_REQUESTS, Key, Limit, by_key, by_user, hit
 from app.retention import deletion_pending
@@ -371,48 +368,6 @@ def get_template(template_id: int, session: SessionDep, account: AccountDep) -> 
     return template
 
 
-def get_cross_check(check_id: int, session: SessionDep, account: AccountDep) -> CrossCheck:
-    """A project's cross-check (app/cross_checks.py), provided the account sees the project and
-    it is out of the trash."""
-    check = session.scalar(
-        select(CrossCheck)
-        .join(Project, Project.id == CrossCheck.project_id)
-        .where(CrossCheck.id == check_id, visible_to(account))
-    )
-    if check is None:
-        raise HTTPException(404, "Cross-check not found")
-    about(project_id=check.project_id)
-    return check
-
-
-def get_run(run_id: int, session: SessionDep, account: AccountDep) -> WorkflowRun:
-    """A run of a project's cross-checks (app/check_runs.py), provided the account sees the
-    project and it is out of the trash."""
-    run = session.scalar(
-        select(WorkflowRun)
-        .join(Project, Project.id == WorkflowRun.project_id)
-        .where(WorkflowRun.id == run_id, visible_to(account))
-    )
-    if run is None:
-        raise HTTPException(404, "Run not found")
-    about(project_id=run.project_id)
-    return run
-
-
-def get_automation(automation_id: int, session: SessionDep, account: AccountDep) -> Automation:
-    """A project's automation (app/automations.py), provided the account sees the project and it
-    is out of the trash."""
-    automation = session.scalar(
-        select(Automation)
-        .join(Project, Project.id == Automation.project_id)
-        .where(Automation.id == automation_id, visible_to(account))
-    )
-    if automation is None:
-        raise HTTPException(404, "Automation not found")
-    about(project_id=automation.project_id)
-    return automation
-
-
 def get_my_file(file_id: int, session: SessionDep, account: AccountDep) -> MyFile:
     """A file of the account's own My files (app/my_files.py), provided it still sees the
     project and the project is out of the trash. Another member's file, the project's owners'
@@ -488,29 +443,6 @@ def get_editable_template(
     return template
 
 
-def get_editable_cross_check(
-    check: Annotated[CrossCheck, Depends(get_cross_check)],
-    account: AccountDep,
-) -> CrossCheck:
-    _refuse_viewer(account)
-    return check
-
-
-def get_editable_automation(
-    automation: Annotated[Automation, Depends(get_automation)],
-    account: AccountDep,
-) -> Automation:
-    _refuse_viewer(account)
-    return automation
-
-
-def get_editable_run(
-    run: Annotated[WorkflowRun, Depends(get_run)], account: AccountDep
-) -> WorkflowRun:
-    _refuse_viewer(account)
-    return run
-
-
 def get_editable_fact(fact: Annotated[Fact, Depends(get_fact)], account: AccountDep) -> Fact:
     _refuse_viewer(account)
     return fact
@@ -536,12 +468,6 @@ EditableProjectDep = Annotated[Project, Depends(get_editable_project)]
 EditableDocumentDep = Annotated[Document, Depends(get_editable_document)]
 EditableFolderDep = Annotated[Folder, Depends(get_editable_folder)]
 EditableTemplateDep = Annotated[ExtractionTemplate, Depends(get_editable_template)]
-CrossCheckDep = Annotated[CrossCheck, Depends(get_cross_check)]
-EditableCrossCheckDep = Annotated[CrossCheck, Depends(get_editable_cross_check)]
-RunDep = Annotated[WorkflowRun, Depends(get_run)]
-EditableRunDep = Annotated[WorkflowRun, Depends(get_editable_run)]
-AutomationDep = Annotated[Automation, Depends(get_automation)]
-EditableAutomationDep = Annotated[Automation, Depends(get_editable_automation)]
 EditableFactDep = Annotated[Fact, Depends(get_editable_fact)]
 EditableFactCheckDep = Annotated[FactCheck, Depends(get_editable_fact_check)]
 OwnChatDep = Annotated[Chat, Depends(get_own_chat)]

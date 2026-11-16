@@ -90,22 +90,6 @@ TAGS = [
         ),
     },
     {
-        "name": "cross-checks",
-        "x-displayName": "Cross-checks",
-        "description": (
-            "The rules a project's documents are checked against one another by, which members "
-            "write in the app; 404 for an organisation that does not have them yet."
-        ),
-    },
-    {
-        "name": "check-runs",
-        "x-displayName": "Check runs",
-        "description": (
-            "Runs of a project's cross-checks, what each rule found and the discrepancy report; "
-            "404 for an organisation that does not have them yet."
-        ),
-    },
-    {
         "name": "webhooks",
         "x-displayName": "Webhooks",
         "description": (

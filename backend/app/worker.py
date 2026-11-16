@@ -7,8 +7,7 @@ API: the API replicas serve requests while as many workers as the backlog needs 
 and answer questions. A worker starts like the API does (app/startup.py) and claims the kinds
 of job it has a handler for (`HANDLERS`), in two lanes: WORKER_CONCURRENCY indexer threads for
 the documents (and for a PDF's first pages, drawn ahead once it is parsed, app/rendering.py),
-and ANSWER_CONCURRENCY answerer threads for the questions (app/answers.py) and the runs of
-cross-checks with their reports (app/check_runs.py), so that a backlog
+and ANSWER_CONCURRENCY answerer threads for the questions (app/answers.py), so that a backlog
 of parses never holds an answer up and the other way round. An indexer spends most of a
 document waiting on the model, so they are many, and only PARSE_CONCURRENCY of them run a
 parse, the part that takes memory, at once (`ParseSlots` in app/indexing/pipeline.py). The
@@ -79,7 +78,6 @@ from sqlalchemy import text
 
 from app.answers import abandon_answer, run_answer
 from app.bounces import read_ses_events
-from app.check_runs import abandon_run, run_automation, run_workflow
 from app.config import MAIL_THREADS, Settings, get_settings
 from app.connectors.sync import abandon_sync, queue_due_syncs, run_sync
 from app.conversion import abandon_view, check_converter, convert_document
@@ -105,8 +103,6 @@ from app.jobs import (
     LEASE,
     RECEIVE_MAIL,
     RENDER_PAGES,
-    RUN_AUTOMATION,
-    RUN_WORKFLOW,
     SEEN_WITHIN,
     SEND_EMAIL,
     SYNC_CONNECTOR,
@@ -153,12 +149,7 @@ from app.tracing import describe, timed, trace_of
 from app.tracking import start_tracking
 from app.version import VERSION
 from app.watch import watch
-from app.webhooks import (
-    abandon_delivery,
-    announce_document,
-    announce_run,
-    run_delivery,
-)
+from app.webhooks import abandon_delivery, announce_document, run_delivery
 
 # By its name rather than `__name__`, which is "__main__" when the module runs as a command.
 log = logging.getLogger("app.worker")
@@ -381,23 +372,6 @@ def _run_language(job: Job, services: Services) -> str | None:
     return None
 
 
-def _run_workflow(job: Job, services: Services) -> str | None:
-    return run_workflow(job.payload["run_id"], services, Lease(job.id, job.worker_id))
-
-
-def _abandon_workflow(job: Job, services: Services) -> None:
-    abandon_run(job.payload["run_id"], job.max_attempts)
-
-
-def _after_workflow(job: Job, services: Services) -> None:
-    # Worked out, or its report written, however the job ended: the webhooks are told.
-    announce_run(job.payload["run_id"], job.id)
-
-
-def _run_automation(job: Job, services: Services) -> str | None:
-    return run_automation(job.payload["automation_id"], Lease(job.id, job.worker_id))
-
-
 def _run_receive(job: Job, services: Services) -> str | None:
     return run_receive(job, services.storage, Lease(job.id, job.worker_id))
 
@@ -414,12 +388,6 @@ def _abandon_sync(job: Job, services: Services) -> None:
     abandon_sync(job)
 
 
-def _abandon_automation(job: Job, services: Services) -> None:
-    # The arrivals stay with the automation, and the next document that arrives for it runs its
-    # checks over them too.
-    pass
-
-
 def _abandon_language(job: Job, services: Services) -> None:
     # The passages not moved yet are searched in the language they have, as before the change;
     # the next change of language, or indexing a document again, moves them.
@@ -427,12 +395,11 @@ def _abandon_language(job: Job, services: Services) -> None:
 
 
 # The kinds this worker runs. A kind in JOB_KINDS that is missing here is left in the queue for
-# a worker that has it. The answers and the mail have a lane of threads each (`LANE_KINDS`),
-# the runs of cross-checks and the automations that make them the answers', since a member
-# waits for them and their reports are the agent's; every other kind shares the indexers, a
-# message sent to a project's address among them (app/receiving.py), which is an upload, and so
-# is a connected folder's sync (app/connectors/sync.py), and the deliveries of the webhooks
-# (app/webhooks.py), whose answers come within seconds.
+# a worker that has it. The answers and the mail have a lane of threads each (`LANE_KINDS`);
+# every other kind shares the indexers, a message sent to a project's address among them
+# (app/receiving.py), which is an upload, and so is a connected folder's sync
+# (app/connectors/sync.py), and the deliveries of the webhooks (app/webhooks.py), whose answers
+# come within seconds.
 HANDLERS: dict[str, Handler] = {
     INDEX_DOCUMENT: Handler(_run_index, _abandon_index, _after_index),
     ANSWER_QUESTION: Handler(run_answer, abandon_answer),
@@ -440,8 +407,6 @@ HANDLERS: dict[str, Handler] = {
     SEND_EMAIL: Handler(run_email, abandon_email),
     APPLY_LANGUAGE: Handler(_run_language, _abandon_language),
     EXPORT_PROJECT: Handler(_run_export, _abandon_export),
-    RUN_WORKFLOW: Handler(_run_workflow, _abandon_workflow, _after_workflow),
-    RUN_AUTOMATION: Handler(_run_automation, _abandon_automation),
     RECEIVE_MAIL: Handler(_run_receive, _abandon_receive),
     SYNC_CONNECTOR: Handler(_run_sync, _abandon_sync),
     DELIVER_WEBHOOK: Handler(run_delivery, abandon_delivery),
@@ -449,11 +414,7 @@ HANDLERS: dict[str, Handler] = {
     VIEW_MY_FILE: Handler(_run_my_file_view, _abandon_my_file_view),
 }
 LANE_KINDS = {
-    ANSWERER: [
-        ANSWER_QUESTION,
-        RUN_WORKFLOW,
-        RUN_AUTOMATION,
-    ],
+    ANSWERER: [ANSWER_QUESTION],
     MAILER: [SEND_EMAIL],
 }
 

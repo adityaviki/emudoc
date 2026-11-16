@@ -89,7 +89,7 @@ The stages build three indexes:
 - **The map**: each document's outline, with a summary of every section.
 - **Facts**: typed values (text, numbers, dates, amounts) read for the document's kind by an
   extraction template (`backend/app/extraction.py`: seven built in, and a project's own), which
-  the facts table (`fact_table.py`), the cross-checks (`cross_checks.py`) and the agent read.
+  the facts table (`fact_table.py`) and the agent read.
 
 ## The agent and its answers
 
@@ -154,7 +154,6 @@ backend/app/
   rendering.py      pages drawn from PDFs; conversion.py and converter.py Office files as PDFs
   search.py         the hybrid search; languages.py the language a document is searched in
   extraction.py     the templates; fact_*.py the facts table, its checks, changes and export
-  cross_checks.py   rules between documents' facts; check_runs.py their runs; automations.py
   my_files.py, share_links.py, …
                     one module per feature, with its routes in api/
   agent/            the tools and the loop; llm.py every call to a model

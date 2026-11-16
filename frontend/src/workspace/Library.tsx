@@ -76,8 +76,6 @@ import { VERSION_EXTENSIONS } from '../versions.ts'
 import { describeChange } from './changes.ts'
 import { chosenFolder, droppedEntries, readEntries } from './dropped.ts'
 import { photoName } from './uploads.ts'
-import { RunView } from './CheckRuns.tsx'
-import { CrossChecksView, FindingsView } from './CrossChecks.tsx'
 import { DraftTemplatesView } from './DraftTemplates.tsx'
 import { MyFileView, MyFilesView } from './MyFiles.tsx'
 import { ConnectorsView } from './Connectors.tsx'
@@ -240,9 +238,6 @@ export function Library() {
   if (workspace.url.library.templates) return <TemplatesView />
   if (workspace.url.library.facts) return <FactsView kind={workspace.url.library.facts} />
   if (workspace.url.library.changes) return <ChangesView kind={workspace.url.library.changes} />
-  if (workspace.url.library.checks) return <CrossChecksView />
-  if (workspace.url.library.check != null) return <FindingsView checkId={workspace.url.library.check} />
-  if (workspace.url.library.run != null) return <RunView runId={workspace.url.library.run} />
   if (workspace.url.library.mail && mail) return <MailboxView />
   if (workspace.url.library.connectors && connectors) return <ConnectorsView />
   if (workspace.url.library.myFiles) return <MyFilesView />
@@ -296,13 +291,6 @@ export function Library() {
             onClick={workspace.showTemplates}
             title="Extraction templates: the fields each kind of document is read for"
             aria-label="Extraction templates"
-            className="px-2"
-          />
-          <Button
-            icon={<ListChecks className="size-4" />}
-            onClick={workspace.showChecks}
-            title="Cross-checks: rules that compare the facts of one kind of document with another's"
-            aria-label="Cross-checks"
             className="px-2"
           />
           <Button

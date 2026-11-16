@@ -19,8 +19,8 @@ everyone who works in it, those who sign in through another service too.
 
 ## Notices
 
-The bell in the header lists your notices: when a long upload is done, when a project's export
-is ready, and when an automation's run found something.
+The bell in the header lists your notices: when a long upload is done, and when a project's
+export is ready.
 Under Notices on the account page you choose, kind by kind, $notice_channels; until you choose,
 the workspace's choice holds. "Also show them on this computer as they come" shows them as the
 browser's own notices too. Notices are kept $notification_days days.

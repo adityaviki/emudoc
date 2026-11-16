@@ -64,7 +64,6 @@ from app.models import (
     Membership,
     Organization,
     Project,
-    WorkflowRun,
 )
 from app.prompts import prompt_version
 from app.scopes import scope_of
@@ -245,21 +244,14 @@ def offers_my_files(session: Session, organization: Organization, user_id: int) 
 
 
 def answers_in_flight(session: Session, org_id: int) -> int:
-    """How many runs of the agent the organisation has queued or under way: its answers and the
-    discrepancy reports of its runs of cross-checks (app/check_runs.py)."""
-    answers = session.scalar(
+    """How many runs of the agent the organisation has queued or under way: its answers."""
+    return session.scalar(
         select(func.count())
         .select_from(ChatMessage)
         .join(Chat, Chat.id == ChatMessage.chat_id)
         .join(Project, Project.id == Chat.project_id)
         .where(Project.org_id == org_id, ChatMessage.status == "streaming")
     )
-    reports = session.scalar(
-        select(func.count())
-        .select_from(WorkflowRun)
-        .where(WorkflowRun.org_id == org_id, WorkflowRun.report_status.in_(("queued", "writing")))
-    )
-    return answers + reports
 
 
 def events_after(session: Session, message_id: int, after: int) -> list[tuple[int, dict]]:

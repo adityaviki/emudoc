@@ -9,7 +9,6 @@ from pydantic import BaseModel, Field
 from pydantic_ai.tools import ToolDefinition
 
 from app.answers import ANSWER_PROMPT_VERSION
-from app.check_runs import REPORT_PROMPT_VERSION
 from app.golden import JUDGE_PROMPT_VERSION
 from app.indexing.enrich import ENRICH_PROMPT_VERSION, SECTIONS_PROMPT_VERSION
 from app.llm import OCR_PROMPT_VERSION
@@ -92,7 +91,6 @@ def test_a_replys_schema_and_a_tools_definition_count_by_what_the_model_reads():
 def test_each_kind_of_work_has_a_version_of_its_own():
     versions = [
         ANSWER_PROMPT_VERSION,
-        REPORT_PROMPT_VERSION,
         OCR_PROMPT_VERSION,
         SECTIONS_PROMPT_VERSION,
         ENRICH_PROMPT_VERSION,
