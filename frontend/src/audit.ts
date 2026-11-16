@@ -3,7 +3,7 @@
 // choices ask for, its days in the browser's own zone.
 
 import { ROLE_LABELS } from './api.ts'
-import type { AuditAction, AuditEvent, AuditFilter, ConnectorProvider, DraftKind, NoticeKind, PastNoticeKind, ReviewState, Role } from './api.ts'
+import type { AuditAction, AuditEvent, AuditFilter, ConnectorProvider, DraftKind, NoticeKind, PastNoticeKind, Role } from './api.ts'
 import { SERVICE_NAMES } from './connectors.ts'
 import { KIND_LABELS, kindWords } from './draftTemplates.ts'
 import { fieldWords } from './factTable.ts'
@@ -11,7 +11,6 @@ import { formatDate, formatDateTime } from './format.ts'
 import { NOTICE_KINDS, PAST_NOTICE_KINDS } from './notifications.ts'
 import { keptWords, languageName, signInWords } from './organizationSettings.ts'
 import type { Kept } from './organizationSettings.ts'
-import { REVIEW_LABELS } from './reviews.ts'
 import { TEXT_FILES } from './textFiles.ts'
 
 /** The kinds the filter groups the actions under, in its order, as it names them. */
@@ -407,6 +406,7 @@ const AUTOMATION_PARTS: Record<string, string> = {
   audience: 'whom it tells',
   recheck: 'when it runs again',
   enabled: 'on or off',
+  // Until reviews went on 2026-11-16.
   reviews: 'what it puts in review',
 }
 
@@ -415,6 +415,7 @@ function describeAutomation(detail: AuditEvent['detail']): string {
   const kind = typeof detail.kind === 'string' ? `${detail.kind} documents` : 'any document'
   const parts = [`${kind} ${typeof detail.folder === 'string' ? `in ${detail.folder}` : 'anywhere'}`]
   parts.push(Array.isArray(detail.checks) ? `running ${detail.checks.map(String).join(', ')}` : 'running every cross-check')
+  // What it put in review, in a row from before reviews went on 2026-11-16.
   if (detail.review === 'differs') parts.push('putting what differs in review')
   else if (detail.review === 'arrived') parts.push('putting what arrives in review')
   if (detail.enabled === false) parts.push('off')
@@ -533,8 +534,8 @@ function describeMyFile(action: AuditAction, detail: AuditEvent['detail']): stri
   const parts = [detail.kind === 'xlsx' ? 'an Excel workbook' : 'a Word document']
   if (typeof detail.version === 'number') parts.push(`version ${detail.version}`)
   if (action === 'my_file_copied') parts.push(detail.as_version === true ? 'as a new version of its document' : 'as a new document')
-  // Written by the agent, as the member's: in a chat (backend/app/agent/writing.py), or a document of a kind they asked
-  // for outside one, such as a disputed document's dispute letter (backend/app/drafts.py).
+  // Written by the agent, as the member's: in a chat (backend/app/agent/writing.py), or, until reviews went on
+  // 2026-11-16, a document of a kind they asked for outside one, a disputed document's dispute letter.
   if (detail.by_model === true) {
     const writing = typeof detail.writing === 'string' && detail.writing in KIND_LABELS ? (detail.writing as DraftKind) : null
     parts.push(writing ? `by the agent: ${kindWords(writing)}` : 'by the agent in a chat')
@@ -609,10 +610,15 @@ function describeWebhookChange(detail: AuditEvent['detail']): string {
   return parts.join(', ')
 }
 
+// A document's review moved, by a member or an automation's run, and assigned, until reviews went on 2026-11-16: their
+// rows from before keep their words.
 const REVIEW_ACTIONS = new Set<AuditAction>(['document_review_changed', 'document_assigned'])
 
+/** Each state a review was in, as the page named it. */
+const REVIEW_LABELS: Record<string, string> = { to_review: 'To review', approved: 'Approved', disputed: 'Disputed' }
+
 /** A document's review as a row says it: its state, or none. */
-const review = (value: unknown) => REVIEW_LABELS[value as ReviewState] ?? 'not in review'
+const review = (value: unknown) => (typeof value === 'string' && REVIEW_LABELS[value]) || 'not in review'
 
 /** A document's review assigned, or no longer: to whom, by `names`, the members' names by id. */
 function describeAssignment(detail: AuditEvent['detail'], names: ReadonlyMap<number, string>): string {

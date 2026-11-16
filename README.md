@@ -24,11 +24,11 @@ you choose.
   price list, or a template of your own) into a facts table you sort, filter, check and correct,
   and download as CSV.
 - **Verify**: cross-checks compare documents' facts (an invoice against its purchase order, the
-  contract, the price list) when you ask or as documents arrive, with reviews, assignees and
-  question sets asked on a schedule.
+  contract, the price list) when you ask or as documents arrive, with question sets asked on a
+  schedule.
 - **Create**: the agent writes letters, replies, memos and reports from the documents as Word
   documents in your own files, to your project's templates, and makes and edits Excel
-  workbooks; a disputed invoice's dispute letter is one press away.
+  workbooks; ask in a chat for a disputed invoice's dispute letter and it is in your files.
 - **Work together**: a workspace with roles, private projects, notices, and links that share a
   document or an answer outside.
 - **Bring documents in** by upload, by an upload client that sends a folder, by mail to a

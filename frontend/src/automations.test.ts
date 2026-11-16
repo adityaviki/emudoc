@@ -23,9 +23,6 @@ const automation = (patch: Partial<Automation> = {}): Automation => ({
   audience: 'maker',
   recheck: false,
   enabled: true,
-  review: null,
-  assignee_id: null,
-  assignee: null,
   folder: 'Inbox/Invoices',
   checks: null,
   created_by: 2,
@@ -62,15 +59,6 @@ describe('an automation in words', () => {
     expect(listWords(['a', 'b', 'c'])).toBe('a, b and c')
   })
 
-  it('says what it puts in review, and for whom', () => {
-    expect(automationSentence(automation({ review: 'arrived' }), 'you')).toBe(
-      'When an invoice arrives in Inbox/Invoices, run every cross-check, put it in review, and tell you.',
-    )
-    expect(automationSentence(automation({ review: 'differs', assignee_id: 9, assignee: 'Grace Hopper' }), 'you')).toBe(
-      'When an invoice arrives in Inbox/Invoices, run every cross-check, put it in review for Grace Hopper if they find a difference, and tell you.',
-    )
-  })
-
   it('says whether it is on and when it last ran', () => {
     expect(automationStatus(automation())).toBe('On · Not run yet')
     expect(automationStatus(automation({ last_run_at: '2026-10-23T15:00:00Z' }))).toBe(`On · Last ran ${formatDateTime('2026-10-23T15:00:00Z')}`)
@@ -101,20 +89,6 @@ describe('the form', () => {
       audience: 'maker',
       recheck: false,
       enabled: true,
-      review: null,
-      assignee_id: null,
-    })
-  })
-
-  it('assigns what it puts in review alone, by the name of whom it may assign', () => {
-    const fresh = { ...draftOf(null, ['invoice']), title: 'New invoices' }
-    expect(inputOf({ ...fresh, assignee_id: 9 })).toMatchObject({ review: null, assignee_id: null })
-    const reviewing = { ...fresh, review: 'differs' as const, assignee_id: 9 }
-    expect(inputOf(reviewing)).toMatchObject({ review: 'differs', assignee_id: 9 })
-    expect(wordedDraft(reviewing, [], new Map(), new Map([[9, 'Grace Hopper']])).assignee).toBe('Grace Hopper')
-    expect(draftOf(automation({ review: 'arrived', assignee_id: 9, assignee: 'Grace Hopper' }), [])).toMatchObject({
-      review: 'arrived',
-      assignee_id: 9,
     })
   })
 

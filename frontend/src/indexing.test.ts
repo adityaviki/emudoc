@@ -48,11 +48,6 @@ function doc(status: Document['status'], stages: Partial<Record<StageName, Parti
     usage: {},
     created_at: '2026-10-23T11:50:00Z',
     version: 1,
-    review: null,
-    assignee_id: null,
-    assignee: null,
-    review_changer: null,
-    review_changed_at: null,
     view_state: null,
     view_error: null,
   }

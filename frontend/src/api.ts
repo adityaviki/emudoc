@@ -260,12 +260,6 @@ export interface Document {
   created_at: string
   /** Which version of the document its file is, from 1 (backend/app/versions.py). */
   version: number
-  /** Its review (backend/app/reviews.py), null for none: the member it is assigned to, by id and name as it is now, and who moved it to its state and when, null for an automation or an account gone. */
-  review: ReviewState | null
-  assignee_id: number | null
-  assignee: string | null
-  review_changer: string | null
-  review_changed_at: string | null
   /** Its view, the PDF of a Word, PowerPoint, Excel, RTF or HTML file that shows it as it looks (backend/app/conversion.py): being made, made, or failed with the sentence why in `view_error`; null for none. */
   view_state: ViewState | null
   view_error: string | null
@@ -348,7 +342,6 @@ export interface DocumentFilter {
   /** Dated on or after, and on or before, as `YYYY-MM-DD`; either leaves out the undated. */
   after: string | null
   before: string | null
-  reviews: ReviewState[]
   /** A folder with its subfolders. */
   folder_id: number | null
   /** The documents with a passage that holds every word of each: what the earlier searches of a search within found. */
@@ -376,28 +369,6 @@ export interface DocumentVersion {
   served: boolean
   /** Whether its text was read, which an earlier version shows. */
   has_text: boolean
-}
-
-/** Where a document stands in its review: `REVIEW_STATES` in backend/app/models.py. */
-export type ReviewState = 'to_review' | 'approved' | 'disputed'
-
-/** A change to a document's review; a field left out stays as it is. A null state takes it out of review and drops its assignee; an assignee given to a document in no review puts it in review. */
-export interface ReviewInput {
-  state?: ReviewState | null
-  assignee_id?: number | null
-}
-
-/** A member a project's documents may be assigned to. */
-export interface Reviewer {
-  id: number
-  name: string
-}
-
-/** A page of a project's documents in review of one state, and how many there are of each. */
-export interface ReviewsPage {
-  documents: Document[]
-  counts: Record<ReviewState, number>
-  next_after: string | null
 }
 
 /** A page of the documents directly in one folder, in the library's order (by name). */
@@ -551,10 +522,6 @@ export interface FactRow {
   cells: Record<string, Fact[]>
   /** The checks of a field no fact reads any more, by the field's name: made before the document was read again, which read it differently. */
   earlier: Record<string, FactCheck[]>
-  /** The document's review, null for none, and the member it is assigned to, by id and name. */
-  review: ReviewState | null
-  assignee_id: number | null
-  assignee: string | null
 }
 
 /** A page of a kind's facts table (FactTableOut): the template whose fields are its columns, its rows, how many rows its conditions keep and how many of those hold a fact nobody checked, and where its next page starts. */
@@ -690,8 +657,6 @@ export interface CheckRun extends CheckRunSummary {
 
 /** Whom an automation tells what a run found (backend/app/automations.py): its maker, everyone who sees the project, or nobody. */
 export type AutomationAudience = 'maker' | 'project' | 'nobody'
-/** What an automation's run puts in review of what arrived: those its cross-checks found a difference about, or every one it watches (`AUTOMATION_REVIEWS`). */
-export type AutomationReview = 'differs' | 'arrived'
 
 /** An automation as a member writes it, whole (AutomationIn): the kind it watches (null for any document), the folder (null for the whole project), the cross-checks it runs (null for every one), its report, whom it tells, whether what its checks compare with runs it again, and whether it is on. */
 export interface AutomationInput {
@@ -703,9 +668,6 @@ export interface AutomationInput {
   audience: AutomationAudience
   recheck: boolean
   enabled: boolean
-  /** What its run puts in review, null for nothing, and the member it assigns them to. */
-  review: AutomationReview | null
-  assignee_id: number | null
 }
 
 /** A project's automation (AutomationOut): its folder's path and its chosen cross-checks' names as they are now, who made it, why it would run nothing as the project stands, and when it last ran. */
@@ -715,8 +677,6 @@ export interface Automation extends AutomationInput {
   checks: string[] | null
   created_by: number | null
   made_by: string | null
-  /** The name of the member it assigns what it puts in review to, as it is now. */
-  assignee: string | null
   problem: string | null
   last_run_at: string | null
   updated_at: string
@@ -917,20 +877,9 @@ export type DraftKind = 'reply_email' | 'dispute_letter' | 'summary_memo' | 'com
 /** The files a text citing passages downloads as: an answer, a chat (backend/app/draft_export.py, backend/app/chat_export.py). */
 export type TextFormat = 'docx' | 'pdf' | 'md'
 
-/** A Word file a member asked the agent to write into their My files outside a chat (MyFileWritingOut): a disputed document's dispute letter, while it is written, or why it failed. One that succeeds is a file of `files`. */
-export interface MyFileWriting {
-  id: number
-  kind: DraftKind
-  title: string
-  status: 'queued' | 'writing' | 'failed'
-  error: string | null
-  created_at: string
-}
-
-/** The member's files in a project, the one changed last first, the writings asked of the agent still under way or failed, and how many files it keeps (MyFilesOut). */
+/** The member's files in a project, the one changed last first, and how many files it keeps (MyFilesOut). */
 export interface MyFiles {
   files: MyFile[]
-  writings: MyFileWriting[]
   limit: number
 }
 
@@ -984,7 +933,6 @@ export function searchParams(query: string, filter: DocumentFilter, limit = 20):
   for (const type of filter.types) params.append('types', type)
   if (filter.after) params.set('after', filter.after)
   if (filter.before) params.set('before', filter.before)
-  for (const state of filter.reviews) params.append('reviews', state)
   if (filter.folder_id != null) params.set('folder_id', String(filter.folder_id))
   for (const words of filter.mentions) params.append('mentions', words)
   return params
@@ -1385,12 +1333,11 @@ export type NoticeKind =
   | 'upload_indexed'
   | 'project_export'
   | 'checks_run'
-  | 'review_assigned'
   | 'report_ready'
   | 'weekly_digest'
 
 /** The kinds of notice no longer told, whose notices stay in the centre to read (PAST_NOTICE_KINDS in backend/app/models.py). */
-export type PastNoticeKind = 'mentioned' | 'thread_replied'
+export type PastNoticeKind = 'mentioned' | 'thread_replied' | 'review_assigned'
 
 /** How one kind of notice is told: in the notification centre, by email, both or neither. */
 export interface NoticeChoice {
@@ -2478,26 +2425,8 @@ export const api = {
     request<Connector>(`/projects/${projectId}/connectors/${connectorId}/sync`, { method: 'POST' }),
   disconnect: (projectId: number, connectorId: number) =>
     request<void>(`/projects/${projectId}/connectors/${connectorId}`, { method: 'DELETE' }),
-  /** A page of the project's documents in review of one state, those assigned to the asker alone with `mine`, past `after`. */
-  reviews: (projectId: number, state: ReviewState, mine: boolean, after: string | null = null) => {
-    const query = new URLSearchParams({ state })
-    if (mine) query.set('mine', 'true')
-    if (after) query.set('after', after)
-    return request<ReviewsPage>(`/projects/${projectId}/reviews?${query}`)
-  },
-  /** The members the project's documents may be assigned to, by name. */
-  reviewers: (projectId: number) => request<Reviewer[]>(`/projects/${projectId}/reviewers`),
-  /** Move a document's review, assign it, or both; the member assigned is told. */
-  review: (documentId: number, change: ReviewInput) => request<Document>(`/documents/${documentId}/review`, json('PUT', change)),
   /** The member's own files in the project, the one changed last first, and how many it keeps. */
   myFiles: (projectId: number) => request<MyFiles>(`/projects/${projectId}/my-files`),
-  /** Have the agent write a document of the kind about the documents into the member's My files; the worker writes it, which My files follows. */
-  askWriting: (projectId: number, body: { kind: DraftKind; document_ids: number[] }) =>
-    request<MyFileWriting>(`/projects/${projectId}/my-files/writings`, json('POST', body)),
-  /** Have a writing that failed written again. */
-  retryWriting: (id: number) => request<MyFileWriting>(`/my-file-writings/${id}/retry`, { method: 'POST' }),
-  /** Dismiss a writing: one that failed, or one under way, whose file is then never kept. */
-  dismissWriting: (id: number) => request<void>(`/my-file-writings/${id}`, { method: 'DELETE' }),
   /** Keep a Word or Excel file in the member's My files. */
   addMyFile: (projectId: number, file: File) => {
     const form = new FormData()

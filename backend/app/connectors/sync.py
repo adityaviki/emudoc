@@ -8,8 +8,8 @@ Otherwise it reads every file below the folder and compares them with what the l
 (`connector_files`). A file not seen before is downloaded and taken in through the checks an
 upload's files go through (app/uploads.py), into the folders of its path below the connector's
 target. A file whose version changed is its document's new version (app/versions.py), through
-the same checks, so that the document keeps its chats' scope, its review and its members' checks
-where it stands in the library; one whose document is being indexed waits for the next sync. The
+the same checks, so that the document keeps its chats' scope and its members' checks where it
+stands in the library; one whose document is being indexed waits for the next sync. The
 document of a file that is no longer below the folder goes to the project's trash, which keeps
 it TRASH_DAYS, so that a file moved by mistake at the service costs no chat its sources. The
 documents a sync keeps or gives new versions are one upload, its member's, so that its notice

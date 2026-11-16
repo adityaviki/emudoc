@@ -1177,9 +1177,8 @@ failed answer whole, the versions of the prompts and what the run cost, and exit
 instruction was followed or an answer was not right. Run it after a change to the agent's or the
 indexing model's prompts and after changing either model.
 
-**The prompts' versions.** Each kind of model work (an answer, a question set's answer, a document
-written into My files from a review,
-a discrepancy report, reading a scan, finding a document's sections, enriching it, the golden
+**The prompts' versions.** Each kind of model work (an answer, a question set's answer, a
+discrepancy report, reading a scan, finding a document's sections, enriching it, the golden
 questions' judge) asks with prompts whose version is the first
 eight hex digits of a hash of what the model is told for it (`backend/app/prompts.py`): its
 instructions, the tools it is offered and the schema of its reply, never the documents or the
@@ -1741,10 +1740,7 @@ What the app mails, and to whom:
   everyone who sees the project, or nobody), once the run it made after documents arrived is
   worked out and its report written or failed, what its cross-checks found about them, in counts
   and file names, never a value a document states, and nothing when they found nothing about them
-  (`tell_run` in `backend/app/check_runs.py`); to the member another assigned a document's review,
-  who did and which file, in the change's transaction (`tell_assigned` in
-  `backend/app/reviews.py`), or an automation's run several, once, naming the first three
-  (`put_in_review`); to whom a project's question set names (its maker, everyone who sees the
+  (`tell_run` in `backend/app/check_runs.py`); to whom a project's question set names (its maker, everyone who sees the
   project, or nobody; a member's own run to them), once its report is answered, the set's name
   and how many of its questions were answered, never a question or an answer (`tell_report` in
   `backend/app/question_reports.py`); and to a member who turned on the weekly digest (off until

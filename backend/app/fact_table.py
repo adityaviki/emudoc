@@ -15,8 +15,7 @@ pages moves none.
 
 The rows with unchecked facts are those with a fact of the template's fields no member has
 checked (app/fact_checks.py); a correction is in the fact's own columns, so a row sorts and is kept
-by the member's value. A document's review (app/reviews.py), approved or disputed, is the member's
-word on it as a whole, which a row shows beside its facts.
+by the member's value.
 """
 
 import base64

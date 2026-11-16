@@ -84,7 +84,6 @@ from app.models import (
     FactCheck,
     Folder,
     MyFile,
-    MyFileWriting,
     Passage,
     Project,
     QuestionReport,
@@ -458,24 +457,6 @@ def get_my_file(file_id: int, session: SessionDep, account: AccountDep) -> MyFil
     return file
 
 
-def get_my_file_writing(writing_id: int, session: SessionDep, account: AccountDep) -> MyFileWriting:
-    """A writing the account asked for into its My files (app/writings.py), under the terms of
-    its files: another member's is not found."""
-    writing = session.scalar(
-        select(MyFileWriting)
-        .join(Project, Project.id == MyFileWriting.project_id)
-        .where(
-            MyFileWriting.id == writing_id,
-            MyFileWriting.user_id == account.user.id,
-            visible_to(account),
-        )
-    )
-    if writing is None:
-        raise HTTPException(404, "Writing not found")
-    about(project_id=writing.project_id)
-    return writing
-
-
 def get_fact(fact_id: int, session: SessionDep, account: AccountDep) -> Fact:
     """A fact read from a document (app/fact_checks.py), provided the account sees the
     document's project and the document is out of the trash."""
@@ -511,7 +492,6 @@ FolderDep = Annotated[Folder, Depends(get_folder)]
 PassageDep = Annotated[Passage, Depends(get_passage)]
 ChatDep = Annotated[Chat, Depends(get_chat)]
 MyFileDep = Annotated[MyFile, Depends(get_my_file)]
-MyFileWritingDep = Annotated[MyFileWriting, Depends(get_my_file_writing)]
 
 
 def get_editable_project(project: ProjectDep, account: AccountDep) -> Project:

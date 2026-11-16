@@ -3,7 +3,7 @@
 // stands, the form's draft and what it sends, the folders it may watch, and what the view asks
 // before deleting one.
 
-import type { Automation, AutomationAudience, AutomationInput, AutomationReview, Folder } from './api.ts'
+import type { Automation, AutomationAudience, AutomationInput, Folder } from './api.ts'
 import type { Question } from './components/Confirm.tsx'
 import { formatDateTime } from './format.ts'
 
@@ -16,15 +16,8 @@ export const AUDIENCES: { value: AutomationAudience; label: string }[] = [
   { value: 'nobody', label: 'Nobody: the run is listed with the others' },
 ]
 
-/** What an automation may put in review, as the form offers it: nothing first. */
-export const REVIEWS: { value: AutomationReview | ''; label: string }[] = [
-  { value: '', label: 'Nothing' },
-  { value: 'differs', label: 'What arrives, when the cross-checks find a difference about it' },
-  { value: 'arrived', label: 'Everything that arrives' },
-]
-
-/** An automation as its words need it: what it is, with its folder's path, its chosen cross-checks' names and whom it assigns. */
-export type WordedAutomation = AutomationInput & { folder: string | null; checks: string[] | null; assignee: string | null }
+/** An automation as its words need it: what it is, with its folder's path and its chosen cross-checks' names. */
+export type WordedAutomation = AutomationInput & { folder: string | null; checks: string[] | null }
 
 /** "an invoice", "a purchase order". */
 const withArticle = (kind: string) => `${/^[aeiou]/i.test(kind) ? 'an' : 'a'} ${kind}`
@@ -37,9 +30,8 @@ export function listWords(names: string[]): string {
 
 /**
  * What an automation does, in a sentence: "When an invoice arrives in Inbox, run every
- * cross-check with a discrepancy report by the model, put it in review for Grace Hopper if they
- * find a difference, and tell Ada Lovelace." `maker` names whom "whoever made it" is, as the
- * reader knows them.
+ * cross-check with a discrepancy report by the model, and tell Ada Lovelace." `maker` names whom
+ * "whoever made it" is, as the reader knows them.
  */
 export function automationSentence(automation: WordedAutomation, maker: string): string {
   const what = automation.kind ? withArticle(automation.kind) : 'a document'
@@ -55,11 +47,7 @@ export function automationSentence(automation: WordedAutomation, maker: string):
           : `${checks.length} cross-checks`
   const told = automation.audience === 'maker' ? maker : automation.audience === 'project' ? 'everyone who sees the project' : 'nobody'
   const again = automation.recheck ? ' Run them again when a document they compare it with arrives anywhere in the project.' : ''
-  const whom = automation.assignee ? ` for ${automation.assignee}` : ''
-  const review = automation.review
-    ? `, put it in review${whom}${automation.review === 'differs' ? ' if they find a difference' : ''}`
-    : ''
-  return `When ${what} arrives ${where}, run ${run}${automation.report ? ' with a discrepancy report by the model' : ''}${review}, and tell ${told}.${again}`
+  return `When ${what} arrives ${where}, run ${run}${automation.report ? ' with a discrepancy report by the model' : ''}, and tell ${told}.${again}`
 }
 
 /** How the automation stands: off, never run, or when it last ran. */
@@ -79,8 +67,6 @@ export interface AutomationDraft {
   audience: AutomationAudience
   recheck: boolean
   enabled: boolean
-  review: AutomationReview | ''
-  assignee_id: number | null
 }
 
 /** The draft of an automation being changed, or of a new one: every invoice that arrives, every cross-check, its maker told. */
@@ -96,8 +82,6 @@ export function draftOf(automation: Automation | null, kinds: string[]): Automat
       audience: automation.audience,
       recheck: automation.recheck,
       enabled: automation.enabled,
-      review: automation.review ?? '',
-      assignee_id: automation.assignee_id,
     }
   }
   return {
@@ -110,8 +94,6 @@ export function draftOf(automation: Automation | null, kinds: string[]): Automat
     audience: 'maker',
     recheck: false,
     enabled: true,
-    review: '',
-    assignee_id: null,
   }
 }
 
@@ -126,9 +108,6 @@ export function inputOf(draft: AutomationDraft): AutomationInput {
     audience: draft.audience,
     recheck: draft.recheck,
     enabled: draft.enabled,
-    review: draft.review || null,
-    // Whom it assigns is what it puts in review's, so nobody for nothing.
-    assignee_id: draft.review ? draft.assignee_id : null,
   }
 }
 
@@ -139,19 +118,12 @@ export function draftProblem(draft: AutomationDraft): string | null {
   return null
 }
 
-/** The draft in the words of its sentence, as the form shows it while it is written; `members` names whom it may assign. */
-export function wordedDraft(
-  draft: AutomationDraft,
-  folders: FolderChoice[],
-  names: Map<number, string>,
-  members: Map<number, string> = new Map(),
-): WordedAutomation {
-  const input = inputOf(draft)
+/** The draft in the words of its sentence, as the form shows it while it is written. */
+export function wordedDraft(draft: AutomationDraft, folders: FolderChoice[], names: Map<number, string>): WordedAutomation {
   return {
-    ...input,
+    ...inputOf(draft),
     folder: folders.find((folder) => folder.id === draft.folder_id)?.label ?? null,
     checks: draft.every ? null : draft.check_ids.flatMap((id) => names.get(id) ?? []),
-    assignee: input.assignee_id != null ? (members.get(input.assignee_id) ?? null) : null,
   }
 }
 

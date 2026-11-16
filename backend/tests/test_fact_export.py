@@ -65,7 +65,6 @@ def test_the_csv_is_the_table_as_the_page_shows_it(client, session, monkeypatch,
     assert list(rows[0]) == [
         "Document",
         *INVOICE_FIELDS,
-        "Review",
         "Unchecked",
         "Quote not found",
     ]
@@ -81,7 +80,6 @@ def test_the_csv_is_the_table_as_the_page_shows_it(client, session, monkeypatch,
     assert acme["due_date"] == ""
     assert "notes" not in acme
     assert acme["Unchecked"] == "invoice_number; issue_date; line_item; total_amount"
-    assert acme["Review"] == ""
 
 
 def test_the_csv_holds_the_table_s_sort_conditions_and_words(client, three):

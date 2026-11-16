@@ -16,7 +16,7 @@ the document was read to be written in, or the one the workspace chose on its pa
 first, then those that hold all but one of them, then those that hold any.
 
 - **Filter**, above the passages, narrows them to the documents of some types, dated within a
-  span, in review or in a folder. Each part shows beside it, and its cross takes it off. It
+  span or in a folder. Each part shows beside it, and its cross takes it off. It
   narrows the passages alone, not the files found by their names.
 - **Search within these** keeps the words you searched for and empties the box: the next words
   search only the documents with a passage that holds every one of them. Do it again to narrow
@@ -57,11 +57,10 @@ admins what it cost.
 
 ## What an answer writes for you
 
-Ask for a reply email, a dispute letter, a summary memo, a comparison table or a report, and the
-answer may offer it as a draft of the project, which "Write the draft" under it writes, if you
-may change the project. Ask for a Word document, a letter or a memo to keep, an Excel workbook,
-or for changes to one of your files, and the assistant writes it into your My files, where only
-you see it, and the answer's step opens it ([Working together](/help/working-together)).
+Ask for a reply email, a dispute letter, a summary memo, a comparison table or a report, a Word
+document or a memo to keep, an Excel workbook, or for changes to one of your files, and the
+assistant writes it into your My files, where only you see it, and the answer's step opens it
+([Working together](/help/working-together)).
 
 ## Keyboard shortcuts
 

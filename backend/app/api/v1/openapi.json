@@ -1983,7 +1983,7 @@
           "documents"
         ],
         "summary": "Upload Version",
-        "description": "Give the document a new file, as a multipart form of `file`, which it reads in the earlier\none's place, keeping its id, its review and what names it; the earlier file stays as a version\nto download, and its pages count again as the new one is read. Refused, with nothing changed,\nfor a file an upload would refuse (400, 413), for bytes the project holds already (409), and\nwhile the document is being indexed (409; send it again once it is not). With an\nIdempotency-Key, the version sent again is given the first one's answer.",
+        "description": "Give the document a new file, as a multipart form of `file`, which it reads in the earlier\none's place, keeping its id and what names it; the earlier file stays as a version\nto download, and its pages count again as the new one is read. Refused, with nothing changed,\nfor a file an upload would refuse (400, 413), for bytes the project holds already (409), and\nwhile the document is being indexed (409; send it again once it is not). With an\nIdempotency-Key, the version sent again is given the first one's answer.",
         "operationId": "upload_version",
         "security": [
           {
@@ -5464,33 +5464,6 @@
             ],
             "title": "Template"
           },
-          "review": {
-            "anyOf": [
-              {
-                "type": "string",
-                "enum": [
-                  "to_review",
-                  "approved",
-                  "disputed"
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Review"
-          },
-          "assignee_id": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Assignee Id"
-          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -5520,8 +5493,6 @@
           "doc_date",
           "summary",
           "template",
-          "review",
-          "assignee_id",
           "created_at",
           "version"
         ],

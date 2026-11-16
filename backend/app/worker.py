@@ -114,7 +114,6 @@ from app.jobs import (
     SEND_EMAIL,
     SYNC_CONNECTOR,
     VIEW_MY_FILE,
-    WRITE_DRAFT,
     WRITE_QUESTION_REPORT,
     Lease,
     LeaseLost,
@@ -166,7 +165,6 @@ from app.webhooks import (
     announce_run,
     run_delivery,
 )
-from app.writings import abandon_writing, write_document
 
 # By its name rather than `__name__`, which is "__main__" when the module runs as a command.
 log = logging.getLogger("app.worker")
@@ -406,18 +404,6 @@ def _run_automation(job: Job, services: Services) -> str | None:
     return run_automation(job.payload["automation_id"], Lease(job.id, job.worker_id))
 
 
-def _write_draft(job: Job, services: Services) -> str | None:
-    if "writing_id" not in job.payload:
-        # A draft's, from before the drafts became files of My files: there is nothing to write.
-        return None
-    return write_document(job.payload["writing_id"], services, Lease(job.id, job.worker_id))
-
-
-def _abandon_draft(job: Job, services: Services) -> None:
-    if "writing_id" in job.payload:
-        abandon_writing(job.payload["writing_id"], job.max_attempts)
-
-
 def _run_receive(job: Job, services: Services) -> str | None:
     return run_receive(job, services.storage, Lease(job.id, job.worker_id))
 
@@ -482,13 +468,12 @@ def _abandon_language(job: Job, services: Services) -> None:
 # The kinds this worker runs. A kind in JOB_KINDS that is missing here is left in the queue for
 # a worker that has it. The answers and the mail have a lane of threads each (`LANE_KINDS`),
 # the runs of cross-checks and the automations that make them the answers', since a member
-# waits for them and their reports are the agent's, and so the documents written into My files
-# outside a chat (app/writings.py) and the question sets' reports, with the jobs that make those
-# on a schedule or as documents arrive; every other kind shares the indexers, a message sent to a
-# project's address among them (app/receiving.py), which is an upload, and so is a connected
-# folder's sync (app/connectors/sync.py), the deliveries of the webhooks (app/webhooks.py), whose
-# answers come within seconds, and the hour's weekly digests (app/digests.py), a few statements a
-# member.
+# waits for them and their reports are the agent's, and so the question sets' reports, with the
+# jobs that make those on a schedule or as documents arrive; every other kind shares the
+# indexers, a message sent to a project's address among them (app/receiving.py), which is an
+# upload, and so is a connected folder's sync (app/connectors/sync.py), the deliveries of the
+# webhooks (app/webhooks.py), whose answers come within seconds, and the hour's weekly digests
+# (app/digests.py), a few statements a member.
 HANDLERS: dict[str, Handler] = {
     INDEX_DOCUMENT: Handler(_run_index, _abandon_index, _after_index),
     ANSWER_QUESTION: Handler(run_answer, abandon_answer),
@@ -498,7 +483,6 @@ HANDLERS: dict[str, Handler] = {
     EXPORT_PROJECT: Handler(_run_export, _abandon_export),
     RUN_WORKFLOW: Handler(_run_workflow, _abandon_workflow, _after_workflow),
     RUN_AUTOMATION: Handler(_run_automation, _abandon_automation),
-    WRITE_DRAFT: Handler(_write_draft, _abandon_draft),
     RECEIVE_MAIL: Handler(_run_receive, _abandon_receive),
     SYNC_CONNECTOR: Handler(_run_sync, _abandon_sync),
     DELIVER_WEBHOOK: Handler(run_delivery, abandon_delivery),
@@ -513,7 +497,6 @@ LANE_KINDS = {
         ANSWER_QUESTION,
         RUN_WORKFLOW,
         RUN_AUTOMATION,
-        WRITE_DRAFT,
         RUN_QUESTION_SET,
         WRITE_QUESTION_REPORT,
     ],

@@ -202,9 +202,6 @@ def fact_table(
                     name: [check_out(held) for held in checks]
                     for name, checks in row.earlier.items()
                 },
-                review=row.document.review,
-                assignee_id=row.document.assignee_id,
-                assignee=row.document.assignee,
             )
             for row in table.rows
         ],

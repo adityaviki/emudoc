@@ -73,7 +73,6 @@ from app.jobs import (
     SEND_DIGESTS,
     SEND_EMAIL,
     SYNC_CONNECTOR,
-    WRITE_DRAFT,
     WRITE_QUESTION_REPORT,
 )
 from app.models import STAGES
@@ -110,7 +109,6 @@ JOBS = (
     EXPORT_PROJECT,
     RUN_WORKFLOW,
     RUN_AUTOMATION,
-    WRITE_DRAFT,
     RECEIVE_MAIL,
     SYNC_CONNECTOR,
     DELIVER_WEBHOOK,

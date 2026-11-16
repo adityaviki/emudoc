@@ -260,7 +260,6 @@ def test_the_account_page_chooses_how_each_kind_of_notice_is_told(client, sessio
         {"kind": "upload_indexed", "app": True, "email": True},
         {"kind": "project_export", "app": True, "email": True},
         {"kind": "checks_run", "app": True, "email": True},
-        {"kind": "review_assigned", "app": True, "email": True},
         {"kind": "report_ready", "app": True, "email": True},
         {"kind": "weekly_digest", "app": False, "email": False},
     ]
@@ -296,7 +295,6 @@ def test_the_account_page_chooses_how_each_kind_of_notice_is_told(client, sessio
         {"kind": "upload_indexed", "app": False, "email": True},
         {"kind": "project_export", "app": True, "email": True},
         {"kind": "checks_run", "app": True, "email": True},
-        {"kind": "review_assigned", "app": True, "email": True},
         {"kind": "report_ready", "app": True, "email": True},
         {"kind": "weekly_digest", "app": False, "email": False},
     ]

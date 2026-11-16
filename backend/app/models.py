@@ -63,10 +63,6 @@ REPORT_STATUSES = ("queued", "writing", "done", "failed")
 # everyone who sees its project, each as they chose for the kind of notice, or nobody, the run
 # being listed with the project's either way.
 AUTOMATION_AUDIENCES = ("maker", "project", "nobody")
-# Where a document stands in its review (app/reviews.py), the accounts payable's way with an
-# invoice: put in review for a member to look at, then approved, or disputed with whoever sent
-# it. A document in no review has none.
-REVIEW_STATES = ("to_review", "approved", "disputed")
 # Where a document's view stands, the PDF of its file the document pane shows a Word, PowerPoint
 # or Excel file by (app/conversion.py): being made, made, or not made for the reason
 # `view_error` gives; null for none (a type that is not converted, or one not asked for yet).
@@ -81,9 +77,6 @@ MY_FILE_SCANS = ("pending", "passed", "skipped", "flagged")
 # its title, its kind, its date and the language its words are searched in, each kept through
 # every later reading until the member takes the reading's again.
 DOCUMENT_DETAILS = ("title", "doc_type", "doc_date", "language")
-# What an automation's run puts in review (app/reviews.py), of the documents that arrived for it
-# and are in none: those its cross-checks found a difference about, or every one it watches.
-AUTOMATION_REVIEWS = ("differs", "arrived")
 # When a project's question set (app/question_sets.py) is asked of its documents on a schedule:
 # every day, or one day a week, at an hour of its maker's zone. What made a report of its answers:
 # the schedule, documents that arrived, or a member who ran it there and then. How far a report
@@ -96,9 +89,6 @@ QUESTION_REPORT_STATUSES = ("queued", "running", "done", "failed")
 # (app/draft_templates.py), each with its own layout: a reply to an email, a letter disputing a
 # document, a memo summing documents up, a table setting them side by side, and a report.
 DRAFT_KINDS = ("reply_email", "dispute_letter", "summary_memo", "comparison_table", "report")
-# How far a writing of one outside a chat is (app/writings.py): waiting for the worker, being
-# written, or failed; one written is gone, its file being in My files.
-WRITING_STATUSES = ("queued", "writing", "failed")
 # From most to least permitted: each role may do everything the roles after it may.
 ROLES = ("owner", "admin", "member", "viewer")
 # A chat is private to the member who started it until they share it with the project.
@@ -129,7 +119,6 @@ JOB_KINDS = (
     "sync_connector",
     "run_workflow",
     "run_automation",
-    "write_draft",
     "receive_mail",
     "deliver_webhook",
     "run_question_set",
@@ -153,9 +142,10 @@ MESSAGE_STATUSES = ("streaming", "done", "stopped", "failed")
 # (`Document.usage`, `ChatMessage.usage`, `WorkflowRun.usage`) is keyed by the same kinds; a
 # report of a question set's answers (`QuestionReport.usage`) is kept under `answer`, since each
 # of its answers is the agent's as a chat's is. Nothing records `suggestions` since
-# 2026-11-11 (the model wrote a project's suggested questions), whose rows stay; `draft` is the
-# writing of a document into My files outside a chat (app/writings.py), the drafts' until they
-# went on 2026-11-13.
+# 2026-11-11 (the model wrote a project's suggested questions), nor `draft` since 2026-11-16 (the
+# drafts' until they went on 2026-11-13, then a document the agent wrote into My files outside a
+# chat, a disputed document's dispute letter, until reviews went, S.6): their rows stay, being
+# what those calls cost.
 USAGE_KINDS = (
     "answer",
     "upload",
@@ -181,14 +171,14 @@ NOTICE_KINDS = (
     "upload_indexed",
     "project_export",
     "checks_run",
-    "review_assigned",
     "report_ready",
     "weekly_digest",
 )
 # The kinds of notice no longer told, whose notices in the centres stay to read until
 # NOTIFICATION_DAYS take them: a member mentioned in a comment and a reply in a thread they wrote
-# in, until comments went (S.6, 2026-11-16).
-PAST_NOTICE_KINDS = ("mentioned", "thread_replied")
+# in, until comments went, and a document's review assigned to a member, until reviews went
+# (S.6, 2026-11-16).
+PAST_NOTICE_KINDS = ("mentioned", "thread_replied", "review_assigned")
 NOTICE_CHANNELS = ("app", "email")
 CHOSEN_NOTICES = ("weekly_digest",)
 # What became of a message sent to a project's address (app/inbound.py): documents were kept
@@ -223,8 +213,7 @@ NATURAL_ORDER = "natural_order"
 # (app/check_runs.py), and its automations made, changed and deleted (app/automations.py), as
 # are its question sets, each run by a member or by the app, and their reports deleted for good
 # (app/question_sets.py); its filing rules were made, changed and deleted until they were removed
-# on 2026-11-05, and their actions stay so that those entries still read. A document's review
-# moves from state to state and is assigned to a member (app/reviews.py). Until 2026-11-13 a
+# on 2026-11-05, and their actions stay so that those entries still read. Until 2026-11-13 a
 # draft was asked of the agent, changed and deleted, and a version of it downloaded, whose actions
 # stay so that those entries still read; a project's own template of a kind the agent writes is
 # made, changed and deleted for good (app/draft_templates.py). A project's address is made, its
@@ -242,8 +231,9 @@ NATURAL_ORDER = "natural_order"
 # (S.3, 2026-11-13), a member let Emudoc's support see their account, or withdrew that, and support
 # opened and closed a view of it; and until the terms of service went (S.3, 2026-11-13), a user
 # accepted them; and until comments went (S.6, 2026-11-16), a member commented on a document and
-# deleted a comment, and resolved a thread of them or opened it again. Those actions stay so that
-# their entries still read.
+# deleted a comment, and resolved a thread of them or opened it again; and until reviews went
+# (S.6, 2026-11-16), a document's review moved from state to state, by a member or an automation,
+# and was assigned to a member. Those actions stay so that their entries still read.
 AUDIT_ACTIONS = (
     "sign_up",
     "sign_in",
@@ -1197,37 +1187,8 @@ class Document(Base):
         Index("ix_documents_listing_size", "project_id", "folder_id", "size_bytes", "id"),
         Index("ix_documents_listing_date", "project_id", "folder_id", "doc_date", "id"),
         *_trash_indexes("documents", "project_id"),
-        # A null review passes, as a check that is not false does; so does a null view.
-        _one_of("review", REVIEW_STATES, "documents"),
+        # A null view passes, as a check that is not false does.
         _one_of("view_state", VIEW_STATES, "documents"),
-        # Whoever is assigned a document is assigned its review, which it is in; and a review
-        # has the moment it was moved to its state, which orders the reviews view.
-        CheckConstraint("assignee_id IS NULL OR review IS NOT NULL", name="ck_documents_assignee"),
-        CheckConstraint(
-            "(review IS NULL) = (review_changed_at IS NULL)",
-            name="ck_documents_review_changed_at",
-        ),
-        # A project's reviews of a state in the order the reviews view lists them
-        # (app/reviews.py); the documents in none, nearly all of them, are left out.
-        Index(
-            "ix_documents_review",
-            "project_id",
-            "review",
-            "review_changed_at",
-            "id",
-            postgresql_where=text("review IS NOT NULL"),
-        ),
-        # For the account purge and a member leaving, whose assignments go.
-        Index(
-            "ix_documents_assignee_id",
-            "assignee_id",
-            postgresql_where=text("assignee_id IS NOT NULL"),
-        ),
-        Index(
-            "ix_documents_review_changed_by",
-            "review_changed_by",
-            postgresql_where=text("review_changed_by IS NOT NULL"),
-        ),
         CheckConstraint(
             "edited_details <@ ARRAY[{}]::varchar[]".format(
                 ", ".join(f"'{name}'" for name in DOCUMENT_DETAILS)
@@ -1313,25 +1274,6 @@ class Document(Base):
     # extraction.py), which `doc_type` then names too; null when they were read for none, and
     # until the enrich stage has run.
     template: Mapped[str | None] = mapped_column(String(100))
-    # Its review (app/reviews.py): one of REVIEW_STATES, null for none; the member it is
-    # assigned to, null for nobody and once they leave the organisation; and who moved it to its
-    # state and when, null once their account is gone, or for an automation. Each name is read
-    # with the document as it is now, which the library and the reviews view show.
-    review: Mapped[str | None] = mapped_column(String(20))
-    assignee_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
-    assignee: Mapped[str | None] = column_property(
-        select(User.name).where(User.id == assignee_id).correlate_except(User).scalar_subquery()
-    )
-    review_changed_by: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL")
-    )
-    review_changer: Mapped[str | None] = column_property(
-        select(User.name)
-        .where(User.id == review_changed_by)
-        .correlate_except(User)
-        .scalar_subquery()
-    )
-    review_changed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
 
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -1458,7 +1400,7 @@ class DocumentNote(Base):
     )
     text: Mapped[str] = mapped_column(Text)
     # Who changed it last and when; null once their account is gone. The name is read as it is
-    # now, as a review's changer's is.
+    # now.
     changed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     changer: Mapped[str | None] = column_property(
         select(User.name).where(User.id == changed_by).correlate_except(User).scalar_subquery()
@@ -1906,14 +1848,7 @@ class Automation(Base):
     report when asked, and tells whom it names what they found about what arrived."""
 
     __tablename__ = "automations"
-    __table_args__ = (
-        _one_of("audience", AUTOMATION_AUDIENCES, "automations"),
-        _one_of("review", AUTOMATION_REVIEWS, "automations"),
-        # Whom it assigns what it puts in review, so only with a review.
-        CheckConstraint(
-            "assignee_id IS NULL OR review IS NOT NULL", name="ck_automations_assignee"
-        ),
-    )
+    __table_args__ = (_one_of("audience", AUTOMATION_AUDIENCES, "automations"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     # The tenant, as for every row a member reaches by its id.
@@ -1944,13 +1879,6 @@ class Automation(Base):
     recheck: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     # Off, nothing that arrives runs it.
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
-    # One of AUTOMATION_REVIEWS, what its run puts in review, null for nothing; and the member it
-    # assigns them to, null for nobody and once they leave the organisation, indexed for the
-    # account purge.
-    review: Mapped[str | None] = mapped_column(String(20))
-    assignee_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), index=True
-    )
     # Who made it, whom `maker` tells; null once their account is gone. Indexed for the account
     # purge.
     created_by: Mapped[int | None] = mapped_column(
@@ -2279,60 +2207,6 @@ class MyFileVersion(Base):
 
     def page_image_key(self, page: int) -> str:
         return f"{self.files_prefix}pages/{page}.png"
-
-
-class MyFileWriting(Base):
-    """A document a member asked the agent to write into their My files outside a chat
-    (app/writings.py): a disputed document's dispute letter, written to the kind's template of
-    the project by a worker's `write_draft` job.
-
-    It is kept while it waits for the worker and is written, which the member's My files show,
-    and once failed, until they try it again or dismiss it. Written, it goes in the transaction
-    that keeps its Word file, the file being what the member then has.
-    """
-
-    __tablename__ = "my_file_writings"
-    __table_args__ = (
-        _one_of("kind", DRAFT_KINDS, "my_file_writings"),
-        _one_of("status", WRITING_STATUSES, "my_file_writings"),
-        # A member's writings in a project, which their My files list.
-        Index("ix_my_file_writings_owner", "project_id", "user_id"),
-        # What the agent's runs in flight count (app/answers.py): the few being written.
-        Index(
-            "ix_my_file_writings_writing",
-            "org_id",
-            postgresql_where=text("status IN ('queued', 'writing')"),
-        ),
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    # The tenant, as for every row a member reaches by its id.
-    org_id: Mapped[int] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
-    )
-    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
-    # Who asked, whose My files it is written into and whose usage it is. Indexed for an account
-    # purged, with which it goes.
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    # One of DRAFT_KINDS.
-    kind: Mapped[str] = mapped_column(String(30))
-    # Its name in My files while it is written, and its file's once it is: its kind and what it
-    # is about when it was asked.
-    title: Mapped[str] = mapped_column(String(300))
-    # The documents it is about, as `{"id", "title"}` when it was asked: their ids, which may be
-    # gone since, and their names as they were.
-    documents: Mapped[list] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
-    # One of WRITING_STATUSES.
-    status: Mapped[str] = mapped_column(String(20), default="queued", server_default="queued")
-    # Why it failed, in the sentence its member reads.
-    error: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-    # When it was last asked for or settled.
-    updated_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
 
 
 class Chat(Base):

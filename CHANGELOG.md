@@ -16,6 +16,16 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 
 ### Users
 
+- Reviews are gone: a document is no longer put in review, assigned to a member, approved or
+  disputed. The library's "Reviews", the review controls on a document's tab and in its menu,
+  the marks beside a document's name in the library and in the facts table, the search's "In
+  review" filter and an automation's "Put in review" go with them, the facts table's file loses
+  its "Review" column, and nobody is told of a document assigned. The notices of a document
+  assigned already under the bell stay until they are pruned.
+- A disputed document's "Write a dispute letter" is gone, and My files no longer list the files
+  the agent was asked to write outside a chat. Ask for a dispute letter in a chat instead: the
+  agent writes it into your My files, to the project's template for dispute letters, citing
+  where each figure is written.
 - Comments are gone, with their mentions: a document's tab no longer offers "Comments" or
   "Comment on this", and nobody is told of a mention or of a reply in a thread. Write what the
   project's members should know about a document in its note, or ask the agent about it in a
@@ -26,6 +36,24 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 
 ### Admins
 
+- Migration cc45ffa7565c drops the `my_file_writings` table with the writings under way or failed
+  in it, the columns `review`, `assignee_id`, `review_changed_by` and `review_changed_at` of
+  `documents` and `review` and `assignee_id` of `automations`, the `write_draft` jobs, queued or
+  kept, with their kind, and what the members and the workspace chose for the notice of a
+  document assigned; a downgrade makes the table and the columns again, empty.
+  `PUT /api/documents/{id}/review`, `GET /api/projects/{id}/reviews`,
+  `GET /api/projects/{id}/reviewers`, `POST /api/projects/{id}/my-files/writings`,
+  `POST /api/my-file-writings/{id}/retry` and `DELETE /api/my-file-writings/{id}` are gone, for
+  API keys too, and so are a document's `review`, `assignee_id`, `assignee`, `review_changer`
+  and `review_changed_at`, an automation's `review` and `assignee_id`, the search's `reviews` and
+  the My files list's `writings` in the page's API. A break of `/api/v1`: its `Document`, which
+  the bodies of the `document.ready` and `document.failed` webhooks carry too, no longer holds
+  `review` and `assignee_id` (0.1.0 promised nothing more before 1.0); the contract is written
+  again without them. A project's export no longer names a document's `review`, `assignee` and
+  `review_changed_at`. The notices of a document assigned already sent stay in the notification
+  centres until they are pruned; the audit log's `document_review_changed` and
+  `document_assigned` entries stay and still read, and so do the usage rows of the kind `draft`,
+  what the writings cost, which the Administration page's costs list by that kind.
 - Migration 7e532b9ccb61 drops the `comment_threads` and `comments` tables with the threads and
   comments in them, and what the members and the workspace chose for the notices of a mention
   and of a reply in a thread; a downgrade makes the tables again, empty.
@@ -33,9 +61,10 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
   `PATCH /api/threads/{id}`, `PATCH|DELETE /api/comments/{id}`,
   `GET /api/projects/{id}/mentionable` and `GET /api/projects/{id}/activity` are gone, for API
   keys too; `/api/v1` and the webhooks' events are unchanged. A project's export no longer
-  lists its documents' `threads`, nor an account's export its `comments`. The notices of the two kinds already sent stay in the notification
-  centres until they are pruned, and the audit log's `comment_added`, `comment_deleted`,
-  `thread_resolved` and `thread_reopened` entries stay and still read.
+  lists its documents' `threads`, nor an account's export its `comments`. The notices of the two
+  kinds already sent stay in the notification centres until they are pruned, and the audit
+  log's `comment_added`, `comment_deleted`, `thread_resolved` and `thread_reopened` entries stay
+  and still read.
 
 ## 0.1.0 (2026-11-14)
 

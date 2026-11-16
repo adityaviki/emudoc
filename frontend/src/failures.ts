@@ -41,7 +41,6 @@ export function libraryPlace(view: LibraryView): string {
   if (view.checks) return 'checks'
   if (view.report != null) return `report:${view.report}`
   if (view.questionSets) return 'question-sets'
-  if (view.reviews) return `reviews:${view.reviews}`
   const place = view.favorites ? 'favorites' : view.recent ? 'recent' : (view.folderId ?? 'root')
   return view.trash ? 'trash' : view.templates ? 'templates' : `${place}?${view.search ? JSON.stringify(view.search) : ''}`
 }

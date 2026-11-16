@@ -39,4 +39,4 @@ export function givenWords(document: Document): string {
 
 /** What the versions say of a document that never had another file. */
 export const ONLY_VERSION =
-  'This is the only version. Upload a new version when the file changes: the document keeps its chats, its review and its checks, and its earlier file stays here to open.'
+  'This is the only version. Upload a new version when the file changes: the document keeps its chats and its checks, and its earlier file stays here to open.'

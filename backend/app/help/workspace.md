@@ -9,7 +9,7 @@ audit log. The header names it, and a click on its name opens [its page](/organi
 | Role | May |
 | --- | --- |
 | Viewer | read every project the workspace lets them see, search, ask, download, and keep their own My files |
-| Member | as a viewer, and make projects, upload, organise, delete, export, review, check facts, make drafts and share links, and choose who sees a project |
+| Member | as a viewer, and make projects, upload, organise, delete, export, check facts, make share links, and choose who sees a project |
 | Admin | as a member, and see every project, invite, change members' roles and remove them, choose the workspace's settings, make API keys and webhooks, read the audit log and open the Administration page |
 | Owner | as an admin, and do all of that to the owners too, and hand ownership over |
 

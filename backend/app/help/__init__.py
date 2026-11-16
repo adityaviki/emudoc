@@ -62,8 +62,7 @@ ARTICLES = (
     ("asking", "Searching a project and every project, asking, citations, and who sees a chat."),
     (
         "checking",
-        "Extraction templates, the facts table, cross-checks, automations, question sets and "
-        "reviews.",
+        "Extraction templates, the facts table, cross-checks, automations and question sets.",
     ),
     (
         "working-together",
@@ -312,8 +311,7 @@ def _spending(settings: Settings) -> str:
     return (
         "\nThe models' work may cost up to "
         f"{money(settings.daily_spend_cap_micros)} a day, as whoever runs Emudoc set it. Once a "
-        "day reaches it, a question, a dispute letter or a report is refused with a sentence "
-        "saying so, "
+        "day reaches it, a question or a report is refused with a sentence saying so, "
         "and documents wait to be summarised and read for facts, until the limit starts afresh "
         "at midnight UTC. What has started finishes.\n"
     )

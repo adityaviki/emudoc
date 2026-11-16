@@ -80,9 +80,8 @@ export function DraftTemplatesView() {
         ) : (
           <>
             <p className="text-xs text-muted">
-              How the agent writes each kind of document into My files, asked for in a chat or by a disputed document’s “Write a
-              dispute letter”: its tone, its parts in order and what else every document of the kind should do, the same for
-              everyone in the project. A built-in template applies until the project has its own for the kind. Whatever a template
+              How the agent writes each kind of document into My files, asked for in a chat: its tone, its parts in order and what
+              else every document of the kind should do, the same for everyone in the project. A built-in template applies until the project has its own for the kind. Whatever a template
               says, the agent cites each figure where it is written and leaves what no document states for you to fill in.
             </p>
             {said && (

@@ -23,7 +23,6 @@ from app.schemas import (
     ProjectVisibility,
     ReportStatus,
     ReportTrigger,
-    ReviewState,
     RunStatus,
 )
 
@@ -194,8 +193,6 @@ class Document(BaseModel):
     summary: str | None
     # The kind of extraction template its facts were read for, such as "invoice".
     template: str | None
-    review: ReviewState | None
-    assignee_id: int | None
     created_at: dt.datetime
     # Which version of the document its file is, from 1: a new version is a file the document
     # reads in the earlier one's place, keeping its id.

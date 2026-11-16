@@ -63,7 +63,6 @@ from app.my_files import drop_files
 from app.notices import IN_APP, forget_notifications
 from app.postbox import BY_EMAIL
 from app.ratelimit import SIGN_INS
-from app.reviews import forget_assignments
 from app.schemas import (
     EmailLinkIn,
     HandedLinkOut,
@@ -392,8 +391,8 @@ def _part(session: Session, org_id: int, user_id: int) -> int:
     many of their chats went: the private ones in its projects, which nobody else
     could read. Their place among its private projects' members goes too, so that joining
     again shows them none, and so do its notices in their notification centre, their exports
-    of its projects, the reviews of its documents assigned to them and their My files in its
-    projects (app/my_files.py), whose files the storage walk sweeps. The caller commits."""
+    of its projects and their My files in its projects (app/my_files.py), whose files the storage
+    walk sweeps. The caller commits."""
     own_projects = select(Project.id).where(Project.org_id == org_id)
     chats = session.execute(
         delete(Chat).where(
@@ -404,7 +403,6 @@ def _part(session: Session, org_id: int, user_id: int) -> int:
     ).rowcount
     forget_projects(session, org_id, user_id)
     forget_notifications(session, org_id, user_id)
-    forget_assignments(session, org_id, user_id)
     drop_files(session, org_id, user_id)
     # Their exports hold their private chats too; the files go by their age.
     session.execute(

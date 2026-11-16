@@ -387,7 +387,7 @@ def upload_version(
     once: OnceDep,
 ):
     """Give the document a new file, as a multipart form of `file`, which it reads in the earlier
-    one's place, keeping its id, its review and what names it; the earlier file stays as a version
+    one's place, keeping its id and what names it; the earlier file stays as a version
     to download, and its pages count again as the new one is read. Refused, with nothing changed,
     for a file an upload would refuse (400, 413), for bytes the project holds already (409), and
     while the document is being indexed (409; send it again once it is not). With an
@@ -480,8 +480,6 @@ def document_of(document: DocumentRow) -> Document:
         doc_date=document.doc_date,
         summary=document.summary,
         template=document.template,
-        review=document.review,
-        assignee_id=document.assignee_id,
         created_at=document.created_at,
         version=document.version,
     )

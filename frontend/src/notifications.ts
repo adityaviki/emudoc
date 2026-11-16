@@ -19,10 +19,6 @@ export const NOTICE_KINDS: Record<NoticeKind, { label: string; detail: string }>
     label: 'An automation ran the cross-checks',
     detail: 'When documents arrived and an automation that tells you ran a project’s cross-checks: what they found about them.',
   },
-  review_assigned: {
-    label: 'A document is assigned to you',
-    detail: 'When a member assigns you a document to review, which document and where its review stands.',
-  },
   report_ready: {
     label: 'A question set’s report is ready',
     detail: 'When a question set that tells you, or one you ran, has its answers ready: how many of its questions were answered.',
@@ -37,6 +33,7 @@ export const NOTICE_KINDS: Record<NoticeKind, { label: string; detail: string }>
 export const PAST_NOTICE_KINDS: Record<PastNoticeKind, string> = {
   mentioned: 'You are mentioned in a comment',
   thread_replied: 'A reply in a thread you wrote in',
+  review_assigned: 'A document is assigned to you',
 }
 
 /** Where the notices are kept in the cache: the newest page, which the bell asks every minute. */

@@ -57,8 +57,8 @@ describe('a place', () => {
 describe('a filter', () => {
   it('says what it matches, its folder by its path', () => {
     expect(filterWords(EMPTY_FILTER, null)).toBe('Every document of the project')
-    expect(filterWords({ ...EMPTY_FILTER, types: ['invoice', 'credit note'], reviews: ['to_review', 'disputed'], folder_id: 3 }, 'Invoices/2024')).toBe(
-      'Documents of type invoice or credit note, to review or disputed in review, in Invoices/2024',
+    expect(filterWords({ ...EMPTY_FILTER, types: ['invoice', 'credit note'], folder_id: 3 }, 'Invoices/2024')).toBe(
+      'Documents of type invoice or credit note, in Invoices/2024',
     )
     expect(filterWords({ ...EMPTY_FILTER, folder_id: 3 }, null)).toBe('Documents in a folder that is gone')
     expect(filterWords({ ...EMPTY_FILTER, after: '2024-01-15' }, null)).toMatch(/^Documents dated .+ or later$/)
@@ -81,7 +81,6 @@ describe('a search', () => {
     ...EMPTY_FILTER,
     types: ['invoice'],
     after: '2024-01-01',
-    reviews: ['disputed' as const],
     folder_id: 7,
     mentions: ['late delivery', 'penalty'],
   }
@@ -90,7 +89,6 @@ describe('a search', () => {
     expect(filterParts(filter, 'Invoices').map(({ part, words }) => [part, words])).toEqual([
       ['types', 'of type invoice'],
       ['dates', `dated ${formatDate('2024-01-01')} or later`],
-      ['reviews', 'disputed in review'],
       ['folder', 'in Invoices'],
       [0, 'mentioning “late delivery”'],
       [1, 'mentioning “penalty”'],

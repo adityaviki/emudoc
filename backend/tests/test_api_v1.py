@@ -14,9 +14,10 @@ from fastapi.testclient import TestClient
 from pydantic_ai.messages import TextPart, ToolCallPart
 from sqlalchemy import delete, func, select, update
 
+import app.api.v1.contract
 from app.answers import Reply, answer
 from app.api.v1.chats import _Sent
-from app.api.v1.contract import TAGS, breaking_changes, contract, published
+from app.api.v1.contract import TAGS, breaking_changes, contract, published, write
 from app.api.v1.deps import BAD_CURSOR, NO_KEY
 from app.apikeys import READ_ONLY_KEY, issue
 from app.check_runs import run_workflow
@@ -889,3 +890,23 @@ def test_what_takes_away_or_changes_breaks_programs(change, problem):
     after = copy.deepcopy(before)
     change(after)
     assert problem in breaking_changes(before, after)
+
+
+def test_a_break_is_written_only_when_the_command_is_told_it_may(tmp_path, monkeypatch, capsys):
+    """Refused, the published contract kept, unless `--breaking` says the change may break: a
+    feature taken out of the app before 1.0 takes its fields out of /api/v1 too (S.6)."""
+    kept = copy.deepcopy(published())
+    kept["components"]["schemas"]["Project"]["properties"]["colour"] = {"type": "string"}
+    kept["components"]["schemas"]["Project"]["required"].append("colour")
+    file = tmp_path / "openapi.json"
+    file.write_text(json.dumps(kept))
+    monkeypatch.setattr(app.api.v1.contract, "PUBLISHED", file)
+
+    assert write() == 1
+    assert json.loads(file.read_text()) == kept
+    assert "- Project.colour is gone." in capsys.readouterr().err
+    assert write(breaking=True) == 0
+    assert json.loads(file.read_text()) == contract()
+    assert "- Project.colour is gone." in capsys.readouterr().err
+    # Nothing left to break, it writes as it always did.
+    assert write() == 0

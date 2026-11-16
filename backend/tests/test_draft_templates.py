@@ -1,7 +1,7 @@
 """Writing templates (app/draft_templates.py, the routes in app/api/draft_templates.py): how the
 documents of each kind the agent writes into a member's My files read for a project, the built-in
 template or the project's own in its place, which the agent is told after the rules every such
-document keeps: by a writing outside a chat, and by `get_template` in one."""
+document keeps, by `get_template` in a chat."""
 
 from pydantic_ai.messages import TextPart, ToolCallPart, ToolReturnPart
 
@@ -14,12 +14,10 @@ from app.draft_templates import (
     kind_task,
 )
 from app.models import DRAFT_KINDS
-from app.writings import DRAFT_TASK
 from tests.conftest import FakeTurn
 from tests.test_api import create_project
 from tests.test_audit import actions
 from tests.test_writing import asked
-from tests.test_writings import ask, disputed, write
 
 HOUSE_STYLE = {
     "tone": "  Formal, in British English.  ",
@@ -107,28 +105,6 @@ def test_each_kind_has_a_built_in_template_until_the_project_writes_its_own(clie
     ]
 
 
-def test_a_writing_follows_the_template_in_force_as_it_starts(client, session, services):
-    project = create_project(client)
-    docs = disputed(client, session, services, project["id"])
-    assert save(client, project["id"], "dispute_letter", HOUSE_STYLE).status_code == 200
-    services.llm.agent_turns += [FakeTurn(TextPart("Ours.")), FakeTurn(TextPart("Built in."))]
-    ask(client, project["id"], [docs["INV-1"]])
-    write(services)
-
-    prompt = services.llm.agent_prompts[-1]
-    assert prompt[prompt.index(DRAFT_TASK) + len(DRAFT_TASK) :] == HOUSE_TASK
-
-    # The built-in one again: the next writing follows it.
-    gone = client.delete(f"/api/projects/{project['id']}/draft-templates/dispute_letter")
-    assert gone.status_code == 204
-    ask(client, project["id"], [docs["INV-1"]])
-    write(services)
-    assert services.llm.agent_prompts[-1].endswith(
-        DRAFT_TASK + kind_task(BUILT_IN["dispute_letter"])
-    )
-    assert OWN_TEMPLATE not in services.llm.agent_prompts[-1]
-
-
 def test_a_change_is_recorded_by_what_changed_and_nothing_for_none(client, session):
     project = create_project(client)
     path = f"/api/projects/{project['id']}/draft-templates/reply_email"
@@ -203,6 +179,16 @@ def test_the_built_in_tasks_say_each_kinds_layout_and_parts():
         assert OWN_TEMPLATE not in kind_task(BUILT_IN[kind])
 
 
+def returned(services) -> ToolReturnPart:
+    """The tool's result the last turn was sent."""
+    (result,) = [
+        part
+        for part in services.llm.agent_requests[-1][-1].parts
+        if isinstance(part, ToolReturnPart)
+    ]
+    return result
+
+
 def test_an_answer_reads_the_projects_template_before_it_writes_one(client, session, services):
     project = create_project(client)
     assert save(client, project["id"], "dispute_letter", HOUSE_STYLE).status_code == 200
@@ -218,11 +204,7 @@ def test_an_answer_reads_the_projects_template_before_it_writes_one(client, sess
     assert "call get_template for its kind first" in WRITING
     assert WRITING in services.llm.agent_prompts[0]
     assert "get_template" in services.llm.agent_tools[0]
-    (result,) = [
-        part
-        for part in services.llm.agent_requests[-1][-1].parts
-        if isinstance(part, ToolReturnPart)
-    ]
+    result = returned(services)
     # The project's own template, after the rules it cannot change, and outside the data tags:
     # it is what the project's members ask, not what a document says.
     own = templates(client, project["id"])["dispute_letter"]
@@ -231,3 +213,18 @@ def test_an_answer_reads_the_projects_template_before_it_writes_one(client, sess
     assert "Its tone: Formal, in British English." in result.content
     assert "<project_data>" not in result.content
     assert result.content == f"{TEMPLATE_RULES}\n\n{HOUSE_TASK}"
+
+    # The built-in one again: the next answer reads the template in force as it runs.
+    gone = client.delete(f"/api/projects/{project['id']}/draft-templates/dispute_letter")
+    assert gone.status_code == 204
+    asked(
+        client,
+        services,
+        project["id"],
+        "Write a dispute letter to Acme about INV-2.",
+        FakeTurn(ToolCallPart("get_template", {"kind": "dispute_letter"}, "template-2")),
+        FakeTurn(TextPart("I will write it to the built-in template.")),
+    )
+    result = returned(services)
+    assert result.content == f"{TEMPLATE_RULES}\n\n{kind_task(BUILT_IN['dispute_letter'])}"
+    assert OWN_TEMPLATE not in result.content

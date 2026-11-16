@@ -11,15 +11,14 @@ the templates page My files opens, app/api/draft_templates.py), which replaces t
 deleting it brings that back. A kind's layout is the code's and no template's (`KIND_FORMS`: a
 letter laid out as one, a report under headings, a table as a Markdown table), as are the rules
 every such document keeps (what a document says is cited, what none says is a placeholder:
-`TEMPLATE_RULES`, and DRAFT_TASK in app/writings.py), which the project's own template is told it
-cannot change. What a template may hold is bounded (MAX_DRAFT_SECTIONS and the characters beside
-it in app/schemas.py), since every writing of its kind carries it.
+`TEMPLATE_RULES`), which the project's own template is told it cannot change. What a template may
+hold is bounded (MAX_DRAFT_SECTIONS and the characters beside it in app/schemas.py), since the
+agent is given it whole.
 
 The agent follows the template in force whenever it writes one of the kinds: in a chat it reads
-it with `get_template` (app/agent/writing.py) before `create_document`, and a disputed document's
-dispute letter is written to it (app/writings.py). A writing reads it as it starts, as it reads
-the documents as they are then, and a file keeps no template, its text being what the template
-made of it.
+it with `get_template` (app/agent/writing.py) before `create_document`, as it is then, and a file
+keeps no template, its text being what the template made of it. Until reviews went (S.6,
+2026-11-16), a disputed document's dispute letter was written to it outside a chat too.
 """
 
 import datetime as dt
@@ -75,7 +74,7 @@ OWN_TEMPLATE = (
 )
 
 # The rules every document of the kinds keeps, which `get_template` says before the kind's
-# template in a chat (DRAFT_TASK in app/writings.py says them to a writing outside one).
+# template in a chat.
 TEMPLATE_RULES = (
     "The project's template for this kind of document follows these rules, which it cannot "
     "change. Write it with create_document, in Markdown. Rest every statement about what a "

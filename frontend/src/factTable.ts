@@ -183,7 +183,7 @@ export function rowsWords(total: number, documents: number, filtered: boolean): 
   return filtered ? `${total} of ${noun(documents)}` : noun(total)
 }
 
-/** How many of the rows shown hold a fact nobody has checked: "Unchecked" keeps those alone. Not a document's review (src/reviews.ts), which is a member's word on the whole document. */
+/** How many of the rows shown hold a fact nobody has checked: "Unchecked" keeps those alone. */
 export function uncheckedWords(unchecked: number): string {
   return unchecked === 0 ? 'every fact checked' : `${unchecked} with unchecked facts`
 }

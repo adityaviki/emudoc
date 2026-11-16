@@ -1,4 +1,4 @@
-# Facts, checks and reviews
+# Facts and checks
 
 Everyone who sees a project reads what this page describes; whoever may change the project
 (its members, admins and owners, not its viewers) makes and changes it. The buttons named here
@@ -44,8 +44,8 @@ AI model writes of what differs, citing where each figure is written, as an answ
 
 An automation runs the cross-checks for you as documents arrive: under Cross-checks, "New
 automation" says what it waits for (a kind of document, in a folder or anywhere in the project),
-which cross-checks it runs, with a report or not, whether what arrives is put in review and
-assigned to a member, and who is told what it found. It runs once uploads have stopped for
+which cross-checks it runs, with a report or not, and who is told what it found. It runs once
+uploads have stopped for
 $automation_wait, so that a batch is checked once. A project has up to $max_automations, each
 turned off and on again with a press.
 
@@ -62,18 +62,9 @@ you alone. A project has up to $max_question_sets sets.
 $digest_day morning, after $digest_hour in your time zone, the documents that arrived over the week
 in each project you see.
 
-## Reviews
-
-A review is a member's verdict on a whole document: to review, approved or disputed. Put a
-document in review from its menu in the library or on its tab, and assign it to a member who may
-change the project; they are told ($told). **Reviews** lists the documents to review, the
-approved and the disputed, and "Assigned to me" those that wait for you, oldest first. A new
-version of a document approved or disputed opens its review again. A disputed document offers
-"Write a dispute letter" on its tab ([Working together](/help/working-together)).
-
 ## Who is told
 
-A run an automation made is told when it finds something about what arrived, a question set's
-report as its set says, and a review to whoever it is assigned to: $told. A notice says what
-happened and where, never an answer. Choose how each kind reaches you on your
-[account page](/account) ([Your account and sign-in](/help/account)).
+A run an automation made is told when it finds something about what arrived, and a question
+set's report as its set says: $told. A notice says what happened and where, never an answer.
+Choose how each kind reaches you on your [account page](/account)
+([Your account and sign-in](/help/account)).
