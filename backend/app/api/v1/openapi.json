@@ -4270,17 +4270,6 @@
             ],
             "title": "Summary"
           },
-          "template": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Template"
-          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -4309,7 +4298,6 @@
           "doc_type",
           "doc_date",
           "summary",
-          "template",
           "created_at",
           "version"
         ],
@@ -4524,16 +4512,6 @@
           "verified": {
             "type": "boolean",
             "title": "Verified"
-          },
-          "check": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/FactCheck"
-              },
-              {
-                "type": "null"
-              }
-            ]
           }
         },
         "type": "object",
@@ -4549,55 +4527,10 @@
           "quote",
           "page",
           "passage_id",
-          "verified",
-          "check"
+          "verified"
         ],
         "title": "Fact",
-        "description": "A fact read from a document: a field's value as written, typed as a number, a date or an\namount with its currency where it is one, with the words it was read from and where they are.\n`verified` says the words were found in the text; `check` is a member's word on it."
-      },
-      "FactCheck": {
-        "properties": {
-          "checked_by": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Checked By"
-          },
-          "checked_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Checked At"
-          },
-          "corrected_from": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Corrected From"
-          },
-          "value": {
-            "type": "string",
-            "title": "Value"
-          }
-        },
-        "type": "object",
-        "required": [
-          "checked_by",
-          "checked_at",
-          "corrected_from",
-          "value"
-        ],
-        "title": "FactCheck",
-        "description": "A member's check of a fact: who and when, the model's value when they corrected it, and\nwhat they said the document states."
+        "description": "A fact read from a document: a field's value as written, typed as a number, a date or an\namount with its currency where it is one, with the words it was read from and where they are.\n`verified` says the words were found in the text."
       },
       "FactList": {
         "properties": {
@@ -5625,7 +5558,7 @@
     },
     {
       "name": "facts",
-      "description": "The values read from documents by the project's extraction templates, each with the words it was read from.",
+      "description": "The values read from each document as it is indexed, such as its parties, dates and amounts, each with the words it was read from.",
       "x-displayName": "Facts"
     },
     {

@@ -221,7 +221,7 @@ def test_an_upload_is_kept_and_followed_until_it_is_indexed(api, session, servic
     file = api.get(f"/api/v1/documents/{document['id']}/file")
     assert file.status_code == 200 and file.content == sample_pdf.read_bytes()
     facts = got(api, f"/api/v1/documents/{document['id']}/facts")
-    assert facts["next"] is None and {"name", "value", "check"} <= set(facts["data"][0])
+    assert facts["next"] is None and {"name", "value", "verified"} <= set(facts["data"][0])
     path = f"/api/v1/documents/{document['id']}"
     moved = api.patch(path, json={"folder_id": signed["id"], "filename": "agreement"}).json()
     assert (moved["folder_id"], moved["filename"]) == (signed["id"], "agreement.pdf")

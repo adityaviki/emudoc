@@ -10,7 +10,7 @@
       "summary": "Master Services Agreement between Acme Industrial Supplies Ltd. (Supplier) and Northwind Logistics GmbH (Customer) for delivery of industrial fasteners, fittings and packaging to Hamburg and Rotterdam. Effective 1 March 2026 with a 24-month initial term; covers fees, delivery, termination penalties, liability cap of EUR 250,000 and English law. Signed 20 and 21 February 2026.",
       "page_count": 2,
       "page_sizes": [[595.28, 841.89], [595.28, 841.89]],
-      "stages": {"parse": {"detail": "25 blocks", "status": "done"}, "structure": {"detail": "7 sections, 10 passages", "status": "done"}, "enrich": {"detail": "7 section summaries, 13 facts, by the contract template", "status": "done"}},
+      "stages": {"parse": {"detail": "25 blocks", "status": "done"}, "structure": {"detail": "7 sections, 10 passages", "status": "done"}, "enrich": {"detail": "7 section summaries, 13 facts", "status": "done"}},
       "blocks": [
         {"kind": "heading", "level": 1, "text": "Master Services Agreement", "page": 1, "bbox": [179.59, 66.42, 415.68, 84.42]},
         {"kind": "paragraph", "level": null, "text": "Between Acme Industrial Supplies Ltd. (\"Supplier\"), 14 Foundry Lane, Leeds LS1 4AB, and Northwind Logistics GmbH (\"Customer\"), Hafenstrasse 22, 20457 Hamburg.", "page": 1, "bbox": [68.36, 92.76, 482.31, 114.76]},
@@ -145,7 +145,7 @@
       "summary": "Invoice INV-2026-0412 issued by Acme Industrial Supplies Ltd. to Northwind Logistics GmbH on 2026-06-30, due 2026-07-30, under a Master Services Agreement (1 March 2026). It bills 40 pallets of hex bolts M10 and 40 pallets of washers M10, with a net total of 9,900.00 EUR, VAT 19% of 1,881.00 EUR and a total due of 11,781.00 EUR.",
       "page_count": 1,
       "page_sizes": [[595.28, 841.89]],
-      "stages": {"parse": {"detail": "8 blocks", "status": "done"}, "structure": {"detail": "1 sections, 4 passages", "status": "done"}, "enrich": {"detail": "1 section summaries, 18 facts, by the invoice template", "status": "done"}},
+      "stages": {"parse": {"detail": "8 blocks", "status": "done"}, "structure": {"detail": "1 sections, 4 passages", "status": "done"}, "enrich": {"detail": "1 section summaries, 18 facts", "status": "done"}},
       "blocks": [
         {"kind": "heading", "level": 1, "text": "Invoice INV-2026-0412", "page": 1, "bbox": [203.09, 66.42, 392.18, 84.42]},
         {"kind": "paragraph", "level": null, "text": "Acme Industrial Supplies Ltd.", "page": 1, "bbox": [68.36, 92.76, 208.95, 102.76]},
@@ -195,7 +195,7 @@
       "summary": "Invoice INV-2026-0458 from Acme Industrial Supplies Ltd. to Northwind Logistics GmbH, issued 2026-07-31 and due 2026-08-30 under a Master Services Agreement. It bills three lines of goods with a net total of EUR 36,535.00 plus 19% VAT, for a total due of EUR 43,476.65.",
       "page_count": 1,
       "page_sizes": [[595.28, 841.89]],
-      "stages": {"parse": {"detail": "8 blocks", "status": "done"}, "structure": {"detail": "1 sections, 4 passages", "status": "done"}, "enrich": {"detail": "1 section summaries, 15 facts, by the invoice template", "status": "done"}},
+      "stages": {"parse": {"detail": "8 blocks", "status": "done"}, "structure": {"detail": "1 sections, 4 passages", "status": "done"}, "enrich": {"detail": "1 section summaries, 15 facts", "status": "done"}},
       "blocks": [
         {"kind": "heading", "level": 1, "text": "Invoice INV-2026-0458", "page": 1, "bbox": [203.09, 66.42, 392.18, 84.42]},
         {"kind": "paragraph", "level": null, "text": "Acme Industrial Supplies Ltd.", "page": 1, "bbox": [68.36, 92.76, 208.95, 102.76]},
@@ -242,7 +242,7 @@
       "summary": "Invoice INV-2026-0503 from Acme Industrial Supplies Ltd. to Northwind Logistics GmbH, dated 2026-09-30 and due 2026-10-30, under a Master Services Agreement (1 March 2026). It bills pipe fittings, hex bolts and corner protectors for a net total of EUR 80,900.00 plus 19% VAT, total due EUR 96,271.00.",
       "page_count": 1,
       "page_sizes": [[595.28, 841.89]],
-      "stages": {"parse": {"detail": "8 blocks", "status": "done"}, "structure": {"detail": "1 sections, 4 passages", "status": "done"}, "enrich": {"detail": "1 section summaries, 21 facts, by the invoice template", "status": "done"}},
+      "stages": {"parse": {"detail": "8 blocks", "status": "done"}, "structure": {"detail": "1 sections, 4 passages", "status": "done"}, "enrich": {"detail": "1 section summaries, 21 facts", "status": "done"}},
       "blocks": [
         {"kind": "heading", "level": 1, "text": "Invoice INV-2026-0503", "page": 1, "bbox": [203.09, 66.42, 392.18, 84.42]},
         {"kind": "paragraph", "level": null, "text": "Acme Industrial Supplies Ltd.", "page": 1, "bbox": [68.36, 92.76, 208.95, 102.76]},
@@ -295,7 +295,7 @@
       "summary": "A CSV price list with five items, each with a SKU, description, unit and price in EUR. Items include hex bolts, washers, pipe fittings, stretch film and corner protectors. No vendor name or date is stated.",
       "page_count": null,
       "page_sizes": [],
-      "stages": {"parse": {"detail": "1 blocks", "status": "done"}, "structure": {"detail": "1 sections, 1 passages", "status": "done"}, "enrich": {"detail": "1 section summaries, 5 facts, by the price list template (not found: vendor_name)", "status": "done"}},
+      "stages": {"parse": {"detail": "1 blocks", "status": "done"}, "structure": {"detail": "1 sections, 1 passages", "status": "done"}, "enrich": {"detail": "1 section summaries, 5 facts", "status": "done"}},
       "blocks": [
         {"kind": "table", "level": null, "text": "| sku | description | unit | price_eur |\n| --- | --- | --- | --- |\n| FB-M10 | Hex bolts M10 | pallet | 185.00 |\n| WS-M10 | Washers M10 | pallet | 62.50 |\n| PF-1IN | Pipe fittings 1in | pallet | 240.00 |\n| SF-01 | Stretch film | roll box | 38.00 |\n| CP-04 | Corner protectors | box | 21.50 |", "page": null, "bbox": null}
       ],

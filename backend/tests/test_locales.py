@@ -10,11 +10,10 @@ from sqlalchemy import select
 from app.indexing import enrich
 from app.indexing.enrich import ExtractedFact
 from app.locales import WRITINGS, read_date, read_number, reading_line, writing_of
-from app.models import Document
+from app.models import Document, Fact
 from tests.test_api import create_project
 from tests.test_document_language import ENGLISH, GERMAN, NUMBERS, POLISH
 from tests.test_organization_settings import change, text_upload
-from tests.test_templates import facts_of
 from tests.test_versions import given
 
 GERMAN_INVOICE = (
@@ -54,6 +53,11 @@ def asked(services) -> str:
         for schema, content in reversed(services.llm.calls)
         if schema.endswith("DocumentAnalysis")
     )
+
+
+def facts_of(session, document_id: int) -> dict[str, Fact]:
+    found = session.scalars(select(Fact).where(Fact.document_id == document_id))
+    return {row.name: row for row in found}
 
 
 def code_of(session, document_id: int) -> str | None:

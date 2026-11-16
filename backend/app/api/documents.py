@@ -43,12 +43,12 @@ from app.api.deps import (
     limited,
 )
 from app.api.folders import resolve_folder
+from app.api.query import fact_out
 from app.audit import audit
 from app.config import Settings, get_settings
 from app.conversion import converts, queue_view
 from app.costs import costs_shown
 from app.details import edit_details
-from app.fact_checks import fact_out
 from app.folders import (
     folder_names,
 )

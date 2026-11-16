@@ -26,7 +26,7 @@ describe('libraryPlace', () => {
     expect(libraryPlace({ folderId: null })).toBe(libraryPlace({ folderId: null }))
   })
 
-  it('changes with the folder, a place, the search and what narrows it, the trash, the templates, a facts table and its changes, each of which starts it afresh', () => {
+  it('changes with the folder, a place, the search and what narrows it, and the trash, each of which starts it afresh', () => {
     const places = [
       libraryPlace({ folderId: null }),
       libraryPlace({ folderId: 4 }),
@@ -38,10 +38,6 @@ describe('libraryPlace', () => {
       libraryPlace({ folderId: null, favorites: true }),
       libraryPlace({ folderId: null, recent: true }),
       libraryPlace({ folderId: null, trash: true }),
-      libraryPlace({ folderId: null, templates: true }),
-      libraryPlace({ folderId: null, facts: 'invoice' }),
-      libraryPlace({ folderId: null, facts: 'purchase order' }),
-      libraryPlace({ folderId: null, changes: 'invoice' }),
     ]
     expect(new Set(places).size).toBe(places.length)
   })

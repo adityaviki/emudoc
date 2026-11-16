@@ -131,10 +131,9 @@ printed one, is not a copy.
 
 When a file changes, a contract coming back signed or an invoice sent again corrected, give its
 document the new file: "Upload a new version" in its menu in the library, or under Versions on
-its tab. The document keeps its place, its chats, its share links and the checks of its facts,
-and its new file is read in place of the old one: from then on it is searched, asked about and
-read for facts as the new file alone. A check of a fact goes back on a fact the new file reads
-the same, and a title, type or date you set stays. A file of another type takes its
+its tab. The document keeps its place, its chats and its share links, and its new file is read in
+place of the old one: from then on it is searched, asked about and read for facts as the new file
+alone. A title, type or date you set stays. A file of another type takes its
 type's extension, the name otherwise kept. The earlier files stay under Versions on its tab, each
 to download or to read its text, for as long as the document is kept. A document takes no new
 version while it is being read, nor in the sample project.

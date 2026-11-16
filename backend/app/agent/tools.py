@@ -591,15 +591,9 @@ _WITHOUT = {"enrich": "no summaries or facts", "embed": "found by keyword search
 
 
 def worded_value(fact: Fact) -> str:
-    """A fact's value as the model is told it, with its currency and how far it can be trusted:
-    checked or corrected by a member, or a quote the source does not hold."""
+    """A fact's value as the model is told it, with its currency, and whether its quote is one
+    the source does not hold."""
     value = fact.value + (f" ({fact.currency})" if fact.currency else "")
-    if fact.check is not None and fact.check.corrected:
-        # A member's correction is the fact's value; the source passage holds what the model
-        # misread.
-        return value + f" (corrected by a member; the indexing model read {fact.check.read_value})"
-    if fact.check is not None:
-        return value + " (checked by a member)"
     if not fact.verified:
         return value + " (unverified: quote not found in the source)"
     return value

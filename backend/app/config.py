@@ -465,9 +465,8 @@ class Settings(BaseSettings):
     # Messages an hour per member to support (app/api/help.py): each is a mail to
     # SUPPORT_EMAIL, which nothing else holds a script back from filling.
     rate_feedback: int = Field(default=10, ge=0)
-    # Files a minute per member of a project's facts table (app/fact_export.py), each reading
-    # every row the table's conditions keep, as many as fifty of its pages, and of its drafts
-    # (app/draft_export.py), answers and chats (app/chat_export.py), each laid out whole.
+    # Files a minute per member of their My files (app/draft_export.py), and of answers and chats
+    # (app/chat_export.py), each laid out whole.
     rate_exports: int = Field(default=10, ge=0)
     # Share links opened a minute per client address (app/share_links.py): opening one needs no
     # account, so nothing else holds a script back from trying tokens. And the wrong passwords

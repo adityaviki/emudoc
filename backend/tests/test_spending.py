@@ -212,7 +212,7 @@ def test_an_indexing_stage_that_needs_the_model_waits_for_midnight_when_the_day_
     run_index(services)
     session.refresh(document)
     assert set(stage_statuses(document).values()) == {"done"}
-    assert [name for name, _ in services.llm.calls] == ["TemplatedDocumentAnalysis"]
+    assert [name for name, _ in services.llm.calls] == ["DocumentAnalysis"]
 
     # A scan costs a model call per page, so the whole document waits, queued, before a page
     # is read: the parse stage is required.

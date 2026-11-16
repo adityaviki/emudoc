@@ -108,145 +108,8 @@ class ProjectAccessOut(BaseModel):
     user_ids: list[int]
 
 
-# FACT_TYPES in app/models.py: what a fact's value is, and so a template's field.
+# FACT_TYPES in app/models.py: what a fact's value is.
 FactType = Literal["text", "number", "date", "money"]
-
-# A template's ceilings (app/extraction.py). Every template in force is listed in the enrich
-# stage's prompt, so these bound what reading each of the project's documents costs.
-MAX_TEMPLATE_FIELDS = 30
-MAX_FIELD_EXAMPLES = 3
-MAX_TEMPLATE_WORDS = 300
-MAX_EXAMPLE_CHARS = 100
-
-_Line = Annotated[str, StringConstraints(strip_whitespace=True, max_length=MAX_TEMPLATE_WORDS)]
-
-
-class TemplateFieldIn(BaseModel):
-    """A field of an extraction template: its name, which its facts are named by, snake_case
-    once the server has made it so; its type; what it is; whether every document of the kind
-    should state it; and values as documents write them, which show the model what to find."""
-
-    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
-    type: FactType
-    description: _Line = ""
-    required: bool = False
-    examples: list[
-        Annotated[
-            str,
-            StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_EXAMPLE_CHARS),
-        ]
-    ] = Field(default_factory=list, max_length=MAX_FIELD_EXAMPLES)
-
-
-class TemplateIn(BaseModel):
-    """A project's extraction template as a member writes it, whole: the kind of document it is
-    for (lowercase words once the server has made them so), its name, what the kind is, and its
-    fields in the order they are asked for."""
-
-    doc_type: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
-    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
-    description: _Line = ""
-    fields: list[TemplateFieldIn] = Field(min_length=1, max_length=MAX_TEMPLATE_FIELDS)
-
-
-class TemplateFieldOut(BaseModel):
-    name: str
-    type: FactType
-    description: str
-    required: bool
-    examples: list[str]
-
-
-class TemplateOut(BaseModel):
-    """An extraction template in force for a project: its own (`id` set) or a built-in one
-    (`built_in`, `id` null), which applies while the project has none of its own kind."""
-
-    id: int | None
-    doc_type: str
-    title: str
-    description: str
-    fields: list[TemplateFieldOut]
-    built_in: bool
-    # A project's own template of a kind a built-in one is for, which it replaces.
-    replaces_built_in: bool
-    # The project's documents whose facts were last read for it.
-    documents: int
-    # Those of its kind read for no template, such as the ones read before it was made, which
-    # reading its documents again takes too.
-    matching: int
-    # Its documents and those waiting for the enrich stage, read again or retried.
-    reading: int
-    # Those whose last reading of its kind changed a field or the template they are read for.
-    changed: int
-    updated_at: dt.datetime | None
-
-
-_Kind = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
-
-
-class ReadAgainIn(BaseModel):
-    """Which of a project's documents to read again for its templates as they are now: those of
-    the kind a template is for (`kind`: read for it, and of its kind read for none), and those
-    read for a kind no template is for any more, as before a template's kind was changed or it
-    was deleted (`was`)."""
-
-    kind: _Kind | None = None
-    was: _Kind | None = None
-
-
-class ReadAgainOut(BaseModel):
-    queued: int
-
-
-class FieldChangeOut(BaseModel):
-    """A field whose facts a document's last reading changed (app/fact_changes.py): the values
-    read before and no longer, and those read now and not before, each list cut at a few of
-    the counts; `checked` when a value gone was a member's check, which the new reading
-    disagrees with."""
-
-    name: str
-    before: list[str]
-    after: list[str]
-    before_count: int
-    after_count: int
-    checked: bool
-
-
-class DocumentChangesOut(BaseModel):
-    """What a document's last reading changed: the template it was read for before and now
-    (null for none), and its fields."""
-
-    document_id: int
-    title: str
-    filename: str
-    read_at: dt.datetime
-    template_before: str | None
-    template_after: str | None
-    fields: list[FieldChangeOut]
-
-
-class FactChangesOut(BaseModel):
-    """The last readings of a project's documents of one kind, before or now: the template in
-    force for the kind (null for none), how many of its documents wait to be read, how many
-    were last read and how many of those changed something, how many disagree with a member's
-    check, and a page of those that changed, those first, then the newest."""
-
-    kind: str
-    template: TemplateOut | None
-    reading: int
-    read: int
-    changed: int
-    unheld: int
-    documents: list[DocumentChangesOut]
-    next_after: str | None
-
-
-class ProjectTemplatesOut(BaseModel):
-    """The templates in force for a project: its own by title, then the built-in ones of the
-    kinds it has none of; and how many of its own it may have."""
-
-    templates: list[TemplateOut]
-    max_templates: int
 
 
 class FolderIn(BaseModel):
@@ -408,8 +271,6 @@ class DocumentOut(_FromORM):
     read_language: str | None = None
     edited_details: list[DocumentDetail] = []
     summary: str | None
-    # The kind of the extraction template its facts were read for (app/extraction.py), if any.
-    template: str | None
     # By kind: `upload` (bytes, pages), `ocr`, `infer_sections`, `enrich`, `embed`, `render`;
     # its current version's (app/versions.py).
     usage: dict[str, UsageOut]
@@ -610,29 +471,6 @@ class PassageOut(BaseModel):
     block_end: int
 
 
-class FactCheckOut(BaseModel):
-    """A member's check of a fact (app/fact_checks.py): who and when, and with a correction what
-    the model read in its place."""
-
-    id: int
-    # The member's name as it is now; None once their account is gone.
-    checked_by: str | None
-    checked_at: dt.datetime
-    # The model's value, when the member wrote another; None for a check of the model's own.
-    corrected_from: str | None
-    # What the member said the field holds: their value, or the model's they checked.
-    value: str
-
-
-class FactCheckIn(BaseModel):
-    """A fact checked as it reads now (no `value`), or corrected to the value the document states:
-    words for a text, digits for a number or an amount (with its currency, else the fact's), a
-    date as 2026-03-01."""
-
-    value: str | None = Field(default=None, max_length=4000)
-    currency: str | None = Field(default=None, max_length=10)
-
-
 class FactOut(BaseModel):
     id: int
     document_id: int
@@ -647,39 +485,13 @@ class FactOut(BaseModel):
     page: int | None
     block_ordinal: int | None
     passage_id: int | None
-    # Whether the model's quote was found in the text; a person's word is `check`.
+    # Whether the model's quote was found in the text.
     verified: bool
-    check: FactCheckOut | None
 
 
 class FactList(BaseModel):
     total: int
     facts: list[FactOut]
-
-
-class FactRowOut(BaseModel):
-    """A row of the facts table (app/fact_table.py): a document, and the facts of each of the
-    template's fields it has, in the document's order; a field it has none of is left out."""
-
-    document_id: int
-    title: str
-    filename: str
-    cells: dict[str, list[FactOut]]
-    # The checks of a field no fact reads any more, by the field's name: made before the
-    # document was read again, which read it differently.
-    earlier: dict[str, list[FactCheckOut]]
-
-
-class FactTableOut(BaseModel):
-    """A page of the facts table of one kind of document: the template whose fields are its
-    columns, the rows, how many rows the conditions keep, and where the next page starts."""
-
-    template: TemplateOut
-    rows: list[FactRowOut]
-    total: int
-    # How many of those rows hold a fact of the fields no member has checked.
-    unchecked: int
-    next_after: str | None
 
 
 class FactName(BaseModel):
@@ -2287,8 +2099,6 @@ class ExportedDocument(BaseModel):
     # Those of the four above a member set in place of what its reading found (app/details.py).
     edited_details: list[str] = []
     summary: str | None
-    # The kind of the extraction template its facts were read for, if any.
-    template: str | None
     page_count: int | None
     uploaded_at: dt.datetime
     # Which version its file is, and the files it had before, the latest first
@@ -2352,8 +2162,6 @@ class ExportedFact(BaseModel):
     passage_id: int | None
     # Whether the quote was found in the document as the model gave it.
     verified: bool
-    # A member's check of it, with their value in `value` when they corrected it.
-    check: FactCheckOut | None
 
 
 class ExportedDocumentData(BaseModel):
@@ -2377,15 +2185,6 @@ class ExportedProjectChat(BaseModel):
     created_at: dt.datetime
     last_question_at: dt.datetime
     messages: list[ExportedMessage]
-
-
-class ExportedTemplate(BaseModel):
-    """An extraction template of the project's own, as its members wrote it."""
-
-    doc_type: str
-    title: str
-    description: str
-    fields: list[TemplateFieldOut]
 
 
 class ExportedProjectShareLink(BaseModel):
@@ -2417,8 +2216,6 @@ class ProjectExportFile(BaseModel):
     folders: list[str]
     documents: list[ExportedDocument]
     chats: list[ExportedProjectChat]
-    # The project's own extraction templates; the built-in ones are Emudoc's, and not in it.
-    templates: list[ExportedTemplate]
     # The links that show its documents to whoever holds them (app/share_links.py).
     share_links: list[ExportedProjectShareLink] = []
 

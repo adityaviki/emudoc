@@ -42,7 +42,6 @@ from app.api import (
     query,
     search,
     share_links,
-    templates,
     trash,
     usage,
     v1,
@@ -377,7 +376,6 @@ KEYED = (
     query.router,
     chats.router,
     trash.router,
-    templates.router,
     mailbox.router,
     my_files.router,
 )

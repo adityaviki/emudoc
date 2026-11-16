@@ -11,9 +11,9 @@ passages it read so that you can check each answer against its source.
 3. **Ask** in the chat beside the library, in your own words: "Does invoice 1043 match the
    contract's prices?" The answer cites the passages it used; click a citation to open the
    document at that passage ([Searching and asking](/help/asking)).
-4. **Check and share the work**: read the facts of every invoice in one table, compare them
-   with the contract and the price list, and have the assistant write a letter about what
-   differs ([Facts and checks](/help/checking), [Working together](/help/working-together)).
+4. **Check and share the work**: ask the assistant to compare the facts of every invoice with
+   the contract and the price list, and to write a letter about what differs
+   ([Searching and asking](/help/asking), [Working together](/help/working-together)).
 5. **Bring your team in**: the workspace's owners and admins invite them from its
    [page](/organization) ([The workspace, members and roles](/help/workspace)).
 $sample

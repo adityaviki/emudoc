@@ -106,9 +106,6 @@ describe('buildWorkspaceUrl', () => {
     ).toBe('/projects/3/documents/41?folder=7&q=late+delivery&passage=812&chat=new')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, search: { q: 'notice', filter: EMPTY_FILTER } } })).toBe('/projects/3?q=notice')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, trash: true } })).toBe('/projects/3?trash=')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, templates: true } })).toBe('/projects/3?templates=')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, facts: 'purchase order' } })).toBe('/projects/3?facts=purchase+order')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, changes: 'invoice' } })).toBe('/projects/3?changes=invoice')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, mail: true } })).toBe('/projects/3?mail=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, connectors: true } })).toBe('/projects/3?connectors=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, favorites: true } })).toBe('/projects/3?favorites=')
@@ -130,9 +127,6 @@ describe('buildWorkspaceUrl', () => {
       { ...home, document: { id: 41, focus: { block: 0 } }, chatId: 12 },
       { ...home, library: { folderId: 7 }, document: { id: 41, focus: { page: 3 } } },
       { ...home, library: { folderId: null, trash: true }, chatId: 12 },
-      { ...home, library: { folderId: null, templates: true }, document: { id: 41, focus: null } },
-      { ...home, library: { folderId: null, facts: 'delivery note' }, document: { id: 41, focus: { block: 7 } } },
-      { ...home, library: { folderId: null, changes: 'delivery note' }, chatId: 12 },
       { ...home, library: { folderId: null, mail: true }, chatId: 12 },
       { ...home, library: { folderId: null, connectors: true } },
       { ...home, library: { folderId: null, recent: true }, document: { id: 41, focus: null } },
@@ -165,6 +159,12 @@ describe('buildWorkspaceUrl', () => {
     expect(buildWorkspaceUrl(parse('/projects/3?check=5')!)).toBe('/projects/3')
     // The writing templates' place, from before they went, opens the library.
     expect(buildWorkspaceUrl(parse('/projects/3?writing-templates')!)).toBe('/projects/3')
+    // The extraction templates' place, a kind's facts table and what its readings changed, from before they went, open
+    // the library, and a document open beside one stays open.
+    expect(buildWorkspaceUrl(parse('/projects/3?templates')!)).toBe('/projects/3')
+    expect(buildWorkspaceUrl(parse('/projects/3?facts=invoice')!)).toBe('/projects/3')
+    expect(buildWorkspaceUrl(parse('/projects/3?changes=invoice')!)).toBe('/projects/3')
+    expect(buildWorkspaceUrl(parse('/projects/3/documents/41?facts=purchase+order&block=7')!)).toBe('/projects/3/documents/41?block=7')
   })
 })
 

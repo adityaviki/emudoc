@@ -12,7 +12,6 @@ from app.api.deps import PassageDep, ProjectDep, ServicesDep, SessionDep, limite
 from app.api.folders import resolve_folder
 from app.api.v1.deps import PAGE, After, Limit, cursor, cursor_of, shown
 from app.api.v1.schemas import Fact, FactList, Passage, SearchHit, SearchResults
-from app.fact_checks import fact_out
 from app.models import Document
 from app.models import Fact as FactRow
 from app.ratelimit import SEARCHES
@@ -118,4 +117,4 @@ def get_passage(passage: PassageDep, session: SessionDep):
 
 
 def fact_of(fact: FactRow, document: Document) -> Fact:
-    return Fact.model_validate(fact_out(fact, document).model_dump())
+    return Fact.model_validate(query.fact_out(fact, document).model_dump())

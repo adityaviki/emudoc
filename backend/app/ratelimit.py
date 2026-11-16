@@ -126,11 +126,9 @@ PAGE_ERRORS = Limit("page_error", "rate_page_errors", "error reports")
 API_REQUESTS = Limit("api_key", "rate_api_requests", "requests")
 # A member's messages to support (app/api/help.py), each a mail to the support address, an hour.
 FEEDBACK = Limit("feedback", "rate_feedback", "messages to support", HOUR)
-# A member's files of a facts table (app/fact_export.py), each every row of it, of an answer or
-# a chat (app/chat_export.py), each laid out whole, and of their My files (app/api/my_files.py).
-EXPORTS = Limit(
-    "export", "rate_exports", "downloads of a facts table, a chat or a file of My files"
-)
+# A member's files of an answer or a chat (app/chat_export.py), each laid out whole, and of their
+# My files (app/api/my_files.py).
+EXPORTS = Limit("export", "rate_exports", "downloads of a chat or a file of My files")
 # Share links opened (app/share_links.py), which takes no account, per client address; and the
 # wrong passwords of a link, an hour, counted by `tally` once a guess failed, for the link and
 # for the address.

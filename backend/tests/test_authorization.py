@@ -17,7 +17,6 @@ from tests.conftest import FakeTurn
 from tests.test_api import create_project
 from tests.test_chats import answered, ask, new_chat
 from tests.test_folders import make_folder
-from tests.test_templates import INVOICE
 
 Route = tuple[str, str, dict]
 
@@ -33,12 +32,11 @@ def word(text: str) -> bytes:
 
 @dataclass
 class World:
-    """A project with a folder, an indexed document with a fact a member checked, the upload it came
-    in with, an extraction template of its own, and a chat holding one answered question, and in
-    its trash a folder, a document and a chat; another project in the trash; an invitation to the
-    organisation and an API key of it, all made by the local owner in the local organisation, and
-    another member of it; the project has an address, a folder of the owner's Google Drive
-    connected, and its document a share link."""
+    """A project with a folder, an indexed document, the upload it came in with, and a chat holding
+    one answered question, and in its trash a folder, a document and a chat; another project in
+    the trash; an invitation to the organisation and an API key of it, all made by the local owner
+    in the local organisation, and another member of it; the project has an address, a folder of
+    the owner's Google Drive connected, and its document a share link."""
 
     org_id: int
     project_id: int
@@ -56,9 +54,6 @@ class World:
     trashed_project_id: int
     export_id: int
     upload_id: int
-    template_id: int
-    fact_id: int
-    check_id: int
     connector_id: int
     webhook_id: int
     link_id: int
@@ -101,9 +96,6 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
     trashed_chat = new_chat(client, project["id"])
     trashed_project = create_project(client, "Archive")
     exported = client.post(f"/api/projects/{project['id']}/exports")
-    template = client.post(f"/api/projects/{project['id']}/templates", json=INVOICE)
-    fact = client.get(f"/api/documents/{document['id']}/facts").json()[0]
-    checked = client.put(f"/api/facts/{fact['id']}/check", json={}).json()
     given = client.put(f"/api/projects/{project['id']}/mailbox", json={"senders": ["acme.example"]})
     assert given.status_code == 200, given.text
     connector = Connector(
@@ -148,9 +140,6 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
         trashed_project["id"],
         exported.json()["id"],
         uploaded["upload_id"],
-        template.json()["id"],
-        fact["id"],
-        checked["check"]["id"],
         connector.id,
         hook.json()["id"],
         link.json()["id"],
@@ -173,14 +162,6 @@ def reads(w: World) -> list[Route]:
         ("GET", f"/api/projects/{w.project_id}/search", {"params": {"q": "notice"}}),
         ("GET", f"/api/projects/{w.project_id}/facts", {}),
         ("GET", f"/api/projects/{w.project_id}/facts/names", {}),
-        ("GET", f"/api/projects/{w.project_id}/templates", {}),
-        ("GET", f"/api/projects/{w.project_id}/fact-table", {"params": {"kind": "invoice"}}),
-        (
-            "GET",
-            f"/api/projects/{w.project_id}/fact-table/export",
-            {"params": {"kind": "invoice"}},
-        ),
-        ("GET", f"/api/projects/{w.project_id}/fact-changes", {"params": {"kind": "invoice"}}),
         ("GET", f"/api/projects/{w.project_id}/mailbox", {}),
         ("GET", f"/api/projects/{w.project_id}/connectors", {}),
         ("GET", f"/api/documents/{w.document_id}", {}),
@@ -210,24 +191,12 @@ def writes(w: World) -> list[Route]:
             {"json": {"visibility": "organization", "user_ids": []}},
         ),
         ("POST", f"/api/projects/{w.project_id}/reprocess", {}),
-        (
-            "POST",
-            f"/api/projects/{w.project_id}/templates/read-again",
-            {"json": {"kind": "invoice"}},
-        ),
         ("POST", f"/api/projects/{w.project_id}/folders", {"json": {"name": "Invoices"}}),
         (
             "POST",
             f"/api/projects/{w.project_id}/documents/reprocess",
             {"json": {"document_ids": [w.document_id], "from_stage": "parse"}},
         ),
-        (
-            "POST",
-            f"/api/projects/{w.project_id}/templates",
-            {"json": {**INVOICE, "doc_type": "credit note"}},
-        ),
-        ("PUT", f"/api/templates/{w.template_id}", {"json": INVOICE}),
-        ("PUT", f"/api/facts/{w.fact_id}/check", {"json": {"value": "120 days"}}),
         ("PUT", f"/api/projects/{w.project_id}/mailbox", {"json": {"senders": ["acme.example"]}}),
         ("POST", f"/api/projects/{w.project_id}/mailbox/address", {}),
         ("POST", f"/api/projects/{w.project_id}/connectors", {"json": {"provider": "google"}}),
@@ -255,10 +224,8 @@ def writes(w: World) -> list[Route]:
             {"files": {"file": ("msa.pdf", b"%PDF-1.7 another contract")}},
         ),
         ("POST", f"/api/documents/{w.document_id}/share-links", {"json": {}}),
-        ("DELETE", f"/api/fact-checks/{w.check_id}", {}),
         ("DELETE", f"/api/projects/{w.project_id}/mailbox", {}),
         ("DELETE", f"/api/projects/{w.project_id}/connectors/{w.connector_id}", {}),
-        ("DELETE", f"/api/templates/{w.template_id}", {}),
         ("DELETE", f"/api/folders/{w.folder_id}", {}),
         ("DELETE", f"/api/documents/{w.document_id}", {}),
         ("DELETE", f"/api/projects/{w.project_id}", {}),

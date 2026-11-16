@@ -29,13 +29,11 @@ export function failureWords(part: Part): FailureWords {
 }
 
 /**
- * Where the library is, as a boundary's reset key: a folder, a search, the trash, the templates or a facts table opened since
- * the library broke is tried afresh. A string, since a boundary compares its key with `!==` and a
+ * Where the library is, as a boundary's reset key: a folder, a search or the trash opened since the library broke is tried
+ * afresh. A string, since a boundary compares its key with `!==` and a
  * new object at each render would start a broken part again at every one.
  */
 export function libraryPlace(view: LibraryView): string {
-  if (view.facts) return `facts:${view.facts}`
-  if (view.changes) return `changes:${view.changes}`
   const place = view.favorites ? 'favorites' : view.recent ? 'recent' : (view.folderId ?? 'root')
-  return view.trash ? 'trash' : view.templates ? 'templates' : `${place}?${view.search ? JSON.stringify(view.search) : ''}`
+  return view.trash ? 'trash' : `${place}?${view.search ? JSON.stringify(view.search) : ''}`
 }

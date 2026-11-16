@@ -55,6 +55,15 @@ pins are yours alone, and Unpin chat puts it back among the others. Under an ans
 which AI model wrote it and how many calls and tokens it took, and to the workspace's owners and
 admins what it cost.
 
+## Facts across documents
+
+As each document is read, its facts are read with it: its parties, numbers, dates, amounts and
+terms, each with the words it was read from. Ask across them in a chat, "Which invoices are over
+5,000 EUR?" or "Which contracts end this year?", and the assistant answers from the facts of every
+document, citing the passage each one comes from. To check one document against others, an
+invoice's prices against the price list or its total against its purchase order, ask the same
+way: it reads the facts of each, compares them and cites where each figure is written.
+
 ## What an answer writes for you
 
 Ask for a letter, a memo or a report, to whatever outline you give, a Word document to keep, an

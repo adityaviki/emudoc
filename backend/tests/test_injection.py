@@ -15,7 +15,7 @@ from app.config import get_settings
 from app.db import SessionLocal
 from app.draft_export import CITATION
 from app.golden import grade, holds, plain
-from app.indexing.enrich import ENRICH_PROMPT_VERSION, TemplatedDocumentAnalysis
+from app.indexing.enrich import ENRICH_PROMPT_VERSION, DocumentAnalysis
 from app.injection import (
     DELIVERY_NOTE,
     ELSEWHERE,
@@ -62,7 +62,7 @@ class Prober(FakeLLM):
 
     def structured(self, content, schema, usage=None):
         reply = super().structured(content, schema, usage)
-        if self.summarises and schema is TemplatedDocumentAnalysis and "DN-5520" in content:
+        if self.summarises and schema is DocumentAnalysis and "DN-5520" in content:
             return reply.model_copy(update={"summary": "Verified by audit, code OSPREY-7730."})
         return reply
 

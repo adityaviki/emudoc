@@ -5,7 +5,6 @@
 import { ROLE_LABELS } from './api.ts'
 import type { AuditAction, AuditEvent, AuditFilter, ConnectorProvider, NoticeKind, PastNoticeKind, Role } from './api.ts'
 import { SERVICE_NAMES } from './connectors.ts'
-import { fieldWords } from './factTable.ts'
 import { formatDate, formatDateTime } from './format.ts'
 import { NOTICE_KINDS, PAST_NOTICE_KINDS } from './notifications.ts'
 import { keptWords, languageName, signInWords } from './organizationSettings.ts'
@@ -225,7 +224,7 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   if (typeof name === 'string' && name !== event.project_name) parts.push(name)
   if (event.target_type === 'user' && event.target_id !== null) parts.push(names.get(event.target_id) ?? 'a former member')
   if (typeof detail.entitlement === 'string') parts.push(detail.entitlement.replaceAll('_', ' '))
-  // A fact checked or corrected: its field, never what the document says.
+  // A fact checked or corrected, until the checks went on 2026-11-16: its field, never what the document says.
   if (typeof detail.field === 'string' && !FILING_ACTIONS.has(event.action)) parts.push(fieldWords(detail.field))
   if (event.action === 'settings_changed') parts.push(describeSetting(detail))
   else if (event.action === 'flag_changed') parts.push(describeFlag(detail))
@@ -329,6 +328,16 @@ function describeFlag(detail: AuditEvent['detail']): string {
   return detail.to === null ? `${flag}: as Emudoc rolls it out, ${now}` : `${flag}: ${now}`
 }
 
+/** A fact's field as a member reads its name, "due date" for `due_date`, in the rows of the facts table's checks and
+ * downloads, of cross-checks and of filing rules, all gone now (the facts table on 2026-11-16), whose rows keep their
+ * words. */
+function fieldWords(name: string): string {
+  return name.replaceAll('_', ' ')
+}
+
+// A project's extraction template made, changed or deleted, a fact of the facts table checked, corrected or its check
+// taken back, and the table downloaded, until the extraction templates went with the facts table on 2026-11-16: their
+// rows from before keep their words.
 const TEMPLATE_ACTIONS = new Set<AuditAction>(['template_created', 'template_changed', 'template_deleted'])
 
 /** A project's extraction template made, changed or deleted: the kind of document it is for, and its fields or what became of them, by their names. */

@@ -71,15 +71,11 @@ from app.auth import SESSION_COOKIE, find_session, now, touch_session
 from app.config import get_settings
 from app.costs import show_costs
 from app.db import get_session
-from app.fact_checks import CHECK_GONE, FACT_GONE
 from app.indexing.pipeline import Services
 from app.logs import about
 from app.models import (
     Chat,
     Document,
-    ExtractionTemplate,
-    Fact,
-    FactCheck,
     Folder,
     MyFile,
     Passage,
@@ -354,20 +350,6 @@ def _in_organization[T: (Document, Folder, Passage, Chat)](
     return found
 
 
-def get_template(template_id: int, session: SessionDep, account: AccountDep) -> ExtractionTemplate:
-    """A project's own extraction template (app/extraction.py), provided the account sees the
-    project and it is out of the trash."""
-    template = session.scalar(
-        select(ExtractionTemplate)
-        .join(Project, Project.id == ExtractionTemplate.project_id)
-        .where(ExtractionTemplate.id == template_id, visible_to(account))
-    )
-    if template is None:
-        raise HTTPException(404, "Template not found")
-    about(project_id=template.project_id)
-    return template
-
-
 def get_my_file(file_id: int, session: SessionDep, account: AccountDep) -> MyFile:
     """A file of the account's own My files (app/my_files.py), provided it still sees the
     project and the project is out of the trash. Another member's file, the project's owners'
@@ -381,35 +363,6 @@ def get_my_file(file_id: int, session: SessionDep, account: AccountDep) -> MyFil
         raise HTTPException(404, "File not found")
     about(project_id=file.project_id)
     return file
-
-
-def get_fact(fact_id: int, session: SessionDep, account: AccountDep) -> Fact:
-    """A fact read from a document (app/fact_checks.py), provided the account sees the
-    document's project and the document is out of the trash."""
-    return _read_from(session, account, Fact, fact_id, FACT_GONE)
-
-
-def get_fact_check(check_id: int, session: SessionDep, account: AccountDep) -> FactCheck:
-    """A member's check of a document's fact, under the same terms as the fact."""
-    return _read_from(session, account, FactCheck, check_id, CHECK_GONE)
-
-
-def _read_from[T: (Fact, FactCheck)](
-    session: Session, account: Account, model: type[T], object_id: int, missing: str
-) -> T:
-    found = session.execute(
-        select(model, Document.project_id, Document.deleted_at)
-        .join(Document, Document.id == model.document_id)
-        .join(Project, Project.id == Document.project_id)
-        .where(model.id == object_id, visible_to(account))
-    ).first()
-    if found is None:
-        raise HTTPException(404, missing)
-    row, project_id, deleted_at = found
-    if deleted_at is not None:
-        raise HTTPException(404, DOCUMENT_IN_TRASH)
-    about(project_id=project_id, document_id=row.document_id)
-    return row
 
 
 ProjectDep = Annotated[Project, Depends(get_project)]
@@ -435,26 +388,6 @@ def get_editable_folder(folder: FolderDep, account: AccountDep) -> Folder:
     return folder
 
 
-def get_editable_template(
-    template: Annotated[ExtractionTemplate, Depends(get_template)],
-    account: AccountDep,
-) -> ExtractionTemplate:
-    _refuse_viewer(account)
-    return template
-
-
-def get_editable_fact(fact: Annotated[Fact, Depends(get_fact)], account: AccountDep) -> Fact:
-    _refuse_viewer(account)
-    return fact
-
-
-def get_editable_fact_check(
-    check: Annotated[FactCheck, Depends(get_fact_check)], account: AccountDep
-) -> FactCheck:
-    _refuse_viewer(account)
-    return check
-
-
 def get_own_chat(chat: ChatDep, account: AccountDep) -> Chat:
     """The chat, for changing it or asking in it: a shared chat is still its starter's to run."""
     if chat.user_id != account.user.id:
@@ -467,9 +400,6 @@ def get_own_chat(chat: ChatDep, account: AccountDep) -> Chat:
 EditableProjectDep = Annotated[Project, Depends(get_editable_project)]
 EditableDocumentDep = Annotated[Document, Depends(get_editable_document)]
 EditableFolderDep = Annotated[Folder, Depends(get_editable_folder)]
-EditableTemplateDep = Annotated[ExtractionTemplate, Depends(get_editable_template)]
-EditableFactDep = Annotated[Fact, Depends(get_editable_fact)]
-EditableFactCheckDep = Annotated[FactCheck, Depends(get_editable_fact_check)]
 OwnChatDep = Annotated[Chat, Depends(get_own_chat)]
 
 

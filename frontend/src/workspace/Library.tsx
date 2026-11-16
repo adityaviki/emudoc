@@ -24,7 +24,6 @@ import {
   ScrollText,
   Star,
   StarOff,
-  TableProperties,
   Trash2,
   Upload,
   WifiOff,
@@ -79,8 +78,6 @@ import { photoName } from './uploads.ts'
 import { MyFileView, MyFilesView } from './MyFiles.tsx'
 import { ConnectorsView } from './Connectors.tsx'
 import { MailboxView } from './Mailbox.tsx'
-import { ChangesView } from './FactChanges.tsx'
-import { FactsView } from './FactsTable.tsx'
 import { fileKind, originalFileItem } from './files.ts'
 import { BY_NAME, growing, hasMore, listed, nameOf, placeKey, showMore, useListings } from './listing.ts'
 import type { Arrangement, Listing } from './listing.ts'
@@ -90,7 +87,6 @@ import { useDocumentMarks, useFavorites } from './organizing.ts'
 import { PlaceBar, Seen } from './Places.tsx'
 import { SearchResults } from './SearchResults.tsx'
 import { useWorkspace } from './state.ts'
-import { TemplatesView } from './Templates.tsx'
 import { TrashView } from './Trash.tsx'
 import { UploadPanel } from './UploadPanel.tsx'
 import { UploadStopped, isAbort, uploadStopped } from './uploads.ts'
@@ -234,9 +230,6 @@ export function Library() {
   const partlyHeld = restHeld(project.unenriched_count ? ['enrich', 'embed'] : ['embed'], health.data)
 
   if (workspace.url.library.trash) return <TrashView />
-  if (workspace.url.library.templates) return <TemplatesView />
-  if (workspace.url.library.facts) return <FactsView kind={workspace.url.library.facts} />
-  if (workspace.url.library.changes) return <ChangesView kind={workspace.url.library.changes} />
   if (workspace.url.library.mail && mail) return <MailboxView />
   if (workspace.url.library.connectors && connectors) return <ConnectorsView />
   if (workspace.url.library.myFiles) return <MyFilesView />
@@ -284,13 +277,6 @@ export function Library() {
         <div className="flex flex-col gap-2 px-3 pb-2.5">
         {/* Its buttons take a second line rather than run under the pane beside it. */}
         <div className="flex flex-wrap items-center gap-2">
-          <Button
-            icon={<TableProperties className="size-4" />}
-            onClick={workspace.showTemplates}
-            title="Extraction templates: the fields each kind of document is read for"
-            aria-label="Extraction templates"
-            className="px-2"
-          />
           <Button
             icon={<FolderLock className="size-4" />}
             onClick={workspace.showMyFiles}
