@@ -109,7 +109,6 @@ describe('buildWorkspaceUrl', () => {
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, templates: true } })).toBe('/projects/3?templates=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, facts: 'purchase order' } })).toBe('/projects/3?facts=purchase+order')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, changes: 'invoice' } })).toBe('/projects/3?changes=invoice')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, writingTemplates: true } })).toBe('/projects/3?writing-templates=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, mail: true } })).toBe('/projects/3?mail=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, connectors: true } })).toBe('/projects/3?connectors=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, favorites: true } })).toBe('/projects/3?favorites=')
@@ -134,7 +133,6 @@ describe('buildWorkspaceUrl', () => {
       { ...home, library: { folderId: null, templates: true }, document: { id: 41, focus: null } },
       { ...home, library: { folderId: null, facts: 'delivery note' }, document: { id: 41, focus: { block: 7 } } },
       { ...home, library: { folderId: null, changes: 'delivery note' }, chatId: 12 },
-      { ...home, library: { folderId: null, writingTemplates: true }, chatId: 12 },
       { ...home, library: { folderId: null, mail: true }, chatId: 12 },
       { ...home, library: { folderId: null, connectors: true } },
       { ...home, library: { folderId: null, recent: true }, document: { id: 41, focus: null } },
@@ -165,6 +163,8 @@ describe('buildWorkspaceUrl', () => {
     expect(buildWorkspaceUrl(parse('/projects/3?run=8')!)).toBe('/projects/3')
     expect(buildWorkspaceUrl(parse('/projects/3?checks')!)).toBe('/projects/3')
     expect(buildWorkspaceUrl(parse('/projects/3?check=5')!)).toBe('/projects/3')
+    // The writing templates' place, from before they went, opens the library.
+    expect(buildWorkspaceUrl(parse('/projects/3?writing-templates')!)).toBe('/projects/3')
   })
 })
 

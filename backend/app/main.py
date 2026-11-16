@@ -25,7 +25,6 @@ from app.api import (
     chats,
     connectors,
     documents,
-    draft_templates,
     duplicates,
     exports,
     favorites,
@@ -379,7 +378,6 @@ KEYED = (
     chats.router,
     trash.router,
     templates.router,
-    draft_templates.router,
     mailbox.router,
     my_files.router,
 )

@@ -3,11 +3,9 @@ reading tools to an answer whose member may keep files there (`offers_my_files` 
 app/answers.py), so that asked for a Word document or an Excel workbook, or to change one, the
 agent writes it for them.
 
-`list_my_files` and `read_file` read the member's files; `get_template` reads the project's
-template of a kind of document (a reply email, a dispute letter, a summary memo, a comparison
-table, a report: app/draft_templates.py), which the agent follows writing one; `create_document`
-writes a new Word document from Markdown, its citations numbered notes (`draft_file` in
-app/draft_export.py);
+`list_my_files` and `read_file` read the member's files; `create_document` writes a new Word
+document from Markdown, laid out as the member asks, its citations numbered notes (`draft_file`
+in app/draft_export.py);
 `edit_document` changes one by its paragraphs' numbers (app/word_files.py), only ever the newest
 version, which it must have read; `create_spreadsheet` and `edit_spreadsheet` do the same for a
 workbook, by its sheets and cells (app/sheet_files.py), its formulas' values worked out by the
@@ -38,7 +36,6 @@ from app.agent.tools import LIVE, Tool, ToolContext, _Input
 from app.audit import audit_event
 from app.conversion import ConvertError
 from app.draft_export import draft_file
-from app.draft_templates import template_for, template_task
 from app.models import ChatMessage, Document, MyFile, MyFileVersion, Project
 from app.my_files import (
     DOCX,
@@ -55,7 +52,7 @@ from app.my_files import (
     versions_of,
 )
 from app.scanning import scan_passed
-from app.schemas import DRAFT_CHARS, DraftKind
+from app.schemas import DRAFT_CHARS
 from app.word_files import Change, EditRefused, Unreadable, edited, reading
 
 log = logging.getLogger(__name__)
@@ -104,10 +101,6 @@ MOVED_ON = (
 
 class ListMyFilesInput(_Input):
     pass
-
-
-class GetTemplateInput(_Input):
-    kind: DraftKind = Field(description="The kind of document the member asks for.")
 
 
 class ReadFileInput(_Input):
@@ -345,10 +338,6 @@ def list_my_files(ctx: ToolContext, args: ListMyFilesInput) -> str:
             parts.append("flagged by the malware scan, never to be read")
         lines.append(" · ".join(parts))
     return "\n".join(lines)
-
-
-def get_template(ctx: ToolContext, args: GetTemplateInput) -> str:
-    return template_task(template_for(ctx.session, ctx.project_id, args.kind))
 
 
 def read_file(ctx: ToolContext, args: ReadFileInput) -> str:
@@ -785,17 +774,6 @@ WRITING_TOOLS: dict[str, Tool] = {
             "names cells by. Reads the newest version unless given another.",
             ReadFileInput,
             read_file,
-        ),
-        Tool(
-            "get_template",
-            "Read the project's template for a kind of document the member asks you to write: a "
-            "reply email, a dispute letter, a summary memo, a comparison table or a report. It "
-            "says how the project's members want documents of the kind laid out, their tone and "
-            "parts, and the rules every one keeps. Call it before create_document whenever the "
-            "member asks for one of these kinds, and follow it.",
-            GetTemplateInput,
-            get_template,
-            fenced=False,
         ),
         Tool(
             "create_document",

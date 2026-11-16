@@ -16,6 +16,12 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 
 ### Users
 
+- Writing templates are gone: My files no longer offers "Templates", and a project no longer sets
+  how its reply emails, dispute letters, summary memos, comparison tables and reports read, nor
+  keeps a built-in outline for each. Ask the agent in a chat for a letter or a report and say how
+  it should read, its parts in order, its tone, what it asks for: it writes it into your My files
+  to that outline, citing where each figure is written, and leaves what no document states, such
+  as your name, in square brackets for you to fill in.
 - Cross-checks are gone, with their runs and discrepancy reports: the library no longer offers
   "Cross-checks", whose rules compared a fact of one kind of document with another's, and no run
   keeps what they found. Ask the agent in a chat to check documents against each other instead,
@@ -40,8 +46,7 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
   assigned already under the bell stay until they are pruned.
 - A disputed document's "Write a dispute letter" is gone, and My files no longer list the files
   the agent was asked to write outside a chat. Ask for a dispute letter in a chat instead: the
-  agent writes it into your My files, to the project's template for dispute letters, citing
-  where each figure is written.
+  agent writes it into your My files, citing where each figure is written.
 - Comments are gone, with their mentions: a document's tab no longer offers "Comments" or
   "Comment on this", and nobody is told of a mention or of a reply in a thread. Write what the
   project's members should know about a document in its note, or ask the agent about it in a
@@ -52,6 +57,12 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 
 ### Admins
 
+- Migration 162cbce435ce drops the `draft_templates` table with the projects' own writing
+  templates in it; a downgrade makes it again, empty. `GET /api/projects/{id}/draft-templates`
+  and `PUT|DELETE /api/projects/{id}/draft-templates/{kind}` are gone, for API keys too, and the
+  agent's `get_template` tool with them, so the answers' prompt version changes; `/api/v1`, the
+  webhooks' events and the settings are unchanged. The audit log's `draft_template_created`,
+  `draft_template_changed` and `draft_template_deleted` entries stay and still read.
 - Migration b8ee7b962950 drops the `cross_checks`, `workflow_runs`, `workflow_findings`,
   `automations`, `automation_checks` and `automation_arrivals` tables with the rules, the runs
   with what they found and their reports, the automations and the documents waiting for them,

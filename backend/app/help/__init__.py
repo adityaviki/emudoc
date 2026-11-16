@@ -57,10 +57,7 @@ ARTICLES = (
     ),
     ("asking", "Searching a project and every project, asking, citations, and who sees a chat."),
     ("checking", "Extraction templates and the facts table."),
-    (
-        "working-together",
-        "My files, writing templates and share links.",
-    ),
+    ("working-together", "My files and share links."),
     (
         "workspace",
         "Roles, invitations, private projects, settings, usage, the Administration page, API keys "

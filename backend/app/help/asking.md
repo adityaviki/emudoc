@@ -57,9 +57,9 @@ admins what it cost.
 
 ## What an answer writes for you
 
-Ask for a reply email, a dispute letter, a summary memo, a comparison table or a report, a Word
-document or a memo to keep, an Excel workbook, or for changes to one of your files, and the
-assistant writes it into your My files, where only you see it, and the answer's step opens it
+Ask for a letter, a memo or a report, to whatever outline you give, a Word document to keep, an
+Excel workbook, or for changes to one of your files, and the assistant writes it into your My
+files, where only you see it, and the answer's step opens it
 ([Working together](/help/working-together)).
 
 ## Keyboard shortcuts

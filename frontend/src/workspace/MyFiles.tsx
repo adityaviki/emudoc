@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Copy, Download, FilePlus, FileSpreadsheet, FileText, FileUp, LayoutTemplate, Pencil, RotateCcw, Trash2 } from 'lucide-react'
+import { ArrowLeft, Copy, Download, FilePlus, FileSpreadsheet, FileText, FileUp, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { ApiError, api, mayChange, myFilePageUrl, myFileUrl } from '../api.ts'
 import type { Document, MyFile, MyFileDetail } from '../api.ts'
@@ -41,8 +41,8 @@ const KindIcon = ({ file }: { file: MyFile }) =>
 
 /**
  * The member's own files in the project, in the library's place: the Word documents and Excel workbooks they keep here,
- * which nobody else sees, the one changed last first, each opening in the same place; a file added from this computer;
- * and the way to the project's writing templates.
+ * which nobody else sees, the one changed last first, each opening in the same place; and a file added from this
+ * computer.
  */
 export function MyFilesView() {
   const workspace = useWorkspace()
@@ -78,13 +78,6 @@ export function MyFilesView() {
         <h2 ref={heading} tabIndex={-1} className="flex-1 truncate text-[13px] font-semibold">
           My files
         </h2>
-        <Button
-          icon={<LayoutTemplate className="size-4" />}
-          onClick={workspace.showWritingTemplates}
-          title="Writing templates: how the agent writes each kind of document into My files, for everyone in the project"
-        >
-          Templates
-        </Button>
         <Button icon={<FilePlus className="size-4" />} disabled={add.isPending} onClick={() => picker.current?.click()}>
           {add.isPending ? 'Adding…' : 'Add a file'}
         </Button>

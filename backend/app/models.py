@@ -50,10 +50,6 @@ MY_FILE_SCANS = ("pending", "passed", "skipped", "flagged")
 # its title, its kind, its date and the language its words are searched in, each kept through
 # every later reading until the member takes the reading's again.
 DOCUMENT_DETAILS = ("title", "doc_type", "doc_date", "language")
-# The kinds of document the agent writes into a member's My files to a template of the project's
-# (app/draft_templates.py), each with its own layout: a reply to an email, a letter disputing a
-# document, a memo summing documents up, a table setting them side by side, and a report.
-DRAFT_KINDS = ("reply_email", "dispute_letter", "summary_memo", "comparison_table", "report")
 # From most to least permitted: each role may do everything the roles after it may.
 ROLES = ("owner", "admin", "member", "viewer")
 # A chat is private to the member who started it until they share it with the project.
@@ -175,8 +171,9 @@ NATURAL_ORDER = "natural_order"
 # its filing rules were made, changed and deleted until they were removed on 2026-11-05, and their
 # actions stay so that those entries still read. Until 2026-11-13 a
 # draft was asked of the agent, changed and deleted, and a version of it downloaded, whose actions
-# stay so that those entries still read; a project's own template of a kind the agent writes is
-# made, changed and deleted for good (app/draft_templates.py). A project's address is made, its
+# stay so that those entries still read, as do those of a project's own template of a kind the
+# agent wrote, made, changed and deleted for good until the writing templates went (S.6,
+# 2026-11-16). A project's address is made, its
 # senders, folder or address changed, and taken away (app/inbound.py); a document that arrived
 # by it is uploaded by its member, or by nobody for a sender outside the organisation. A webhook
 # the organisation's programs hear of its work by is added, changed, given a new secret and
@@ -1617,43 +1614,6 @@ class ExtractionTemplate(Base):
     description: Mapped[str] = mapped_column(Text, default="", server_default="")
     # [{"name", "type", "description", "required", "examples"}], in the order they are asked.
     fields: Mapped[list] = mapped_column(JSONB, default=list)
-    # Who made it; null once their account is gone. Indexed for the account purge.
-    created_by: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), index=True
-    )
-    created_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-    updated_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
-
-
-class DraftTemplate(Base):
-    """How the documents of one kind the agent writes for a project's members read
-    (app/draft_templates.py): their tone, their parts in order and what else every one of the kind
-    should do. A project's template replaces the
-    built-in one of its kind, which applies while the project has none of its own."""
-
-    __tablename__ = "draft_templates"
-    __table_args__ = (
-        UniqueConstraint("project_id", "kind"),
-        _one_of("kind", DRAFT_KINDS, "draft_templates"),
-        CheckConstraint("jsonb_typeof(sections) = 'array'", name="ck_draft_templates_sections"),
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    # The tenant, as for every row a member reaches by its id.
-    org_id: Mapped[int] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
-    )
-    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
-    # One of DRAFT_KINDS.
-    kind: Mapped[str] = mapped_column(String(30))
-    tone: Mapped[str] = mapped_column(Text, default="", server_default="")
-    # [{"heading", "description", "required"}], in the order a document of the kind has them.
-    sections: Mapped[list] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
-    guidance: Mapped[str] = mapped_column(Text, default="", server_default="")
     # Who made it; null once their account is gone. Indexed for the account purge.
     created_by: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), index=True

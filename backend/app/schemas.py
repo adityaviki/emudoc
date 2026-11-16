@@ -1047,69 +1047,8 @@ class RemoteFoldersOut(BaseModel):
     folders: list[RemoteFolderOut]
 
 
-# The kinds of document the agent writes to a template of the project's (app/draft_templates.py).
-DraftKind = Literal["reply_email", "dispute_letter", "summary_memo", "comparison_table", "report"]
 # The characters of what the agent writes into a Word document (app/agent/writing.py).
 DRAFT_CHARS = 100_000
-
-
-# A writing template's ceilings (app/draft_templates.py), which bound what it adds to the
-# agent's prompt: its parts, and the characters of its tone, of a part's name and of what goes
-# in it, and of the rest it asks.
-MAX_DRAFT_SECTIONS = 20
-TONE_CHARS = 500
-HEADING_CHARS = 100
-SECTION_CHARS = 500
-GUIDANCE_CHARS = 2000
-
-
-class DraftSectionIn(BaseModel):
-    """A part of a kind's documents: its name, what goes in it, and whether every one has it or
-    only one whose documents give it something to say."""
-
-    heading: Annotated[
-        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=HEADING_CHARS)
-    ]
-    description: Annotated[
-        str, StringConstraints(strip_whitespace=True, max_length=SECTION_CHARS)
-    ] = ""
-    required: bool = True
-
-
-class DraftTemplateIn(BaseModel):
-    """A project's own template of a kind the agent writes, written whole: its tone, its parts in
-    order and what else every document of the kind should do."""
-
-    tone: Annotated[str, StringConstraints(strip_whitespace=True, max_length=TONE_CHARS)] = ""
-    sections: list[DraftSectionIn] = Field(default_factory=list, max_length=MAX_DRAFT_SECTIONS)
-    guidance: Annotated[
-        str, StringConstraints(strip_whitespace=True, max_length=GUIDANCE_CHARS)
-    ] = ""
-
-
-class DraftSectionOut(BaseModel):
-    heading: str
-    description: str
-    required: bool
-
-
-class DraftTemplateOut(BaseModel):
-    """The template in force for a kind the agent writes for the project: its own (`id`, and when
-    it was last changed) or the built-in one."""
-
-    kind: DraftKind
-    id: int | None
-    built_in: bool
-    tone: str
-    sections: list[DraftSectionOut]
-    guidance: str
-    updated_at: dt.datetime | None
-
-
-class DraftTemplatesOut(BaseModel):
-    """The template in force for each kind, in the order the kinds are offered."""
-
-    templates: list[DraftTemplateOut]
 
 
 # MY_FILE_KINDS and MY_FILE_SCANS in app/models.py.

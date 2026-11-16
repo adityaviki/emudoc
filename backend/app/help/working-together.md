@@ -20,12 +20,11 @@ it in place, keeping the formatting of everything it does not change. Each chang
 version you can go back to. A workbook holding charts, pictures, pivot tables or macros it reads
 but leaves to Excel to change, and it never changes the project's library.
 
-Asked for a reply email, a dispute letter, a summary memo, a comparison table or a report, the
-assistant follows the project's template of the kind. "Templates", in My files, shows each kind's
-tone and parts, in order, which apply to everyone in the project; whoever may change the project
-changes them, and the assistant follows the template as it is when it writes. To dispute an
-invoice, ask in a chat for a dispute letter about it: the assistant writes the letter into your My
-files from what the documents say, citing where each figure is written.
+Say how a letter or a report should read, its parts in order, its tone, what it asks for, and
+the assistant writes it to that outline. To dispute an invoice, ask in a chat for a dispute letter
+about it: the assistant writes the letter into your My files from what the documents say, citing
+where each figure is written, and leaves what no document states, such as your name, in square
+brackets for you to fill in.
 
 ## Share links
 

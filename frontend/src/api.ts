@@ -647,8 +647,6 @@ export interface MyFileDetail extends MyFile {
   history: MyFileVersion[]
 }
 
-/** A kind of document the agent writes to a template (DRAFT_KINDS in backend/app/models.py, backend/app/draft_templates.py). */
-export type DraftKind = 'reply_email' | 'dispute_letter' | 'summary_memo' | 'comparison_table' | 'report'
 /** The files a text citing passages downloads as: an answer, a chat (backend/app/draft_export.py, backend/app/chat_export.py). */
 export type TextFormat = 'docx' | 'pdf' | 'md'
 
@@ -656,31 +654,6 @@ export type TextFormat = 'docx' | 'pdf' | 'md'
 export interface MyFiles {
   files: MyFile[]
   limit: number
-}
-
-/** A part of a kind's documents (DraftSectionOut): its name, what goes in it, and whether every one has it. */
-export interface DraftSection {
-  heading: string
-  description: string
-  required: boolean
-}
-
-/** How the agent writes a project's documents of a kind (DraftTemplateOut): its own template (`id`), or the built-in one. */
-export interface DraftTemplate {
-  kind: DraftKind
-  id: number | null
-  built_in: boolean
-  tone: string
-  sections: DraftSection[]
-  guidance: string
-  updated_at: string | null
-}
-
-/** A project's own template of a kind, written whole (DraftTemplateIn). */
-export interface DraftTemplateInput {
-  tone: string
-  sections: DraftSection[]
-  guidance: string
 }
 
 export interface SearchHit {
@@ -2162,11 +2135,6 @@ export const api = {
   /** Copy the newest version into the library: a new document in a folder, or the next version of the document it came from. */
   copyMyFile: (id: number, body: { folder_id?: number | null; as_version?: boolean }) =>
     request<Document>(`/my-files/${id}/copy`, json('POST', body)),
-  draftTemplates: (projectId: number) => request<{ templates: DraftTemplate[] }>(`/projects/${projectId}/draft-templates`),
-  saveDraftTemplate: (projectId: number, kind: DraftKind, body: DraftTemplateInput) =>
-    request<DraftTemplate>(`/projects/${projectId}/draft-templates/${kind}`, json('PUT', body)),
-  deleteDraftTemplate: (projectId: number, kind: DraftKind) =>
-    request<void>(`/projects/${projectId}/draft-templates/${kind}`, { method: 'DELETE' }),
 
   folders: (projectId: number) => request<Folder[]>(`/projects/${projectId}/folders`),
   createFolder: (projectId: number, body: { name: string; parent_id: number | null }) =>

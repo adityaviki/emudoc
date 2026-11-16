@@ -32,8 +32,7 @@ import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, rele
 // corrected, which the table's unchecked rows, its CSV file and the audit
 // log keep, and then a field added to the project's own invoice template and the invoice read again for it,
 // what the reading changed listed, the corrected total kept, a second invoice of the same order
-// uploaded, which the facts table lists beside the first, and the project's dispute
-// letters given a template of their own from My files, then the built-in one again, a Word
+// uploaded, which the facts table lists beside the first, a Word
 // document and an Excel workbook the agent writes into My files when asked in a chat, and last
 // the project given an address, a supplier's domain listed, whose mail becomes documents and a
 // stranger's is turned away, as the page lists them, and a folder of the member's Google Drive
@@ -1124,50 +1123,6 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     const rows = page.getByRole('grid', { name: 'Facts of invoice documents' }).getByRole('row')
     await expect(rows.filter({ hasText: 'INV-2026-0413' })).toContainText('EUR 1,320.00')
     await expect(rows.filter({ hasText: 'INV-2026-0412' })).toContainText('1,205.00 EUR')
-  })
-
-  await test.step("give the project's dispute letters a template of its own from My files, then the built-in one again", async () => {
-    await page.goto('/')
-    await page.getByRole('link', { name: /^Supplier contracts/ }).click()
-    await page.getByRole('button', { name: 'My files', exact: true }).click()
-    await page.getByRole('button', { name: 'Templates', exact: true }).click()
-    const heading = page.getByRole('heading', { name: 'Writing templates' })
-    await expect(heading).toBeFocused()
-    const letters = page.getByRole('list', { name: 'Writing templates' }).getByRole('listitem').filter({ hasText: 'Dispute letter' })
-    await expect(letters).toContainText('Built in')
-    await expectAccessible(page, 'the writing templates')
-
-    // Customised: the tone first, then a part added, which a letter may leave out.
-    await letters.getByRole('button', { name: 'Customise Dispute letter' }).click()
-    const tone = page.getByLabel('Tone')
-    await expect(tone).toBeFocused()
-    await tone.fill('Formal, in British English.')
-    await page.getByRole('button', { name: 'Add a part' }).click()
-    const added = page.getByRole('group', { name: 'Part 7' })
-    await expect(added.getByLabel('Name')).toBeFocused()
-    await added.getByLabel('Name').fill('Our reference')
-    await added.getByLabel('What goes in it').fill('The order number we gave.')
-    await added.getByLabel('Every dispute letter has it').uncheck()
-    await expectAccessible(page, 'a writing template')
-    await page.getByRole('button', { name: 'Save', exact: true }).click()
-    await expect(heading).toBeFocused()
-    await expect(page.getByText('Saved the project’s own dispute letter template.')).toBeVisible()
-    await expect(letters).toContainText('The project’s own')
-    await expect(letters).toContainText('Our reference (where it applies)')
-
-    // The built-in one again, after its question.
-    await letters.getByRole('button', { name: 'Use the built-in dispute letter template' }).click()
-    const question = page.getByRole('dialog', { name: 'Use the built-in dispute letter template again?' })
-    await question.getByRole('button', { name: 'Use the built-in one' }).click()
-    await expect(heading).toBeFocused()
-    await expect(letters).toContainText('Built in')
-    await page.getByRole('button', { name: 'Back to My files' }).click()
-    await expect(page.getByRole('heading', { name: 'My files', exact: true })).toBeFocused()
-    await page.goto('/organization/audit')
-    await page.getByLabel('What').selectOption('draft_template_created')
-    await expect(page.getByRole('listitem').filter({ hasText: 'Made a writing template' })).toContainText('for dispute letters, 7 parts')
-    await page.getByLabel('What').selectOption('draft_template_deleted')
-    await expect(page.getByRole('listitem').filter({ hasText: 'Used a built-in writing template again' })).toContainText('for dispute letters')
   })
 
   await test.step('ask in a chat for a Word document, which the agent writes into My files, and open it from its step', async () => {
