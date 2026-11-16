@@ -114,8 +114,6 @@ export interface Workspace {
   showMyFiles(): void
   /** Shows one of the member's own files, with its pages and versions, in the library, likewise. */
   showMyFile(fileId: number): void
-  /** Shows how the agent writes each kind of document into My files, the project's writing templates, in the library, likewise. */
-  showWritingTemplates(): void
   /** Shows the project's connected folders in the library, likewise. */
   showConnectors(): void
   /** Shows a place of the library that is not a folder (the member's favourites or recent ones), likewise. */

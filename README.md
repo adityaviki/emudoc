@@ -27,7 +27,7 @@ you choose.
   its purchase order, the contract, the price list) and it compares their facts, citing where
   each figure is written.
 - **Create**: the agent writes letters, replies, memos and reports from the documents as Word
-  documents in your own files, to your project's templates, and makes and edits Excel
+  documents in your own files, to whatever outline you give it, and makes and edits Excel
   workbooks; ask in a chat for a disputed invoice's dispute letter and it is in your files.
 - **Work together**: a workspace with roles, private projects, notices, and links that share a
   document or an answer outside.

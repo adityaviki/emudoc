@@ -76,7 +76,6 @@ import { VERSION_EXTENSIONS } from '../versions.ts'
 import { describeChange } from './changes.ts'
 import { chosenFolder, droppedEntries, readEntries } from './dropped.ts'
 import { photoName } from './uploads.ts'
-import { DraftTemplatesView } from './DraftTemplates.tsx'
 import { MyFileView, MyFilesView } from './MyFiles.tsx'
 import { ConnectorsView } from './Connectors.tsx'
 import { MailboxView } from './Mailbox.tsx'
@@ -242,7 +241,6 @@ export function Library() {
   if (workspace.url.library.connectors && connectors) return <ConnectorsView />
   if (workspace.url.library.myFiles) return <MyFilesView />
   if (workspace.url.library.myFile != null) return <MyFileView fileId={workspace.url.library.myFile} />
-  if (workspace.url.library.writingTemplates) return <DraftTemplatesView />
   // The files of the whole project a search finds are no place of their own: "All files", pressed, says where they are.
   const placeLabel = flat && !allNamed(place) ? placeName(place) : null
   const searchResults = search && (

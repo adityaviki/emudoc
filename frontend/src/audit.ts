@@ -3,9 +3,8 @@
 // choices ask for, its days in the browser's own zone.
 
 import { ROLE_LABELS } from './api.ts'
-import type { AuditAction, AuditEvent, AuditFilter, ConnectorProvider, DraftKind, NoticeKind, PastNoticeKind, Role } from './api.ts'
+import type { AuditAction, AuditEvent, AuditFilter, ConnectorProvider, NoticeKind, PastNoticeKind, Role } from './api.ts'
 import { SERVICE_NAMES } from './connectors.ts'
-import { KIND_LABELS, kindWords } from './draftTemplates.ts'
 import { fieldWords } from './factTable.ts'
 import { formatDate, formatDateTime } from './format.ts'
 import { NOTICE_KINDS, PAST_NOTICE_KINDS } from './notifications.ts'
@@ -519,9 +518,28 @@ function describeChatExport(detail: AuditEvent['detail']): string {
 // before keep their words.
 const DRAFT_ACTIONS = new Set<AuditAction>(['draft_created', 'draft_changed', 'draft_deleted', 'draft_exported'])
 
+/** Each kind of document a draft, a writing template or a writing outside a chat was of, until the writing templates
+ * went on 2026-11-16, as the page named it. */
+const DRAFT_KIND_LABELS: Record<string, string> = {
+  reply_email: 'Reply email',
+  dispute_letter: 'Dispute letter',
+  summary_memo: 'Summary memo',
+  comparison_table: 'Comparison table',
+  report: 'Report',
+}
+
+/** A row's kind of document, or null for none the page named. */
+const draftKind = (value: unknown) => (typeof value === 'string' && DRAFT_KIND_LABELS[value]) || null
+
+/** A kind in the middle of a sentence, with its article: "a dispute letter", "an …". */
+function kindWords(label: string): string {
+  const name = label.toLowerCase()
+  return `${/^[aeiou]/.test(name) ? 'an' : 'a'} ${name}`
+}
+
 /** A draft asked for, changed, deleted or downloaded: its kind, how many documents it was about, the version a member saved or downloaded and as what, or the model's writing again, never what it says. */
 function describeDraft(detail: AuditEvent['detail']): string {
-  const kind = typeof detail.kind === 'string' && detail.kind in KIND_LABELS ? KIND_LABELS[detail.kind as DraftKind] : 'a draft'
+  const kind = draftKind(detail.kind) ?? 'a draft'
   const parts = [kind]
   if (typeof detail.documents === 'number') {
     parts.push(detail.documents ? `about ${detail.documents} document${detail.documents === 1 ? '' : 's'}` : 'about what the model finds')
@@ -542,17 +560,20 @@ function describeMyFile(action: AuditAction, detail: AuditEvent['detail']): stri
   // Written by the agent, as the member's: in a chat (backend/app/agent/writing.py), or, until reviews went on
   // 2026-11-16, a document of a kind they asked for outside one, a disputed document's dispute letter.
   if (detail.by_model === true) {
-    const writing = typeof detail.writing === 'string' && detail.writing in KIND_LABELS ? (detail.writing as DraftKind) : null
+    const writing = draftKind(detail.writing)
     parts.push(writing ? `by the agent: ${kindWords(writing)}` : 'by the agent in a chat')
   }
   return parts.join(', ')
 }
 
+// A project's own writing template made, changed or given up for the built-in one, until the writing templates went on
+// 2026-11-16: their rows from before keep their words.
 const DRAFT_TEMPLATE_ACTIONS = new Set<AuditAction>(['draft_template_created', 'draft_template_changed', 'draft_template_deleted'])
 
 /** A project's own writing template made, changed or given up for the built-in one: its kind, and its parts or what became of them, by their names, and whether its tone or the rest it asks changed, never what they say. */
 function describeDraftTemplate(detail: AuditEvent['detail']): string {
-  const parts = [typeof detail.kind === 'string' && detail.kind in KIND_LABELS ? `for ${KIND_LABELS[detail.kind as DraftKind].toLowerCase()}s` : 'for a kind of document']
+  const kind = draftKind(detail.kind)
+  const parts = [kind ? `for ${kind.toLowerCase()}s` : 'for a kind of document']
   if (Array.isArray(detail.sections)) parts.push(`${detail.sections.length} part${detail.sections.length === 1 ? '' : 's'}`)
   for (const change of ['added', 'removed', 'changed'] as const) {
     const names = detail[change]

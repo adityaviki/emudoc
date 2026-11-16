@@ -13,7 +13,6 @@ import {
   Files,
   Folder,
   FolderLock,
-  LayoutTemplate,
   Link2,
   ListTree,
   Lock,
@@ -35,7 +34,7 @@ import type { LucideIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { api, organizations, pageLabel, sectionPath, sourceLabel } from '../api.ts'
-import type { Chat, ChatScope, DraftKind, ScopeIn, Source, StepFile, TextFormat } from '../api.ts'
+import type { Chat, ChatScope, ScopeIn, Source, StepFile, TextFormat } from '../api.ts'
 import { useMe } from '../auth.ts'
 import {
   ask,
@@ -72,7 +71,6 @@ import { askForComposer, listHint, onMac, takeComposerAsk, useComposerAsks } fro
 import { askHeld } from '../status.ts'
 import { answerFileUrl, chatFileUrl } from '../textFiles.ts'
 import { trashKey } from '../trash.ts'
-import { KIND_LABELS, kindWords } from '../draftTemplates.ts'
 import { describeAnswerUsage } from '../usage.ts'
 import { InviteTeam } from './InviteTeam.tsx'
 import { documentQuery } from './listing.ts'
@@ -1156,7 +1154,6 @@ const STEP_ICONS: Record<string, LucideIcon> = {
   query_facts: Table2,
   read: BookOpen,
   list_my_files: FolderLock,
-  get_template: LayoutTemplate,
   read_file: FileSearch,
   create_document: FilePlus,
   edit_document: FilePen,
@@ -1189,10 +1186,6 @@ function describeStep({ name, input }: Step): string {
       return 'Looked through My files'
     case 'read_file':
       return 'Read a file of My files'
-    case 'get_template':
-      return typeof input.kind === 'string' && input.kind in KIND_LABELS
-        ? `Read the project’s template for ${kindWords(input.kind as DraftKind)}`
-        : 'Read one of the project’s writing templates'
     case 'create_document':
       return typeof input.title === 'string' ? `Wrote "${input.title}" into My files` : 'Wrote a document into My files'
     case 'create_spreadsheet':

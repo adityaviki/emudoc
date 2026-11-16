@@ -189,10 +189,6 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
         setMobilePane('library')
         go({ library: { folderId: null, myFile: fileId } })
       },
-      showWritingTemplates() {
-        setMobilePane('library')
-        go({ library: { folderId: null, writingTemplates: true } })
-      },
       showPlace(place) {
         setMobilePane('library')
         go({ library: { folderId: null, ...place } })

@@ -96,8 +96,7 @@ The stages build three indexes:
 The agent (`backend/app/agent/`) answers with five read-only tools over the indexes:
 `list_documents` and `get_outline` read the map, `search` the passages, `query_facts` the facts,
 and `read` returns a passage's exact text. Every member is also offered the tools of their own
-My files (`agent/writing.py`: `list_my_files`, `read_file`, `get_template`, the project's
-template of a kind of document such as a dispute letter (`draft_templates.py`), `create_document`,
+My files (`agent/writing.py`: `list_my_files`, `read_file`, `create_document`,
 `edit_document`, `create_spreadsheet`, `edit_spreadsheet`, `copy_to_my_files`; Word documents by python-docx in `word_files.py`, workbooks by openpyxl in
 `sheet_files.py`, their formulas' values worked out by the converter), each write a version only
 they see. Every tool is scoped to the chat's project, and to its folder or documents, by the

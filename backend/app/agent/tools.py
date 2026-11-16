@@ -620,11 +620,6 @@ class Tool:
     # What the chat's step keeps of a call's input, where not all of it: a file's whole text is
     # the file's, not the chat's, which the project's members may read once it is shared.
     step: Callable[[dict[str, Any]], dict[str, Any]] | None = None
-    # Whether its result reaches the model fenced as data (`as_data` in app/agent/loop.py), as
-    # every result does that holds what the documents say or the tool's words about them; False
-    # for one that holds what the project's members wrote for the agent to follow alone (a
-    # writing template, `get_template` in app/agent/writing.py).
-    fenced: bool = True
 
     def stepped(self, arguments: dict[str, Any]) -> dict[str, Any]:
         return arguments if self.step is None else self.step(arguments)

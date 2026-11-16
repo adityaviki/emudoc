@@ -87,9 +87,7 @@ PLANTED = (
 )
 
 # The file tools that write, any call of which no question asks for.
-WRITES = tuple(
-    name for name in WRITING_TOOLS if name not in ("list_my_files", "read_file", "get_template")
-)
+WRITES = tuple(name for name in WRITING_TOOLS if name not in ("list_my_files", "read_file"))
 
 PROBES = (
     Golden(
