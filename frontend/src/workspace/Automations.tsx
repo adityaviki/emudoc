@@ -6,7 +6,6 @@ import type { Automation, CrossCheck, ExtractionTemplate } from '../api.ts'
 import { useMe } from '../auth.ts'
 import {
   AUDIENCES,
-  REVIEWS,
   automationDeletionQuestion,
   automationSentence,
   automationStatus,
@@ -21,7 +20,6 @@ import type { AutomationDraft } from '../automations.ts'
 import { Confirm } from '../components/Confirm.tsx'
 import { Button, Checkbox, IconButton, InputField, Loading, Notice, Radio, SelectField } from '../components/ui.tsx'
 import { useFolders } from '../hooks.ts'
-import { reviewersKey } from '../reviews.ts'
 import { useWorkspace } from './state.ts'
 
 /**
@@ -175,7 +173,7 @@ export function AutomationsSection({ checks, templates }: { checks: CrossCheck[]
   )
 }
 
-/** An automation written whole: its name, what it watches arrive where, what it runs, with a report or not, what it puts in review for whom, whom it tells, its sentence said as it is chosen. */
+/** An automation written whole: its name, what it watches arrive where, what it runs, with a report or not, whom it tells, its sentence said as it is chosen. */
 function AutomationForm({
   automation,
   checks,
@@ -192,7 +190,6 @@ function AutomationForm({
   const queryClient = useQueryClient()
   const id = useId()
   const folders = useFolders(project.id)
-  const reviewers = useQuery({ queryKey: reviewersKey(project.id), queryFn: () => api.reviewers(project.id), staleTime: 60_000 })
   const [draft, setDraft] = useState<AutomationDraft>(() => draftOf(automation, templates.map((template) => template.doc_type)))
   const [problem, setProblem] = useState<string | null>(null)
   const change = (patch: Partial<AutomationDraft>) => setDraft((current) => ({ ...current, ...patch }))
@@ -210,11 +207,6 @@ function AutomationForm({
   if (!folders.data) return <Loading />
   const choices = folderChoices(folders.data)
   const names = new Map(checks.map((check) => [check.id, check.title]))
-  // Whom it may assign, and one it assigns who may no longer, while it does.
-  const members = new Map((reviewers.data ?? []).map((reviewer) => [reviewer.id, reviewer.name]))
-  if (automation?.assignee_id != null && !members.has(automation.assignee_id)) {
-    members.set(automation.assignee_id, automation.assignee ?? 'A former member')
-  }
   const maker = automation && automation.created_by !== me.id ? (automation.made_by ?? 'whoever made it') : 'you'
 
   return (
@@ -284,34 +276,6 @@ function AutomationForm({
         checked={draft.recheck}
         onChange={(event) => change({ recheck: event.target.checked })}
       />
-      <div className="grid gap-2 @sm:grid-cols-2">
-        <SelectField
-          label="Put in review"
-          value={draft.review}
-          onChange={(event) => change({ review: event.target.value as AutomationDraft['review'] })}
-        >
-          {REVIEWS.map((review) => (
-            <option key={review.value} value={review.value}>
-              {review.label}
-            </option>
-          ))}
-        </SelectField>
-        {draft.review && (
-          <SelectField
-            label="Assigned to"
-            value={draft.assignee_id ?? ''}
-            hint="Never a document a member put in review already."
-            onChange={(event) => change({ assignee_id: event.target.value ? Number(event.target.value) : null })}
-          >
-            <option value="">Nobody</option>
-            {[...members].map(([memberId, name]) => (
-              <option key={memberId} value={memberId}>
-                {memberId === me.id ? `${name} (you)` : name}
-              </option>
-            ))}
-          </SelectField>
-        )}
-      </div>
       <SelectField
         label="Tell what they found"
         value={draft.audience}
@@ -323,7 +287,7 @@ function AutomationForm({
           </option>
         ))}
       </SelectField>
-      <p className="rounded-md bg-sunken px-3 py-2 text-xs text-ink">{automationSentence(wordedDraft(draft, choices, names, members), maker)}</p>
+      <p className="rounded-md bg-sunken px-3 py-2 text-xs text-ink">{automationSentence(wordedDraft(draft, choices, names), maker)}</p>
       {problem && (
         <p role="alert" className="text-xs text-bad">
           {problem}

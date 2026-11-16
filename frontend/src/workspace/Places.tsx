@@ -1,7 +1,6 @@
 import { ArrowDownUp, Clock, Folder as FolderIcon, LayoutGrid, List, Star, Trash2, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useId, useRef, useState } from 'react'
-import { REVIEW_LABELS, REVIEW_STATES } from '../reviews.ts'
 import type { DocumentFilter, DocumentType, Folder, ListingPlace } from '../api.ts'
 import { folderChoices } from '../automations.ts'
 import { Confirm } from '../components/Confirm.tsx'
@@ -170,7 +169,7 @@ export function DatesField({ after, before, onChange }: { after: string | null; 
   )
 }
 
-/** The parts of a filter, each its own fields: types, the documents' dates, their reviews, a folder and the words they mention. */
+/** The parts of a filter, each its own fields: types, the documents' dates, a folder and the words they mention. */
 function FilterFields({ filter, onChange, types, folders }: FilterFieldsProps) {
   const [words, setWords] = useState('')
   const wordsInput = useRef<HTMLInputElement>(null)
@@ -186,17 +185,6 @@ function FilterFields({ filter, onChange, types, folders }: FilterFieldsProps) {
     <>
       <TypesField types={types} chosen={filter.types} onChange={(chosen) => set({ types: chosen })} />
       <DatesField after={filter.after} before={filter.before} onChange={set} />
-      <fieldset className="space-y-1.5">
-        <legend className="mb-1 text-xs font-medium text-muted">In review</legend>
-        {REVIEW_STATES.map((state) => (
-          <Checkbox
-            key={state}
-            checked={filter.reviews.includes(state)}
-            onChange={(event) => set({ reviews: toggled(filter.reviews, state, event.target.checked) })}
-            label={REVIEW_LABELS[state]}
-          />
-        ))}
-      </fieldset>
       <SelectField label="In" value={filter.folder_id ?? ''} onChange={(event) => set({ folder_id: event.target.value ? Number(event.target.value) : null })}>
         <option value="">Anywhere in the project</option>
         {folderChoices(folders).map((choice) => (
@@ -253,7 +241,7 @@ interface SearchFilterDialogProps extends Omit<FilterFieldsProps, 'onChange'> {
   onClose: () => void
 }
 
-/** Asks what a search searches within: by types, the documents' dates, their reviews, a folder and the words they mention. */
+/** Asks what a search searches within: by types, the documents' dates, a folder and the words they mention. */
 export function SearchFilterDialog({ filter: held, onApply, onClose, ...fields }: SearchFilterDialogProps) {
   const [filter, setFilter] = useState(held)
   const problem = datesProblem(filter)

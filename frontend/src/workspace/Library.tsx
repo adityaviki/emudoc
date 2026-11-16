@@ -1,6 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
 import {
-  BadgeCheck,
   CalendarClock,
   Camera,
   Check,
@@ -8,12 +7,8 @@ import {
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
-  ClipboardCheck,
-  ClipboardList,
-  ClipboardX,
   Download,
   FileUp,
-  Flag,
   Folder as FolderIcon,
   FolderInput,
   FolderLock,
@@ -74,7 +69,6 @@ import {
   placeOf,
 } from '../library.ts'
 import type { LibraryLayout } from '../library.ts'
-import { stateMoves } from '../reviews.ts'
 import { SUMMARY_QUESTION, comparisonQuestion } from '../scopes.ts'
 import { LIBRARY_SEARCH, librarySearchPlaceholder } from '../search.ts'
 import { MAX_CHOSEN } from '../selection.ts'
@@ -94,12 +88,11 @@ import { FactsView } from './FactsTable.tsx'
 import { fileKind, originalFileItem } from './files.ts'
 import { BY_NAME, growing, hasMore, listed, nameOf, placeKey, showMore, useListings } from './listing.ts'
 import type { Arrangement, Listing } from './listing.ts'
-import { useLibraryMutations, useReviewChange } from './mutations.ts'
+import { useLibraryMutations } from './mutations.ts'
 import { QuestionSetsView, ReportView } from './QuestionSets.tsx'
 import type { LibraryMutations } from './mutations.ts'
 import { useDocumentMarks, useFavorites } from './organizing.ts'
 import { PlaceBar, Seen } from './Places.tsx'
-import { ReviewMark, ReviewsView } from './Reviews.tsx'
 import { SearchResults } from './SearchResults.tsx'
 import { useWorkspace } from './state.ts'
 import { TemplatesView } from './Templates.tsx'
@@ -148,9 +141,6 @@ const hasFiles = (event: DragEvent) => event.dataTransfer.types.includes('Files'
 const SAMPLE_UPLOADS = 'This is the sample project, which holds Emudoc’s sample documents alone. Create a project of your own to upload yours.'
 // What a browser without the entries API hands over for a dropped folder: an empty, typeless file.
 const NO_FOLDER_DROPS = 'This browser cannot upload a folder dropped on the page: use “Upload a folder”.'
-
-// What each move of a document's review shows in its menu, as the reviews view marks each state.
-const MOVE_ICONS = { to_review: ClipboardList, approved: BadgeCheck, disputed: Flag } as const
 
 /** How a drop or a picker hands the library what to upload into a folder. */
 type Uploads = (transfer: DataTransfer, targetId: number | null) => void
@@ -257,7 +247,6 @@ export function Library() {
   if (workspace.url.library.run != null) return <RunView runId={workspace.url.library.run} />
   if (workspace.url.library.questionSets) return <QuestionSetsView />
   if (workspace.url.library.report != null) return <ReportView reportId={workspace.url.library.report} />
-  if (workspace.url.library.reviews) return <ReviewsView whose={workspace.url.library.reviews} />
   if (workspace.url.library.mail && mail) return <MailboxView />
   if (workspace.url.library.connectors && connectors) return <ConnectorsView />
   if (workspace.url.library.myFiles) return <MyFilesView />
@@ -318,13 +307,6 @@ export function Library() {
             onClick={workspace.showChecks}
             title="Cross-checks: rules that compare the facts of one kind of document with another's"
             aria-label="Cross-checks"
-            className="px-2"
-          />
-          <Button
-            icon={<ClipboardCheck className="size-4" />}
-            onClick={() => workspace.showReviews()}
-            title="Reviews: the documents put in review, approved or disputed, and whom each is assigned to"
-            aria-label="Reviews"
             className="px-2"
           />
           <Button
@@ -786,7 +768,6 @@ function Listing({
   const asking = !online || askHeld(health.data) !== null
   const { tree, project } = workspace
   const [openFolders, setOpenFolders] = useLocalStorage<number[]>(treeKey(project.id), [], isIdList)
-  const review = useReviewChange(project.id)
   const marks = useDocumentMarks(project.id, (error) => mutations.setNotice(error.message))
   const favorites = useFavorites(project.id)
   const flat = !('folder' in place)
@@ -1064,12 +1045,6 @@ function Listing({
       },
     ]
     if (!changes) return reading
-    // A document's review moves from its menu.
-    const moves: MenuItem[] = stateMoves(item.document.review).map(({ state, label }) => ({
-      label,
-      icon: state ? MOVE_ICONS[state] : ClipboardX,
-      onSelect: () => review.mutate({ id: item.document.id, change: { state } }, { onError: (error) => mutations.setNotice(error.message) }),
-    }))
     const unfinished = unfinishedStages(item.document)
     // A partly indexed document runs what it went without, once the services for it are back.
     const rest: MenuItem[] = unfinished.length
@@ -1105,7 +1080,6 @@ function Listing({
         disabled: item.document.status === 'processing',
         onSelect: () => mutations.reprocess.mutate(item.document.id),
       },
-      ...(moves.length ? ['separator' as const, ...moves] : []),
       'separator',
       del,
     ]
@@ -1727,13 +1701,12 @@ function ItemIcon({ item, className }: { item: Item; className: string }) {
 }
 
 /**
- * What describes a file's row or tile, by the ids of what says it: its state as the status icon gives it, its review, its
- * star and where it is, rather than all it holds.
+ * What describes a file's row or tile, by the ids of what says it: its state as the status icon gives it, its star and
+ * where it is, rather than all it holds.
  */
 function describedBy(id: string, props: RowProps): string | undefined {
   if (props.item.kind === 'folder') return undefined
-  const parts = [`${id}-status`, props.item.document.review && `${id}-review`]
-  return [...parts, props.favorite && `${id}-star`, props.where && `${id}-where`].filter(Boolean).join(' ')
+  return [`${id}-status`, props.favorite && `${id}-star`, props.where && `${id}-where`].filter(Boolean).join(' ')
 }
 
 /** A star on a file the reader made a favourite, read out as one in its description (a `hidden` word, which a description still reads). */
@@ -1854,11 +1827,6 @@ function Row(props: RowProps) {
         )}
       </div>
       {props.favorite && <FavoriteMark id={`${id}-star`} />}
-      {item.kind === 'file' && item.document.review && (
-        <span className="ml-2 flex">
-          <ReviewMark id={`${id}-review`} document={item.document} />
-        </span>
-      )}
       {item.kind === 'file' && (
         <span className="ml-2 flex">
           <StatusIcon id={`${id}-status`} document={item.document} />
@@ -1871,7 +1839,7 @@ function Row(props: RowProps) {
 
 /**
  * A folder or a file as a tile of the grid: a file's thumbnail where the server draws one (a PDF, a scan, an image),
- * else its kind's icon, with its name, state and menu under it, and then its review and star.
+ * else its kind's icon, with its name, state and menu under it, and then its star.
  */
 function Tile(props: RowProps) {
   const { item, selected, selecting, menuOpen, isCursor, renaming, movable, dropping, folderCount } = props
@@ -1945,7 +1913,6 @@ function Tile(props: RowProps) {
       </div>
       <div className="flex min-h-5 min-w-0 items-center text-[11px] text-muted">
         {item.kind === 'folder' && <Seen text={folderCount === 1 ? '1 item' : `${folderCount ?? 0} items`} />}
-        {item.kind === 'file' && item.document.review && <ReviewMark id={`${id}-review`} document={item.document} />}
         {props.favorite && <FavoriteMark id={`${id}-star`} />}
         {props.where && <Where id={`${id}-where`} where={props.where} className="ml-1.5 min-w-0 truncate" />}
       </div>

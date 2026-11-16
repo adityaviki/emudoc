@@ -70,16 +70,16 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 # The kinds of notice, and the way of telling them this module makes itself; a project's export
-# is told by app/export.py, what an automation's run found by app/check_runs.py, a document's
-# review assigned by app/reviews.py, a question set's report kept by app/question_reports.py,
-# and the weekly digest of what arrived by app/digests.py. A member mentioned in a comment, or
-# told of a reply in a thread they wrote in, was told until comments went (S.6, 2026-11-16);
-# those notices stay in the centres until they are pruned (PAST_NOTICE_KINDS).
+# is told by app/export.py, what an automation's run found by app/check_runs.py, a question
+# set's report kept by app/question_reports.py, and the weekly digest of what arrived by
+# app/digests.py. A member mentioned in a comment, or told of a reply in a thread they wrote in,
+# was told until comments went, and a member assigned a document's review until reviews went
+# (S.6, 2026-11-16); those notices stay in the centres until they are pruned
+# (PAST_NOTICE_KINDS).
 (
     UPLOAD_INDEXED,
     PROJECT_EXPORT,
     CHECKS_RUN,
-    REVIEW_ASSIGNED,
     REPORT_READY,
     WEEKLY_DIGEST,
 ) = NOTICE_KINDS

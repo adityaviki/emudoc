@@ -20,7 +20,7 @@ everyone who works in it, those who sign in through another service too.
 ## Notices
 
 The bell in the header lists your notices: when a long upload is done, when a project's export
-is ready, when a review is assigned to you, when a question set's report is ready, when an
+is ready, when a question set's report is ready, when an
 automation's run found something, and, once you turn it on, what arrived in your projects over
 the week.
 Under Notices on the account page you choose, kind by kind, $notice_channels; until you choose,

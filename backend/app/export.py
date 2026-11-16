@@ -858,9 +858,6 @@ def _listed(document: Document, folder: str, original: str | None, data: str) ->
         template=document.template,
         page_count=document.page_count,
         uploaded_at=document.created_at,
-        review=document.review,
-        assignee=document.assignee,
-        review_changed_at=document.review_changed_at,
         version=document.version,
     )
 

@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Copy, Download, FilePlus, FileSpreadsheet, FileText, FileUp, LayoutTemplate, PenLine, Pencil, RotateCcw, Trash2 } from 'lucide-react'
+import { ArrowLeft, Copy, Download, FilePlus, FileSpreadsheet, FileText, FileUp, LayoutTemplate, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { ApiError, api, mayChange, myFilePageUrl, myFileUrl } from '../api.ts'
-import type { Document, MyFile, MyFileDetail, MyFileWriting } from '../api.ts'
+import type { Document, MyFile, MyFileDetail } from '../api.ts'
 import { useMe } from '../auth.ts'
 import { folderChoices } from '../automations.ts'
 import { Confirm } from '../components/Confirm.tsx'
@@ -14,7 +14,6 @@ import {
   MY_FILE_ACCEPT,
   MY_FILE_POLL,
   copiedWords,
-  disputeLetter,
   following,
   heldWords,
   myFileDeletionQuestion,
@@ -25,10 +24,8 @@ import {
   myVersionWords,
   retryable,
   servable,
-  underWay,
   unshownWords,
   waiting,
-  writingWords,
 } from '../myFiles.ts'
 import { viewContent } from '../views.ts'
 import { listingsKey } from './listing.ts'
@@ -44,8 +41,7 @@ const KindIcon = ({ file }: { file: MyFile }) =>
 
 /**
  * The member's own files in the project, in the library's place: the Word documents and Excel workbooks they keep here,
- * which nobody else sees, the one changed last first, each opening in the same place; above them the documents the agent
- * was asked to write here outside a chat, while it writes them or once it could not; a file added from this computer;
+ * which nobody else sees, the one changed last first, each opening in the same place; a file added from this computer;
  * and the way to the project's writing templates.
  */
 export function MyFilesView() {
@@ -72,7 +68,6 @@ export function MyFilesView() {
     },
   })
   const listed = files.data?.files ?? []
-  const writings = files.data?.writings ?? []
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-page">
@@ -112,19 +107,7 @@ export function MyFilesView() {
         {add.isError && <Refusal error={add.error} />}
         {files.isPending && <Loading />}
         {files.isError && <Notice tone="bad">Could not load your files: {files.error.message}</Notice>}
-        {writings.length > 0 && (
-          <section aria-labelledby="my-files-writings" className="space-y-2">
-            <h3 id="my-files-writings" className="text-xs font-semibold text-muted">
-              Asked of the agent
-            </h3>
-            <ul aria-label="Files the agent is asked to write" className="space-y-1.5">
-              {writings.map((writing) => (
-                <WritingRow key={writing.id} writing={writing} projectId={project.id} />
-              ))}
-            </ul>
-          </section>
-        )}
-        {files.data && listed.length === 0 && writings.length === 0 && (
+        {files.data && listed.length === 0 && (
           <EmptyState icon={<FileText />} title="No files yet">
             Add a Word document or an Excel workbook to keep it here.
           </EmptyState>
@@ -158,78 +141,6 @@ export function MyFilesView() {
         )}
       </div>
     </div>
-  )
-}
-
-/**
- * A document the agent was asked to write into My files outside a chat: its name and how far the writing is, followed
- * while it is written; once it could not be, why, with the way to have it written again or to dismiss it. Once written
- * it is a file of the list below, and goes from here.
- */
-function WritingRow({ writing, projectId }: { writing: MyFileWriting; projectId: number }) {
-  const queryClient = useQueryClient()
-  const settled = () => void queryClient.invalidateQueries({ queryKey: myFilesKey(projectId) })
-  const retry = useMutation({ mutationFn: () => api.retryWriting(writing.id), onSettled: settled })
-  const dismiss = useMutation({ mutationFn: () => api.dismissWriting(writing.id), onSuccess: settled })
-  const refused = retry.error ?? dismiss.error
-  const busy = retry.isPending || dismiss.isPending
-  return (
-    <li className="flex items-start gap-2 rounded-md border border-line bg-surface px-3 py-2">
-      <FileText aria-hidden className="size-4 shrink-0 text-muted" />
-      <span className="min-w-0 flex-1">
-        <span className="block text-[13px] font-medium break-words">{writing.title}</span>
-        <span role="status" className={`flex items-center gap-1.5 text-xs ${underWay(writing) ? 'text-muted' : 'text-bad'}`}>
-          {underWay(writing) && <Spinner className="size-3" />}
-          {writingWords(writing)}
-        </span>
-        {refused && (
-          <span role="alert" className="block text-xs text-bad">
-            {refused.message}
-          </span>
-        )}
-      </span>
-      {!underWay(writing) && (
-        <span className="flex shrink-0 gap-1">
-          <Button icon={<RotateCcw className="size-3.5" />} disabled={busy} onClick={() => retry.mutate()} aria-label={`Try again to write ${writing.title}`}>
-            Try again
-          </Button>
-          <Button disabled={busy} onClick={() => dismiss.mutate()} aria-label={`Dismiss ${writing.title}`}>
-            Dismiss
-          </Button>
-        </span>
-      )}
-    </li>
-  )
-}
-
-/**
- * A disputed document's way to the letter that disputes it: the agent asked to write it into the member's My files,
- * which open to follow it as it is written.
- */
-export function WriteDisputeLetter({ document }: { document: Document }) {
-  const workspace = useWorkspace()
-  const queryClient = useQueryClient()
-  const ask = useMutation({
-    mutationFn: () => api.askWriting(workspace.project.id, disputeLetter(document)),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: myFilesKey(workspace.project.id) })
-      // The button stays where it is while My files open in the library's place: let go of the focus, which My files
-      // then take to their heading, so the keyboard goes on from there.
-      if (window.document.activeElement instanceof HTMLElement) window.document.activeElement.blur()
-      workspace.showMyFiles()
-    },
-  })
-  return (
-    <>
-      <Button icon={<PenLine className="size-3.5" />} disabled={ask.isPending} onClick={() => ask.mutate()} className="h-6.5 px-2 text-xs">
-        {ask.isPending ? 'Asking…' : 'Write a dispute letter'}
-      </Button>
-      {ask.isError && (
-        <span role="alert" className="text-bad">
-          {ask.error.message}
-        </span>
-      )}
-    </>
   )
 }
 

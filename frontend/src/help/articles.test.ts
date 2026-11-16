@@ -5,7 +5,7 @@ import { matching, nothingFound } from './articles.ts'
 const article = (slug: string, title: string, text: string): HelpArticle => ({ slug, title, summary: '', text: `# ${title}\n\n${text}` })
 const HELP = [
   article('documents', 'Uploading and organising documents', 'A file may be up to 100 MB. Deleting puts it in the trash.'),
-  article('checking', 'Facts, checks and reviews', 'A cross-check compares a fact of one kind of document with another.'),
+  article('checking', 'Facts and checks', 'A cross-check compares a fact of one kind of document with another.'),
   article('data', 'Your data: exports, the trash and deletion', 'Exporting a project gives one ZIP file.'),
 ]
 

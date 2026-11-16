@@ -2,7 +2,7 @@
 
 import hashlib
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 from sqlalchemy import select
 
@@ -14,7 +14,7 @@ from app.storage import document_prefix
 from app.versions import BEING_INDEXED, SAME_FILE
 from tests.conftest import columns_pdf
 from tests.test_api import create_project, upload
-from tests.test_audit import actions, rows_of_action
+from tests.test_audit import rows_of_action
 from tests.test_exports import archive_of, ask, run_export
 from tests.test_trash import hits
 
@@ -222,28 +222,6 @@ def test_a_viewer_and_the_sample_project_take_no_new_version(
     response = give(client, document["id"], "terms.txt", NEW)
     assert response.status_code == 409
     assert "sample project" in response.json()["detail"]
-
-
-def test_a_review_of_the_earlier_file_is_opened_again(client, services, session, account):
-    project = create_project(client)
-    document = text_document(client, services, project["id"])
-    row = session.get(Document, document["id"])
-    row.review = "approved"
-    row.assignee_id = account.user.id
-    row.review_changed_at = datetime.now(UTC) - timedelta(days=2)
-    session.commit()
-
-    now = given(client, services, document["id"], "terms.txt", NEW)
-    assert now["review"] == "to_review"
-    assert now["assignee_id"] == account.user.id
-    assert now["review_changer"] == account.user.name
-    assert [action for action, _ in actions(session)][-2:] == [
-        "document_version_uploaded",
-        "document_review_changed",
-    ]
-    assert rows_of_action(session, account.organization.id, "document_review_changed") == [
-        {"filename": "terms.txt", "from": "approved", "to": "to_review"}
-    ]
 
 
 def test_the_storage_counts_the_earlier_versions_bytes(client, services):

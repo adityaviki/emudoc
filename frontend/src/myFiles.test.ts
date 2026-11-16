@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { Document, MyFile, MyFileVersion, MyFileWriting } from './api.ts'
+import type { Document, MyFile, MyFileVersion } from './api.ts'
 import { formatDateTime } from './format.ts'
 import {
   copiedWords,
-  disputeLetter,
   following,
   heldWords,
   myFileDeletionQuestion,
@@ -12,10 +11,8 @@ import {
   myVersionWords,
   retryable,
   servable,
-  underWay,
   unshownWords,
   waiting,
-  writingWords,
 } from './myFiles.ts'
 
 const version = (fields: Partial<MyFileVersion> = {}): MyFileVersion => ({
@@ -96,33 +93,10 @@ describe('a version', () => {
   })
 })
 
-describe('a document the agent is asked to write into My files', () => {
-  const writing = (fields: Partial<MyFileWriting> = {}): MyFileWriting => ({
-    id: 3,
-    kind: 'dispute_letter',
-    title: 'Dispute letter about INV-1',
-    status: 'queued',
-    error: null,
-    created_at: '2026-11-13T09:30:00Z',
-    ...fields,
-  })
-
-  it('is asked of the agent by a disputed document, about it alone', () => {
-    expect(disputeLetter({ id: 41 })).toEqual({ kind: 'dispute_letter', document_ids: [41] })
-  })
-
-  it('says how far its writing is, or why it could not be written', () => {
-    expect(writingWords(writing())).toBe('Waiting to be written…')
-    expect(writingWords(writing({ status: 'writing' }))).toBe('Being written…')
-    expect(writingWords(writing({ status: 'failed', error: 'The model wrote nothing. Try again.' }))).toBe('The model wrote nothing. Try again.')
-    expect(writingWords(writing({ status: 'failed' }))).toBe('It could not be written. Try again.')
-  })
-
-  it('has the list followed while it is written, and while a version waits, never for a failed one alone', () => {
-    expect([underWay(writing()), underWay(writing({ status: 'writing' })), underWay(writing({ status: 'failed' }))]).toEqual([true, true, false])
-    expect(following({ files: [file()], writings: [writing({ status: 'writing' })] })).toBe(true)
-    expect(following({ files: [file()], writings: [writing({ status: 'failed' })] })).toBe(false)
-    expect(following({ files: [file({ latest: version({ scan: 'pending' }) })], writings: [] })).toBe(true)
-    expect(following({ files: [], writings: [] })).toBe(false)
+describe('the list', () => {
+  it('is followed while a version waits for its scan or its pages', () => {
+    expect(following({ files: [file({ latest: version({ scan: 'pending' }) })] })).toBe(true)
+    expect(following({ files: [file()] })).toBe(false)
+    expect(following({ files: [] })).toBe(false)
   })
 })

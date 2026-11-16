@@ -14,13 +14,13 @@ calls of the indexing stages (`ocr` with the pages it read, `infer_sections`, `e
 texts embedded (`embed`, with the tokens the endpoint says they took), the pages rendered
 for the viewer (`render`: the member's by app/api/documents.py, the organisation's for a PDF's
 first pages drawn ahead by app/rendering.py), and the model calls of a discrepancy report the
-agent writes from a run of cross-checks (`report`, by app/check_runs.py) and of a document it
-writes into a member's My files outside a chat (`draft`, by app/writings.py; the drafts' until
-they went on 2026-11-13), whose asking counts as a question (`answer` in `questions`, by
-app/api/check_runs.py and app/api/my_files.py). The
-kind `suggestions` is the model calls that wrote a project's suggested questions until
-2026-11-11, when an empty chat stopped offering any: nothing records it now, and its rows stay,
-being what those calls cost.
+agent writes from a run of cross-checks (`report`, by app/check_runs.py), whose asking counts as
+a question (`answer` in `questions`, by app/api/check_runs.py). The kind `suggestions` is the
+model calls that wrote a project's suggested questions until 2026-11-11, when an empty chat
+stopped offering any, and `draft` those of a document the agent wrote into a member's My files
+outside a chat, a disputed document's dispute letter, until reviews went on 2026-11-16 (the
+drafts' until they went on 2026-11-13): nothing records either now, and their rows stay, being
+what those calls cost.
 
 The code that spent something records it, from what it counted, when its work ends however it
 ends: a stop, a lost lease or a crash ends an answer's run too, and the calls it made were
@@ -92,7 +92,6 @@ ENRICH = "enrich"
 EMBED = "embed"
 RENDER = "render"
 REPORT = "report"
-DRAFT = "draft"
 CHAT_MESSAGE = "chat_message"
 DOCUMENT = "document"
 WORKFLOW_RUN = "workflow_run"
@@ -119,8 +118,7 @@ MONTHS = (
 CHARS_PER_PAGE = 3_000
 # What the workspace holds at any moment, as against what it uses in a month.
 HELD = ("projects", "documents", "storage_bytes", "members")
-# The row a reference names, which carries the usage recorded for it. A writing into My files
-# names none: its file is the member's, and what it cost is the day's and the month's.
+# The row a reference names, which carries the usage recorded for it.
 _REFERENCED = {
     CHAT_MESSAGE: ChatMessage,
     DOCUMENT: Document,

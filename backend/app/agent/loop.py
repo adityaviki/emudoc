@@ -118,7 +118,7 @@ def as_data(text: str) -> str:
 
 
 # What the agent is told whatever its run is for, the parts of every version of its prompts
-# (app/prompts.py: an answer's in app/answers.py, a writing's, a report's, a question set's): the
+# (app/prompts.py: an answer's in app/answers.py, a report's, a question set's): the
 # instructions, the functions that say the organisation's language and the chat's scope and that
 # fence what the documents say, and every tool it may be offered. The project's name and the
 # date vary by run, in none.

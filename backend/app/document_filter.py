@@ -1,5 +1,5 @@
-"""What narrows the library's search: a project's documents by types, dates, reviews, a folder
-and the words they mention (`DocumentFilter` in app/schemas.py), as the conditions on
+"""What narrows the library's search: a project's documents by types, dates, a folder and the
+words they mention (`DocumentFilter` in app/schemas.py), as the conditions on
 `documents` that `searched` in app/api/query.py resolves before it ranks a passage, and the
 search of every project (app/api/search.py) by the parts that mean the same in any project.
 
@@ -23,8 +23,6 @@ def matching(session: Session, project_id: int, chosen: DocumentFilter) -> list[
     """The conditions on `documents` of the filter, for a query of the project's documents out of
     the trash."""
     conditions = anywhere(chosen)
-    if chosen.reviews:
-        conditions.append(Document.review.in_(chosen.reviews))
     if chosen.folder_id is not None:
         folder = _live_folder(session, project_id, chosen.folder_id)
         conditions.append(

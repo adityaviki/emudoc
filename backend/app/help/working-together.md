@@ -23,11 +23,9 @@ but leaves to Excel to change, and it never changes the project's library.
 Asked for a reply email, a dispute letter, a summary memo, a comparison table or a report, the
 assistant follows the project's template of the kind. "Templates", in My files, shows each kind's
 tone and parts, in order, which apply to everyone in the project; whoever may change the project
-changes them, and a writing follows the template as it is at the time. A disputed document offers
-"Write a dispute letter" on its tab: the assistant writes the letter into your My files from what
-was read from the document and what the project's cross-checks found about it, citing where each
-figure is written. It shows in My files while it is written, and with "Try again" and "Dismiss"
-if it could not be.
+changes them, and the assistant follows the template as it is when it writes. To dispute an
+invoice, ask in a chat for a dispute letter about it: the assistant writes the letter into your My
+files from what the documents say, citing where each figure is written.
 
 ## Share links
 

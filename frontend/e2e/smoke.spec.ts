@@ -33,11 +33,10 @@ import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, rele
 // log keep, and then a field added to the project's own invoice template and the invoice read again for it,
 // what the reading changed listed, the corrected total kept, the invoice checked against its purchase
 // order by cross-checks, run with a discrepancy report, an automation made, which runs them
-// once a second invoice arrives, puts it in review and tells the member what they found, and last
-// the first invoice put in review, assigned to the colleague, disputed and approved in the reviews
-// view, then disputed again from its tab, whose dispute letter the model writes into the member's
-// My files, which list it while it is written, and the project's dispute letters given a template
-// of their own from My files, then the built-in one again, and last the project given an address, a supplier's domain listed, whose mail becomes documents and a
+// once a second invoice arrives and tells the member what they found, and the project's dispute
+// letters given a template of their own from My files, then the built-in one again, a Word
+// document and an Excel workbook the agent writes into My files when asked in a chat, and last
+// the project given an address, a supplier's domain listed, whose mail becomes documents and a
 // stranger's is turned away, as the page lists them, and a folder of the member's Google Drive
 // connected and synced, and last the invoice shared by a link with a password, which someone with
 // no account opens and prints and its member revokes, and an answer about it shared, its citation leading the
@@ -1231,10 +1230,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(form.getByLabel('Name', { exact: true })).toBeFocused()
     await form.getByLabel('Name', { exact: true }).fill('New invoices')
     await expect(form.getByLabel('When this arrives')).toHaveValue('invoice')
-    // What arrives goes in review, assigned to nobody.
-    await form.getByLabel('Put in review').selectOption('arrived')
-    await expect(form.getByLabel('Assigned to')).toHaveValue('')
-    await expect(form).toContainText('When an invoice arrives anywhere in the project, run every cross-check, put it in review, and tell you.')
+    await expect(form).toContainText('When an invoice arrives anywhere in the project, run every cross-check, and tell you.')
     await expectAccessible(page, 'an automation being written')
     await form.getByRole('button', { name: 'Save' }).click()
     await expect(automations.getByText('Saved “New invoices”.')).toBeVisible()
@@ -1273,101 +1269,6 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     )
     await page.getByLabel('What').selectOption('cross_checks_run')
     await expect(page.getByRole('listitem').filter({ hasText: 'by the automation “New invoices”' })).toContainText('Emudoc')
-  })
-
-  await test.step('put the invoice in review from its menu, assign it to a colleague in its tab, dispute and approve it in the reviews view beside the one the automation put there, and find both marked in the facts table', async () => {
-    await page.goto('/')
-    await page.getByRole('link', { name: /^Supplier contracts/ }).click()
-    const row = page.getByRole('treeitem', { name: 'invoice.md', exact: true })
-    await row.click({ button: 'right' })
-    await page.getByRole('menuitem', { name: 'Put in review' }).click()
-    await expect(row).toHaveAccessibleDescription(/To review$/)
-
-    // Its tab assigns it, to a colleague who sees the project and may change it.
-    await row.click()
-    await expect(page.getByLabel('Review', { exact: true })).toHaveValue('to_review')
-    const assigning = page.waitForResponse((response) => response.url().endsWith('/review') && response.request().method() === 'PUT')
-    await page.getByLabel('Assigned to').selectOption({ label: 'Grace Hopper' })
-    await assigning
-    await expect(page.getByText(/^Put in review by .+ on /)).toBeVisible()
-    await expect(row).toHaveAccessibleDescription(/To review, assigned to Grace Hopper$/)
-    await expectAccessible(page, "a document's review")
-
-    // The reviews view lists it, and moves it where it is listed: out of the list, the keyboard going on from the heading.
-    await page.getByRole('button', { name: 'Reviews', exact: true }).click()
-    const heading = page.getByRole('heading', { name: 'Reviews' })
-    await expect(heading).toBeFocused()
-    await expect(page.getByRole('button', { name: 'To review (2)' })).toHaveAttribute('aria-pressed', 'true')
-    // The automation put the second invoice in review as it arrived, before: the longest waiting comes first.
-    const waiting = page.getByRole('list', { name: 'To review' }).getByRole('listitem')
-    await expect(waiting).toHaveCount(2)
-    await expect(waiting.first()).toContainText('second-invoice.md')
-    await expect(waiting.first()).toContainText(/Put in review on /)
-    const ours = waiting.filter({ has: page.getByTitle('invoice.md', { exact: true }) })
-    await expect(ours.getByLabel('Assigned to').locator('option:checked')).toHaveText('Grace Hopper')
-    await expectAccessible(page, 'the reviews')
-    await ours.getByLabel('Review', { exact: true }).selectOption('disputed')
-    await expect(heading).toBeFocused()
-    await page.getByRole('button', { name: 'Disputed (1)' }).click()
-    const disputed = page.getByRole('list', { name: 'Disputed' }).getByRole('listitem')
-    await expect(disputed).toContainText(/Disputed by .+ on /)
-    await disputed.getByLabel('Review', { exact: true }).selectOption('approved')
-    await page.getByRole('button', { name: 'Approved (1)' }).click()
-    await expect(page.getByRole('list', { name: 'Approved' }).getByRole('listitem')).toContainText(/Approved by .+ on /)
-    // The member's own: none, Grace being the one assigned.
-    await page.getByRole('button', { name: 'Assigned to me' }).click()
-    await expect(page).toHaveURL(/[?&]reviews=mine/)
-    await expect(page.getByText('No approved documents assigned to you')).toBeVisible()
-    await expectAccessible(page, 'the reviews, none of them listed')
-
-    // The facts table marks it beside its name.
-    await page.getByRole('button', { name: 'Back to the library' }).click()
-    await page.getByRole('button', { name: 'Extraction templates' }).click()
-    const invoice = page.getByRole('list', { name: 'Templates' }).locator(':scope > li').filter({ hasText: /^Invoice/ })
-    await invoice.getByRole('button', { name: 'Facts table of Invoice' }).click()
-    const grid = page.getByRole('grid', { name: 'Facts of invoice documents' })
-    await expect(grid.getByRole('img', { name: 'Approved, assigned to Grace Hopper' })).toHaveCount(1)
-    await expect(grid.getByRole('img', { name: 'To review', exact: true })).toHaveCount(1)
-
-    // Each move is the organisation's to ask about, by the file and its states, and the assignment by whom.
-    await page.goto('/organization/audit')
-    await page.getByLabel('What').selectOption('document_review_changed')
-    await expect(page.getByRole('listitem').filter({ hasText: 'Disputed → Approved' })).toContainText('invoice.md')
-    await expect(page.getByRole('listitem').filter({ hasText: 'by the automation “New invoices”' })).toContainText('second-invoice.md')
-    await page.getByLabel('What').selectOption('document_assigned')
-    await expect(page.getByRole('listitem').filter({ hasText: 'Assigned a document' })).toContainText('invoice.md · to Grace Hopper')
-  })
-
-  await test.step('dispute the invoice from its tab and have the model write the dispute letter into My files, which lists it while it is written', async () => {
-    await page.goto('/')
-    await page.getByRole('link', { name: /^Supplier contracts/ }).click()
-    await page.getByRole('treeitem', { name: 'invoice.md', exact: true }).click()
-    const disputing = page.waitForResponse((response) => response.url().endsWith('/review') && response.request().method() === 'PUT')
-    await page.getByLabel('Review', { exact: true }).selectOption('disputed')
-    await disputing
-    // Held at the stand-in, so that My files list the letter while it is written.
-    await holdNextTurn(request)
-    await page.getByRole('button', { name: 'Write a dispute letter' }).click()
-
-    // My files open with their heading focused, the letter asked of the agent at their top.
-    await expect(page.getByRole('heading', { name: 'My files', exact: true })).toBeFocused()
-    const asked = page.getByRole('list', { name: 'Files the agent is asked to write' })
-    await expect(asked.getByRole('listitem')).toContainText(/^Dispute letter about /)
-    await expect(asked.getByRole('status')).toHaveText(/^(Waiting to be written|Being written)…$/)
-    await expect.poll(() => heldTurns(request)).toBe(1)
-    await expectAccessible(page, 'a file being written into My files')
-    await releaseTurns(request)
-
-    // Written from the invoice's facts, it is a Word file of the member's, by the agent.
-    const letter = page.getByRole('list', { name: 'My files' }).getByRole('button', { name: /^Dispute letter about .+\.docx/ })
-    await expect(letter).toBeVisible({ timeout: 30_000 })
-    await expect(asked).toBeHidden()
-    await letter.click()
-    await expect(page.getByRole('heading', { name: /^Dispute letter about .+\.docx$/ })).toBeFocused()
-    await expect(page.getByRole('list', { name: 'Versions' })).toContainText('Written by the agent · Dispute letter')
-    await page.goto('/organization/audit')
-    await page.getByLabel('What').selectOption('my_file_added')
-    await expect(page.getByRole('listitem').filter({ hasText: 'by the agent: a dispute letter' })).toContainText('a Word document, by the agent: a dispute letter')
   })
 
   await test.step("give the project's dispute letters a template of its own from My files, then the built-in one again", async () => {

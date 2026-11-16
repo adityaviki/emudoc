@@ -62,7 +62,6 @@ from app.models import (
     ChatMessage,
     Job,
     Membership,
-    MyFileWriting,
     Organization,
     Project,
     QuestionReport,
@@ -248,8 +247,7 @@ def offers_my_files(session: Session, organization: Organization, user_id: int) 
 
 def answers_in_flight(session: Session, org_id: int) -> int:
     """How many runs of the agent the organisation has queued or under way: its answers, the
-    discrepancy reports of its runs of cross-checks (app/check_runs.py), the documents being
-    written into its members' My files outside a chat (app/writings.py) and the reports of its
+    discrepancy reports of its runs of cross-checks (app/check_runs.py) and the reports of its
     question sets being answered (app/question_reports.py), each of which asks one question at a
     time."""
     answers = session.scalar(
@@ -264,17 +262,12 @@ def answers_in_flight(session: Session, org_id: int) -> int:
         .select_from(WorkflowRun)
         .where(WorkflowRun.org_id == org_id, WorkflowRun.report_status.in_(("queued", "writing")))
     )
-    writings = session.scalar(
-        select(func.count())
-        .select_from(MyFileWriting)
-        .where(MyFileWriting.org_id == org_id, MyFileWriting.status.in_(("queued", "writing")))
-    )
     asking = session.scalar(
         select(func.count())
         .select_from(QuestionReport)
         .where(QuestionReport.org_id == org_id, QuestionReport.status.in_(("queued", "running")))
     )
-    return answers + reports + writings + asking
+    return answers + reports + asking
 
 
 def events_after(session: Session, message_id: int, after: int) -> list[tuple[int, dict]]:

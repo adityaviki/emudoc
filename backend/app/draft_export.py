@@ -1,8 +1,7 @@
 """What the agent writes in Markdown as a file: the Word document it writes into a member's My
-files (`create_document` in app/agent/writing.py, and a writing outside a chat, app/writings.py),
-and the layout an answer or a chat downloaded as Word, a PDF or Markdown is made with
-(app/chat_export.py). It was a draft's version saved as a file until the drafts became files of
-My files on 2026-11-13, which keeps the module's name.
+files (`create_document` in app/agent/writing.py), and the layout an answer or a chat downloaded
+as Word, a PDF or Markdown is made with (app/chat_export.py). It was a draft's version saved as a
+file until the drafts became files of My files on 2026-11-13, which keeps the module's name.
 
 The text cites passages as [P<id>], which mean nothing outside the app: each file numbers its
 citations in the order the text first makes them, as the page does (CitedText.tsx), and lists

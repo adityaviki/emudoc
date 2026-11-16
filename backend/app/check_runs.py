@@ -24,9 +24,8 @@ documents it watches have gone quiet, with no member behind it: it names the aut
 arrived (`trigger`), and its report, when the automation asks for one, is held to the month's
 questions, of which it counts one, and the day's spending as a member's is, a refusal leaving
 the run without its report and saying why. Once such a run settles, worked out and its report
-written or failed, the documents the automation said are put in review (app/reviews.py), those
-its checks found a difference about or every one it watches that arrived, and what it found
-about the documents that arrived is told, once (`tell_run`), to whom the automation names.
+written or failed, what it found about the documents that arrived is told, once (`tell_run`), to
+whom the automation names.
 
 A run's values are what documents say, like a chat's answers: the members' pages hold them, never
 the audit log, a log line or a notice, which counts them, and a run is kept as long as the
@@ -40,7 +39,7 @@ from dataclasses import asdict, fields
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import delete, exists, func, insert, or_, select, text, update
+from sqlalchemy import delete, func, insert, select, text, update
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 from sqlalchemy.orm import Session
 
@@ -86,7 +85,6 @@ from app.notices import (
     tell,
 )
 from app.prompts import prompt_version
-from app.reviews import put_in_review
 from app.spending import check_spend
 from app.usage import ANSWER, REPORT, WORKFLOW_RUN, ModelUsage, record
 
@@ -279,9 +277,6 @@ def run_automation(automation_id: int, lease: Lease | None = None) -> str | None
             "documents": landed,
             "partners": partners,
             "names": [names[document_id] for document_id in named if document_id in names],
-            # What it puts in review once the run settles, as it said when it ran.
-            "review": automation.review,
-            "assignee_id": automation.assignee_id,
         }
         run = start_run(
             session, project, None, checks, report=reported, automation=automation, trigger=trigger
@@ -519,26 +514,15 @@ def fail_run(run_id: int, error: str | None = None) -> None:
 
 # The findings of a run about the documents given, by outcome: those of the documents
 # themselves, and those whose partners they are.
-_ABOUT_DOCUMENTS = """
-    f.run_id = :run
-    AND (f.document_id = ANY(:ids)
-         OR EXISTS (SELECT 1 FROM jsonb_array_elements(f.partners) AS p
-                    WHERE (p->>'document_id')::bigint = ANY(:ids)))
-"""
 _ABOUT = text(
-    f"""
+    """
     SELECT f.outcome, count(*) AS findings
     FROM workflow_findings AS f
-    WHERE {_ABOUT_DOCUMENTS}
+    WHERE f.run_id = :run
+      AND (f.document_id = ANY(:ids)
+           OR EXISTS (SELECT 1 FROM jsonb_array_elements(f.partners) AS p
+                      WHERE (p->>'document_id')::bigint = ANY(:ids)))
     GROUP BY f.outcome
-    """
-)
-# The documents a value of which differs, of those findings.
-_DIFFERING = text(
-    f"""
-    SELECT DISTINCT f.document_id
-    FROM workflow_findings AS f
-    WHERE {_ABOUT_DOCUMENTS} AND f.outcome = 'differs'
     """
 )
 
@@ -547,9 +531,7 @@ def tell_run(run_id: int, lease: Lease | None = None) -> int:
     """Tell what an automation's run found about the documents that arrived for it, once, as the
     run settles: worked out, and its report, when one was asked for, written or failed. To whom
     the automation names, each as they chose for the kind of notice, and to nobody when it found
-    nothing about them; returns to how many. First, in the same transaction, the documents it
-    puts in review are put there (`_put_in_review`). A member's run, and one told already, tell
-    none."""
+    nothing about them; returns to how many. A member's run, and one told already, tell none."""
     with SessionLocal() as session:
         run = session.scalar(select(WorkflowRun).where(WorkflowRun.id == run_id).with_for_update())
         if (
@@ -565,35 +547,12 @@ def tell_run(run_id: int, lease: Lease | None = None) -> int:
         counts = {outcome: 0 for outcome in OUTCOMES}
         for outcome, findings in session.execute(_ABOUT, {"run": run.id, "ids": arrived}):
             counts[outcome] = findings
-        _put_in_review(session, run, arrived)
         told = 0
         automation = session.get(Automation, run.automation_id) if run.automation_id else None
         if automation is not None and any(counts.values()):
             told = _tell_run(session, run, automation, counts)
         _commit(session, lease)
         return told
-
-
-def _put_in_review(session: Session, run: WorkflowRun, arrived: list[int]) -> None:
-    """Put in review what the automation said it would when it ran: the documents its findings
-    show a value of to differ, of those that arrived or whose partners did (an invoice whose
-    order came later among them), or every one it watches that arrived."""
-    review = run.trigger.get("review")
-    if review is None:
-        return
-    if review == "differs":
-        chosen = list(session.scalars(_DIFFERING, {"run": run.id, "ids": arrived}))
-    else:
-        chosen = list(run.trigger["documents"])
-    if chosen:
-        put_in_review(
-            session,
-            session.get(Project, run.project_id),
-            chosen,
-            run.trigger.get("assignee_id"),
-            run.trigger["automation"],
-            app_address(),
-        )
 
 
 def _tell_run(
@@ -700,66 +659,12 @@ def describe_rule(kept: dict[str, Any]) -> str:
     return f"{left} {how}{margin} {right}{f', {extra}' if extra else ''}."
 
 
-def findings_about(
-    session: Session, run: WorkflowRun, ids: list[int]
-) -> tuple[list[str], dict[int, dict[str, Any]]]:
-    """What the run found about the documents, for a writing's input (app/writings.py): those of
-    its findings that differ or could not be checked whose document, or a partner, is one of
-    them, in the server's words as a report's input gives them, by rule, at most REPORT_FINDINGS;
-    with the passages their values were read from, as the agent's sources. Nothing for none."""
-    listed = _listed(session, run.id, about=ids)
-    if not listed:
-        return [], {}
-    passages = sources_of(session, run.project_id, _cited(listed))
-    lines = [
-        f"What a run of the project's cross-checks, made {run.created_at:%d %B %Y at %H:%M} UTC "
-        "over the documents as they were read then, found about them:"
-    ]
-    for index, kept in enumerate(run.rules):
-        mine = [finding for finding in listed if finding.rule == index]
-        if mine:
-            lines += ["", f"Rule: {kept['title']}", f"Checks: {describe_rule(kept)}"]
-            lines += [f"- {_finding_line(finding, kept, passages)}" for finding in mine]
-    if len(listed) == REPORT_FINDINGS:
-        lines += ["", "It found more about them, not listed."]
-    return lines, passages
-
-
-def latest_run_about(session: Session, project_id: int, ids: list[int]) -> WorkflowRun | None:
-    """The project's newest run worked out with a finding about one of the documents, of any
-    outcome, as a writing about them reads it; None for none."""
-    if not ids:
-        return None
-    return session.scalar(
-        select(WorkflowRun)
-        .where(
-            WorkflowRun.project_id == project_id,
-            WorkflowRun.status == "done",
-            exists().where(WorkflowFinding.run_id == WorkflowRun.id, _about(ids)),
-        )
-        .order_by(WorkflowRun.id.desc())
-        .limit(1)
-    )
-
-
-def _about(ids: list[int]) -> Any:
-    """That a finding is about one of the documents: its own, or one of its partners'."""
-    partner = text(
-        "EXISTS (SELECT 1 FROM jsonb_array_elements(workflow_findings.partners) AS p "
-        "WHERE (p->>'document_id')::bigint = ANY(:about))"
-    ).bindparams(about=ids)
-    return or_(WorkflowFinding.document_id.in_(ids), partner)
-
-
-def _listed(session: Session, run_id: int, about: list[int] | None = None) -> list[WorkflowFinding]:
+def _listed(session: Session, run_id: int) -> list[WorkflowFinding]:
     """The findings the report's input lists: those that differ, then those missing what they
-    need, each rule's in its order, at most REPORT_FINDINGS; those about the documents given
-    alone, when given."""
+    need, each rule's in its order, at most REPORT_FINDINGS."""
     query = select(WorkflowFinding).where(
         WorkflowFinding.run_id == run_id, WorkflowFinding.outcome != "holds"
     )
-    if about is not None:
-        query = query.where(_about(about))
     return list(
         session.scalars(
             query.order_by(

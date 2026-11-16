@@ -16,7 +16,6 @@ import { offersLinks } from '../shareLinks.ts'
 import { Copies, DetailsDialog, NotePanel } from './Details.tsx'
 import { originalFile } from './files.ts'
 import { documentKey, listingsKey } from './listing.ts'
-import { ReviewControls } from './Reviews.tsx'
 import { ShareDialog } from './ShareLinks.tsx'
 import { VersionsDialog } from './Versions.tsx'
 import { SHOWN_CHOICES, viewContent } from '../views.ts'
@@ -217,9 +216,6 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
           </div>
         </div>
         <Copies document={document} />
-        <div className="mt-2 print:hidden">
-          <ReviewControls document={document} />
-        </div>
         <NotePanel
           document={document}
           note={note.data}

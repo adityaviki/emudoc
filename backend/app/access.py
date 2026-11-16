@@ -28,7 +28,7 @@ from sqlalchemy import ColumnElement, and_, delete, exists, or_, select
 from sqlalchemy.orm import Session
 
 from app.accounts import Account
-from app.models import ROLES, Membership, Project, ProjectMember
+from app.models import Membership, Project, ProjectMember
 
 KEEP_YOURSELF = (
     "Keep yourself among the members of a private project: you would no longer see it, and only "
@@ -72,19 +72,6 @@ def sees(account: Account) -> ColumnElement[bool]:
         ProjectMember.project_id == Project.id, ProjectMember.user_id == account.user.id
     )
     return and_(ours, or_(Project.visibility == "organization", chosen))
-
-
-def seeing(project: Project) -> ColumnElement[bool]:
-    """The condition a membership of any role meets when its user sees the project: of the
-    project's organisation, and the project open to everyone, or the user an owner or admin, or
-    chosen for it."""
-    held = Membership.org_id == project.org_id
-    if project.visibility == "organization":
-        return held
-    chosen = exists().where(
-        ProjectMember.project_id == project.id, ProjectMember.user_id == Membership.user_id
-    )
-    return and_(held, or_(Membership.role.in_(ROLES[:2]), chosen))
 
 
 def chosen_members(session: Session, project: Project) -> list[int]:

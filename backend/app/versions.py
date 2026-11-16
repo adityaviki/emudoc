@@ -1,7 +1,7 @@
 """A document's versions: a member gives a document a new file, as a
 contract comes back signed or an invoice is sent again corrected, and the document reads the new
 file in the earlier one's place. It keeps its id, and so everything that names it: its chats'
-scope, its review, its share links, its members' checks of its facts, the API's `Document.id` and
+scope, its share links, its members' checks of its facts, the API's `Document.id` and
 what the webhooks told of it.
 
 The file it had becomes an earlier version (`DocumentVersion`): the file stays where it was in
@@ -19,8 +19,7 @@ the project's automations and the `document.ready` webhook follow its reading as
 document's. What the document read from the earlier file goes at once: its blocks, outline, passages
 and facts, with what their reading changed, and its title, kind, date and summary until the new file
 is read. A member's check of a fact goes back on a fact the new file reads the same
-(app/fact_checks.py), and a review that approved or disputed the earlier file is opened again
-(`to_review`, its assignee kept). A document being indexed takes no new version until it is done,
+(app/fact_checks.py). A document being indexed takes no new version until it is done,
 since the run would go on with the earlier file.
 
 The connected folders give a document a new version as its file changes at the service
@@ -75,8 +74,6 @@ SAME_FILE = "This is the file the document holds now."
 BEING_INDEXED = (
     "This document is being indexed right now. Give it its new version once that is done."
 )
-# The reviews a new file opens again: a member's word on the earlier file is no word on it.
-REOPENED = ("approved", "disputed")
 
 
 class VersionRefused(Exception):
@@ -104,10 +101,9 @@ def take_version(
     lease: Lease | None = None,
 ) -> DocumentVersion:
     """Make the file `name` the document's new version and commit; returns the earlier version
-    it keeps. `user_id` is whose upload it is, for the usage of its bytes and the review it
-    opens again (None for nobody's), and `audited(action, detail)` writes an audit row about the
-    document in the commit: `document_version_uploaded`, and `document_review_changed` for a
-    review opened again. Under a job's `lease` the commit renews it, and one lost raises
+    it keeps. `user_id` is whose upload it is, for the usage of its bytes (None for nobody's), and
+    `audited(action, detail)` writes an audit row about the document in the commit:
+    `document_version_uploaded`. Under a job's `lease` the commit renews it, and one lost raises
     LeaseLost with nothing written. A file it does not take raises VersionRefused, with nothing
     written either."""
     suffix = Path(name).suffix.lower()
@@ -174,14 +170,6 @@ def take_version(
     if earlier.filename != document.filename:
         detail["from"] = earlier.filename
     audited("document_version_uploaded", detail)
-    if document.review in REOPENED:
-        audited(
-            "document_review_changed",
-            {"filename": document.filename, "from": document.review, "to": "to_review"},
-        )
-        document.review = "to_review"
-        document.review_changed_by = user_id
-        document.review_changed_at = datetime.now(UTC)
     if lease is not None and not renew(session, lease):
         session.rollback()
         raise LeaseLost(lease)

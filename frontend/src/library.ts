@@ -6,7 +6,6 @@ import { THUMBNAIL_TYPES } from './api.ts'
 import type { Document, DocumentFilter, DocumentSort, ListingPlace, SortOrder } from './api.ts'
 import { formatDate } from './format.ts'
 import { scanPassed } from './indexing.ts'
-import { REVIEW_LABELS } from './reviews.ts'
 import type { LibraryView } from './workspace/url.ts'
 
 /** What each order is called, and how each of its directions reads. */
@@ -63,13 +62,13 @@ export function emptyPlaceWords(place: ListingPlace): { title: string; body: str
   return { title: 'Nothing opened yet', body: 'The documents you open in this project are listed here, the latest first.' }
 }
 
-export const EMPTY_FILTER: DocumentFilter = { types: [], after: null, before: null, reviews: [], folder_id: null, mentions: [] }
+export const EMPTY_FILTER: DocumentFilter = { types: [], after: null, before: null, folder_id: null, mentions: [] }
 
 /** How many searches a search may be within (MAX_MENTIONS in backend/app/schemas.py). */
 export const MAX_WITHIN = 5
 
 /** What narrows a filter that a member can take off alone: one of its parts, or one of the searches it is within by its place. */
-export type FilterPart = 'types' | 'dates' | 'reviews' | 'folder' | number
+export type FilterPart = 'types' | 'dates' | 'folder' | number
 
 /** Words in a list a sentence reads: `a, b or c`. */
 export const listed = (words: string[], last: 'and' | 'or') =>
@@ -82,7 +81,6 @@ export function filterParts(filter: DocumentFilter, folder: string | null): { pa
   if (filter.after && filter.before) parts.push({ part: 'dates', words: `dated ${formatDate(filter.after)} to ${formatDate(filter.before)}` })
   else if (filter.after) parts.push({ part: 'dates', words: `dated ${formatDate(filter.after)} or later` })
   else if (filter.before) parts.push({ part: 'dates', words: `dated ${formatDate(filter.before)} or earlier` })
-  if (filter.reviews.length) parts.push({ part: 'reviews', words: `${listed(filter.reviews.map((state) => REVIEW_LABELS[state].toLowerCase()), 'or')} in review` })
   if (filter.folder_id != null) parts.push({ part: 'folder', words: `in ${folder ?? 'a folder that is gone'}` })
   filter.mentions.forEach((words, index) => parts.push({ part: index, words: `mentioning “${words}”` }))
   return parts
@@ -94,7 +92,6 @@ export function withoutPart(filter: DocumentFilter, part: FilterPart): DocumentF
   const emptied: Record<Exclude<FilterPart, number>, Partial<DocumentFilter>> = {
     types: { types: [] },
     dates: { after: null, before: null },
-    reviews: { reviews: [] },
     folder: { folder_id: null },
   }
   return { ...filter, ...emptied[part] }

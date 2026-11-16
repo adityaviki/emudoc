@@ -10,11 +10,9 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 import { Unreachable, api } from '../api.ts'
-import type { Document, DocumentDetailsInput, Folder, ReviewInput, UploadItem, UploadResult } from '../api.ts'
-import { factTablesKey } from '../factTable.ts'
+import type { Document, DocumentDetailsInput, Folder, UploadItem, UploadResult } from '../api.ts'
 import { useStatus } from '../hooks.ts'
 import { unfinishedStages } from '../indexing.ts'
-import { reviewsKey } from '../reviews.ts'
 import { exportWords, reprocessedWords } from '../selection.ts'
 import { trashKey } from '../trash.ts'
 import { givenWords, versionsKey } from '../versions.ts'
@@ -365,23 +363,6 @@ export function useLibraryMutations() {
 }
 
 export type LibraryMutations = ReturnType<typeof useLibraryMutations>
-
-/**
- * Move a document's review or assign it (backend/app/reviews.py), then show the document as the server keeps it
- * wherever the page holds it, and ask again for what lists reviews: the reviews view and the facts tables.
- */
-export function useReviewChange(projectId: number) {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: ({ id, change }: { id: number; change: ReviewInput }) => api.review(id, change),
-    onSuccess: (document) => {
-      editListings(queryClient, projectId, (documents) => documents.map((held) => (held.id === document.id ? document : held)))
-      queryClient.setQueryData(documentKey(document.id), document)
-      void queryClient.invalidateQueries({ queryKey: reviewsKey(projectId) })
-      void queryClient.invalidateQueries({ queryKey: factTablesKey(projectId) })
-    },
-  })
-}
 
 /**
  * Set a document's details as the member's, or take what the reading found again (backend/app/details.py), then show the

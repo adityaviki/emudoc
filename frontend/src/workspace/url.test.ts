@@ -114,8 +114,6 @@ describe('buildWorkspaceUrl', () => {
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, run: 8 } })).toBe('/projects/3?run=8')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, questionSets: true } })).toBe('/projects/3?question-sets=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, report: 12 } })).toBe('/projects/3?report=12')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, reviews: 'all' } })).toBe('/projects/3?reviews=')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, reviews: 'mine' } })).toBe('/projects/3?reviews=mine')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, writingTemplates: true } })).toBe('/projects/3?writing-templates=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, mail: true } })).toBe('/projects/3?mail=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, connectors: true } })).toBe('/projects/3?connectors=')
@@ -146,8 +144,6 @@ describe('buildWorkspaceUrl', () => {
       { ...home, library: { folderId: null, run: 8 }, document: { id: 41, focus: { block: 2 } } },
       { ...home, library: { folderId: null, questionSets: true }, chatId: 12 },
       { ...home, library: { folderId: null, report: 12 }, document: { id: 41, focus: { passage: 812 } } },
-      { ...home, library: { folderId: null, reviews: 'all' }, chatId: 12 },
-      { ...home, library: { folderId: null, reviews: 'mine' }, document: { id: 41, focus: null } },
       { ...home, library: { folderId: null, writingTemplates: true }, chatId: 12 },
       { ...home, library: { folderId: null, mail: true }, chatId: 12 },
       { ...home, library: { folderId: null, connectors: true } },
@@ -166,6 +162,10 @@ describe('buildWorkspaceUrl', () => {
     expect(buildWorkspaceUrl(parse('/projects/3/documents/41?recent&name=inv')!)).toBe('/projects/3/documents/41?q=inv&recent=')
     // A notice's link to a thread of comments, from before they went, opens its document.
     expect(buildWorkspaceUrl(parse('/projects/3/documents/41?thread=5')!)).toBe('/projects/3/documents/41')
+    // A notice's link to the documents in review assigned to its member, from before reviews went, opens the library,
+    // and a search narrowed to a review's state is a search without it.
+    expect(buildWorkspaceUrl(parse('/projects/3?reviews=mine')!)).toBe('/projects/3')
+    expect(buildWorkspaceUrl(parse('/projects/3?q=notice&review=disputed')!)).toBe('/projects/3?q=notice')
   })
 })
 
@@ -194,7 +194,6 @@ describe('a search in the URL', () => {
     types: ['invoice', 'credit note'],
     after: '2024-01-01',
     before: null,
-    reviews: ['disputed' as const],
     folder_id: 9,
     mentions: ['late delivery', 'penalty'],
   }
@@ -202,13 +201,13 @@ describe('a search in the URL', () => {
   it("keeps what narrows it, each part its own parameter, its folder apart from the library's, and reads it back", () => {
     const url = buildWorkspaceUrl({ ...home, library: { folderId: 7, search: { q: 'notice', filter } } })
     expect(url).toBe(
-      '/projects/3?folder=7&q=notice&in=9&type=invoice&type=credit+note&after=2024-01-01&review=disputed&within=late+delivery&within=penalty',
+      '/projects/3?folder=7&q=notice&in=9&type=invoice&type=credit+note&after=2024-01-01&within=late+delivery&within=penalty',
     )
     expect(parse(url)).toEqual({ ...home, library: { folderId: 7, search: { q: 'notice', filter } } })
   })
 
   it('leaves out what it cannot read, and opens no search where nothing is asked', () => {
-    expect(parse('/projects/3?q=notice&after=2024-1-1&review=lost&within=+&in=y')?.library.search).toEqual({ q: 'notice', filter: EMPTY_FILTER })
+    expect(parse('/projects/3?q=notice&after=2024-1-1&within=+&in=y')?.library.search).toEqual({ q: 'notice', filter: EMPTY_FILTER })
     expect(parse('/projects/3/documents/41?within=penalty')?.library.search).toEqual({ q: '', filter: { ...EMPTY_FILTER, mentions: ['penalty'] } })
     expect(parse('/projects/3/documents/41?in=x&q=+')?.library.search).toBeUndefined()
   })

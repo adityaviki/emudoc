@@ -1,8 +1,8 @@
 """Writing templates (app/draft_templates.py): how the documents of each kind the agent writes into
 a member's My files read for the project, its reply emails, dispute letters, summary memos,
 comparison tables and reports: the built-in template of each kind, or the project's own in its
-place. The agent follows the one in force whenever it writes one, from a chat (`get_template`,
-app/agent/writing.py) or from a disputed document's review (app/writings.py).
+place. The agent follows the one in force whenever it writes one in a chat (`get_template`,
+app/agent/writing.py).
 
 Anyone who sees the project reads them; whoever may change the project writes and deletes the
 project's own, each a row of the organisation's audit log naming the template by its kind and its

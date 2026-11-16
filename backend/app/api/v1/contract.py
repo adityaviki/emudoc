@@ -15,6 +15,10 @@ an event always had now sometimes missing; something a request must now send) go
 breaks, with:
 
     uv --directory emudoc/backend run python -m app.api.v1.contract
+
+Before 1.0 a feature taken out of the app takes its routes, fields and events out of /api/v1 too
+(S.6, decided by the owner on 2026-11-16), a break the changelog says under its Admins: `--breaking`
+writes the contract all the same, listing what breaks.
 """
 
 import json
@@ -309,20 +313,27 @@ def _bare(schema: Any) -> Any:
     return schema
 
 
-def write() -> int:
+def write(breaking: bool = False) -> int:
     """Write the contract again from the routes, unless the change would break a program
-    written against the one published; returns the exit status."""
+    written against the one published and `breaking` does not say that it may; returns the exit
+    status."""
     made = contract()
-    if PUBLISHED.exists() and (problems := breaking_changes(published(), made)):
+    problems = breaking_changes(published(), made) if PUBLISHED.exists() else []
+    if problems and not breaking:
         print("The routes break the published contract, so it was not written:", file=sys.stderr)
         for problem in problems:
             print(f"- {problem}", file=sys.stderr)
         print("Keep these as they were, and put the change into /api/v2.", file=sys.stderr)
         return 1
+    if problems:
+        print("The contract breaks programs written against the published one:", file=sys.stderr)
+        for problem in problems:
+            print(f"- {problem}", file=sys.stderr)
+        print("Say each under Admins in CHANGELOG.md's Unreleased.", file=sys.stderr)
     PUBLISHED.write_text(json.dumps(made, indent=2, ensure_ascii=False) + "\n")
     print(f"Wrote {PUBLISHED}.")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(write())
+    sys.exit(write(breaking="--breaking" in sys.argv[1:]))

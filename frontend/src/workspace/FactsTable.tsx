@@ -37,7 +37,6 @@ import {
 } from '../factTable.ts'
 import type { Operator, TableAsk, TableCondition, TableSort } from '../factTable.ts'
 import { templatesKey } from '../templates.ts'
-import { ReviewMark } from './Reviews.tsx'
 import { useWorkspace } from './state.ts'
 
 /**
@@ -376,7 +375,6 @@ function Grid({
                   className="flex max-w-56 items-center gap-1.5 rounded px-1 py-0.5 text-left font-medium transition hover:bg-sunken focus-visible:-outline-offset-2!"
                 >
                   <span className="truncate">{row.title}</span>
-                  <ReviewMark document={row} />
                 </button>
               </th>
               {template.fields.map((field, column) => {
@@ -630,7 +628,7 @@ function EarlierItem({ check, onRemoved }: { check: FactCheck; onRemoved: () => 
 /** What a member does to a fact from its panel: check or correct it (`body`), or take a check back. */
 type FactChange = { fact: Fact; body: FactCheckInput; check?: undefined } | { check: FactCheck; fact?: undefined; body?: undefined }
 
-/** Check, correct or take back, then load the project's tables again; `onRemoved` once they are, for a row the change took out of a table kept to the rows to review. */
+/** Check, correct or take back, then load the project's tables again; `onRemoved` once they are, for a row the change took out of a table kept to the unchecked rows. */
 function useFactChange(onRemoved: () => void) {
   const { project } = useWorkspace()
   const queryClient = useQueryClient()

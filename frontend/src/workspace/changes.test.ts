@@ -37,11 +37,6 @@ const doc = (id: number, filename: string, folderId: number | null = null): Docu
   usage: {},
   created_at: '2026-10-21T09:00:00Z',
   version: 1,
-  review: null,
-  assignee_id: null,
-  assignee: null,
-  review_changer: null,
-  review_changed_at: null,
   view_state: null,
   view_error: null,
 })

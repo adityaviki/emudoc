@@ -3,7 +3,7 @@
 import { createContext, useContext } from 'react'
 import type { Document, Folder, ListingPlace, Project, ScopeIn } from '../api.ts'
 import type { FolderTree } from '../hooks.ts'
-import type { Focus, Reviews, WorkspaceSearch, WorkspaceUrl } from './url.ts'
+import type { Focus, WorkspaceSearch, WorkspaceUrl } from './url.ts'
 
 export interface OpenTab {
   id: number
@@ -118,8 +118,6 @@ export interface Workspace {
   showQuestionSets(): void
   /** Shows one report of a question set's answers in the library, likewise. */
   showReport(reportId: number): void
-  /** Shows the project's documents in review in the library, every member's or those assigned to the member, likewise. */
-  showReviews(whose?: Reviews): void
   /** Shows the project's address, whose mail becomes its documents, in the library, likewise. */
   showMailbox(): void
   /** Shows the member's own files in the project, their My files, in the library, likewise. */

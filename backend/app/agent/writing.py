@@ -763,7 +763,7 @@ def _edited(arguments: dict[str, Any]) -> dict[str, Any]:
 
 
 # Offered beside TOOLS to an answer whose member may keep files in My files (`offers_my_files` in
-# app/answers.py), never to a writing outside a chat (app/writings.py), a report or a question set.
+# app/answers.py), never to a report or a question set.
 WRITING_TOOLS: dict[str, Tool] = {
     tool.name: tool
     for tool in (
