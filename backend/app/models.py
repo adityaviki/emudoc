@@ -184,9 +184,11 @@ NOTICE_KINDS = (
     "review_assigned",
     "report_ready",
     "weekly_digest",
-    "mentioned",
-    "thread_replied",
 )
+# The kinds of notice no longer told, whose notices in the centres stay to read until
+# NOTIFICATION_DAYS take them: a member mentioned in a comment and a reply in a thread they wrote
+# in, until comments went (S.6, 2026-11-16).
+PAST_NOTICE_KINDS = ("mentioned", "thread_replied")
 NOTICE_CHANNELS = ("app", "email")
 CHOSEN_NOTICES = ("weekly_digest",)
 # What became of a message sent to a project's address (app/inbound.py): documents were kept
@@ -239,7 +241,9 @@ NATURAL_ORDER = "natural_order"
 # bought a plan or a pack and its subscription changed; and until the hosted service's support went
 # (S.3, 2026-11-13), a member let Emudoc's support see their account, or withdrew that, and support
 # opened and closed a view of it; and until the terms of service went (S.3, 2026-11-13), a user
-# accepted them. Those actions stay so that their entries still read.
+# accepted them; and until comments went (S.6, 2026-11-16), a member commented on a document and
+# deleted a comment, and resolved a thread of them or opened it again. Those actions stay so that
+# their entries still read.
 AUDIT_ACTIONS = (
     "sign_up",
     "sign_in",
@@ -1462,79 +1466,6 @@ class DocumentNote(Base):
     changed_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
-
-
-class CommentThread(Base):
-    """A thread of comments on a document (app/comments.py), about the document as a whole or a
-    passage of it. Started from a passage, it keeps the words quoted and their page in the
-    version it was about: the passage itself goes when the document is read again or given a
-    version, and the quote stays. Everyone who sees the project reads and writes in it, and a
-    resolved thread stays to read. The row goes with the document."""
-
-    __tablename__ = "comment_threads"
-    __table_args__ = (
-        CheckConstraint("passage_id IS NULL OR quote IS NOT NULL", name="ck_comment_threads_quote"),
-        CheckConstraint(
-            "resolved_by IS NULL OR resolved_at IS NOT NULL", name="ck_comment_threads_resolved"
-        ),
-        Index("ix_comment_threads_document", "document_id", "id"),
-        # For a reading that deletes the document's passages, which sets theirs null.
-        Index(
-            "ix_comment_threads_passage",
-            "passage_id",
-            postgresql_where=text("passage_id IS NOT NULL"),
-        ),
-        Index(
-            "ix_comment_threads_resolved_by",
-            "resolved_by",
-            postgresql_where=text("resolved_by IS NOT NULL"),
-        ),
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    document_id: Mapped[int] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"))
-    # The passage it was started from, while the document's reading still holds it.
-    passage_id: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("passages.id", ondelete="SET NULL")
-    )
-    # The words it is about, and the page and version of the document they were on.
-    quote: Mapped[str | None] = mapped_column(Text)
-    page: Mapped[int | None] = mapped_column(Integer)
-    version: Mapped[int] = mapped_column(Integer)
-    created_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-    # Who resolved it and when; both null while it is open, the name once their account is gone.
-    resolved_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
-    resolved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
-    resolver: Mapped[str | None] = column_property(
-        select(User.name).where(User.id == resolved_by).correlate_except(User).scalar_subquery()
-    )
-
-
-class Comment(Base):
-    """A member's comment in a thread (app/comments.py): their words, with the members they
-    mention written in them as `<@id>`, when they wrote it and when they last changed it. The
-    comment outlives its writer's account without their name, as a note does."""
-
-    __tablename__ = "comments"
-    __table_args__ = (
-        Index("ix_comments_thread", "thread_id", "id"),
-        # For the account's export and its purge.
-        Index("ix_comments_author", "author_id", postgresql_where=text("author_id IS NOT NULL")),
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    thread_id: Mapped[int] = mapped_column(ForeignKey("comment_threads.id", ondelete="CASCADE"))
-    author_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
-    author: Mapped[str | None] = column_property(
-        select(User.name).where(User.id == author_id).correlate_except(User).scalar_subquery()
-    )
-    text: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-    edited_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class DocumentVisit(Base):
@@ -2816,7 +2747,7 @@ class Notification(Base):
 
     __tablename__ = "notifications"
     __table_args__ = (
-        _one_of("kind", NOTICE_KINDS, "notifications"),
+        _one_of("kind", NOTICE_KINDS + PAST_NOTICE_KINDS, "notifications"),
         # A member's notices, newest first, a page at a time by id.
         Index("ix_notifications_user_id_id", "user_id", "id"),
         # What the bell counts.

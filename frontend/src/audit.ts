@@ -3,12 +3,12 @@
 // choices ask for, its days in the browser's own zone.
 
 import { ROLE_LABELS } from './api.ts'
-import type { AuditAction, AuditEvent, AuditFilter, ConnectorProvider, DraftKind, NoticeKind, ReviewState, Role } from './api.ts'
+import type { AuditAction, AuditEvent, AuditFilter, ConnectorProvider, DraftKind, NoticeKind, PastNoticeKind, ReviewState, Role } from './api.ts'
 import { SERVICE_NAMES } from './connectors.ts'
 import { KIND_LABELS, kindWords } from './draftTemplates.ts'
 import { fieldWords } from './factTable.ts'
 import { formatDate, formatDateTime } from './format.ts'
-import { NOTICE_KINDS } from './notifications.ts'
+import { NOTICE_KINDS, PAST_NOTICE_KINDS } from './notifications.ts'
 import { keptWords, languageName, signInWords } from './organizationSettings.ts'
 import type { Kept } from './organizationSettings.ts'
 import { REVIEW_LABELS } from './reviews.ts'
@@ -156,6 +156,7 @@ export const ACTIONS: Record<AuditAction, [label: string, kind: AuditKind]> = {
   chat_deleted: ['Deleted a chat', 'chats'],
   chat_restored: ['Restored a chat', 'chats'],
   chat_purged: ['Deleted a chat for good', 'chats'],
+  // Comments went on 2026-11-16 (S.6); their entries written before still read.
   comment_added: ['Commented on a document', 'files'],
   comment_deleted: ['Deleted a comment', 'files'],
   thread_resolved: ['Resolved a thread of comments', 'files'],
@@ -269,7 +270,7 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
     if (event.action === 'document_uploaded' || event.action === 'document_version_uploaded') parts.push(`from ${service}`)
     else parts.push(detail.replaced === true ? `replaced by a new version from ${service}` : `gone from ${service}`)
   }
-  // A comment's row names its document, never its words: a reply, and whose comment an owner or admin deleted.
+  // A comment's row, from before comments went, names its document, never its words: a reply, and whose comment an owner or admin deleted.
   if (event.action === 'comment_added' && detail.reply === true) parts.push('a reply')
   if (event.action === 'comment_deleted' && typeof detail.author === 'number' && detail.author !== event.user_id) {
     parts.push(`${names.get(detail.author) ?? 'a former member'}’s comment`)
@@ -317,7 +318,7 @@ function describeSetting(detail: AuditEvent['detail']): string {
   if (setting === 'mfa_required') return to ? 'Two-factor sign-in required' : 'Two-factor sign-in no longer required'
   if (setting === 'share_links') return to ? 'Share links allowed' : 'Share links turned off'
   if (setting === 'notices') {
-    const kind = NOTICE_KINDS[detail.kind as NoticeKind]?.label ?? String(detail.kind)
+    const kind = NOTICE_KINDS[detail.kind as NoticeKind]?.label ?? PAST_NOTICE_KINDS[detail.kind as PastNoticeKind] ?? String(detail.kind)
     return `${kind}, ${detail.way === 'email' ? 'by email' : 'in the app'}: ${to ? 'on' : 'off'}`
   }
   return `${String(setting)}: ${word(from)} → ${word(to)}`

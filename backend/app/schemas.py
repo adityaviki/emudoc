@@ -345,143 +345,6 @@ class DocumentNoteOut(BaseModel):
     changed_at: dt.datetime | None
 
 
-# How long a comment may be, and the words a thread quotes (app/comments.py).
-COMMENT_LENGTH = 5_000
-QUOTE_LENGTH = 500
-
-
-class CommentIn(BaseModel):
-    """A comment as a member writes it (app/comments.py): their words, each member they mention
-    written as `<@id>`."""
-
-    text: str = Field(min_length=1, max_length=COMMENT_LENGTH)
-
-
-class ThreadIn(CommentIn):
-    """A thread a member starts on a document, with its first comment: about a passage of it
-    (`passage_id`, one a citation opened), the passage that holds a block of its text (`block`,
-    one the outline or a selection reached), the words chosen there (`quote`; a passage's own
-    start when none are), or with none of these the document as a whole."""
-
-    passage_id: int | None = None
-    block: int | None = Field(None, ge=0)
-    # Cut to QUOTE_LENGTH at a word as it is kept.
-    quote: str | None = Field(None, max_length=COMMENT_LENGTH)
-
-
-class ThreadChangeIn(BaseModel):
-    """A thread resolved, or opened again."""
-
-    resolved: bool
-
-
-class MentionOut(BaseModel):
-    """A member a comment mentions, by name as it is now; None once their account is gone."""
-
-    id: int
-    name: str | None
-
-
-class CommentOut(BaseModel):
-    """A comment in a thread: its words as written, `<@id>` for each member it mentions, who
-    wrote it (None once their account is gone), when, and when they last changed it."""
-
-    id: int
-    author_id: int | None
-    author: str | None
-    text: str
-    created_at: dt.datetime
-    edited_at: dt.datetime | None
-    mentions: list[MentionOut]
-
-
-class ThreadOut(BaseModel):
-    """A thread of a document's comments, oldest first: what it is about (the passage while the
-    document's reading still holds it, the words quoted, their page and the version they were in)
-    and whether it is resolved, by whom as they are named now."""
-
-    id: int
-    document_id: int
-    passage_id: int | None
-    quote: str | None
-    page: int | None
-    version: int
-    created_at: dt.datetime
-    resolved_at: dt.datetime | None
-    resolver: str | None
-    comments: list[CommentOut]
-
-
-class MentionableOut(BaseModel):
-    """A member a comment in a project may mention: one who sees it."""
-
-    id: int
-    name: str
-
-
-# What a project's activity shows (FEED_ACTIONS in app/activity.py).
-ActivityAction = Literal[
-    "document_uploaded",
-    "document_version_uploaded",
-    "document_deleted",
-    "document_restored",
-    "folder_deleted",
-    "folder_restored",
-    "document_review_changed",
-    "document_assigned",
-    "comment_added",
-    "thread_resolved",
-    "cross_checks_run",
-    "question_set_run",
-    "chat_shared",
-]
-
-
-class ActivityOut(BaseModel):
-    """One thing done in a project, as its activity shows it to everyone who sees the project
-    (app/activity.py): what, by whom and when, in names alone, never what a document or a
-    comment says."""
-
-    # The audit row's.
-    id: int
-    action: ActivityAction
-    occurred_at: dt.datetime
-    # The member who did it, by name as it is now; None for an automation, a message from
-    # outside the organisation and an account gone.
-    actor: str | None
-    # The automation that did it in a member's place, by name as it was then.
-    automation: str | None
-    # How a document arrived without a member's upload: "email", or the connected service.
-    via: str | None
-    # The document, by its name as it was then, and its id while it is in the project, out of
-    # the trash; a folder by its name, with how many documents went or came back with it.
-    filename: str | None
-    document_id: int | None
-    folder: str | None
-    documents: int | None
-    # A comment's thread, and whether it was a reply.
-    thread_id: int | None
-    reply: bool
-    # A review's state after the change (None out of review), and whom it was assigned to by
-    # name as it is now (None for nobody, or an account gone).
-    review: str | None
-    assignee: str | None
-    # A run of cross-checks' names, and a question set's name and how many questions it asked.
-    names: list[str]
-    name: str | None
-    questions: int | None
-    # The run, report or chat to open, while it is still there to be opened.
-    target_id: int | None
-
-
-class ActivityPage(BaseModel):
-    """A page of a project's activity, newest first; `next_before` the `before` of the page after
-    it, None at the end."""
-
-    events: list[ActivityOut]
-    next_before: int | None
-
-
 class DocumentCopyOut(BaseModel):
     """A document of the same bytes as another, in another project the member sees
     (app/duplicates.py), with where it is."""
@@ -1856,9 +1719,10 @@ NoticeKind = Literal[
     "review_assigned",
     "report_ready",
     "weekly_digest",
-    "mentioned",
-    "thread_replied",
 ]
+# The kinds of notice no longer told, whose notices stay in the centres to read
+# (PAST_NOTICE_KINDS in app/models.py).
+PastNoticeKind = Literal["mentioned", "thread_replied"]
 
 
 class NoticeChoiceIn(BaseModel):
@@ -2434,7 +2298,7 @@ class NotificationOut(BaseModel):
     """A notice in the user's notification centre (app/notices.py)."""
 
     id: int
-    kind: NoticeKind
+    kind: NoticeKind | PastNoticeKind
     title: str
     body: str
     # The page it leads to, a path of the app.
@@ -2832,20 +2696,6 @@ class ExportedShareLink(BaseModel):
     last_viewed_at: dt.datetime | None
 
 
-class ExportedOwnComment(BaseModel):
-    """A comment the user wrote on a document (app/comments.py), each member it mentions written
-    as "@" and their name as it is now, with the words its thread quotes; the thread's other
-    comments are their writers' and stay out."""
-
-    organization: str
-    project: str
-    document: str
-    quote: str | None
-    text: str
-    created_at: dt.datetime
-    edited_at: dt.datetime | None
-
-
 class AccountExport(BaseModel):
     exported_at: dt.datetime
     # What the file holds and what it leaves out, in words, for whoever reads it.
@@ -2860,7 +2710,6 @@ class AccountExport(BaseModel):
     recent_documents: list[ExportedVisit] = []
     share_links: list[ExportedShareLink] = []
     question_sets: list[ExportedQuestionSet] = []
-    comments: list[ExportedOwnComment] = []
     my_files: list[ExportedMyFile] = []
     notifications: list[ExportedNotification]
     usage: list[ExportedUsage]
@@ -2934,30 +2783,6 @@ class ExportedNote(BaseModel):
     changed_at: dt.datetime
 
 
-class ExportedComment(BaseModel):
-    """A comment of a document's thread, each member it mentions written as "@" and their name as
-    it is now, and its writer's name as it is now, None for an account gone."""
-
-    author: str | None
-    text: str
-    created_at: dt.datetime
-    edited_at: dt.datetime | None
-
-
-class ExportedThread(BaseModel):
-    """A thread of a document's comments (app/comments.py): the words it quotes, their page and
-    the version they were in, whether it is resolved and by whom, and its comments, oldest
-    first."""
-
-    quote: str | None
-    page: int | None
-    version: int
-    created_at: dt.datetime
-    resolved_at: dt.datetime | None
-    resolved_by: str | None
-    comments: list[ExportedComment]
-
-
 class ExportedDocument(BaseModel):
     """A document as `project.json` lists it, with where the archive holds its original and
     what was read from it."""
@@ -2996,8 +2821,6 @@ class ExportedDocument(BaseModel):
     versions: list[ExportedVersion] = []
     # Its note, which the project's members share (app/notes.py), if it has one.
     note: ExportedNote | None = None
-    # The threads of comments on it, oldest first (app/comments.py).
-    threads: list[ExportedThread] = []
 
 
 class ExportedBlock(BaseModel):

@@ -7,8 +7,8 @@ import type { DocumentFilter, ReviewState, ScopeIn } from '../api.ts'
 import { narrows } from '../library.ts'
 import { REVIEW_STATES } from '../reviews.ts'
 
-/** What a document is opened at: a cited passage, a block of its text, a page, or a thread of its comments. */
-export type Focus = { passage: number } | { block: number } | { page: number } | { thread: number }
+/** What a document is opened at: a cited passage, a block of its text, or a page. */
+export type Focus = { passage: number } | { block: number } | { page: number }
 
 /** Whose documents in review the reviews view lists: every member's, or those assigned to the member. */
 export type Reviews = 'all' | 'mine'
@@ -19,7 +19,7 @@ export interface WorkspaceSearch {
   filter: DocumentFilter
 }
 
-/** The folder the library shows, with `search` the project's search in its place (the files whose names hold its words, wherever they are, then the passages it finds); or, with `trash`, the project's trash, with `templates`, its extraction templates, with `facts`, the facts table of its documents of that kind, with `changes`, what their last readings changed, with `checks`, its cross-checks, with `check`, what that one finds, with `run`, a run of them kept with what it found, with `questionSets`, its question sets with the reports of their answers, with `report`, one of those reports, with `reviews`, its documents in review, with `activity`, what was done in it lately, with `mail`, its address and what it received, with `connectors`, the folders of its members' Google Drive, Dropbox or OneDrive it keeps in step with, with `myFiles`, the member's own files in it, with `myFile`, one of them, with `writingTemplates`, how the agent writes each kind of document into them; with `favorites`, the member's favourites, and with `recent`, the documents they opened lately. The favourites and the recent
+/** The folder the library shows, with `search` the project's search in its place (the files whose names hold its words, wherever they are, then the passages it finds); or, with `trash`, the project's trash, with `templates`, its extraction templates, with `facts`, the facts table of its documents of that kind, with `changes`, what their last readings changed, with `checks`, its cross-checks, with `check`, what that one finds, with `run`, a run of them kept with what it found, with `questionSets`, its question sets with the reports of their answers, with `report`, one of those reports, with `reviews`, its documents in review, with `mail`, its address and what it received, with `connectors`, the folders of its members' Google Drive, Dropbox or OneDrive it keeps in step with, with `myFiles`, the member's own files in it, with `myFile`, one of them, with `writingTemplates`, how the agent writes each kind of document into them; with `favorites`, the member's favourites, and with `recent`, the documents they opened lately. The favourites and the recent
 documents take `search` too, which then matches their names alone. */
 export interface LibraryView {
   folderId: number | null
@@ -34,7 +34,6 @@ export interface LibraryView {
   questionSets?: true
   report?: number
   reviews?: Reviews
-  activity?: true
   mail?: true
   connectors?: true
   myFiles?: true
@@ -85,7 +84,6 @@ export function parseWorkspaceUrl(pathname: string, query: string): WorkspaceUrl
   else if (id(params.get('report')) != null) library.report = id(params.get('report')) ?? undefined
   else if (params.has('question-sets')) library.questionSets = true
   else if (params.has('reviews')) library.reviews = params.get('reviews') === 'mine' ? 'mine' : 'all'
-  else if (params.has('activity')) library.activity = true
   else if (params.has('mail')) library.mail = true
   else if (params.has('connectors')) library.connectors = true
   else if (id(params.get('my-file')) != null) library.myFile = id(params.get('my-file')) ?? undefined
@@ -163,9 +161,7 @@ function parseFocus(params: URLSearchParams): Focus | null {
   const block = params.get('block')
   if (block != null && /^\d+$/.test(block)) return { block: Number(block) }
   const page = id(params.get('page'))
-  if (page != null) return { page }
-  const thread = id(params.get('thread'))
-  return thread != null ? { thread } : null
+  return page != null ? { page } : null
 }
 
 function id(value: string | null): number | null {
@@ -187,7 +183,6 @@ export function buildWorkspaceUrl(url: Omit<WorkspaceUrl, 'canonical'>): string 
   if (url.library.questionSets) params.set('question-sets', '')
   if (url.library.report != null) params.set('report', String(url.library.report))
   if (url.library.reviews) params.set('reviews', url.library.reviews === 'mine' ? 'mine' : '')
-  if (url.library.activity) params.set('activity', '')
   if (url.library.mail) params.set('mail', '')
   if (url.library.connectors) params.set('connectors', '')
   if (url.library.myFiles) params.set('my-files', '')
@@ -201,7 +196,6 @@ export function buildWorkspaceUrl(url: Omit<WorkspaceUrl, 'canonical'>): string 
     if (focus) {
       if ('passage' in focus) params.set('passage', String(focus.passage))
       else if ('block' in focus) params.set('block', String(focus.block))
-      else if ('thread' in focus) params.set('thread', String(focus.thread))
       else params.set('page', String(focus.page))
     }
   }

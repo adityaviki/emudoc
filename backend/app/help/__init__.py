@@ -42,7 +42,7 @@ from app.question_sets import MAX_QUESTION_SETS, MAX_SET_QUESTIONS
 from app.recents import RECENT
 from app.retention import DELETION_GRACE
 from app.sample import NAME as SAMPLE_NAME
-from app.schemas import COMMENT_LENGTH, MAX_MENTIONS, PASSWORD_MIN_LENGTH
+from app.schemas import MAX_MENTIONS, PASSWORD_MIN_LENGTH
 from app.selection import MAX_CHOSEN
 from app.share_links import DAYS as SHARE_DAYS
 from app.share_links import MAX_LINKS
@@ -67,7 +67,7 @@ ARTICLES = (
     ),
     (
         "working-together",
-        "Comments, the project's activity, My files, writing templates and share links.",
+        "My files, writing templates and share links.",
     ),
     (
         "workspace",
@@ -185,9 +185,8 @@ def _values(settings: Settings) -> dict[str, str]:
         "max_set_questions": str(MAX_SET_QUESTIONS),
         "digest_hour": f"{DIGEST_HOUR}:00",
         "digest_day": WEEKDAYS[0],
-        # Working together.
         "told": _told(mail),
-        "comment_chars": f"{COMMENT_LENGTH:,}",
+        # Working together.
         "my_files": str(MAX_MY_FILES),
         "share_days": _either(SHARE_DAYS),
         "share_links": str(MAX_LINKS),

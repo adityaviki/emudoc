@@ -1,6 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
 import {
-  Activity as ActivityIcon,
   BadgeCheck,
   CalendarClock,
   Camera,
@@ -88,7 +87,6 @@ import { RunView } from './CheckRuns.tsx'
 import { CrossChecksView, FindingsView } from './CrossChecks.tsx'
 import { DraftTemplatesView } from './DraftTemplates.tsx'
 import { MyFileView, MyFilesView } from './MyFiles.tsx'
-import { ActivityView } from './Activity.tsx'
 import { ConnectorsView } from './Connectors.tsx'
 import { MailboxView } from './Mailbox.tsx'
 import { ChangesView } from './FactChanges.tsx'
@@ -260,7 +258,6 @@ export function Library() {
   if (workspace.url.library.questionSets) return <QuestionSetsView />
   if (workspace.url.library.report != null) return <ReportView reportId={workspace.url.library.report} />
   if (workspace.url.library.reviews) return <ReviewsView whose={workspace.url.library.reviews} />
-  if (workspace.url.library.activity) return <ActivityView />
   if (workspace.url.library.mail && mail) return <MailboxView />
   if (workspace.url.library.connectors && connectors) return <ConnectorsView />
   if (workspace.url.library.myFiles) return <MyFilesView />
@@ -328,13 +325,6 @@ export function Library() {
             onClick={() => workspace.showReviews()}
             title="Reviews: the documents put in review, approved or disputed, and whom each is assigned to"
             aria-label="Reviews"
-            className="px-2"
-          />
-          <Button
-            icon={<ActivityIcon className="size-4" />}
-            onClick={workspace.showActivity}
-            title="Activity: what was done in the project lately, its uploads, reviews, comments and runs"
-            aria-label="Activity"
             className="px-2"
           />
           <Button

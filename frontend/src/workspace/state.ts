@@ -120,8 +120,6 @@ export interface Workspace {
   showReport(reportId: number): void
   /** Shows the project's documents in review in the library, every member's or those assigned to the member, likewise. */
   showReviews(whose?: Reviews): void
-  /** Shows what was done in the project lately in the library, likewise. */
-  showActivity(): void
   /** Shows the project's address, whose mail becomes its documents, in the library, likewise. */
   showMailbox(): void
   /** Shows the member's own files in the project, their My files, in the library, likewise. */

@@ -10,9 +10,9 @@ from app.accounts import Account
 from app.config import get_settings
 from app.db import engine
 from app.mail import Content, Link
-from app.models import NOTICE_KINDS, Notification, User
+from app.models import NOTICE_KINDS, PAST_NOTICE_KINDS, Notification, User
 from app.notices import NOTIFICATION_DAYS, prune_notifications, tell
-from app.schemas import NoticeKind
+from app.schemas import NoticeKind, PastNoticeKind
 from tests.test_notices import told
 from tests.test_organizations import join, remove, team  # noqa: F401
 
@@ -163,3 +163,21 @@ def test_the_centre_is_for_a_signed_in_account_that_may_use_the_app(client, sign
 
 def test_the_kinds_the_api_names_are_the_models():
     assert NoticeKind.__args__ == NOTICE_KINDS
+    assert PastNoticeKind.__args__ == PAST_NOTICE_KINDS
+
+
+def test_a_notice_of_a_kind_no_longer_told_still_reads(client, session, ann):
+    # A member mentioned in a comment was told until comments went (S.6): the notice stays.
+    session.add(
+        Notification(
+            user_id=ann.user.id,
+            org_id=ann.organization.id,
+            kind="mentioned",
+            title="You were mentioned in a comment",
+            body="Bob mentioned you in a comment on terms.txt in Suppliers in Globex.",
+            link="/projects/1/documents/2?thread=3",
+        )
+    )
+    session.commit()
+    (notice,) = centre(client)["notifications"]
+    assert (notice["kind"], notice["title"]) == ("mentioned", "You were mentioned in a comment")

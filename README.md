@@ -29,8 +29,8 @@ you choose.
 - **Create**: the agent writes letters, replies, memos and reports from the documents as Word
   documents in your own files, to your project's templates, and makes and edits Excel
   workbooks; a disputed invoice's dispute letter is one press away.
-- **Work together**: a workspace with roles, private projects, comments with mentions, a
-  project's activity, notices, and links that share a document or an answer outside.
+- **Work together**: a workspace with roles, private projects, notices, and links that share a
+  document or an answer outside.
 - **Bring documents in** by upload, by an upload client that sends a folder, by mail to a
   project's address, from Google Drive, Dropbox or OneDrive folders, or through the API.
 - **Run it yourself**: one image and one compose file, a setup page on first visit, backups in
