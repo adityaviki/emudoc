@@ -131,8 +131,8 @@ printed one, is not a copy.
 
 When a file changes, a contract coming back signed or an invoice sent again corrected, give its
 document the new file: "Upload a new version" in its menu in the library, or under Versions on
-its tab. The document keeps its place, its chats, its comments, its review, its share links and
-the checks of its facts, and its new file is read in place of the old one: from then on it is
+its tab. The document keeps its place, its chats, its review, its share links and the checks
+of its facts, and its new file is read in place of the old one: from then on it is
 searched, asked about and read for facts as the new file alone. A review that approved or
 disputed the old file is opened again, to review, a check of a fact goes back on a fact the new
 file reads the same, and a title, type or date you set stays. A file of another type takes its

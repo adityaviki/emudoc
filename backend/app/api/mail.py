@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from app.api.deps import SessionDep, body_within
 from app.bounces import Unsigned, resend_undeliverable, spare, verified_resend_event
 from app.config import get_settings
-from app.models import NOTICE_KINDS, User
+from app.models import NOTICE_KINDS, PAST_NOTICE_KINDS, User
 from app.postbox import BY_EMAIL, unsubscriber
 from app.receiving import RECEIVED, RESEND, queue_resend
 
@@ -71,10 +71,13 @@ def resend_event(
 @events.post("/mail/unsubscribe", status_code=204)
 def unsubscribe(session: SessionDep, token: Annotated[str, Query(max_length=200)]):
     """Stop the email of the kind of notice the token was made for, to its user; a token from
-    before the kinds were chosen apart stops every kind's. One gone since is no one's to stop."""
+    before the kinds were chosen apart stops every kind's. One gone since is no one's to stop, and
+    a kind no longer told has nothing left to stop."""
     found = unsubscriber(token)
     if found is None:
         raise HTTPException(400, LINK_INVALID)
+    if found.kind in PAST_NOTICE_KINDS:
+        return
     user = session.get(User, found.user_id)
     if user is None:
         return

@@ -5,7 +5,6 @@ import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import type { BrowserContext, Page } from '@playwright/test'
 import { expectAccessible } from './axe.ts'
-import { messageTo } from './mail.ts'
 import { INBOUND_DOMAIN, receiveMail } from './maintenance.ts'
 import { printed } from './print.ts'
 import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, releaseTurns } from './standin.ts'
@@ -43,11 +42,9 @@ import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, rele
 // connected and synced, and last the invoice shared by a link with a password, which someone with
 // no account opens and prints and its member revokes, and an answer about it shared, its citation leading the
 // visitor to the passage, and last a chat pinned to the top of the list and unpinned, the shortcuts listed, a new
-// chat started, its box reached and an answer stopped by the keyboard, and last a comment on words chosen in the
-// invoice mentioning the colleague, whose mail leads back to its thread, replied to and resolved, and read in the
-// project's activity. The answer is the stand-in's (e2e/standin.py): the first sentence of the
-// passage its search found best, with that passage's reference. Along the way each kind of page,
-// panel and dialog is checked against axe-core's rules for WCAG 2.2 AA in both themes
+// chat started, its box reached and an answer stopped by the keyboard. The answer is the stand-in's (e2e/standin.py):
+// the first sentence of the passage its search found best, with that passage's reference. Along the way each kind of
+// page, panel and dialog is checked against axe-core's rules for WCAG 2.2 AA in both themes
 // (e2e/axe.ts), and the keyboard's focus is followed where something it was on goes away.
 const CONTRACT = join(import.meta.dirname, 'fixtures', 'service-contract.md')
 // An invoice whose fields are lines of their own, which the stand-in reads for the invoice template,
@@ -82,7 +79,6 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   // The colleague's browser, from the invitation on.
   let theirs: BrowserContext
   let grace: Page
-  let colleague = ''
   // The first member's address.
   let address = ''
   // The chat's suggestion to invite the team, under an answer about the organisation's documents.
@@ -655,7 +651,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.getByRole('link', { name: 'Emudoc' }).click()
     await page.getByText('Supplier contracts').click()
     await expect(page.getByRole('button', { name: /^How much notice/ })).toBeVisible()
-    colleague = `grace.${Date.now()}@example.com`
+    const colleague = `grace.${Date.now()}@example.com`
     await inviteTeam.getByLabel('Email', { exact: true }).fill(colleague)
     await inviteTeam.getByLabel('Role', { exact: true }).selectOption('viewer')
     await inviteTeam.getByRole('button', { name: 'Invite', exact: true }).click()
@@ -2089,75 +2085,5 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.goto('/organization/audit')
     await page.getByLabel('What').selectOption('question_set_run')
     await expect(page.getByRole('listitem').filter({ hasText: 'Ran a question set' })).toContainText('Monday totals · 1 question, there and then')
-  })
-
-  await test.step("comment on words chosen in the invoice, mentioning the colleague, whose mail leads to the thread, reply, resolve it and read it in the project's activity", async () => {
-    await page.goto('/')
-    await page.getByRole('link', { name: /^Supplier contracts/ }).click()
-    await page.getByRole('treeitem', { name: 'invoice.md', exact: true }).click()
-    await page.getByRole('button', { name: 'Comments, none open' }).click()
-    const comments = page.getByRole('complementary', { name: 'Comments' })
-    await expect(comments).toContainText('No comments yet.')
-    await expectAccessible(page, 'the comments, none yet')
-
-    // The words chosen in the text are what the thread is about; "@" offers the members who see the project.
-    await page.getByRole('region', { name: 'Text of invoice.md' }).getByText('Total amount: EUR 1,250.00').selectText()
-    await comments.getByRole('button', { name: 'New comment' }).click()
-    await expect(comments.locator('blockquote')).toHaveText('Total amount: EUR 1,250.00')
-    const box = comments.getByRole('textbox', { name: 'New comment' })
-    await expect(box).toBeFocused()
-    await box.pressSequentially('@Gra')
-    const members = comments.getByRole('listbox', { name: 'Members to mention' })
-    await expect(members.getByRole('option', { name: 'Grace Hopper' })).toHaveAttribute('aria-selected', 'true')
-    await expectAccessible(page, 'a comment being written, a member to mention offered')
-    await box.press('Enter')
-    await expect(members).toBeHidden()
-    await box.pressSequentially('is this the total of the purchase order?')
-    await comments.getByRole('button', { name: 'Comment', exact: true }).click()
-    const thread = comments.getByRole('article', { name: 'Thread on “Total amount: EUR 1,250.00”' })
-    await expect(thread).toBeFocused()
-    await expect(thread).toContainText('@Grace Hopper is this the total of the purchase order?')
-    await expect(page.getByRole('button', { name: 'Comments, 1 open' })).toBeVisible()
-    await expectAccessible(page, 'a thread of comments')
-
-    // The colleague is mailed who mentioned her and on which document, never the words, with a link to the thread.
-    const mail = await messageTo(colleague)
-    expect(mail).toContain('You were mentioned in a comment')
-    expect(mail).toContain('mentioned you in a comment on invoice.md')
-    expect(mail).not.toContain('purchase order')
-    const link = new URL(/https?:\/\/\S+[?&]thread=\d+\S*/.exec(mail)![0])
-    await comments.getByRole('button', { name: 'Close comments' }).click()
-    await expect(comments).toBeHidden()
-    await page.goto(link.pathname + link.search)
-    const linked = page.getByRole('complementary', { name: 'Comments' }).getByRole('article', { name: /^Thread on “Total amount/ })
-    await expect(linked).toBeVisible()
-
-    await linked.getByRole('button', { name: 'Reply' }).click()
-    const reply = linked.getByRole('textbox', { name: 'Reply' })
-    await expect(reply).toBeFocused()
-    await reply.fill('It is: PO-7701 says EUR 1,250.00.')
-    await linked.getByRole('button', { name: 'Reply', exact: true }).click()
-    await expect(linked.getByRole('listitem')).toHaveCount(2)
-    await linked.getByRole('button', { name: 'Resolve' }).click()
-    // Resolved, the thread a link led to stays shown among the resolved.
-    await expect(linked).toContainText(/Resolved by Ada Lovelace on /)
-    await expect(page.getByRole('button', { name: 'Comments, none open' })).toBeVisible()
-    await expectAccessible(page, 'a resolved thread')
-
-    // The project's activity tells it, by names alone, and leads back to the thread.
-    await page.getByRole('button', { name: 'Activity', exact: true }).click()
-    await expect(page.getByRole('heading', { name: 'Activity' })).toBeFocused()
-    const activity = page.getByRole('list', { name: 'Activity, newest first' })
-    await expect(activity.locator(':scope > li').first()).toContainText('Ada Lovelace resolved a thread on invoice.md')
-    await expect(activity).toContainText('Ada Lovelace replied on invoice.md')
-    await expectAccessible(page, "the project's activity")
-    await activity.locator(':scope > li').filter({ hasText: 'commented on' }).getByRole('button', { name: 'invoice.md' }).click()
-    await expect(page).toHaveURL(/[?&]thread=\d+/)
-    await expect(page.getByRole('complementary', { name: 'Comments' }).getByRole('article')).toBeVisible()
-
-    // The audit log keeps each by the document's name, never a comment's words.
-    await page.goto('/organization/audit')
-    await page.getByLabel('What').selectOption('comment_added')
-    await expect(page.getByRole('listitem').filter({ hasText: 'Commented on a document' }).first()).toContainText('invoice.md · a reply')
   })
 })

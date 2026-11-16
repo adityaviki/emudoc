@@ -46,7 +46,7 @@ from app.jobs import LIVE, SEND_EMAIL, enqueue
 from app.keyring import Undecryptable, is_encrypted
 from app.mail import Block, Content, Link, LogMailer, Mailer, MailError, Message, compose
 from app.metrics import MAIL_SENT
-from app.models import NOTICE_CHANNELS, NOTICE_KINDS, Job, Organization, User
+from app.models import NOTICE_CHANNELS, NOTICE_KINDS, PAST_NOTICE_KINDS, Job, Organization, User
 
 if TYPE_CHECKING:
     # For the handler's signature alone: the pipeline posts notices through this module.
@@ -124,7 +124,8 @@ def unsubscribe_token(user_id: int, kind: str) -> str:
 @dataclass(frozen=True)
 class Unsubscriber:
     """Whose notices an unsubscribe token stops by email, and of which kind: None for every
-    kind, as a token made before the kinds were chosen apart says."""
+    kind, as a token made before the kinds were chosen apart says; one of PAST_NOTICE_KINDS,
+    mailed before that kind went, for nothing left to stop."""
 
     user_id: int
     kind: str | None
@@ -137,7 +138,7 @@ def unsubscriber(token: str) -> Unsubscriber | None:
         return None
     try:
         user_id, _, kind = keys().decrypt(token, UNSUBSCRIBE_PLACE).partition(":")
-        if kind and kind not in NOTICE_KINDS:
+        if kind and kind not in NOTICE_KINDS + PAST_NOTICE_KINDS:
             return None
         return Unsubscriber(int(user_id), kind or None)
     except (Undecryptable, ValueError):

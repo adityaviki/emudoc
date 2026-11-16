@@ -238,6 +238,12 @@ def test_the_link_in_a_notice_stops_its_kind_by_email_without_signing_in(client,
     elsewhere = keys().encrypt(str(account.user.id), TOTP_SECRETS.place(account.user.id))
     assert program.post("/api/mail/unsubscribe", params={"token": elsewhere}).status_code == 400
 
+    # A notice of a kind no longer told, mailed before comments went, has nothing left to stop.
+    past = keys().encrypt(f"{account.user.id}:mentioned", UNSUBSCRIBE_PLACE)
+    assert program.post("/api/mail/unsubscribe", params={"token": past}).status_code == 204
+    session.expire_all()
+    assert session.get(User, account.user.id).notices == {"checks_run": {"email": False}}
+
     # A notice mailed before the kinds were chosen apart names the user alone, and stops every
     # kind's email.
     before = keys().encrypt(str(account.user.id), UNSUBSCRIBE_PLACE)
@@ -257,8 +263,6 @@ def test_the_account_page_chooses_how_each_kind_of_notice_is_told(client, sessio
         {"kind": "review_assigned", "app": True, "email": True},
         {"kind": "report_ready", "app": True, "email": True},
         {"kind": "weekly_digest", "app": False, "email": False},
-        {"kind": "mentioned", "app": True, "email": True},
-        {"kind": "thread_replied", "app": True, "email": True},
     ]
     off = client.patch(
         "/api/auth/profile", json={"notices": [{"kind": "checks_run", "email": False}]}
@@ -275,6 +279,9 @@ def test_the_account_page_chooses_how_each_kind_of_notice_is_told(client, sessio
     assert session.scalar(select(func.count()).where(AuditEvent.action == "profile_changed")) == 1
     refused = client.patch("/api/auth/profile", json={"notices": [{"kind": "digest"}]})
     assert refused.status_code == 422
+    # Nor is a kind no longer told chosen.
+    past = client.patch("/api/auth/profile", json={"notices": [{"kind": "mentioned"}]})
+    assert past.status_code == 422
 
     # The provider said to spare the address: turning a kind off in the app writes to it no
     # more than before, and asking for one by email again writes to it again.
@@ -292,8 +299,6 @@ def test_the_account_page_chooses_how_each_kind_of_notice_is_told(client, sessio
         {"kind": "review_assigned", "app": True, "email": True},
         {"kind": "report_ready", "app": True, "email": True},
         {"kind": "weekly_digest", "app": False, "email": False},
-        {"kind": "mentioned", "app": True, "email": True},
-        {"kind": "thread_replied", "app": True, "email": True},
     ]
     assert not suppressed(session, "ada@example.com")
 

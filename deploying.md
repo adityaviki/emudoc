@@ -1747,14 +1747,11 @@ What the app mails, and to whom:
   (`put_in_review`); to whom a project's question set names (its maker, everyone who sees the
   project, or nobody; a member's own run to them), once its report is answered, the set's name
   and how many of its questions were answered, never a question or an answer (`tell_report` in
-  `backend/app/question_reports.py`); to a member who turned on the weekly digest (off until
+  `backend/app/question_reports.py`); and to a member who turned on the weekly digest (off until
   chosen, by them or as the organisation's default), on Monday from 08:00 of their zone, the
   documents that arrived over the week in each project of the organisation they see, by name
   and count, nothing for a week with none (`backend/app/digests.py`: a `send_digests` job that
-  wakes at the top of every hour, queued again by the housekeeper when lost); to a member
-  another mentioned in a comment, and to the earlier writers of a thread another replied in, who
-  wrote and on which document, never the comment's words, in the comment's transaction and only
-  while they see the project (`tell_comment` in `backend/app/comments.py`). Each notice
+  wakes at the top of every hour, queued again by the housekeeper when lost). Each notice
   is told twice, in the same transaction: in the member's notification centre, under the bell
   in the app's header (`notifications`, kept `NOTIFICATION_DAYS`, 90, read or not, and gone
   with the membership of the organisation it is about), and by email. A member chooses each

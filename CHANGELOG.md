@@ -14,6 +14,29 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 
 ## Unreleased
 
+### Users
+
+- Comments are gone, with their mentions: a document's tab no longer offers "Comments" or
+  "Comment on this", and nobody is told of a mention or of a reply in a thread. Write what the
+  project's members should know about a document in its note, or ask the agent about it in a
+  chat shared with the project. The notices of a mention or a reply already under the bell stay
+  until they are pruned, and still open their document.
+- The library's "Activity" is gone. "Recent" still lists the documents you opened lately, and the
+  workspace's owners and admins read what was done in each project in its audit log.
+
+### Admins
+
+- Migration 7e532b9ccb61 drops the `comment_threads` and `comments` tables with the threads and
+  comments in them, and what the members and the workspace chose for the notices of a mention
+  and of a reply in a thread; a downgrade makes the tables again, empty.
+  `GET|POST /api/documents/{id}/threads`, `POST /api/threads/{id}/comments`,
+  `PATCH /api/threads/{id}`, `PATCH|DELETE /api/comments/{id}`,
+  `GET /api/projects/{id}/mentionable` and `GET /api/projects/{id}/activity` are gone, for API
+  keys too; `/api/v1` and the webhooks' events are unchanged. A project's export no longer
+  lists its documents' `threads`, nor an account's export its `comments`. The notices of the two kinds already sent stay in the notification
+  centres until they are pruned, and the audit log's `comment_added`, `comment_deleted`,
+  `thread_resolved` and `thread_reopened` entries stay and still read.
+
 ## 0.1.0 (2026-11-14)
 
 ### Users

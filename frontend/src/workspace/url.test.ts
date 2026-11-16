@@ -116,8 +116,6 @@ describe('buildWorkspaceUrl', () => {
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, report: 12 } })).toBe('/projects/3?report=12')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, reviews: 'all' } })).toBe('/projects/3?reviews=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, reviews: 'mine' } })).toBe('/projects/3?reviews=mine')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, activity: true } })).toBe('/projects/3?activity=')
-    expect(buildWorkspaceUrl({ ...home, document: { id: 41, focus: { thread: 5 } } })).toBe('/projects/3/documents/41?thread=5')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, writingTemplates: true } })).toBe('/projects/3?writing-templates=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, mail: true } })).toBe('/projects/3?mail=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, connectors: true } })).toBe('/projects/3?connectors=')
@@ -150,7 +148,6 @@ describe('buildWorkspaceUrl', () => {
       { ...home, library: { folderId: null, report: 12 }, document: { id: 41, focus: { passage: 812 } } },
       { ...home, library: { folderId: null, reviews: 'all' }, chatId: 12 },
       { ...home, library: { folderId: null, reviews: 'mine' }, document: { id: 41, focus: null } },
-      { ...home, library: { folderId: null, activity: true }, document: { id: 41, focus: { thread: 5 } } },
       { ...home, library: { folderId: null, writingTemplates: true }, chatId: 12 },
       { ...home, library: { folderId: null, mail: true }, chatId: 12 },
       { ...home, library: { folderId: null, connectors: true } },
@@ -167,6 +164,8 @@ describe('buildWorkspaceUrl', () => {
     expect(buildWorkspaceUrl(parse('/projects/3/ask/5')!)).toBe('/projects/3?chat=5')
     expect(buildWorkspaceUrl(parse('/projects/3/search?folder=7&q=notice')!)).toBe('/projects/3?folder=7&q=notice')
     expect(buildWorkspaceUrl(parse('/projects/3/documents/41?recent&name=inv')!)).toBe('/projects/3/documents/41?q=inv&recent=')
+    // A notice's link to a thread of comments, from before they went, opens its document.
+    expect(buildWorkspaceUrl(parse('/projects/3/documents/41?thread=5')!)).toBe('/projects/3/documents/41')
   })
 })
 

@@ -1,27 +1,5 @@
 # Working together
 
-## Comments
-
-Talk about a document where it is. **Comments**, on a document's tab, says how many threads are
-open and opens them beside the text. Choose words in the text, or open a passage from a
-citation, and press **New comment** to start a thread about them, or comment on the whole
-document; the words chosen head the thread, and a click on them shows them in the text, after a
-new reading or a new version too. Type "@" to mention a member who sees the project: they are
-told who mentioned them and on which document, never your words ($told), and the members who
-wrote in a thread are told of a reply. **Resolve** a thread once it is settled; the resolved
-threads fold away under "Show … resolved", and "Open again" brings one back. A comment can be up
-to $comment_chars characters. Everyone who reads the project comments, viewers too; you edit and
-delete your own comments, and the workspace's owners and admins may delete any. The assistant does not
-read comments, and a search does not find them.
-
-## The project's activity
-
-**Activity**, among the library's buttons, lists what was done in the project lately, newest
-first: its uploads and new versions, what was deleted and restored, reviews, comments, runs of
-its cross-checks and question sets, and chats shared. Each line opens what it was about
-while that is still there, and one member's uploads close together are one line. Everyone who
-sees the project reads it, for as long as the workspace's audit log keeps its entries.
-
 ## My files
 
 **My files**, among the library's buttons, holds your own Word documents and Excel workbooks in

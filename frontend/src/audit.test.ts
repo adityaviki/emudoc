@@ -310,7 +310,7 @@ describe('a row', () => {
     )
   })
 
-  it("words a comment by its document, never its words, and whose an owner or admin deleted", () => {
+  it("words a comment, from before comments went, by its document, never its words, and whose an owner or admin deleted", () => {
     const names = new Map([[9, 'Bob']])
     expect(describeDetail(event('comment_added', { filename: 'terms.txt', thread: 3, reply: false }))).toBe('terms.txt')
     expect(describeDetail(event('comment_added', { filename: 'terms.txt', thread: 3, reply: true }))).toBe('terms.txt · a reply')
@@ -334,6 +334,10 @@ describe('a row', () => {
     expect(setting({ setting: 'audit_days', from: 365, to: null })).toBe('Audit log kept: 365 days → until deleted')
     expect(setting({ setting: 'notices', kind: 'checks_run', way: 'email', from: true, to: false })).toBe(
       'An automation ran the cross-checks, by email: off',
+    )
+    // A kind no longer told, chosen before comments went.
+    expect(setting({ setting: 'notices', kind: 'mentioned', way: 'app', from: true, to: false })).toBe(
+      'You are mentioned in a comment, in the app: off',
     )
   })
 })

@@ -12,7 +12,7 @@ passages it read so that you can check each answer against its source.
    contract's prices?" The answer cites the passages it used; click a citation to open the
    document at that passage ([Searching and asking](/help/asking)).
 4. **Check and share the work**: read the facts of every invoice in one table, compare them
-   with the contract and the price list, put documents in review and comment on them
+   with the contract and the price list, and put documents in review
    ([Facts, checks and reviews](/help/checking), [Working together](/help/working-together)).
 5. **Bring your team in**: the workspace's owners and admins invite them from its
    [page](/organization) ([The workspace, members and roles](/help/workspace)).

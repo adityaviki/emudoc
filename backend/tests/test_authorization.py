@@ -47,8 +47,7 @@ class World:
     question, and in its trash a folder, a document and a chat; another project in the trash; an
     invitation to the organisation and an API key of it, all made by the local owner in the local
     organisation, and another member of it; the project has an address, a folder of the
-    owner's Google Drive connected, and its document a share link and a thread of the owner's
-    comment."""
+    owner's Google Drive connected, and its document a share link."""
 
     org_id: int
     project_id: int
@@ -77,8 +76,6 @@ class World:
     link_id: int
     question_set_id: int
     report_id: int
-    thread_id: int
-    comment_id: int
     my_file_id: int
     writing_id: int
 
@@ -99,8 +96,6 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
     assert client.post(f"/api/documents/{document['id']}/versions", files=signed).status_code == 201
     process_document(document["id"], services)
     link = client.post(f"/api/documents/{document['id']}/share-links", json={})
-    thread = client.post(f"/api/documents/{document['id']}/threads", json={"text": "Signed?"})
-    assert thread.status_code == 201, thread.text
     chat = new_chat(client, project["id"])
     services.llm.agent_turns.append(FakeTurn(TextPart("Nothing is due.")))
     asked = ask(client, chat["id"], "What is due?")
@@ -191,8 +186,6 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
         link.json()["id"],
         question_set.json()["id"],
         report["id"],
-        thread.json()["id"],
-        thread.json()["comments"][0]["id"],
         my_file.json()["id"],
         writing.json()["id"],
     )
@@ -243,9 +236,6 @@ def reads(w: World) -> list[Route]:
         ("GET", f"/api/documents/{w.document_id}/content", {}),
         ("GET", f"/api/documents/{w.document_id}/facts", {}),
         ("GET", f"/api/documents/{w.document_id}/note", {}),
-        ("GET", f"/api/documents/{w.document_id}/threads", {}),
-        ("GET", f"/api/projects/{w.project_id}/mentionable", {}),
-        ("GET", f"/api/projects/{w.project_id}/activity", {}),
         ("GET", f"/api/documents/{w.document_id}/copies", {}),
         ("GET", f"/api/documents/{w.document_id}/share-links", {}),
         ("GET", f"/api/documents/{w.document_id}/versions", {}),
@@ -397,25 +387,6 @@ def marks(w: World) -> list[Route]:
     ]
 
 
-def talk(w: World) -> list[Route]:
-    """What a reader writes in a document's comments, which a viewer does too, since a comment
-    changes no document (test_comments.py): a thread started, a reply, a thread resolved."""
-    return [
-        ("POST", f"/api/documents/{w.document_id}/threads", {"json": {"text": "Mine."}}),
-        ("POST", f"/api/threads/{w.thread_id}/comments", {"json": {"text": "Yes."}}),
-        ("PATCH", f"/api/threads/{w.thread_id}", {"json": {"resolved": True}}),
-    ]
-
-
-def comment(w: World) -> list[Route]:
-    """Changing and deleting a comment, which are its writer's, and deleting it an owner's or
-    admin's too."""
-    return [
-        ("PATCH", f"/api/comments/{w.comment_id}", {"json": {"text": "Signed."}}),
-        ("DELETE", f"/api/comments/{w.comment_id}", {}),
-    ]
-
-
 def chat_writes(w: World) -> list[Route]:
     """The routes that change a chat or ask in it, which stay its starter's when it is shared."""
     return [
@@ -557,8 +528,6 @@ def scoped(w: World) -> list[Route]:
         + answer_links(w)
         + members(w)
         + marks(w)
-        + talk(w)
-        + comment(w)
         + keeps(w)
         + own_files(w)
     )
@@ -644,8 +613,6 @@ def test_a_private_project_is_found_by_nobody_else(client, world, account, make_
         + links(world)
         + answer_links(world)
         + marks(world)
-        + talk(world)
-        + comment(world)
         + keeps(world)
         + own_files(world)
     )
@@ -662,8 +629,6 @@ def test_a_private_project_is_found_by_nobody_else(client, world, account, make_
         assert set(shown.values()) == {200}, shown
         marked = statuses(client, marks(world))
         assert set(marked.values()) == {204}, marked
-        written = statuses(client, talk(world))
-        assert set(written.values()) <= {200, 201}, written
         # The owner's My files are the owner's alone, an admin's sight included.
         hidden = statuses(client, own_files(world))
         assert set(hidden.values()) == {404}, hidden
@@ -676,11 +641,7 @@ def test_a_viewer_can_read_but_not_change(client, world, account, make_account, 
     assert set(seen.values()) == {200}, seen
     marked = statuses(client, marks(world))
     assert set(marked.values()) == {204}, marked
-    written = statuses(client, talk(world))
-    assert set(written.values()) <= {200, 201}, written
-    refused = statuses(
-        client, writes(world) + trash_writes(world) + trashed_project(world) + comment(world)
-    )
+    refused = statuses(client, writes(world) + trash_writes(world) + trashed_project(world))
     assert set(refused.values()) == {403}, refused
     # A viewer keeps My files of their own, changing nothing the members share.
     kept = statuses(client, keeps(world))
@@ -718,9 +679,6 @@ def test_a_member_can_change_things(client, world, account, make_account, act_as
         client, invitations(world) + keys(world) + webhooks(world) + links(world) + members(world)
     )
     assert set(managed.values()) == {403}, managed
-    # Another's comment is its writer's to change, and an owner's or admin's to delete.
-    others = statuses(client, comment(world))
-    assert set(others.values()) == {403}, others
 
 
 def test_chats_are_private_until_shared(client, services, world, account, make_account, act_as):
