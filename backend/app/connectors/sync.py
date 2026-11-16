@@ -13,7 +13,7 @@ stands in the library; one whose document is being indexed waits for the next sy
 document of a file that is no longer below the folder goes to the project's trash, which keeps
 it TRASH_DAYS, so that a file moved by mistake at the service costs no chat its sources. The
 documents a sync keeps or gives new versions are one upload, its member's, so that its notice
-and the project's automations follow as any upload's do.
+follows as any upload's does.
 
 A file is read once per version: one the project keeps, rejects or deleted is not read again
 until its version changes, so a document a member deleted stays deleted while its file stays as
@@ -607,8 +607,7 @@ class Sync:
         CONNECTOR_FILES.labels("rejected").inc()
 
     def _upload(self) -> None:
-        """The documents this sync kept, as their member's upload, whose notice and the
-        project's automations follow."""
+        """The documents this sync kept, as their member's upload, whose notice follows."""
         if not self.kept:
             return
         kept, self.kept = self.kept, []

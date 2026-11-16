@@ -16,6 +16,14 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 
 ### Users
 
+- Cross-checks are gone, with their runs and discrepancy reports: the library no longer offers
+  "Cross-checks", whose rules compared a fact of one kind of document with another's, and no run
+  keeps what they found. Ask the agent in a chat to check documents against each other instead,
+  an invoice against its purchase order or the price list: it compares their facts and cites
+  where each figure is written, as any answer does.
+- Automations are gone: no check runs on its own as documents arrive, and nobody is told what
+  one found. The notices of an automation's run already under the bell stay until they are
+  pruned, and open the project.
 - Question sets are gone, with their reports: the library no longer offers "Question sets", and
   no set asks its questions every day, one day a week or as documents arrive. Ask the agent the
   same questions in a chat when you want them answered: it answers from the documents as they
@@ -44,6 +52,33 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 
 ### Admins
 
+- Migration b8ee7b962950 drops the `cross_checks`, `workflow_runs`, `workflow_findings`,
+  `automations`, `automation_checks` and `automation_arrivals` tables with the rules, the runs
+  with what they found and their reports, the automations and the documents waiting for them,
+  the `run_workflow` and `run_automation` jobs, queued or kept, with their kinds, and what the
+  members and the workspace chose for the notice of an automation's run; every webhook stops
+  listening for `check_run.completed`, one that listened for nothing else hearing nothing until
+  an admin chooses its events again, and the delivery log's entries of that event go with the
+  tries still waiting. A webhook now hears of the documents alone. A downgrade makes the tables
+  again, empty. `GET|POST /api/projects/{id}/cross-checks`, `PUT|DELETE /api/cross-checks/{id}`,
+  `GET /api/cross-checks/{id}/findings`, `GET|POST /api/projects/{id}/check-runs`,
+  `GET|DELETE /api/check-runs/{id}`, `GET /api/check-runs/{id}/findings`,
+  `POST /api/check-runs/{id}/report`, `GET|POST /api/projects/{id}/automations` and
+  `PUT|DELETE /api/automations/{id}` are gone, for API keys too, and so is the setting
+  `AUTOMATION_WAIT`, which an `.env` may drop (one that still sets it is ignored); the worker's
+  answerer threads (`ANSWER_CONCURRENCY`) run the answers alone. A break of `/api/v1`:
+  `GET /api/v1/projects/{id}/cross-checks`, `GET|POST /api/v1/projects/{id}/check-runs`,
+  `GET /api/v1/check-runs/{id}` and `GET /api/v1/check-runs/{id}/findings` are gone with their
+  `CrossCheck`, `CrossCheckList`, `NewCheckRun`, `CheckRun`, `CheckRunList`, `Rule`,
+  `FindingCounts`, `Finding`, `FindingList` and `Partner`, and the webhook event
+  `check_run.completed` (`CheckRunEvent`) is no longer sent, nor may a webhook choose it (0.1.0
+  promised nothing more before 1.0); the contract is written again without them. The notices of
+  an automation's run already sent stay in the notification centres until they are pruned; the
+  audit log's `cross_check_created`, `cross_check_changed`, `cross_check_deleted`,
+  `cross_checks_run`, `check_report_requested`, `check_run_deleted`, `automation_created`,
+  `automation_changed` and `automation_deleted` entries stay and still read, and so do the usage
+  rows of the reports, of the kind `report`, which the Administration page's costs list by that
+  kind, and the questions their asking counted.
 - Migration f149fd1a2183 drops the `question_sets`, `question_set_arrivals` and `question_reports`
   tables with the sets, the documents waiting for them and the reports in them, the column
   `digested_on` of `memberships`, the `run_question_set`, `write_question_report` and

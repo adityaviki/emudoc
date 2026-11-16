@@ -108,12 +108,6 @@ export interface Workspace {
   showFacts(kind: string): void
   /** Shows what the last readings of the project's documents of a kind changed, likewise. */
   showChanges(kind: string): void
-  /** Shows the project's cross-checks in the library, likewise. */
-  showChecks(): void
-  /** Shows what one of the project's cross-checks finds in the library, likewise. */
-  showFindings(checkId: number): void
-  /** Shows a run of the project's cross-checks, kept with what it found, in the library, likewise. */
-  showRun(runId: number): void
   /** Shows the project's address, whose mail becomes its documents, in the library, likewise. */
   showMailbox(): void
   /** Shows the member's own files in the project, their My files, in the library, likewise. */

@@ -14,16 +14,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, StringConstraints
 
-from app.schemas import (
-    ChatVisibility,
-    FactType,
-    FindingOutcome,
-    FindingReason,
-    MessageStatus,
-    ProjectVisibility,
-    ReportStatus,
-    RunStatus,
-)
+from app.schemas import ChatVisibility, FactType, MessageStatus, ProjectVisibility
 
 _Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
@@ -393,105 +384,6 @@ class Asked(BaseModel):
     answer: Message
 
 
-class CrossCheck(BaseModel):
-    """A rule a project's documents are checked against one another by, and why it cannot be
-    worked out with the project's templates as they are now, if it cannot."""
-
-    id: int
-    title: str
-    problem: str | None
-
-
-class CrossCheckList(BaseModel):
-    """A project's cross-checks, by name."""
-
-    data: list[CrossCheck]
-    next: str | None
-
-
-class NewCheckRun(BaseModel):
-    """A run of the project's cross-checks, those named or all of them, and whether the agent
-    writes a discrepancy report once they are worked out, which counts as a question."""
-
-    check_ids: list[int] | None = Field(default=None, min_length=1, max_length=100)
-    report: bool = Field(False, examples=[True])
-
-
-class FindingCounts(BaseModel):
-    differs: int
-    missing: int
-    holds: int
-
-
-class Rule(BaseModel):
-    """A rule of a run as it was when the run was made, by its place in the run (`rule` of its
-    findings), the cross-check's id and name, and once the run is worked out why it could not be
-    or what it found."""
-
-    rule: int
-    check_id: int
-    title: str
-    problem: str | None
-    counts: FindingCounts | None
-
-
-class CheckRun(BaseModel):
-    """A run of a project's cross-checks. `status` is `queued` or `running` until it is worked
-    out, then `done` or `failed`; `report_status` is the discrepancy report's, None when none was
-    asked for. The report cites the passages of `report_sources` as [P<id>]."""
-
-    id: int
-    project_id: int
-    status: RunStatus
-    report_status: ReportStatus | None
-    rules: list[Rule]
-    counts: FindingCounts | None
-    error: str | None
-    report: str
-    report_sources: list[Source]
-    report_error: str | None
-    created_at: dt.datetime
-    finished_at: dt.datetime | None
-
-
-class CheckRunList(BaseModel):
-    """A page of a project's runs, the newest first."""
-
-    data: list[CheckRun]
-    next: str | None
-
-
-class Partner(BaseModel):
-    document_id: int
-    title: str
-
-
-class Finding(BaseModel):
-    """What a rule of a run found for a value of a document: whether it differs, is missing or
-    holds, and why; the fact checked and those it was compared with, as they were read when the
-    run was made; the documents paired with it; and the checked value less the other (or their
-    sum), in days for dates."""
-
-    document_id: int
-    title: str
-    filename: str
-    outcome: FindingOutcome
-    reason: FindingReason
-    left: Fact | None
-    right: list[Fact]
-    partners: list[Partner]
-    difference: float | None
-
-
-class FindingList(BaseModel):
-    """A page of what one rule of a run found, differing first, then missing, then holding, and
-    how many of the outcome asked for (or of all) it found."""
-
-    data: list[Finding]
-    total: int
-    next: str | None
-
-
 class DocumentEvent(BaseModel):
     """A document's indexing ended, posted to the organisation's webhooks that listen for it:
     `document.ready` once it can be searched and asked about (`data.partly_indexed` says whether
@@ -502,15 +394,3 @@ class DocumentEvent(BaseModel):
     type: Literal["document.ready", "document.failed"]
     created_at: dt.datetime
     data: Document
-
-
-class CheckRunEvent(BaseModel):
-    """A run of a project's cross-checks worked out, or failed, and its discrepancy report
-    written or failed when one was asked for, posted to the organisation's webhooks that listen
-    for it. A report asked for after the run is announced again once it is written. `id` names
-    the event, the same in every try of it."""
-
-    id: str
-    type: Literal["check_run.completed"]
-    created_at: dt.datetime
-    data: CheckRun

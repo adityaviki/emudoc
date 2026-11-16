@@ -17,7 +17,7 @@ modules, so that a client generated from the schema keeps its names.
 from fastapi import APIRouter, Depends
 from fastapi.routing import APIRoute
 
-from app.api.v1 import chats, library, query, runs, status
+from app.api.v1 import chats, library, query, status
 from app.api.v1.deps import ERRORS, require_key
 
 
@@ -30,7 +30,6 @@ ROUTERS = (
     library.router,
     query.router,
     chats.router,
-    runs.router,
 )
 
 router = APIRouter(

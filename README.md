@@ -23,8 +23,9 @@ you choose.
 - **Extract**: each document is read for its kind (an invoice, a contract, a purchase order, a
   price list, or a template of your own) into a facts table you sort, filter, check and correct,
   and download as CSV.
-- **Verify**: cross-checks compare documents' facts (an invoice against its purchase order, the
-  contract, the price list) when you ask or as documents arrive.
+- **Verify**: ask the agent in a chat to check documents against each other (an invoice against
+  its purchase order, the contract, the price list) and it compares their facts, citing where
+  each figure is written.
 - **Create**: the agent writes letters, replies, memos and reports from the documents as Word
   documents in your own files, to your project's templates, and makes and edits Excel
   workbooks; ask in a chat for a disputed invoice's dispute letter and it is in your files.

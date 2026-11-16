@@ -2,7 +2,7 @@
 request being carried out twice.
 
 A request to the versioned API (app/api/v1/) that makes something (a project, a folder, an
-upload, a chat, a question, a run of the cross-checks) may carry an `Idempotency-Key` header: a
+upload, a chat, a question) may carry an `Idempotency-Key` header: a
 string of the program's own, a UUID say, of at most MAX_LENGTH characters, as the IETF's draft of
 the header has it (draft-ietf-httpapi-idempotency-key-header). The first request with a key
 claims it for the API key that sent it, in a row committed before the work begins, with the

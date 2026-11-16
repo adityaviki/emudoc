@@ -156,7 +156,7 @@ def upload_version(
     except VersionRefused as refused:
         session.rollback()
         raise HTTPException(REFUSED.get(refused.label, 400), refused.reason) from None
-    # The new file is an upload of its own, whose notice and automations follow its reading.
+    # The new file is an upload of its own, whose notice follows its reading.
     if upload_id := record_upload(session, project.id, account.user.id, [document.id]):
         session.commit()
         settle_upload(session, upload_id, app_url(request))

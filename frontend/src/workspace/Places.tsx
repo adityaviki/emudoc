@@ -2,12 +2,11 @@ import { ArrowDownUp, Clock, Folder as FolderIcon, LayoutGrid, List, Star, Trash
 import type { LucideIcon } from 'lucide-react'
 import { useId, useRef, useState } from 'react'
 import type { DocumentFilter, DocumentType, Folder, ListingPlace } from '../api.ts'
-import { folderChoices } from '../automations.ts'
 import { Confirm } from '../components/Confirm.tsx'
 import type { MenuItem } from '../components/Menu.tsx'
 import { Checkbox, FIELD, IconButton, SelectField } from '../components/ui.tsx'
 import { useContextMenu } from '../components/useContextMenu.tsx'
-import { FIRST_ORDER, MAX_WITHIN, SORTS, SORT_NAMES, allNamed, datesProblem, filterWords, sortWords } from '../library.ts'
+import { FIRST_ORDER, MAX_WITHIN, SORTS, SORT_NAMES, allNamed, datesProblem, filterWords, folderChoices, sortWords } from '../library.ts'
 import type { LibraryLayout } from '../library.ts'
 import type { Arrangement } from './listing.ts'
 

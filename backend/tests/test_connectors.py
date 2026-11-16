@@ -30,8 +30,8 @@ from app.encrypted import CONNECTOR_TOKENS, decrypt
 from app.jobs import SYNC_CONNECTOR
 from app.models import AuditEvent, Connector, ConnectorFile, Document, Job, Membership, Upload
 from tests.test_api import create_project
-from tests.test_automations import next_job
 from tests.test_folders import make_folder
+from tests.test_jobs import next_job
 from tests.test_metrics import Counted
 from tests.test_versions import versions
 

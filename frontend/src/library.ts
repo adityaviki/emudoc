@@ -3,7 +3,7 @@
 // its cursor.
 
 import { THUMBNAIL_TYPES } from './api.ts'
-import type { Document, DocumentFilter, DocumentSort, ListingPlace, SortOrder } from './api.ts'
+import type { Document, DocumentFilter, DocumentSort, Folder, ListingPlace, SortOrder } from './api.ts'
 import { formatDate } from './format.ts'
 import { scanPassed } from './indexing.ts'
 import type { LibraryView } from './workspace/url.ts'
@@ -136,4 +136,27 @@ export function gridMove(key: string, index: number, columns: number, count: num
   // Down from a row above a shorter last one goes to the last tile; nothing else moves past either end.
   if (key === 'ArrowDown' && target >= count) return rowStart + columns < count ? count - 1 : null
   return target >= 0 && target < count ? target : null
+}
+
+/** A folder a form offers, named by its path from the project's top. */
+export interface FolderChoice {
+  id: number
+  label: string
+}
+
+/** The project's folders in the library's order, each by its path: "Inbox", "Inbox/Invoices". */
+export function folderChoices(folders: Folder[]): FolderChoice[] {
+  const children = new Map<number | null, Folder[]>()
+  for (const folder of folders) children.set(folder.parent_id, [...(children.get(folder.parent_id) ?? []), folder])
+  const found: FolderChoice[] = []
+  const visit = (parentId: number | null, path: string) => {
+    const sorted = [...(children.get(parentId) ?? [])].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }))
+    for (const folder of sorted) {
+      const label = path ? `${path}/${folder.name}` : folder.name
+      found.push({ id: folder.id, label })
+      visit(folder.id, label)
+    }
+  }
+  visit(null, '')
+  return found
 }

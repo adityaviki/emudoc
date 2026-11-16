@@ -143,7 +143,6 @@ from app.ratelimit import prune_rate_limits
 from app.restore import after_restore, describe_restore
 from app.retention import (
     prune_chats,
-    prune_runs,
     purge_due_accounts,
     reapply_erasures,
 )
@@ -533,7 +532,6 @@ def housekeeping(storage: Storage) -> None:
         answers_kept = prune_idempotency_keys(connection)
         deliveries = prune_deliveries(connection)
         chats = prune_chats(connection)
-        runs = prune_runs(connection)
         audited = prune_audit(connection)
         credentials = prune_credentials(connection)
         spared = prune_suppressions(connection)
@@ -579,11 +577,6 @@ def housekeeping(storage: Storage) -> None:
         )
     if chats:
         log.info("Housekeeping: deleted %s chats kept past the workspace's retention", chats)
-    if runs:
-        log.info(
-            "Housekeeping: deleted %s runs of cross-checks kept past the workspace's retention",
-            runs,
-        )
     if emptied.projects or emptied.folders or emptied.documents or emptied.chats:
         log.info(
             "Housekeeping: deleted for good what was in the trash for %s days: %s projects, "

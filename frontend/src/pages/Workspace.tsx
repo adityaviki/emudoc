@@ -173,18 +173,6 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
         setMobilePane('library')
         go({ library: { folderId: null, changes: kind } })
       },
-      showChecks() {
-        setMobilePane('library')
-        go({ library: { folderId: null, checks: true } })
-      },
-      showFindings(checkId) {
-        setMobilePane('library')
-        go({ library: { folderId: null, check: checkId } })
-      },
-      showRun(runId) {
-        setMobilePane('library')
-        go({ library: { folderId: null, run: runId } })
-      },
       showMailbox() {
         setMobilePane('library')
         go({ library: { folderId: null, mail: true } })

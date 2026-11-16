@@ -15,10 +15,6 @@ export const NOTICE_KINDS: Record<NoticeKind, { label: string; detail: string }>
     label: 'A project export is ready',
     detail: 'When the export of a project you asked for is ready to download, or could not be made.',
   },
-  checks_run: {
-    label: 'An automation ran the cross-checks',
-    detail: 'When documents arrived and an automation that tells you ran a project’s cross-checks: what they found about them.',
-  },
 }
 
 /** The kinds of notice no longer told, as the account page named them, for the audit log's rows of a choice made before they went. */
@@ -28,6 +24,7 @@ export const PAST_NOTICE_KINDS: Record<PastNoticeKind, string> = {
   review_assigned: 'A document is assigned to you',
   report_ready: 'A question set’s report is ready',
   weekly_digest: 'What arrived this week',
+  checks_run: 'An automation ran the cross-checks',
 }
 
 /** Where the notices are kept in the cache: the newest page, which the bell asks every minute. */

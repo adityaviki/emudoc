@@ -67,8 +67,6 @@ from app.jobs import (
     QUEUE_BY_STATE,
     RECEIVE_MAIL,
     RENDER_PAGES,
-    RUN_AUTOMATION,
-    RUN_WORKFLOW,
     SEND_EMAIL,
     SYNC_CONNECTOR,
 )
@@ -104,8 +102,6 @@ JOBS = (
     SEND_EMAIL,
     APPLY_LANGUAGE,
     EXPORT_PROJECT,
-    RUN_WORKFLOW,
-    RUN_AUTOMATION,
     RECEIVE_MAIL,
     SYNC_CONNECTOR,
     DELIVER_WEBHOOK,
@@ -772,4 +768,4 @@ def lane_of(kind: str) -> str:
     """The lane of the worker's threads that runs a job of `kind` (app/worker.py)."""
     if kind == SEND_EMAIL:
         return MAILER
-    return ANSWERER if kind in (ANSWER_QUESTION, RUN_WORKFLOW, RUN_AUTOMATION) else INDEXER
+    return ANSWERER if kind == ANSWER_QUESTION else INDEXER

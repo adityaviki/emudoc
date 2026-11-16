@@ -1177,9 +1177,9 @@ failed answer whole, the versions of the prompts and what the run cost, and exit
 instruction was followed or an answer was not right. Run it after a change to the agent's or the
 indexing model's prompts and after changing either model.
 
-**The prompts' versions.** Each kind of model work (an answer, a discrepancy report, reading a
-scan, finding a document's sections, enriching it, the golden questions' judge) asks with prompts
-whose version is the first
+**The prompts' versions.** Each kind of model work (an answer, reading a scan, finding a
+document's sections, enriching it, the golden questions' judge) asks with prompts whose version
+is the first
 eight hex digits of a hash of what the model is told for it (`backend/app/prompts.py`): its
 instructions, the tools it is offered and the schema of its reply, never the documents or the
 member's words. Nobody bumps a version: an edit to any of them gives a new one with the release
@@ -1736,11 +1736,8 @@ What the app mails, and to whom:
   ready, failed or set apart by the scan with no retry waiting, if that took five minutes or
   more (`NOTICE_AFTER`; an upload indexed sooner was most likely watched in the library, which
   says as much), one message for the whole upload naming the files that could not be indexed
-  and why, as the library words it; to the members a project's automation names (its maker,
-  everyone who sees the project, or nobody), once the run it made after documents arrived is
-  worked out and its report written or failed, what its cross-checks found about them, in counts
-  and file names, never a value a document states, and nothing when they found nothing about them
-  (`tell_run` in `backend/app/check_runs.py`). Each notice is told twice, in the same
+  and why, as the library words it; and to the member who asked for a project's export, once it
+  is ready or could not be made (`backend/app/export.py`). Each notice is told twice, in the same
   transaction: in the member's notification centre, under the bell in the app's header
   (`notifications`, kept `NOTIFICATION_DAYS`, 90, read or not, and gone with the membership of
   the organisation it is about), and by email. A member chooses each way of each kind on the
@@ -1991,8 +1988,8 @@ changes. A sync takes at most 100 files (`ROUND_FILES`) and queues the next at o
 wait; a folder of more than 5,000 files below it (`MAX_FILES`) syncs nothing. Nothing goes to
 the trash unless the folder was read whole: a service that stops answering, a folder deleted or
 no longer shared, leaves every document as it is and the connector says why. The documents a
-sync keeps are one upload, its member's, told of as their uploads are, which the project's
-automations see arrive; their audit rows say which service they came from, and the documents a
+sync keeps are one upload, its member's, told of as their uploads are; their audit rows say
+which service they came from, and the documents a
 sync puts in the trash are rows of their own.
 
 A connector pauses, and its member connects it again, when the service no longer takes the grant
@@ -2060,11 +2057,9 @@ production refuses.
 
 An organisation's owners and admins give its programs addresses to hear of its work at
 (`backend/app/webhooks.py`; the organisation page's Webhooks section says how a program checks a signature): `document.ready` and
-`document.failed` once a document's indexing ended and none is to run after it,
-`check_run.completed` once a run of cross-checks is worked out and its report, when asked for,
-written. The end of the job that brings each about announces it, and each delivery is a job of
-its own, `deliver_webhook`, with the indexers: the body is the versioned API's document or run
-in an envelope (`{id, type, created_at, data}`, listed in the contract's `webhooks`), signed
+`document.failed` once a document's indexing ended and none is to run after it. The end of the
+job that brings each about announces it, and each delivery is a job of its own,
+`deliver_webhook`, with the indexers: the body is the versioned API's document in an envelope (`{id, type, created_at, data}`, listed in the contract's `webhooks`), signed
 with the webhook's secret as Stripe signs its own (`Emudoc-Signature: t=…,v1=…`), the secret
 kept encrypted with `ENCRYPTION_KEYS` ("The encryption keys", whose `encrypt-secrets` covers it).
 Anything but a 2xx within 10 seconds is tried again, the wait doubling from a minute, 12 times
@@ -2082,8 +2077,7 @@ environment (`HTTPS_PROXY` is not read), so a deployment whose egress must go th
 sends no webhooks. Development, whose receivers run beside it, takes both. The log names a
 delivery by its id and the event, never the address; `emudoc_webhook_deliveries_total` counts
 the tries by how they ended ("Metrics"). What the addresses receive (a document's name, title,
-summary and how far it is indexed; a run's counts and report) goes to a company the
-organisation chose.
+summary and how far it is indexed) goes to a company the organisation chose.
 
 ## Retention and deletion
 
@@ -2095,10 +2089,6 @@ every six hours), and so what a team can tell its members is kept, and for how l
   question is older (`prune_chats` in `backend/app/retention.py`), and a chat whose answer is
   still being written stays until it is settled. A chat in the trash goes at whichever comes
   first, this or the trash's 30 days.
-- **Runs of cross-checks** (`workflow_runs`, with their findings and reports,
-  `backend/app/check_runs.py`) go as a chat would, counted from when the run was made
-  (`prune_runs` in `backend/app/retention.py`), never one the worker is still working out or
-  writing a report for.
 - **The trash**: a project, folder, document or chat a member deleted goes for good, rows and
   files, 30 days after it was deleted (`TRASH_DAYS` in `backend/app/trash.py`, `purge_trash` in
   the housekeeping round), unless a member restores it or deletes it for good there first. Its
@@ -2111,7 +2101,7 @@ every six hours), and so what a team can tell its members is kept, and for how l
   to the versioned API with a request that made something, and the answer it was given, which
   names what it made, go a day after the key was claimed (`KEPT`), or with the API key.
 - **Webhooks' delivery logs** (`webhook_deliveries`, `backend/app/webhooks.py`): which event
-  went to which webhook, about which document or run, and how its address answered, go 30 days
+  went to which webhook, about which document, and how its address answered, go 30 days
   after the event (`DELIVERIES_KEPT`), or with the webhook; a try's job holds the event's body
   until the try is done with it.
 - **Invitations** go when they are accepted or revoked, and an expired one 30 days after it
@@ -2131,10 +2121,8 @@ every six hours), and so what a team can tell its members is kept, and for how l
   succeeded at the purge by the next member in role and seniority (logged as a warning). The
   log names accounts by id only.
 - **What the notices were about** ("Mail"): an upload's row, which names who sent
-  its files, stays as long as its project, and forgets them when their account goes; a document
-  waiting for an automation's run (`automation_arrivals`) goes as the run is made, within a
-  quarter of an hour of its arrival while a worker runs, or with the document; a notice in a
-  member's notification centre goes after `NOTIFICATION_DAYS` (90), read or not, and those
+  its files, stays as long as its project, and forgets them when their account goes; a notice in
+  a member's notification centre goes after `NOTIFICATION_DAYS` (90), read or not, and those
   about the workspace when they are removed from it.
 
 Backups (and a bucket's object versions) keep a purged account until they expire, so that window,
@@ -2626,7 +2614,7 @@ with that backup's folder. What the members did between the backup and going bac
 back soon or not at all, and tell them.
 
 Nothing waits on a timer of the host's but the backup: the worker's housekeeping empties the
-trash after `TRASH_DAYS`, applies the retention of chats, runs, reports and audit rows, purges the
+trash after `TRASH_DAYS`, applies the retention of chats and audit rows, purges the
 accounts due, and sweeps the rendered pages and the files nothing names, every six hours
 ("Retention and deletion").
 
@@ -3887,7 +3875,6 @@ and the like), named on its models' pages.
 | `WORKER_CONCURRENCY` | `16` | | Documents a worker indexes at once |
 | `ANSWER_CONCURRENCY` | `8` | | Questions a worker answers at once |
 | `PARSE_CONCURRENCY` | `2` | | Files a worker parses at once, each in a child process ("Large documents") |
-| `AUTOMATION_WAIT` | `120` | | Seconds an automation waits for the documents it watches to stop arriving before it runs a project's cross-checks |
 | `MAX_ANSWERS` | `20` | | Answers one organisation may have in flight |
 | `MAX_QUESTION_CHARS` | `20000` | | The longest question |
 | `RATE_UPLOADS` | `20` | | Upload requests a minute, per member ("Rates") |

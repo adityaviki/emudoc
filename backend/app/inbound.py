@@ -15,11 +15,10 @@ A message taken in is an upload (app/notices.py) of its member, or of nobody for
 outside the organisation: its text as a `.txt` document named by its subject, its From, To,
 Date and Subject above, as an email in the sample corpus reads, and each attachment as an
 upload's file (app/uploads.py), into the address's folder. Images an HTML body shows by their
-Content-ID are the body's (a signature's logo) and are left out. The project's automations see
-it arrive as they see any upload. What became of each message, its sender and subject with the
-documents kept and the files rejected, or why it was turned away, is kept for INBOUND_DAYS
-(`InboundMessage`), for the members to read beside the address; once per delivery, so that a
-provider that delivers a message again keeps it once.
+Content-ID are the body's (a signature's logo) and are left out. What became of each message,
+its sender and subject with the documents kept and the files rejected, or why it was turned away,
+is kept for INBOUND_DAYS (`InboundMessage`), for the members to read beside the address; once per
+delivery, so that a provider that delivers a message again keeps it once.
 
 The providers' ways in hand `receive` the message whole, as it was sent (RFC 5322), with the
 recipients it was delivered to and their verdict on its sender. A message's text is a

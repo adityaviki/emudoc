@@ -31,11 +31,8 @@ const hook: Webhook = {
 
 describe('webhooks', () => {
   it('lists the events chosen once each, in the order the app does', () => {
-    expect(EVENT_ORDER).toEqual(['document.ready', 'document.failed', 'check_run.completed'])
-    expect(chosenEvents(['check_run.completed', 'document.ready', 'document.ready'])).toEqual([
-      'document.ready',
-      'check_run.completed',
-    ])
+    expect(EVENT_ORDER).toEqual(['document.ready', 'document.failed'])
+    expect(chosenEvents(['document.failed', 'document.ready', 'document.ready'])).toEqual(['document.ready', 'document.failed'])
   })
 
   it('says what is wrong with an address in the server’s words, before it is sent', () => {
@@ -79,6 +76,5 @@ describe('webhooks', () => {
 
   it('names what an event was about as the API does', () => {
     expect(subjectWords(delivery)).toBe('document 41')
-    expect(subjectWords({ ...delivery, event_type: 'check_run.completed', subject_id: 7 })).toBe('run 7')
   })
 })

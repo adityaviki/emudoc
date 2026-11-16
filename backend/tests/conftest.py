@@ -828,8 +828,10 @@ def drop_schema() -> None:
     """Empty the test database of tables, so the migrations build the schema from nothing: those
     the models name, and any a migration has since dropped (`smart_folders`, 2026-11-03;
     `filing_rules` and `tags`, 2026-11-05; `comment_threads`, `comments`, `my_file_writings`,
-    `question_sets`, `question_set_arrivals` and `question_reports`, 2026-11-16), which a
-    database the suite built before still holds and whose keys would keep the others."""
+    `question_sets`, `question_set_arrivals`, `question_reports`, `cross_checks`,
+    `workflow_runs`, `workflow_findings`, `automations`, `automation_checks` and
+    `automation_arrivals`, 2026-11-16), which a database the suite built before still holds and
+    whose keys would keep the others."""
     with engine.begin() as connection:
         held = connection.execute(
             text("SELECT tablename FROM pg_tables WHERE schemaname = current_schema()")

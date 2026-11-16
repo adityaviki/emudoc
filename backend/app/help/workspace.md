@@ -41,8 +41,7 @@ Everyone reads the workspace's settings on its page; its owners and admins choos
 
 - **Language of its documents**: the one documents without one of their own are searched and
   read in ([A document's details](/help/documents)).
-- **Chats kept**: until they are deleted, or a number of days after their last question. The
-  runs of the cross-checks, which hold what documents said as answers do, are kept as long.
+- **Chats kept**: until they are deleted, or a number of days after their last question.
 - **Audit log kept**: $audit_days days until they choose fewer or more. The audit log, under
   Security, says who did what and when, and downloads as a CSV file.
 - **How members are told** of each kind of notice, until each chooses for themselves.
@@ -81,12 +80,12 @@ changes is what the upload client sends a folder or a scanner's files with
 A program builds on the versioned API, under `/api/v1`, which changes only by adding to it, so
 that what a program does today it goes on doing. With it a program makes and organises projects,
 folders and documents, follows an upload until it is indexed, searches and reads the facts, asks
-questions and follows their answers as they are written, and runs the cross-checks and reads
-what they found. A request that makes something may carry an `Idempotency-Key` header, a string
-of the program's own such as a UUID: sent again with the same key within $idempotency_hours
-hours, after an answer that did not arrive, it is given the first one's answer and carried out
-once. The tools that write a client for a program, and those that call an API from a flow, read
-the API as an OpenAPI document, [openapi.json](/api/v1/openapi.json).
+questions and follows their answers as they are written. A request that makes something may
+carry an `Idempotency-Key` header, a string of the program's own such as a UUID: sent again with
+the same key within $idempotency_hours hours, after an answer that did not arrive, it is given
+the first one's answer and carried out once. The tools that write a client for a program, and
+those that call an API from a flow, read the API as an OpenAPI document,
+[openapi.json](/api/v1/openapi.json).
 
 ## Webhooks
 
@@ -98,13 +97,12 @@ program's address, starting with `https://`, and the events it is told of:
 | --- | --- |
 | `document.ready` | once a document can be searched and asked about, and again each time it is indexed again |
 | `document.failed` | once a document could not be read, or the malware scan quarantined it |
-| `check_run.completed` | once a run of a project's cross-checks is worked out, and again when its report is written |
 
 Each event is posted as JSON: its `id`, its `type`, `created_at` and `data`, which is what the
-versioned API answers for the document or the run, so a program reads one model however it
-heard. It is signed with the webhook's secret, shown once as the webhook is added: the
-`Emudoc-Signature` header is `t=` the time in seconds and `v1=` the HMAC-SHA256, in hex, of that
-time, a full stop and the body as sent. Check it before anything else, as in Python:
+versioned API answers for the document, so a program reads one model however it heard. It is
+signed with the webhook's secret, shown once as the webhook is added: the `Emudoc-Signature`
+header is `t=` the time in seconds and `v1=` the HMAC-SHA256, in hex, of that time, a full stop
+and the body as sent. Check it before anything else, as in Python:
 
 ```python
 import hashlib

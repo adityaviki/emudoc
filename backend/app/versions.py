@@ -14,13 +14,13 @@ change is committed, so that nothing drawn from one is served for the other.
 A new version is checked as an upload's file is (app/uploads.py): its type, its size, its bytes
 against its extension, bytes the project holds already (the document's own current file among them);
 its pages are counted again as it is read, its usage starting again, the earlier one's staying with
-its row. It is an upload of its own (`record_upload`, by the caller), so that its member's notice,
-the project's automations and the `document.ready` webhook follow its reading as they follow a new
-document's. What the document read from the earlier file goes at once: its blocks, outline, passages
-and facts, with what their reading changed, and its title, kind, date and summary until the new file
-is read. A member's check of a fact goes back on a fact the new file reads the same
-(app/fact_checks.py). A document being indexed takes no new version until it is done,
-since the run would go on with the earlier file.
+its row. It is an upload of its own (`record_upload`, by the caller), so that its member's notice
+and the `document.ready` webhook follow its reading as they follow a new document's. What the
+document read from the earlier file goes at once: its blocks, outline, passages and facts, with
+what their reading changed, and its title, kind, date and summary until the new file is read. A
+member's check of a fact goes back on a fact the new file reads the same (app/fact_checks.py). A
+document being indexed takes no new version until it is done, since the run would go on with the
+earlier file.
 
 The connected folders give a document a new version as its file changes at the service
 (app/connectors/sync.py).

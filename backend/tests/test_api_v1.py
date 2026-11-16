@@ -20,7 +20,6 @@ from app.api.v1.chats import _Sent
 from app.api.v1.contract import TAGS, breaking_changes, contract, published, write
 from app.api.v1.deps import BAD_CURSOR, NO_KEY
 from app.apikeys import READ_ONLY_KEY, issue
-from app.check_runs import run_workflow
 from app.config import get_settings
 from app.db import engine
 from app.idempotency import (
@@ -38,8 +37,6 @@ from app.models import ApiKey, ChatEvent, Document, IdempotencyKey, Project
 from app.versions import SAME_FILE
 from tests.conftest import FakeTurn
 from tests.test_chats import questions_counted
-from tests.test_check_runs import TOTAL, invoices, work
-from tests.test_cross_checks import CROSS_CHECK, DUE
 
 Route = tuple[str, str, dict]
 
@@ -474,41 +471,6 @@ def test_the_events_send_what_the_answer_became():
     assert list(follower.changes(reply)) == [("reset", {"content": "", "sources": []})]
 
 
-def test_a_run_of_the_cross_checks_followed_to_its_findings(client, api, session, services):
-    project = made(api, "/api/v1/projects", {"name": "Invoices"})
-    docs = invoices(session, project["id"])
-    for rule in (DUE, TOTAL):
-        assert (
-            client.post(f"/api/projects/{project['id']}/cross-checks", json=rule).status_code == 201
-        )
-    checks = got(api, f"/api/v1/projects/{project['id']}/cross-checks")
-    assert [check["title"] for check in checks["data"]] == [DUE["title"], TOTAL["title"]]
-    assert all(check["problem"] is None for check in checks["data"])
-
-    once = {"Idempotency-Key": "run-1"}
-    run = made(api, f"/api/v1/projects/{project['id']}/check-runs", {}, **once)
-    assert (run["status"], run["report_status"], run["counts"]) == ("queued", None, None)
-    assert [rule["title"] for rule in run["rules"]] == [DUE["title"], TOTAL["title"]]
-    assert made(api, f"/api/v1/projects/{project['id']}/check-runs", {}, **once) == run
-    work(services)
-    done = got(api, f"/api/v1/check-runs/{run['id']}")
-    assert done["status"] == "done" and done["finished_at"]
-    assert done["counts"] == {"differs": 2, "missing": 1, "holds": 1}
-    assert [r["rule"] for r in done["rules"]] == [0, 1]
-    assert got(api, f"/api/v1/projects/{project['id']}/check-runs")["data"] == [done]
-
-    findings = got(api, f"/api/v1/check-runs/{run['id']}/findings", rule=1, outcome="differs")
-    (finding,) = findings["data"]
-    assert (finding["document_id"], finding["difference"], findings["total"]) == (
-        docs["INV-1"],
-        5.0,
-        1,
-    )
-    assert finding["left"]["number"] == 1255.0 and finding["right"][0]["number"] == 1250.0
-    every_one = every(api, f"/api/v1/check-runs/{run['id']}/findings", rule=0, limit=1)
-    assert len(every_one) == got(api, f"/api/v1/check-runs/{run['id']}/findings", rule=0)["total"]
-
-
 def test_a_program_gives_a_document_a_new_version_once_and_downloads_the_earlier_file(
     api, services
 ):
@@ -543,8 +505,8 @@ def test_a_program_gives_a_document_a_new_version_once_and_downloads_the_earlier
 
 @dataclass
 class World:
-    """A project with a folder, an indexed document, a chat with one answered question and a run of
-    its cross-check, all made by a program with the local owner's write key."""
+    """A project with a folder, an indexed document and a chat with one answered question, all
+    made by a program with the local owner's write key."""
 
     project_id: int
     folder_id: int
@@ -552,7 +514,6 @@ class World:
     passage_id: int
     chat_id: int
     message_id: int
-    run_id: int
 
 
 @pytest.fixture
@@ -570,12 +531,6 @@ def world(client, api, session, services, sample_pdf) -> World:
     services.llm.agent_turns.append(FakeTurn(TextPart("Nothing is due.")))
     asked = made(api, f"/api/v1/chats/{chat['id']}/messages", {"content": "What is due?"})
     answer(asked["answer"]["id"], services)
-    assert (
-        client.post(f"/api/projects/{project['id']}/cross-checks", json=CROSS_CHECK).status_code
-        == 201
-    )
-    run = made(api, f"/api/v1/projects/{project['id']}/check-runs", {})
-    run_workflow(run["id"], services)
     return World(
         project["id"],
         folder["id"],
@@ -583,7 +538,6 @@ def world(client, api, session, services, sample_pdf) -> World:
         hits["data"][0]["passage_id"],
         chat["id"],
         asked["answer"]["id"],
-        run["id"],
     )
 
 
@@ -603,10 +557,6 @@ def reads(w: World) -> list[Route]:
         ("GET", f"/api/v1/projects/{w.project_id}/facts", {}),
         ("GET", f"/api/v1/passages/{w.passage_id}", {}),
         ("GET", f"/api/v1/projects/{w.project_id}/chats", {}),
-        ("GET", f"/api/v1/projects/{w.project_id}/cross-checks", {}),
-        ("GET", f"/api/v1/projects/{w.project_id}/check-runs", {}),
-        ("GET", f"/api/v1/check-runs/{w.run_id}", {}),
-        ("GET", f"/api/v1/check-runs/{w.run_id}/findings", {"params": {"rule": 0}}),
     ]
 
 
@@ -627,7 +577,6 @@ def writes(w: World) -> list[Route]:
             f"/api/v1/documents/{w.document_id}/versions",
             {"files": {"file": ("msa.pdf", b"%PDF-1.7 another contract")}},
         ),
-        ("POST", f"/api/v1/projects/{w.project_id}/check-runs", {"json": {}}),
         ("DELETE", f"/api/v1/folders/{w.folder_id}", {}),
         ("DELETE", f"/api/v1/documents/{w.document_id}", {}),
         ("DELETE", f"/api/v1/projects/{w.project_id}", {}),
@@ -837,10 +786,10 @@ def test_what_only_adds_breaks_no_program():
             "The event document.ready no longer carries the header Emudoc-Signature.",
         ),
         (
-            lambda d: d["webhooks"]["check_run.completed"]["post"]["requestBody"]["content"][
+            lambda d: d["webhooks"]["document.failed"]["post"]["requestBody"]["content"][
                 "application/json"
-            ].update(schema={"$ref": "#/components/schemas/Document"}),
-            "The event check_run.completed is sent with something else as application/json.",
+            ].update(schema={"$ref": "#/components/schemas/Project"}),
+            "The event document.failed is sent with something else as application/json.",
         ),
         # A body a program receives is read as an answer is: a field it always held stays.
         (

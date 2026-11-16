@@ -21,10 +21,10 @@ from app.inbound import MAX_MESSAGE_BYTES, TOO_LARGE, UNAUTHENTICATED
 from app.jobs import RECEIVE_MAIL
 from app.models import Document, InboundMessage, Job
 from tests.test_api import create_project
-from tests.test_automations import next_job
 from tests.test_bounces import FakeSQS, a_secret, post_event
 from tests.test_inbound import SUPPLIER, counting, mailbox, message
 from tests.test_inbound import email_in as email_in  # noqa: F401 (the module's autouse fixture)
+from tests.test_jobs import next_job
 
 EMAIL_ID = "4ef9a417-02e9-4d39-ad75-9611e0fcc33c"
 RAW_URL = "https://inbound.resend.example/raw/4ef9a417?Signature=abc"

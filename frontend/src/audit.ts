@@ -359,6 +359,9 @@ function describeFactsExport(detail: AuditEvent['detail']): string {
   return parts.join(', ')
 }
 
+// A project's cross-checks made, changed and deleted, their runs made, by a member or an automation, a run's report
+// asked for and a run deleted, and the automations made, changed and deleted, until cross-checks went on 2026-11-16:
+// their rows from before keep their words.
 const CROSS_CHECK_ACTIONS = new Set<AuditAction>(['cross_check_created', 'cross_check_changed', 'cross_check_deleted'])
 
 /** What a change of a cross-check changed, by its parts as the server names them. */

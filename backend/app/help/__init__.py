@@ -18,13 +18,11 @@ from string import Template
 from app.api.connectors import MAX_CONNECTORS
 from app.apikeys import MAX_KEYS
 from app.auth import HANDED_LINK_TTL, RECOVERY_CODE_COUNT, RESET_LINK_TTL
-from app.automations import MAX_AUTOMATIONS
 from app.client import UPLOAD_CLIENT
 from app.client.emudoc_upload import EVERY, KEY_VARIABLE, OLDEST_PYTHON, STATE_NAME
 from app.config import Settings, parse_converter_url, parse_scanner_url
 from app.connectors import providers as folder_services
 from app.connectors.sync import SYNC_INTERVAL
-from app.cross_checks import MAX_CROSS_CHECKS
 from app.export import EXPORT_DAYS
 from app.extraction import BUILT_IN, MAX_TEMPLATES
 from app.idempotency import KEPT as IDEMPOTENCY_KEPT
@@ -58,10 +56,7 @@ ARTICLES = (
         "tabs, versions, the trash and downloads.",
     ),
     ("asking", "Searching a project and every project, asking, citations, and who sees a chat."),
-    (
-        "checking",
-        "Extraction templates, the facts table, cross-checks and automations.",
-    ),
+    ("checking", "Extraction templates and the facts table."),
     (
         "working-together",
         "My files, writing templates and share links.",
@@ -174,10 +169,6 @@ def _values(settings: Settings) -> dict[str, str]:
         # Checking documents.
         "built_in": _count_word(len(BUILT_IN)),
         "max_templates": str(MAX_TEMPLATES),
-        "max_cross_checks": str(MAX_CROSS_CHECKS),
-        "max_automations": str(MAX_AUTOMATIONS),
-        "automation_wait": _span(timedelta(seconds=settings.automation_wait)),
-        "told": _told(mail),
         # Working together.
         "my_files": str(MAX_MY_FILES),
         "share_days": _either(SHARE_DAYS),
@@ -290,11 +281,6 @@ def _sample(on: bool) -> str:
         "invoices, a price list and a delivery log, read already, to try questions on. It is not "
         "counted in the workspace's usage, and you delete it like any project.\n"
     )
-
-
-def _told(mail: bool) -> str:
-    """How a member hears of a notice: by the bell, and by email where the install sends it."""
-    return "under the bell, and by email as each chose" if mail else "under the bell"
 
 
 def _spending(settings: Settings) -> str:
