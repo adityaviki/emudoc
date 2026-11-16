@@ -103,86 +103,8 @@ export interface ProjectTrash {
   days: number
 }
 
-/** What a fact's value is, and so a template's field (FACT_TYPES in backend/app/models.py). */
+/** What a fact's value is (FACT_TYPES in backend/app/models.py). */
 export type FactType = 'text' | 'number' | 'date' | 'money'
-
-/** A field of an extraction template (TemplateFieldOut in backend/app/schemas.py): the name its facts have, its type, what it is, whether every document of the kind should state it, and values as documents write them. */
-export interface TemplateField {
-  name: string
-  type: FactType
-  description: string
-  required: boolean
-  examples: string[]
-}
-
-/** An extraction template in force for a project (TemplateOut): its own, with an id, or a built-in one, which applies while the project has none of its kind. */
-export interface ExtractionTemplate {
-  id: number | null
-  doc_type: string
-  title: string
-  description: string
-  fields: TemplateField[]
-  built_in: boolean
-  /** A project's own template of a kind a built-in one is for, which it replaces. */
-  replaces_built_in: boolean
-  /** The project's documents whose facts were last read for it. */
-  documents: number
-  /** Those of its kind read for no template, such as the ones read before it was made, which reading its documents again takes too. */
-  matching: number
-  /** Its documents waiting for their summaries and facts to be read, again or retried. */
-  reading: number
-  /** Those whose last reading of its kind changed a field or the template they are read for. */
-  changed: number
-  updated_at: string | null
-}
-
-/** Which documents to read again for the templates as they are now (ReadAgainIn): those of a template's kind, and those read for a kind its template was for before. */
-export interface ReadAgainInput {
-  kind?: string
-  was?: string
-}
-
-/** A field whose facts a document's last reading changed (FieldChangeOut): the values read before and no longer, and those read now and not before, each cut at a few of the counts; `checked` when a value gone was a member's check. */
-export interface FieldChange {
-  name: string
-  before: string[]
-  after: string[]
-  before_count: number
-  after_count: number
-  checked: boolean
-}
-
-/** What a document's last reading changed (DocumentChangesOut): the template it was read for before and now, and its fields. */
-export interface DocumentChanges {
-  document_id: number
-  title: string
-  filename: string
-  read_at: string
-  template_before: string | null
-  template_after: string | null
-  fields: FieldChange[]
-}
-
-/** The last readings of a project's documents of one kind (FactChangesOut): how many wait to be read, were read and changed, and a page of those that changed. */
-export interface FactChanges {
-  kind: string
-  template: ExtractionTemplate | null
-  reading: number
-  read: number
-  changed: number
-  /** How many changed a value a member checked or corrected. */
-  unheld: number
-  documents: DocumentChanges[]
-  next_after: string | null
-}
-
-/** A template as a member writes it, whole (TemplateIn): the server makes the kind lowercase words and the fields' names snake_case. */
-export interface TemplateInput {
-  doc_type: string
-  title: string
-  description: string
-  fields: TemplateField[]
-}
 
 /** A project's export the member asked for (ProjectExportOut in backend/app/schemas.py): being made, ready to download until it expires, or failed. */
 export interface ProjectExport {
@@ -253,8 +175,6 @@ export interface Document {
   read_language: string | null
   edited_details: DocumentDetail[]
   summary: string | null
-  /** The kind of the extraction template its facts were read for (backend/app/extraction.py), if any. */
-  template: string | null
   /** Its current version's (backend/app/versions.py). */
   usage: Partial<Record<UsageKind, Usage>>
   created_at: string
@@ -482,7 +402,7 @@ export interface Fact {
   document_id: number
   document_title: string
   name: string
-  value_type: string
+  value_type: FactType
   value: string
   number: number | null
   date: string | null
@@ -491,46 +411,8 @@ export interface Fact {
   page: number | null
   block_ordinal: number | null
   passage_id: number | null
-  /** Whether the model's quote was found in the text; a person's word is `check`. */
+  /** Whether the model's quote was found in the text. */
   verified: boolean
-  check: FactCheck | null
-}
-
-/** A member's check of a fact (FactCheckOut in backend/app/schemas.py): who and when, and with a correction what the model read in its place. */
-export interface FactCheck {
-  id: number
-  /** The member's name as it is now; null once their account is gone. */
-  checked_by: string | null
-  checked_at: string
-  /** The model's value, when the member wrote another. */
-  corrected_from: string | null
-  /** What the member said the field holds: their value, or the model's they checked. */
-  value: string
-}
-
-/** A fact checked as it reads (no `value`), or corrected to the value the document states: words, digits for a number or an amount, a date as 2026-03-01. */
-export interface FactCheckInput {
-  value?: string
-  currency?: string
-}
-
-/** A row of a kind's facts table (FactRowOut in backend/app/schemas.py): a document, and the facts of each of its template's fields it has, in the document's order. */
-export interface FactRow {
-  document_id: number
-  title: string
-  filename: string
-  cells: Record<string, Fact[]>
-  /** The checks of a field no fact reads any more, by the field's name: made before the document was read again, which read it differently. */
-  earlier: Record<string, FactCheck[]>
-}
-
-/** A page of a kind's facts table (FactTableOut): the template whose fields are its columns, its rows, how many rows its conditions keep and how many of those hold a fact nobody checked, and where its next page starts. */
-export interface FactTable {
-  template: ExtractionTemplate
-  rows: FactRow[]
-  total: number
-  unchecked: number
-  next_after: string | null
 }
 
 /** A project's address as its members set it (MailboxIn): whom it takes mail from besides themselves, each an address or a domain, and the folder what arrives goes into, the root when null. */
@@ -2064,29 +1946,6 @@ export const api = {
     request<{ queued: number }>(`/projects/${id}/reprocess${fromStage ? `?from_stage=${fromStage}` : ''}`, {
       method: 'POST',
     }),
-
-  /** The extraction templates in force for the project, its own first, and how many of its own it may have. */
-  templates: (projectId: number) =>
-    request<{ templates: ExtractionTemplate[]; max_templates: number }>(`/projects/${projectId}/templates`),
-  createTemplate: (projectId: number, body: TemplateInput) =>
-    request<ExtractionTemplate>(`/projects/${projectId}/templates`, json('POST', body)),
-  updateTemplate: (id: number, body: TemplateInput) => request<ExtractionTemplate>(`/templates/${id}`, json('PUT', body)),
-  /** For good; the built-in template of its kind, if any, applies again. */
-  deleteTemplate: (id: number) => request<void>(`/templates/${id}`, { method: 'DELETE' }),
-  /** Read the project's documents of a kind again for its template as it is now, from their summaries and facts. */
-  readAgain: (projectId: number, body: ReadAgainInput) =>
-    request<{ queued: number }>(`/projects/${projectId}/templates/read-again`, json('POST', body)),
-  /** What the last reading of each of the project's documents of a kind changed, a page past `after`. */
-  factChanges: (projectId: number, kind: string, after: string | null = null) =>
-    request<FactChanges>(
-      `/projects/${projectId}/fact-changes?${new URLSearchParams(after ? { kind, after } : { kind })}`,
-    ),
-  /** A page of the facts table of the project's documents of one kind, as `tableQuery` in factTable.ts asks for it. */
-  factTable: (projectId: number, query: URLSearchParams) => request<FactTable>(`/projects/${projectId}/fact-table?${query}`),
-  /** Check a fact as it reads, or correct it to `value`; the member's value replaces the model's wherever the fact is read. */
-  checkFact: (id: number, body: FactCheckInput) => request<Fact>(`/facts/${id}/check`, json('PUT', body)),
-  /** Take a check back: its fact reads as the model read it again. */
-  removeCheck: (id: number) => request<void>(`/fact-checks/${id}`, { method: 'DELETE' }),
 
   /** The project's address, with what it received lately. */
   mailbox: (projectId: number) => request<Mailbox>(`/projects/${projectId}/mailbox`),

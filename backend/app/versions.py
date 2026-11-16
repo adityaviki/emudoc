@@ -1,8 +1,7 @@
 """A document's versions: a member gives a document a new file, as a
 contract comes back signed or an invoice is sent again corrected, and the document reads the new
 file in the earlier one's place. It keeps its id, and so everything that names it: its chats'
-scope, its share links, its members' checks of its facts, the API's `Document.id` and
-what the webhooks told of it.
+scope, its share links, the API's `Document.id` and what the webhooks told of it.
 
 The file it had becomes an earlier version (`DocumentVersion`): the file stays where it was in
 the storage, and its text, the blocks its parse read, is kept on the row, so that a member opens
@@ -16,11 +15,9 @@ against its extension, bytes the project holds already (the document's own curre
 its pages are counted again as it is read, its usage starting again, the earlier one's staying with
 its row. It is an upload of its own (`record_upload`, by the caller), so that its member's notice
 and the `document.ready` webhook follow its reading as they follow a new document's. What the
-document read from the earlier file goes at once: its blocks, outline, passages and facts, with
-what their reading changed, and its title, kind, date and summary until the new file is read. A
-member's check of a fact goes back on a fact the new file reads the same (app/fact_checks.py). A
-document being indexed takes no new version until it is done, since the run would go on with the
-earlier file.
+document read from the earlier file goes at once: its blocks, outline, passages and facts, and its
+title, kind, date and summary until the new file is read. A document being indexed takes no new
+version until it is done, since the run would go on with the earlier file.
 
 The connected folders give a document a new version as its file changes at the service
 (app/connectors/sync.py).
@@ -38,7 +35,6 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.details import settle_details
-from app.fact_checks import hold as hold_checks
 from app.folders import unique_filename
 from app.indexing.pipeline import reset_stages
 from app.jobs import Lease, LeaseLost, queue_index, renew
@@ -48,7 +44,6 @@ from app.models import (
     Document,
     DocumentVersion,
     Fact,
-    FactChange,
     Passage,
     Project,
     Section,
@@ -153,8 +148,7 @@ def take_version(
     finally:
         spool.unlink(missing_ok=True)
 
-    hold_checks(session, document.id)
-    for model in (Fact, FactChange, Passage, Section, Block):
+    for model in (Fact, Passage, Section, Block):
         session.execute(delete(model).where(model.document_id == document.id))
     queue_index(session, document)
     record(
@@ -268,7 +262,6 @@ def _give(
     document.read_language_code = None
     settle_details(document)
     document.summary = None
-    document.template = None
     document.quarantine_reported_at = None
     # What the new file uses is counted from nothing, so that its pages are counted as it is
     # parsed (`_pages_counted` in app/indexing/pipeline.py); the earlier file's is on its row.

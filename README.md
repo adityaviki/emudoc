@@ -1,11 +1,11 @@
 # Emudoc
 
-Emudoc keeps your team's documents in projects and answers questions about them. Upload
+Emudoc keeps your team's documents in projects, with an agent that works on them. Upload
 contracts, invoices, delivery notes and price lists, and ask in your own words: "Does invoice
-0503 apply the volume discount the contract sets?" The answer cites the passages it read, and a
-citation opens the document at that passage. Emudoc also reads the facts out of each document
-into tables you can check, compares documents against each other, and writes the letter that
-follows as a Word document of yours.
+0503 apply the volume discount the contract sets?" The agent searches the documents and reads
+them, queries the facts read from every one of them and compares them, and writes the letter or
+the workbook that follows into your own files. Every claim cites the passage it came from, and a
+citation opens the document at that passage.
 
 It is free software that your team runs on its own server, with the AI models of the provider
 you choose.
@@ -14,21 +14,20 @@ you choose.
 
 ## What it does
 
-- **Ask** about a project, a folder or a few chosen documents. The agent searches the passages,
-  reads the outlines and the facts, and cites what it used. Chats are private until you share
-  them with the project; an answer or a chat downloads as Word, PDF or Markdown.
+- **Ask** about a project, a folder or a few chosen documents. The agent lists the documents,
+  reads their outlines, searches the passages by their words and their meaning, reads them, and
+  cites what it used. Chats are private until you share them with the project; an answer or a
+  chat downloads as Word, PDF or Markdown.
 - **Read anything**: PDF, Word, Excel, PowerPoint, RTF, HTML, CSV, text and Markdown, photos and
   scans, emails with their attachments, and ZIP archives. Each document is parsed once into its
   outline, its passages and its facts, and searched by its words and by their meaning.
-- **Extract**: each document is read for its kind (an invoice, a contract, a purchase order, a
-  price list, or a template of your own) into a facts table you sort, filter, check and correct,
-  and download as CSV.
-- **Verify**: ask the agent in a chat to check documents against each other (an invoice against
-  its purchase order, the contract, the price list) and it compares their facts, citing where
-  each figure is written.
+- **Compare**: each document's parties, numbers, dates, amounts and terms are read as it is
+  indexed, each with the words it came from. Ask "which invoices are over 5,000 EUR?", or to
+  check an invoice against its purchase order, the contract and the price list, and the agent
+  queries the facts across the documents and compares them, citing where each figure is written.
 - **Create**: the agent writes letters, replies, memos and reports from the documents as Word
-  documents in your own files, to whatever outline you give it, and makes and edits Excel
-  workbooks; ask in a chat for a disputed invoice's dispute letter and it is in your files.
+  documents into your own My files, to whatever outline you give it, and makes and edits Excel
+  workbooks there; ask in a chat for a disputed invoice's dispute letter and it is in your files.
 - **Work together**: a workspace with roles, private projects, notices, and links that share a
   document or an answer outside.
 - **Bring documents in** by upload, by an upload client that sends a folder, by mail to a

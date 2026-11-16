@@ -72,8 +72,8 @@ TAGS = [
         "name": "facts",
         "x-displayName": "Facts",
         "description": (
-            "The values read from documents by the project's extraction templates, each with "
-            "the words it was read from."
+            "The values read from each document as it is indexed, such as its parties, dates and "
+            "amounts, each with the words it was read from."
         ),
     },
     {

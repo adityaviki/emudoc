@@ -71,7 +71,7 @@ stage can be run again on its own:
 | scan | has the file scanned for malware; a flagged file is quarantined (`scanning.py`) | ClamAV |
 | parse | turns the file into ordered blocks (headings, text, tables) with their page and position (`parsing/`) | nothing |
 | structure | builds the outline from the headings and cuts the sections into passages (`indexing/`) | nothing |
-| enrich | writes a summary of each section and of the document, and reads its facts (`indexing/`, `extraction.py`) | the model |
+| enrich | writes a summary of each section and of the document, and reads its facts (`indexing/`, `locales.py`) | the model |
 | embed | turns each passage into a vector (`embeddings.py`) | the embeddings server |
 
 Scan, parse and structure are required; enrich and embed are optional, and a document indexed
@@ -87,9 +87,11 @@ The stages build three indexes:
   nearest neighbours, merged by reciprocal rank fusion, each document in the language it is
   written in (`backend/app/languages.py`).
 - **The map**: each document's outline, with a summary of every section.
-- **Facts**: typed values (text, numbers, dates, amounts) read for the document's kind by an
-  extraction template (`backend/app/extraction.py`: seven built in, and a project's own), which
-  the facts table (`fact_table.py`) and the agent read.
+- **Facts**: typed values (text, numbers, dates, amounts) read from every document, its
+  parties, identifiers, dates, amounts and terms, each with the words it was read from and their
+  passage, its dates and amounts read the way its language writes them
+  (`backend/app/locales.py`); the agent's `query_facts` filters and compares them across the
+  project's documents.
 
 ## The agent and its answers
 
@@ -152,7 +154,6 @@ backend/app/
   indexing/         the pipeline: structure, enrich and embed
   rendering.py      pages drawn from PDFs; conversion.py and converter.py Office files as PDFs
   search.py         the hybrid search; languages.py the language a document is searched in
-  extraction.py     the templates; fact_*.py the facts table, its checks, changes and export
   my_files.py, share_links.py, …
                     one module per feature, with its routes in api/
   agent/            the tools and the loop; llm.py every call to a model

@@ -5,8 +5,8 @@ A fact's `number` and `date` are the model's reading of the value as the documen
 (app/indexing/enrich.py). Where the value settles them by itself ("1.250,00", whose last mark is
 the one before the decimals; "1 250,00"; "2026-04-03"; "13.04.2026", which has no thirteenth
 month) or by the way its language writes them ("1.250" in German, "03.04.2026" in French), the
-value's own reading replaces the model's, so that what the agent compares and a facts table
-orders is what the document says, whatever the model made of its separators. The language's way
+value's own reading replaces the model's, so that what the agent compares and orders is what
+the document says, whatever the model made of its separators. The language's way
 is used only for a value found as written in the block the fact comes from: a model that wrote a
 German "1.250" as "1,250" has written it as English does. Where neither settles it, the model's
 reading stands: a value in words ("3 April 2026", "1,5 Mio. EUR"), a two-digit year, or what the

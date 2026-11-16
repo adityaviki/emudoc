@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import ProjectDep, ServicesDep, SessionDep, limited
 from app.document_filter import BACKWARDS, matching
-from app.fact_checks import fact_out
 from app.indexing.pipeline import Services
 from app.models import Document, Fact, Folder, Project
 from app.ratelimit import SEARCHES
@@ -18,6 +17,7 @@ from app.schemas import (
     DocumentTypeOut,
     FactList,
     FactName,
+    FactOut,
     SearchHitOut,
     SearchIn,
     SearchOut,
@@ -105,6 +105,27 @@ def hit_fields(hit: SearchHit) -> dict:
         "keyword_rank": hit.keyword_rank,
         "vector_rank": hit.vector_rank,
     }
+
+
+def fact_out(fact: Fact, document: Document) -> FactOut:
+    """A fact as the pages show it, with its document's name: the project's facts here, a
+    document's (app/api/documents.py) and v1's (app/api/v1/query.py)."""
+    return FactOut(
+        id=fact.id,
+        document_id=fact.document_id,
+        document_title=document.display_title,
+        name=fact.name,
+        value_type=fact.value_type,
+        value=fact.value,
+        number=fact.number,
+        date=fact.date,
+        currency=fact.currency,
+        quote=fact.quote,
+        page=fact.page,
+        block_ordinal=fact.block_ordinal,
+        passage_id=fact.passage_id,
+        verified=fact.verified,
+    )
 
 
 @router.get("/facts", response_model=FactList)

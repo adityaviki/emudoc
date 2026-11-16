@@ -102,12 +102,6 @@ export interface Workspace {
   showSearch(search: WorkspaceSearch, options?: { replace?: boolean }): void
   /** Shows the project's trash in the library; going to a folder leaves it. */
   showTrash(): void
-  /** Shows the project's extraction templates in the library, likewise. */
-  showTemplates(): void
-  /** Shows the facts table of the project's documents of a kind in the library, likewise. */
-  showFacts(kind: string): void
-  /** Shows what the last readings of the project's documents of a kind changed, likewise. */
-  showChanges(kind: string): void
   /** Shows the project's address, whose mail becomes its documents, in the library, likewise. */
   showMailbox(): void
   /** Shows the member's own files in the project, their My files, in the library, likewise. */

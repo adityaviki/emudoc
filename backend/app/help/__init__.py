@@ -24,7 +24,6 @@ from app.config import Settings, parse_converter_url, parse_scanner_url
 from app.connectors import providers as folder_services
 from app.connectors.sync import SYNC_INTERVAL
 from app.export import EXPORT_DAYS
-from app.extraction import BUILT_IN, MAX_TEMPLATES
 from app.idempotency import KEPT as IDEMPOTENCY_KEPT
 from app.inbound import INBOUND_DAYS, MAX_SENDERS
 from app.invitations import INVITATION_TTL
@@ -55,8 +54,11 @@ ARTICLES = (
         "Uploading, the upload client, email in, connected folders, how a file is read, folders, "
         "tabs, versions, the trash and downloads.",
     ),
-    ("asking", "Searching a project and every project, asking, citations, and who sees a chat."),
-    ("checking", "Extraction templates and the facts table."),
+    (
+        "asking",
+        "Searching a project and every project, asking, facts across documents, citations, and "
+        "who sees a chat.",
+    ),
     ("working-together", "My files and share links."),
     (
         "workspace",
@@ -163,9 +165,6 @@ def _values(settings: Settings) -> dict[str, str]:
         "app_url": settings.app_url.rstrip("/") or "https://emudoc.example.org",
         "watch_seconds": f"{EVERY:g}",
         "state_file": STATE_NAME,
-        # Checking documents.
-        "built_in": _count_word(len(BUILT_IN)),
-        "max_templates": str(MAX_TEMPLATES),
         # Working together.
         "my_files": str(MAX_MY_FILES),
         "share_days": _either(SHARE_DAYS),

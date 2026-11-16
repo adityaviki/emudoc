@@ -33,7 +33,6 @@ const doc = (id: number, filename: string, folderId: number | null = null): Docu
   read_language: null,
   edited_details: [],
   summary: null,
-  template: null,
   usage: {},
   created_at: '2026-10-21T09:00:00Z',
   version: 1,

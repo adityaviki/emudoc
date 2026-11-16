@@ -310,7 +310,7 @@ def test_the_help_pages_are_a_members_filled_in_from_what_the_deployment_does(
     assert "The invitation lasts 7 days" in said(by["workspace"]["text"])
     assert "Audit log kept**: 365 days" in said(by["workspace"]["text"])
     assert "deletes it 14 days after you ask" in said(by["data"]["text"])
-    assert "Emudoc has seven built in" in said(by["checking"]["text"])
+    assert "Which invoices are over 5,000 EUR?" in said(by["asking"]["text"])
     assert "(1, 7 or 30 days)" in said(by["working-together"]["text"])
     assert f"It writes to [{SUPPORT}](mailto:{SUPPORT})" in said(by["support"]["text"])
     for found in help:

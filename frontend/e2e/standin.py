@@ -8,10 +8,8 @@ the passages. It answers as a model would that does the least the app asks:
 
 - an indexing request (a JSON schema in `response_format`) gets the smallest reply the schema
   takes: no sections, no facts, empty strings, which the pipeline reads as nothing learnt;
-- an indexing request that lists the project's extraction templates (`<templates>`) gets the
-  one whose kind the document's opening words hold, and the facts its "Name: value" lines
-  state of that template's fields, so that a document of the kind is a row of its facts table
-  and a field added to the template is found when the document is read again;
+- an indexing request that asks a document's kind (`doc_type`) gets the one of `KINDS` its
+  opening words hold, or none, so that the library's search filters invoices by their type;
 - an agent turn whose conversation has no tool result yet calls `search` with the question,
   streamed as the app streams every turn;
 - an agent turn after a search answers with the first sentence of the best passage, cited by
@@ -108,11 +106,6 @@ ISO_DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 MONEY = re.compile(r"^(EUR|USD|GBP) ([\d,]+(?:\.\d+)?)$")
 NUMBER = re.compile(r"^[\d,]+(?:\.\d+)?$")
 KINDS = ("delivery note", "price list", "invoice", "agreement", "contract", "review", "email")
-# The templates an indexing request lists, and each one's kind, which starts its line there
-# (the fields' lines below it are indented).
-TEMPLATES = re.compile(r"^<templates>\n(.*?)\n</templates>$", re.MULTILINE | re.DOTALL)
-LISTED_KIND = re.compile(r"^(\S[^:\n]*): ", re.MULTILINE)
-LISTED_FIELD = re.compile(r"^  - (\w+) \(")
 # The words of a scanned page's made-up text: the stand-in cannot read a picture.
 SCAN_WORDS = (
     "pallet carton crate delivered received signed checked damaged missing short late early "
@@ -165,10 +158,9 @@ def filled(schema: dict[str, Any], defs: dict[str, Any], messages: list[dict[str
     blocks = {int(number): text for number, text in BLOCK_LINE.findall(prompt)}
     texts = list(blocks.values())
     if "title" in properties:
-        opening = " ".join(texts[:3]).lower()
         found = ISO_DATE.search(prompt)
         reply["title"] = texts[0][:120] if texts else ""
-        reply["doc_type"] = next((kind for kind in KINDS if kind in opening), "document")
+        reply["doc_type"] = kind_of(texts) or "document"
         reply["doc_date"] = found.group(0) if found else None
         reply["summary"] = " ".join(first_sentence(text) for text in texts[1:4])
     if "sections" in properties and "InferredSection" not in defs:
@@ -178,37 +170,20 @@ def filled(schema: dict[str, Any], defs: dict[str, Any], messages: list[dict[str
     return reply
 
 
-def named(reply: Any, schema: dict[str, Any], messages: list[dict[str, Any]]) -> Any:
-    """The reply to a request that lists the project's extraction templates, with the template
-    whose kind the document's opening words hold, and the facts its "Name: value" lines state of
-    that template's fields; any other reply as it is."""
-    prompt = "\n".join(text_of(m.get("content")) for m in messages if m.get("role") == "user")
-    listing = TEMPLATES.search(prompt)
-    if "template" not in schema.get("properties", {}) or not listing:
+def typed(reply: Any, schema: dict[str, Any], messages: list[dict[str, Any]]) -> Any:
+    """The default mode's reply to a request that asks a document's kind, with the kind its
+    opening words hold, or none; any other reply as it is."""
+    if "doc_type" not in schema.get("properties", {}):
         return reply
-    blocks = {int(number): text for number, text in BLOCK_LINE.findall(prompt)}
-    opening = " ".join(list(blocks.values())[:3]).lower()
-    fields = listed_fields(listing.group(1))
-    kind = next((kind for kind in fields if kind in opening), None)
-    reply["template"] = kind
-    if kind is not None:
-        reply["facts"] = [fact for fact in facts_of(blocks) if fact["name"] in fields[kind]]
+    prompt = "\n".join(text_of(m.get("content")) for m in messages if m.get("role") == "user")
+    reply["doc_type"] = kind_of(list(dict(BLOCK_LINE.findall(prompt)).values())) or ""
     return reply
 
 
-def listed_fields(listing: str) -> dict[str, set[str]]:
-    """Each template a listing names, by its kind, in the listing's order, with the names of its
-    fields."""
-    fields: dict[str, set[str]] = {}
-    kind = None
-    for line in listing.splitlines():
-        if found := LISTED_FIELD.match(line):
-            if kind is not None:
-                fields[kind].add(found.group(1))
-        elif found := LISTED_KIND.match(line):
-            kind = found.group(1)
-            fields[kind] = set()
-    return fields
+def kind_of(texts: list[str]) -> str | None:
+    """The kind of document of `KINDS` a document's first three blocks name, if any."""
+    opening = " ".join(texts[:3]).lower()
+    return next((kind for kind in KINDS if kind in opening), None)
 
 
 def transcription(rng: random.Random) -> list[dict[str, Any]]:
@@ -488,10 +463,10 @@ class Handler(BaseHTTPRequestHandler):
             schema = format_["json_schema"]["schema"]
             defs = schema.get("$defs", {})
             messages = body.get("messages", [])
-            made = named(
-                filled(schema, defs, messages) if self.fill else instance(schema, defs),
-                schema,
-                messages,
+            made = (
+                filled(schema, defs, messages)
+                if self.fill
+                else typed(instance(schema, defs), schema, messages)
             )
             reply: dict[str, Any] = {"text": json.dumps(made)}
             time.sleep(self.index_seconds)

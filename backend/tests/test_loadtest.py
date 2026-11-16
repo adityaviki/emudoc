@@ -7,9 +7,8 @@ import importlib.util
 from types import SimpleNamespace
 
 from app.config import ROOT_DIR
-from app.extraction import BUILT_IN, chosen
 from app.indexing import enrich
-from app.indexing.enrich import DocumentAnalysis, InferredSections, TemplatedDocumentAnalysis
+from app.indexing.enrich import DocumentAnalysis, InferredSections
 from app.llm import OCR_PROMPT, OcrPage
 from app.parsing import parse_file
 from loadtest import corpus
@@ -81,47 +80,35 @@ def test_the_standin_reads_a_document_as_enrich_sends_it():
     assert [fact.quote for fact in analysis.facts] == texts[1:4]
 
 
-def test_the_standin_names_the_listed_template_a_document_is_and_reads_its_fields():
-    """The browser test's stand-in, in its default mode, as the enrich stage asks it with the
-    project's templates listed: the one the opening words name, with the "Name: value" facts of
-    its fields."""
-    schema = TemplatedDocumentAnalysis.model_json_schema()
+def test_the_standin_names_the_kind_a_document_s_opening_words_hold():
+    """The browser test's stand-in, in its default mode, as the enrich stage asks it: the kind
+    the document's opening words hold, and otherwise the smallest reply."""
+    schema = DocumentAnalysis.model_json_schema()
 
-    def asked_plainly(texts: list[str]) -> TemplatedDocumentAnalysis:
+    def asked_plainly(texts: list[str]) -> DocumentAnalysis:
         document = SimpleNamespace(filename="invoice.md", page_count=None)
         section = SimpleNamespace(id=7, path=texts[0])
         blocks = [
             SimpleNamespace(ordinal=n, page=None, kind="paragraph", text=text)
             for n, text in enumerate(texts)
         ]
-        prompt = (
-            f"{enrich._render(document, [(section, enrich._condensed(blocks))], whole=True)}\n\n"
-            f"{enrich.TEMPLATE_INSTRUCTIONS}\n\n{enrich._listing(BUILT_IN)}"
-        )
+        prompt = enrich._render(document, [(section, enrich._condensed(blocks))], whole=True)
         messages = [{"role": "user", "content": prompt}]
         reply = standin.instance(schema, schema.get("$defs", {}))
-        return TemplatedDocumentAnalysis.model_validate(standin.named(reply, schema, messages))
+        return DocumentAnalysis.model_validate(standin.typed(reply, schema, messages))
 
     analysis = asked_plainly(
         [
             "Invoice INV-2026-0412",
             "From Acme Logistics Ltd, for the deliveries of March.",
-            "Invoice number: INV-2026-0412",
             "Total amount: EUR 1,250.00",
-            "Delivery period: March 2026",
         ]
     )
-    assert chosen(BUILT_IN, analysis.template) is BUILT_IN[0]
-    # The line of no field of the invoice template is left out, as a template read alone.
-    assert [(f.name, f.value, f.number) for f in analysis.facts] == [
-        ("invoice_number", "INV-2026-0412", None),
-        ("total_amount", "EUR 1,250.00", 1250.0),
-    ]
-    # Otherwise the smallest reply, as for any other request of the default mode.
-    assert (analysis.title, analysis.sections) == ("", [])
+    assert analysis.doc_type == "invoice"
+    assert (analysis.title, analysis.sections, analysis.facts) == ("", [], [])
 
     letter = asked_plainly(["Dear Ms Hopper,", "Total amount: EUR 9.00"])
-    assert (letter.template, letter.facts) == (None, [])
+    assert (letter.doc_type, letter.facts) == ("", [])
 
 
 def test_the_standin_summarises_a_long_table_shown_in_part_and_takes_no_facts_from_it():

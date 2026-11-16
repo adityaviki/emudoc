@@ -26,11 +26,6 @@ from app.db import SessionLocal, connection_lost
 from app.details import hold_details, retitle, root_of, settle_details
 from app.embeddings import Embedder
 from app.errors import AppError, shown, summary
-from app.extraction import Template, templates_for
-from app.fact_changes import facts_read, read_now
-from app.fact_changes import record as record_changes
-from app.fact_checks import apply_checks
-from app.fact_checks import hold as hold_checks
 from app.indexing.enrich import (
     ENRICH_PROMPT_VERSION,
     SECTIONS_PROMPT_VERSION,
@@ -48,7 +43,7 @@ from app.llm import LLM, OCR_PROMPT_VERSION, LLMError, OcrBlock
 from app.locales import Writing, read_date, read_number, reading_line, writing_of
 from app.mail import Mailer
 from app.metrics import DOCUMENT_READY, INDEX_RUNS, PARSES, STAGE_RUNS, STAGE_SECONDS
-from app.models import STAGES, Block, Document, Fact, FactChange, Passage, Section
+from app.models import STAGES, Block, Document, Fact, Passage, Section
 from app.parsing import (
     IMAGE_TYPES,
     PAGE_TYPES,
@@ -332,7 +327,7 @@ def _quarantine(
     the members, and whatever an earlier run indexed of it is dropped, so that nothing of the
     file is searched, read or served (the routes refuse the file by the status and the scan
     stage, app/scanning.py). The file itself stays in the storage for a delete to remove."""
-    _delete_derived(session, document.id, Fact, FactChange, Passage, Section, Block)
+    _delete_derived(session, document.id, Fact, Passage, Section, Block)
     document.status = "quarantined"
     document.error = failure.detail
     audit_event(
@@ -898,10 +893,8 @@ def _structure(session: Session, document: Document, services: Services, meter: 
     # A title a member set starts the paths in the reading's place (app/details.py).
     root = root_of(document)
 
-    _delete_derived(session, document.id, Fact, FactChange, Passage, Section)
-    # The facts went with the passages they were linked to, and what their reading changed with
-    # them; the template they were read for goes too until the enrich stage reads them again.
-    document.template = None
+    # The facts go with the passages they were linked to, until the enrich stage reads them again.
+    _delete_derived(session, document.id, Fact, Passage, Section)
     rows: dict[int, Section] = {}
     for ordinal, draft in enumerate(outline.sections):
         row = Section(
@@ -964,7 +957,6 @@ def _enrich(session: Session, document: Document, services: Services, meter: Met
     sections = session.scalars(
         select(Section).where(Section.document_id == document.id).order_by(Section.ordinal)
     ).all()
-    templates = templates_for(session, document.project_id)
     # How its dates and numbers are written: its own language's way, which settles what a value
     # leaves open, or where it has no language of its own, the way of the one its organisation
     # chose, which the model is told of and nothing is read by (app/locales.py).
@@ -986,21 +978,13 @@ def _enrich(session: Session, document: Document, services: Services, meter: Met
         blocks,
         usage,
         limit,
-        templates=templates,
         conventions=conventions,
     )
 
     profile = analysis.profile
-    template = analysis.template
-    # The template the reading before was for, which what this one changed is told against.
-    was = document.template
     hold_details(session, document)
     document.read_title = clean_text(profile.title)[:500] or document.read_title
-    # A document read for a template is of its kind, which the catalogue filters by.
-    document.read_doc_type = (
-        template.doc_type if template else clean_text(profile.doc_type).lower()[:100] or None
-    )
-    document.template = template.doc_type if template else None
+    document.read_doc_type = clean_text(profile.doc_type).lower()[:100] or None
     document.read_doc_date = parse_iso_date(profile.doc_date)
     settle_details(document)
     document.summary = profile.summary.strip() or None
@@ -1010,36 +994,13 @@ def _enrich(session: Session, document: Document, services: Services, meter: Met
     # Paths start with the document's title, and passages are searched with their path.
     retitle(session, document)
 
-    hold_checks(session, document.id)
-    before = facts_read(session, document.id)
     session.execute(delete(Fact).where(Fact.document_id == document.id))
-    facts = _fact_rows(
-        session, document, analysis.facts, blocks, analysis.sampled, template, writing
-    )
-    # What the members checked of the facts before outlives them: a fact read the same again
-    # takes its check, with the member's value.
-    apply_checks(session, document.id, facts)
+    facts = _fact_rows(session, document, analysis.facts, blocks, analysis.sampled, writing)
     session.add_all(facts)
-    # What this reading changed of the last one's facts, for the template's fields, which a
-    # template changed and its documents read again show (app/fact_changes.py).
-    record_changes(session, document, before, was, read_now(facts), template, templates)
     summarized = sum(1 for section in sections if section.summary)
     detail = f"{summarized} section summaries, {len(facts)} facts"
-    if template is not None:
-        detail += _read_for(template, facts)
     if analysis.reading is not None:
         detail += _partly_read(analysis.reading, document.page_count)
-    return detail
-
-
-def _read_for(template: Template, facts: Sequence[Fact]) -> str:
-    """What the enrich stage's detail adds for a document read for a template: which, and the
-    fields every document of its kind should state that this one was not found to."""
-    found = {fact.name for fact in facts}
-    missing = [f.name for f in template.fields if f.required and f.name not in found]
-    detail = f", by the {template.doc_type} template"
-    if missing:
-        detail += f" (not found: {', '.join(missing)})"
     return detail
 
 
@@ -1069,13 +1030,11 @@ def _fact_rows(
     extracted: list[ExtractedFact],
     blocks: Sequence[Block],
     sampled: frozenset[int] = frozenset(),
-    template: Template | None = None,
     writing: Writing | None = None,
 ) -> list[Fact]:
     """The facts as rows, each linked to the block its quote is in and that block's passage;
     none from a block in `sampled`, a table the model was shown in part (app/indexing/
-    enrich.py). A fact of a field of the template the document was read for is of the field's
-    type, whatever the reply said, so that a project's `total_amount` facts are all money.
+    enrich.py).
 
     A number or a date is read from the value where it is a figure alone that settles it, by
     `writing`, its language's way, where the value is as the block writes it (app/locales.py);
@@ -1116,8 +1075,7 @@ def _fact_rows(
                 (p for p in passages if p.block_start <= block.ordinal < p.block_end),
                 None,
             )
-        field = template.field(name) if template else None
-        kind = field.type if field else fact.type
+        kind = fact.type
         # A value the model wrote otherwise than the block does is not read the language's way.
         written = block is not None and _normalize(value) in normalized[block.ordinal]
         local = writing if written else None

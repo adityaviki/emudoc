@@ -477,14 +477,6 @@ its fifth run on a connection, and Postgres then keeps one plan for every projec
 looks no dearer, which in a table of many projects is the small project's sort, three times
 slower for a large one and slower as it grows. None of this needs the operator.
 
-**The facts table** (behind `extraction_templates`) sorts a kind's documents by a field's
-first value, looked up for each document as it sorts them, so a page's time grows with the
-kind's documents in the project: at 5,000 invoices among 55,000 documents and 920,000 facts,
-a page took 30 to 120 ms (two statements of 30 to 55 ms each), sorted by the name, an amount, a
-date or a text, with conditions and words or without, the next page alike. Each is planned for
-its project and runs without the JIT, which the lookups' cost would otherwise start: that took
-330 of the 385 ms a page took before.
-
 **ICU**: the library lists a folder's files in an order the database keeps an index in, by
 an ICU collation the migrations make, `natural_order` (numbers in a name compared as numbers,
 case and accents set aside). The server must be built with ICU, as the official images, RDS
@@ -949,10 +941,7 @@ sentence the member reads:
   sections after them have no summary, and its enrich stage says how far it went, as "312
   section summaries, 1,840 facts, from pages 1 to 640 of 980: the model reads no more of one
   document, and the rest is searched without summaries or facts" (or "the first 61 % of the
-  document" without pages). The first request also lists the project's extraction templates,
-  each field described while the listing is short and by name and type alone past 16,000
-  characters, a few thousand tokens more a document, so that its facts are read for its kind
-  (`backend/app/extraction.py`). The day's spending cap is checked before the stage ("The models
+  document" without pages). The day's spending cap is checked before the stage ("The models
   are spending fast"), so this is the most one document spends past it.
 - **Its vectors.** The embed stage keeps each vector as the column stores it, 4-byte floats (3 KB
   at 768 dimensions, where the endpoint's reply as Python floats is 25 KB), and writes them 500
@@ -1141,21 +1130,22 @@ not a verdict: the judge reads a passage alone, and calls a true detail or a fai
 times.
 
 **The facts read.** `python -m app.maintenance fact-accuracy` asks the same of `INDEX_MODEL`:
-it indexes the sample's files as uploads, with extraction templates on, in an organisation of its
-own that it deletes after, and scores the facts read from the contract, the three invoices and
-the price list against values labelled by hand (`backend/app/fact_accuracy.py`), a field of the
-built-in template of each kind at a time: its recall, the labelled values some fact of the field
-holds, and its precision, the field's facts that hold a labelled value, a field the document does
-not state counting any fact of it wrong. A fact holds a value by its figure, its day or its words
+it indexes the sample's files as uploads, in an organisation of its own that it deletes after,
+and scores the facts read from the contract and the three invoices against values labelled by
+hand (`backend/app/fact_accuracy.py`), a field at a time under the names the enrich stage asks
+the facts to take where they fit (`document_number`, `due_date`, `total_amount` and the like;
+a field the model names as it sees fit, such as an invoice's lines, is not scored): its recall,
+the labelled values some fact of the field holds, and its precision, the field's facts that hold
+a labelled value, a field the document does not state counting any fact of it wrong. A fact holds a value by its figure, its day or its words
 in one of the ways listed. It prints each field's verdict, with the values missed and the facts
 read wrong, the version of the prompts the facts were read with (`Prompt versions: enrich
 62252e89.`), what the reading cost, and the recall and precision over every field, and exits with
-1 when a field was not read as labelled. On 2026-10-31 Claude Haiku 5.5 read 71 to 73 of the 79
-values, every fact it read right, for USD 0.01 a run; what it missed changed from run to run (an
-invoice's unit prices and quantities, which its line items held, or the contract's early
-termination rates). Run it after changing `INDEX_MODEL` or its fallback, the enrich stage's
-prompts or a built-in template; a right reading worded in a way the labels do not list gets its
-way added there.
+1 when a field was not read as labelled. On 2026-10-31, when each document was read for a
+built-in extraction template and scored by its fields, Claude Haiku 5.5 read 71 to 73 of the 79
+values, every fact it read right, for USD 0.01 a run; the templates went on 2026-11-16, and the
+labels with them, which now hold 40 values under the enrich stage's names and wait for a run.
+Run it after changing `INDEX_MODEL` or its fallback or the enrich stage's prompts; a right
+reading worded in a way the labels do not list gets its way added there.
 
 **Planted instructions.** A document is whatever its writer put in it, and both models read it,
 so what the agent's tools return reaches the model inside tags its prompt names as data, never
@@ -3588,10 +3578,10 @@ budget alert:
 ## Rates
 
 The app holds each caller to a rate of its own (the `RATE_*` settings in `.env.example`): so
-many upload requests, questions and searches a minute per user, and downloads of a facts table,
-an answer, a chat or a file of My files (`RATE_EXPORTS`, 10), each of which reads every row the table keeps
-or lays the text out whole, and on the sign-in routes so many requests per email address and, with more room, per
-client address, the one uvicorn read from `X-Forwarded-For`. The request past a rate is refused with 429, a sentence and a
+many upload requests, questions and searches a minute per user, and downloads of an answer, a
+chat or a file of My files (`RATE_EXPORTS`, 10), each of which lays the text out whole, and on
+the sign-in routes so many requests per email address and, with more room, per client address,
+the one uvicorn read from `X-Forwarded-For`. The request past a rate is refused with 429, a sentence and a
 `Retry-After` of the seconds until the minute turns, and the counts live in the database, so
 every API replica counts the same. The proxy needs no rate limit of its own. One added anyway
 (nginx's `limit_req`, Caddy's rate-limit plugin) sees addresses, not users, so it must allow
@@ -3885,7 +3875,7 @@ and the like), named on its models' pages.
 | `RATE_FAILED_SIGN_INS` | `20` | | Wrong passwords and codes an hour, past which those sign-ins pause ("Rates") |
 | `RATE_PAGE_ERRORS` | `10` | | The page's error reports a minute, per client address |
 | `RATE_FEEDBACK` | `10` | | Messages from the help menu an hour, per member ("Support") |
-| `RATE_EXPORTS` | `10` | | Facts tables, answers, chats and files of My files downloaded a minute, per member, each every row its conditions keep or the text laid out whole |
+| `RATE_EXPORTS` | `10` | | Answers, chats and files of My files downloaded a minute, per member, each laid out whole |
 | `RATE_SHARED_LINKS` | `30` | | Share links opened a minute, per client address ("Rates") |
 | `RATE_SHARED_PASSWORDS` | `10` | | Wrong passwords an hour per share link, from every address and from each, past which it opens with none ("Rates") |
 | `RATE_API_REQUESTS` | `300` | | Requests a minute, per API key, on top of its member's rates ("Rates") |

@@ -1,14 +1,14 @@
 """Fact-extraction accuracy: how well the indexing model reads the facts the sample's documents
 state, against values labelled by hand (`python -m app.maintenance fact-accuracy`).
 
-The sample's contract, three invoices and price list are labelled a field of their kind's
-built-in template at a time (app/extraction.py): the values a right reading finds, and none for
-a field the document does not state, so that any fact of it is wrong. A field left out of a
-document's labels is not scored, where what is right is a matter of reading: the contract's
-`price`, whose prices are in a schedule the sample leaves out, or the price list's
-`vendor_name`, which only its file's name gives. The delivery log, the email and the meeting's
-notes are of no built-in kind, so their facts' names move from run to run, and are not scored
-either.
+The sample's contract and three invoices are labelled a field at a time, under the names the
+enrich stage asks the facts to take where they fit (`FACT_NAMES` in app/indexing/enrich.py): the
+values a right reading finds, and none for a field the document does not state, so that any fact
+of it is wrong. A field of no such name is not scored, since the model names it as it sees fit
+and its name moves from run to run: an invoice's lines, the contract's liability cap, the price
+list's prices; nor are the price list, the delivery log, the email and the meeting's notes, whose
+facts take none of those names. Until extraction templates went (S.6, 2026-11-16), the documents
+were read for a built-in template of their kind and labelled by its fields.
 
 A run indexes the sample's files as an upload is, by the models INDEX_MODEL names, in an
 organisation made for it and deleted after with what it recorded (`indexed_sample` in app/sample),
@@ -31,7 +31,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings, listing
 from app.db import SessionLocal
-from app.golden import CONTRACT, INVOICES, PRICE_LIST, holds, plain
+from app.golden import CONTRACT, INVOICES, holds, plain
 from app.llm import LLM
 from app.models import Document, Fact, UsageEvent
 from app.sample import indexed_sample
@@ -97,8 +97,8 @@ def dated(day: str) -> Value:
 
 @dataclass(frozen=True)
 class Labelled:
-    """A document's facts as labelled: the kind of the template it is read for, and each field
-    scored with its values, none for a field the document does not state."""
+    """A document's facts as labelled: its kind, which the report groups its fields by, and each
+    field scored with its values, none for a field the document does not state."""
 
     kind: str
     fields: dict[str, tuple[Value, ...]]
@@ -110,41 +110,28 @@ IBAN = said("GB29 NWBK 6016 1331 9268 19", "GB29NWBK60161331926819")
 THIRTY_DAYS = said("30 days", "thirty (30) days", "thirty days")
 
 
-def _invoice(
-    number: str,
-    issued: str,
-    due: str,
-    lines: tuple[tuple[str, str, str, str], ...],
-    net: str,
-    tax: str,
-    total: str,
-) -> Labelled:
+def _invoice(number: str, issued: str, due: str, net: str, tax: str, total: str) -> Labelled:
     """One of the sample's invoices, Acme's to Northwind under the contract, naming no purchase
-    order: each of its `lines` what was supplied, the quantity, the unit price and the amount."""
+    order."""
     return Labelled(
         "invoice",
         {
-            "invoice_number": (said(number),),
+            "document_number": (said(number),),
             "issue_date": (dated(issued),),
             "due_date": (dated(due),),
             "vendor_name": (ACME,),
             "customer_name": (NORTHWIND,),
             "po_number": (),
-            "contract_reference": (said("Master Services Agreement"),),
-            "line_item": tuple(figure(amount, item) for item, _, _, amount in lines),
-            "unit_price": tuple(figure(price, item) for item, _, price, _ in lines),
-            "quantity": tuple(figure(quantity, item) for item, quantity, _, _ in lines),
             "subtotal_amount": (figure(net),),
             "tax_amount": (figure(tax),),
             "total_amount": (figure(total),),
             "payment_terms": (THIRTY_DAYS,),
-            "bank_account": (IBAN,),
-            "vendor_tax_id": (said("GB 123 4567 89", "GB123456789"),),
+            "account_number": (IBAN,),
         },
     )
 
 
-# The sample's documents of a built-in kind, by file name, in the order the report reads them.
+# The sample's labelled documents, by file name, in the order the report reads them.
 LABELS: dict[str, Labelled] = {
     CONTRACT: Labelled(
         "contract",
@@ -154,76 +141,31 @@ LABELS: dict[str, Labelled] = {
             # It runs 24 months from its start and names no end.
             "expiry_date": (),
             "term_length": (said("24 months", "twenty-four months"),),
-            "renewal_terms": (),
             "notice_period": (said("90 days", "ninety (90) days", "ninety days"),),
             "payment_terms": (THIRTY_DAYS,),
-            # The interest on a late payment, and the two rates of an early termination.
-            "penalty": (said("1.5%"), said("15%"), said("8%")),
-            "liability_cap": (figure("250000"),),
             "governing_law": (said("England"),),
             "signature_date": (dated("2026-02-20"), dated("2026-02-21")),
-            "bank_account": (IBAN,),
+            "account_number": (IBAN,),
         },
     ),
     INVOICES[0]: _invoice(
-        "INV-2026-0412",
-        "2026-06-30",
-        "2026-07-30",
-        (("Hex bolts", "40", "185.00", "7400.00"), ("Washers", "40", "62.50", "2500.00")),
-        "9900.00",
-        "1881.00",
-        "11781.00",
+        "INV-2026-0412", "2026-06-30", "2026-07-30", "9900.00", "1881.00", "11781.00"
     ),
     INVOICES[1]: _invoice(
-        "INV-2026-0458",
-        "2026-07-31",
-        "2026-08-30",
-        (
-            ("Hex bolts", "95", "185.00", "17575.00"),
-            ("Pipe fittings", "60", "240.00", "14400.00"),
-            ("Stretch film", "120", "38.00", "4560.00"),
-        ),
-        "36535.00",
-        "6941.65",
-        "43476.65",
+        "INV-2026-0458", "2026-07-31", "2026-08-30", "36535.00", "6941.65", "43476.65"
     ),
     INVOICES[2]: _invoice(
-        "INV-2026-0503",
-        "2026-09-30",
-        "2026-10-30",
-        (
-            ("Pipe fittings", "210", "240.00", "50400.00"),
-            ("Hex bolts", "130", "185.00", "24050.00"),
-            ("Corner protectors", "300", "21.50", "6450.00"),
-        ),
-        "80900.00",
-        "15371.00",
-        "96271.00",
-    ),
-    PRICE_LIST: Labelled(
-        "price list",
-        {
-            "issue_date": (),
-            "valid_until": (),
-            "unit_price": (
-                figure("185.00", "Hex bolts"),
-                figure("62.50", "Washers"),
-                figure("240.00", "Pipe fittings"),
-                figure("38.00", "Stretch film"),
-                figure("21.50", "Corner protectors"),
-            ),
-        },
+        "INV-2026-0503", "2026-09-30", "2026-10-30", "80900.00", "15371.00", "96271.00"
     ),
 }
 
 
 @dataclass
 class DocumentRead:
-    """A document as the run read it: the kind of the template it was read for (None for none),
-    its facts, and why its enrich stage did not finish, None when it did."""
+    """A document as the run read it: its facts, and why its enrich stage did not finish, None
+    when it did."""
 
     filename: str
-    template: str | None
     facts: list[Read]
     unfinished: str | None = None
 
@@ -263,8 +205,8 @@ class Spent:
 
 @dataclass
 class FactRun:
-    """Each labelled field's score, what kept a document from being read for its kind, and what
-    the reading used."""
+    """Each labelled field's score, what kept a document from being read, and what the reading
+    used."""
 
     fields: list[FieldScore]
     problems: list[str]
@@ -276,9 +218,8 @@ class FactRun:
 
 
 def run_facts(settings: Settings, llm: LLM | None = None) -> FactRun:
-    """Index the sample's files, read for the built-in templates, by `llm` or the models the
-    settings name, and score what was read against the labels. Refused with `RuntimeError`
-    without a model."""
+    """Index the sample's files by `llm` or the models the settings name, and score what was read
+    against the labels. Refused with `RuntimeError` without a model."""
     with indexed_sample(settings, llm, "Fact accuracy") as (org_id, ids):
         with SessionLocal() as session:
             documents = [_read(session, document_id) for document_id in ids]
@@ -296,7 +237,6 @@ def _read(session: Session, document_id: int) -> DocumentRead:
     status = stage.get("status", "pending")
     return DocumentRead(
         document.filename,
-        document.template,
         [Read(fact.name, fact.value, fact.number, fact.date) for fact in facts],
         None if status == "done" else f"{status}: {stage.get('detail') or 'it did not run'}",
     )
@@ -325,7 +265,7 @@ def score(
     documents: list[DocumentRead], labels: dict[str, Labelled] = LABELS
 ) -> tuple[list[FieldScore], list[str]]:
     """Each labelled field scored over the documents of its kind, in the labels' order, and what
-    kept a labelled document from being read for its kind, in the report's words."""
+    kept a labelled document from being read, in the report's words."""
     by_name = {document.filename: document for document in documents}
     scores: dict[tuple[str, str], FieldScore] = {}
     problems: list[str] = []
@@ -333,11 +273,6 @@ def score(
         document = by_name[filename]
         if document.unfinished:
             problems.append(f"{filename} was not read: its enrich stage is {document.unfinished}")
-        elif document.template != labelled.kind:
-            read_for = f"the {document.template}" if document.template else "no"
-            problems.append(
-                f"{filename} was read for {read_for} template, not the {labelled.kind} one"
-            )
         for name, values in labelled.fields.items():
             scored = scores.setdefault((labelled.kind, name), FieldScore(labelled.kind, name))
             facts = [fact for fact in document.facts if fact.name == name]
@@ -358,7 +293,7 @@ def score(
 
 def describe_facts(run: FactRun) -> list[str]:
     """The lines the `fact-accuracy` command prints: each kind's fields with their verdict, a
-    failed field's values missed and facts read wrong, what kept a document from its kind, the
+    failed field's values missed and facts read wrong, what kept a document from being read, the
     versions of the prompts, what the reading used, and a last line with the recall and the
     precision."""
     lines: list[str] = []

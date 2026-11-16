@@ -1,6 +1,6 @@
 """Fact-extraction accuracy (app/fact_accuracy.py): the labelled values are what the sample's
-documents say, a fact holds a value by its figure, day or words, and a run reads the sample with
-extraction templates on in an organisation it deletes after, scoring each field."""
+documents say, under the names the enrich stage prefers, a fact holds a value by its figure, day
+or words, and a run reads the sample in an organisation it deletes after, scoring each field."""
 
 from datetime import date
 
@@ -9,7 +9,6 @@ from sqlalchemy import func, select
 
 from app import maintenance
 from app.config import get_settings
-from app.extraction import BUILT_IN, BUILT_IN_TYPES
 from app.fact_accuracy import (
     LABELS,
     DocumentRead,
@@ -23,20 +22,18 @@ from app.fact_accuracy import (
     said,
     score,
 )
-from app.golden import CONTRACT, INVOICES, PRICE_LIST, holds, plain
-from app.indexing.enrich import ENRICH_PROMPT_VERSION, ExtractedFact
+from app.golden import CONTRACT, INVOICES, holds, plain
+from app.indexing.enrich import ENRICH_PROMPT_VERSION, FACT_NAMES, ExtractedFact
 from app.models import Organization, UsageEvent
 from app.sample import sample_files
 from tests.conftest import FakeLLM
 
-TEMPLATES = {template.doc_type: template for template in BUILT_IN}
 # A line each labelled document's request holds and no other's does.
 MARKERS = {
     CONTRACT: "Between Acme Industrial Supplies",
     INVOICES[0]: "Invoice INV-2026-0412",
     INVOICES[1]: "Invoice INV-2026-0458",
     INVOICES[2]: "Invoice INV-2026-0503",
-    PRICE_LIST: "price_eur",
 }
 
 
@@ -63,38 +60,38 @@ def as_labelled(filename: str) -> list[Read]:
     ]
 
 
+def typed(fact: Read) -> str:
+    """The type a labelled fact is read as: an amount by its figure, a date by its day."""
+    return "money" if fact.number is not None else "date" if fact.day is not None else "text"
+
+
 class Labeller(FakeLLM):
-    """A model that reads each labelled document for its kind with its labelled values, but for
-    the faults planted: a value it leaves out, a fact it adds, a document it reads for no
-    template."""
+    """A model that reads each labelled document with its labelled values, but for the faults
+    planted: a value it leaves out and a fact it adds."""
 
     def __init__(
         self,
         left_out: tuple[str, str] | None = None,
         added: tuple[str, ExtractedFact] | None = None,
-        no_template: str | None = None,
     ):
         super().__init__()
         self.left_out = left_out
         self.added = added
-        self.no_template = no_template
 
     def structured(self, content, schema, usage=None):
         if isinstance(content, str):
             name = next((name for name, marker in MARKERS.items() if marker in content), None)
-            self.template, self.more_facts = self._reading(name)
+            self.more_facts = self._reading(name)
         return super().structured(content, schema, usage)
 
-    def _reading(self, filename: str | None) -> tuple[str | None, list[ExtractedFact]]:
+    def _reading(self, filename: str | None) -> list[ExtractedFact]:
         if filename is None:
-            return None, []
-        labelled = LABELS[filename]
-        template = TEMPLATES[labelled.kind]
+            return []
         facts = [
             ExtractedFact(
                 name=fact.name,
                 value=fact.value,
-                type=template.field(fact.name).type,
+                type=typed(fact),
                 number=fact.number,
                 date=None if fact.day is None else fact.day.isoformat(),
                 currency=None,
@@ -106,24 +103,25 @@ class Labeller(FakeLLM):
         ]
         if self.added and self.added[0] == filename:
             facts.append(self.added[1])
-        return (None if filename == self.no_template else labelled.kind), facts
+        return facts
 
 
 def test_the_labelled_values_are_what_the_documents_say():
     kinds = {file.name: file.index["doc_type"] for file in sample_files()}
-    # Every document of the sample of a built-in kind is labelled, as the kind it is.
-    assert {name for name, kind in kinds.items() if kind in BUILT_IN_TYPES} == set(LABELS)
+    # Every document of the sample of a labelled kind is labelled, as the kind it is.
+    labelled_kinds = {labelled.kind for labelled in LABELS.values()}
+    assert {name for name, kind in kinds.items() if kind in labelled_kinds} == set(LABELS)
     for name, labelled in LABELS.items():
         assert labelled.kind == kinds[name]
         text = text_of(name)
         for field, values in labelled.fields.items():
-            kind = TEMPLATES[labelled.kind].field(field)
-            assert kind is not None, (name, field)
+            # A name the enrich stage asks the facts to take, which a field of another the
+            # model names as it sees fit.
+            assert field in FACT_NAMES, (name, field)
             for value in values:
-                # Typed as the template's field is.
-                assert (value.number is not None) == (kind.type in ("number", "money")), field
-                assert (value.day is not None) == (kind.type == "date"), field
-                assert value.ways or kind.type != "text", field
+                # A figure, a day, or words.
+                assert value.ways or value.number is not None or value.day is not None, field
+                assert value.number is None or value.day is None, field
                 # Written in the document, its words in one of their ways at least.
                 if value.number is not None:
                     assert holds(text, str(value.number)), (name, field, value)
@@ -157,7 +155,7 @@ def test_a_fact_holds_a_value_by_its_figure_day_or_words(value, fact, held):
 
 
 def test_a_reading_as_labelled_passes_every_field():
-    documents = [DocumentRead(name, LABELS[name].kind, as_labelled(name)) for name in LABELS]
+    documents = [DocumentRead(name, as_labelled(name)) for name in LABELS]
     fields, problems = score(documents)
     assert problems == []
     assert all(scored.passed for scored in fields)
@@ -182,9 +180,7 @@ def test_the_command_scores_each_field_and_exits_1_on_one_not_as_labelled(
         block=0,
         quote="PO-7708",
     )
-    labeller = Labeller(
-        left_out=(INVOICES[1], "due_date"), added=(INVOICES[0], wrong), no_template=PRICE_LIST
-    )
+    labeller = Labeller(left_out=(INVOICES[1], "due_date"), added=(INVOICES[0], wrong))
     monkeypatch.setattr(maintenance, "run_facts", lambda settings: run_facts(settings, labeller))
     with pytest.raises(SystemExit) as stop:
         maintenance.main(["fact-accuracy"])
@@ -201,9 +197,6 @@ def test_the_command_scores_each_field_and_exits_1_on_one_not_as_labelled(
     assert out[out.index("    FAILED  po_number: none labelled, 0 of 1 right") + 1] == (
         '            invoice-INV-2026-0412.pdf: "PO-7708" is no labelled value'
     )
-    # Read for no template, its facts are still scored by their names.
-    assert "    ok      unit_price: 5 of 5 found, 5 of 5 right" in out
-    assert "price-list.csv was read for no template, not the price list one" in out
     calls = len(labeller.calls)
     # The prompts the facts were read with, by the usage rows of the reading.
     assert out[-3] == f"Prompt versions: enrich {ENRICH_PROMPT_VERSION}."
@@ -212,7 +205,7 @@ def test_the_command_scores_each_field_and_exits_1_on_one_not_as_labelled(
         f"{calls * 5} out."
     )
     assert out[-1] == (
-        "Recall 78 of 79 labelled values (99%), precision 78 of 79 facts (99%); 2 of 31 fields "
+        "Recall 39 of 40 labelled values (98%), precision 39 of 40 facts (98%); 2 of 20 fields "
         "not as labelled."
     )
     # The run's organisation, and what its reading recorded, went with it.

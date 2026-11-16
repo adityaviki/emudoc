@@ -1,6 +1,6 @@
-"""Enrich stage: the model writes the summaries for the map and extracts the fact table."""
+"""Enrich stage: the model writes the summaries for the map and reads the facts of every
+document, which the agent's `query_facts` reads across them."""
 
-import json
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -9,7 +9,6 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from app.extraction import Template, chosen
 from app.indexing.structure import SectionHint
 from app.llm import INDEX_SYSTEM, LLM
 from app.locales import reading_line
@@ -32,14 +31,11 @@ SAMPLE_LAST = 5
 # The roll-up of a long document shows its opening as the windows show it, this much at most.
 OPENING_ITEMS = 30
 OPENING_CHARS = 10_000
-# A listing of the project's extraction templates past this many characters names each field
-# and its type alone, without what it is or its examples (app/extraction.py).
-LISTING_CHARS = 16_000
 # Beyond this the block listing for section inference gets too large to be worth it.
 MAX_BLOCKS_FOR_INFERENCE = 4000
 PREVIEW_CHARS = 160
-# The tags the requests show a document and its templates in (`shown`).
-SHOWN_IN = ("document", "outline", "opening", "templates", "blocks")
+# The tags the requests show a document in (`shown`).
+SHOWN_IN = ("document", "outline", "opening", "blocks")
 
 
 class SectionSummary(BaseModel):
@@ -72,23 +68,6 @@ class DocumentProfile(BaseModel):
 
 class DocumentAnalysis(DocumentProfile, WindowAnalysis):
     """Everything about a document that fits in one request."""
-
-
-class TemplatedWindowAnalysis(BaseModel):
-    """The first part of a long document, asked which of the project's templates it is for. The
-    template comes before the facts, so that the reply names it before it reads its fields."""
-
-    template: str | None
-    sections: list[SectionSummary]
-    facts: list[ExtractedFact]
-
-
-class TemplatedDocumentAnalysis(DocumentProfile):
-    """A document in one request, asked which of the project's templates it is for."""
-
-    template: str | None
-    sections: list[SectionSummary]
-    facts: list[ExtractedFact]
 
 
 class ProfileWithSections(DocumentProfile):
@@ -125,9 +104,6 @@ class Analysis:
     sampled: frozenset[int] = frozenset()
     # None when the model read the whole document.
     reading: Reading | None = None
-    # The extraction template the model found the document is for, whose fields its facts
-    # were read for; None when it is for none of the project's, or none were listed.
-    template: Template | None = None
 
 
 PROFILE_INSTRUCTIONS = """\
@@ -144,19 +120,41 @@ SECTION_INSTRUCTIONS = """\
 contains, specific enough to tell it apart from its neighbours. Use the number from the \
 marker as `section`."""
 
-_FACT_KINDS = """\
-fields someone would later filter, compare or check: parties and their roles, \
+# The names the facts are asked to take where they fit, so that one kind of field reads alike
+# across a project's documents for the agent's `query_facts`; the fact-accuracy run scores the
+# sample's facts under them (app/fact_accuracy.py).
+FACT_NAMES = (
+    "document_number",
+    "issue_date",
+    "due_date",
+    "effective_date",
+    "expiry_date",
+    "signature_date",
+    "party",
+    "vendor_name",
+    "customer_name",
+    "total_amount",
+    "subtotal_amount",
+    "tax_amount",
+    "payment_terms",
+    "notice_period",
+    "term_length",
+    "governing_law",
+    "po_number",
+    "account_number",
+    "contact_email",
+    "contact_phone",
+    "address",
+)
+
+FACT_INSTRUCTIONS = f"""\
+- facts: the fields someone would later filter, compare or check: parties and their roles, \
 identifiers (invoice, contract, order and account numbers), dates (issue, due, effective, \
 expiry, signature), amounts (totals, taxes, fees, limits, rates) and terms (payment terms, \
-notice periods, durations, governing law)."""
-
-_FACT_RULES = """ Take only what the text states, and at most \
+notice periods, durations, governing law). Take only what the text states, and at most \
 about 40 facts, the most important first. Take no facts from a table shown in part. For each \
 fact:
-  - name: snake_case. Prefer these names when they fit: document_number, issue_date, \
-due_date, effective_date, expiry_date, signature_date, party, vendor_name, customer_name, \
-total_amount, subtotal_amount, tax_amount, payment_terms, notice_period, term_length, \
-governing_law, po_number, account_number, contact_email, contact_phone, address. Otherwise \
+  - name: snake_case. Prefer these names when they fit: {", ".join(FACT_NAMES)}. Otherwise \
 choose a clear name of your own. Use one name for one kind of field; a document can have \
 several facts with the same name, for example several `party` facts.
   - value: as written in the document. For a party, add its role in brackets when stated.
@@ -168,26 +166,6 @@ otherwise null.
   - block: the number of the [B...] block the fact comes from.
   - quote: the exact words from that block that state the fact, copied verbatim, at most \
 about 20 words."""
-
-FACT_INSTRUCTIONS = f"- facts: the {_FACT_KINDS}{_FACT_RULES}"
-
-# With the project's extraction templates listed (app/extraction.py): which one the document is
-# for, then its fields first among the facts.
-TEMPLATE_INSTRUCTIONS = """\
-- template: the kind of document this is when it is one of the kinds in <templates> below, \
-written exactly as listed there (such as "invoice"); otherwise null."""
-
-
-def template_facts(which: str) -> str:
-    """The facts asked for beside a template: its fields first, then the others as without one;
-    `which` says which template ("when you named a template")."""
-    return (
-        f"- facts: first, {which}, each of its fields that the text states, under the field's "
-        "own name and of its type; a field stated more than once, such as the parties or the "
-        "lines of an invoice, has a fact for each. A required field is one every document of "
-        "the kind should state, so look for it with care; but leave out any field the text does "
-        f"not state, and never guess one. Then the other {_FACT_KINDS}{_FACT_RULES}"
-    )
 
 
 def infer_sections(
@@ -226,7 +204,6 @@ def analyze_document(
     blocks: Sequence[Block],
     usage: ModelUsage | None = None,
     max_requests: int = 0,
-    templates: Sequence[Template] = (),
     conventions: str = "",
 ) -> Analysis:
     """Summaries, profile and facts for the document, in as many requests as its size takes
@@ -236,11 +213,6 @@ def analyze_document(
     A document longer than the requests allow is read from its start for as many windows as
     leave one request for the roll-up, and `Analysis.reading` says how far that went: the
     sections after it have no summary, and its facts are those of the part read.
-
-    With `templates`, the project's extraction templates (app/extraction.py), the request that
-    reads the document's start lists them and names the one the document is for, whose fields
-    the facts are read for there and in the windows after it, which are shown that template
-    alone; `Analysis.template` is the one named. Without, the requests are as they always were.
 
     With `conventions`, a paragraph on how the document writes its dates and numbers
     (`reading_line` in app/locales.py), every request has it after the document; without, the
@@ -271,40 +243,25 @@ def analyze_document(
                 "Return these fields for the document as far as this part shows them."
             )
             scope = "in this part"
-        if templates:
-            facts_asked = (
-                f"{TEMPLATE_INSTRUCTIONS}\n"
-                f"{SECTION_INSTRUCTIONS.format(scope=scope)}\n"
-                f"{template_facts('when you named a template')}\n\n"
-                f"{_listing(templates)}"
-            )
-        else:
-            facts_asked = f"{SECTION_INSTRUCTIONS.format(scope=scope)}\n{FACT_INSTRUCTIONS}"
         prompt = (
             f"{_render(document, windows[0], whole=whole)}\n\n"
             f"{written}{ask}\n"
             f"{PROFILE_INSTRUCTIONS}\n"
-            f"{facts_asked}"
+            f"{SECTION_INSTRUCTIONS.format(scope=scope)}\n"
+            f"{FACT_INSTRUCTIONS}"
         )
-        schema = TemplatedDocumentAnalysis if templates else DocumentAnalysis
-        result = llm.structured(prompt, schema, usage)
-        template = chosen(templates, getattr(result, "template", None))
+        result = llm.structured(prompt, DocumentAnalysis, usage)
         _collect(result.sections, section_ids, summaries)
         reading = None if whole else _reading(windows[:1], blocks)
-        return Analysis(_profile(result), summaries, result.facts, sampled, reading, template)
+        return Analysis(_profile(result), summaries, result.facts, sampled, reading)
 
     # Every window and the roll-up, or as many windows as leave the roll-up its request.
     if max_requests and len(windows) >= max_requests:
         read = windows[: max_requests - 1]
     else:
         read = windows
-    template = None
-    for number, window in enumerate(read):
-        if number == 0 and templates:
-            result = _choose_in_window(llm, document, window, usage, templates, written)
-            template = chosen(templates, result.template)
-        else:
-            result = _read_window(llm, document, window, usage, template, written)
+    for window in read:
+        result = _read_window(llm, document, window, usage, written)
         _collect(result.sections, section_ids, summaries)
         facts.extend(result.facts)
 
@@ -330,27 +287,7 @@ def analyze_document(
     # Only the sections asked for: one not read has nothing to be summarised from but its title.
     _collect(result.sections, {section.id for section in missing}, summaries)
     reading = _reading(read, blocks) if len(read) < len(windows) else None
-    return Analysis(_profile(result), summaries, facts, sampled, reading, template)
-
-
-def _choose_in_window(
-    llm: LLM,
-    document: Document,
-    window: "_Window",
-    usage: ModelUsage | None,
-    templates: Sequence[Template],
-    written: str = "",
-) -> TemplatedWindowAnalysis:
-    """A long document's first part, beside the templates, which it names the one of."""
-    prompt = (
-        f"{_render(document, window, whole=False)}\n\n"
-        f"{written}This is one part of a longer document. Return these fields for this part.\n"
-        f"{TEMPLATE_INSTRUCTIONS}\n"
-        f"{SECTION_INSTRUCTIONS.format(scope='in this part')}\n"
-        f"{template_facts('when you named a template')}\n\n"
-        f"{_listing(templates)}"
-    )
-    return llm.structured(prompt, TemplatedWindowAnalysis, usage)
+    return Analysis(_profile(result), summaries, facts, sampled, reading)
 
 
 def _read_window(
@@ -358,54 +295,16 @@ def _read_window(
     document: Document,
     window: "_Window",
     usage: ModelUsage | None,
-    known: Template | None,
     written: str = "",
 ) -> WindowAnalysis:
-    """One part of a long document, beside the template its first part named, or none."""
-    if known is None:
-        about, facts = "", FACT_INSTRUCTIONS
-    else:
-        about = ", which its first part showed to be of the kind in <templates> below"
-        facts = f"{template_facts('for the template below')}\n\n{_listing([known])}"
+    """One part of a long document."""
     prompt = (
         f"{_render(document, window, whole=False)}\n\n"
-        f"{written}This is one part of a longer document{about}. Return these fields for this "
-        "part.\n"
+        f"{written}This is one part of a longer document. Return these fields for this part.\n"
         f"{SECTION_INSTRUCTIONS.format(scope='in this part')}\n"
-        f"{facts}"
+        f"{FACT_INSTRUCTIONS}"
     )
     return llm.structured(prompt, WindowAnalysis, usage)
-
-
-def _listing(templates: Sequence[Template]) -> str:
-    """The templates as a prompt lists them: each field with what it is and its examples while
-    the listing is short, and past LISTING_CHARS with its type alone."""
-    body = "\n".join(_described(template, full=True) for template in templates)
-    if len(body) > LISTING_CHARS:
-        body = "\n".join(_described(template, full=False) for template in templates)
-    return f"<templates>\n{body}\n</templates>"
-
-
-def _described(template: Template, full: bool) -> str:
-    about = f" {_sentence(template.description)}" if full and template.description else ""
-    lines = [f"{template.doc_type}: {_sentence(template.title)}{about}"]
-    for field in template.fields:
-        line = f"  - {field.name} ({field.type}{', required' if field.required else ''})"
-        said = []
-        if full and field.description:
-            said.append(_sentence(field.description))
-        if full and field.examples:
-            examples = ", ".join(
-                json.dumps(example, ensure_ascii=False) for example in field.examples
-            )
-            said.append(f"For example {examples}.")
-        lines.append(f"{line}: {' '.join(said)}" if said else line)
-    return "\n".join(lines)
-
-
-def _sentence(text: str) -> str:
-    text = text.strip()
-    return text if not text or text[-1] in ".!?" else f"{text}."
 
 
 def parse_iso_date(value: str | None) -> date | None:
@@ -664,22 +563,18 @@ def _reading(read: Sequence[_Window], blocks: Sequence[Block]) -> Reading:
 # The versions of what the model is asked of a document (app/prompts.py), which the
 # `infer_sections` and `enrich` usage rows carry: the instructions, the functions that write the
 # requests around the document, the paragraph on its dates and numbers, and the replies' schemas.
-# The document as shown, its outline and the templates' fields are what is asked about, in neither.
+# The document as shown and its outline are what is asked about, in neither. Without the extraction
+# templates' instructions, functions and schemas (S.6, 2026-11-16), enrich's moved from ad937674.
 SECTIONS_PROMPT_VERSION = prompt_version(INDEX_SYSTEM, infer_sections, InferredSections)
 ENRICH_PROMPT_VERSION = prompt_version(
     INDEX_SYSTEM,
     PROFILE_INSTRUCTIONS,
     SECTION_INSTRUCTIONS,
     FACT_INSTRUCTIONS,
-    TEMPLATE_INSTRUCTIONS,
-    template_facts,
     analyze_document,
-    _choose_in_window,
     _read_window,
     reading_line,
     DocumentAnalysis,
-    TemplatedDocumentAnalysis,
     WindowAnalysis,
-    TemplatedWindowAnalysis,
     ProfileWithSections,
 )

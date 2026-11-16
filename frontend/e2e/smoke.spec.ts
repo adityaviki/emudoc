@@ -25,14 +25,8 @@ import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, rele
 // versioned API and its contract, add a webhook, then make the project private, which she no longer finds until chosen for it, and share the chat, which the
 // colleague then reads but does not ask in; then read when each member was last seen, and on the workspace's
 // Administration page its jobs, services and costs, and switch the model's provider off and on
-// again; and last, make the project's own invoice template from the built-in one, a field
-// added, and delete it, then upload an invoice, read for the built-in one, and find its facts in
-// the project's facts table, sorted, kept by a condition and opened where they were found, the
-// invoice's event posted to the webhook, signed, and its delivery logged, one checked and another
-// corrected, which the table's unchecked rows, its CSV file and the audit
-// log keep, and then a field added to the project's own invoice template and the invoice read again for it,
-// what the reading changed listed, the corrected total kept, a second invoice of the same order
-// uploaded, which the facts table lists beside the first, a Word
+// again; and last, upload an invoice, whose event is posted to the webhook, signed, and its
+// delivery logged, and a second invoice of the same order, a Word
 // document and an Excel workbook the agent writes into My files when asked in a chat, and last
 // the project given an address, a supplier's domain listed, whose mail becomes documents and a
 // stranger's is turned away, as the page lists them, and a folder of the member's Google Drive
@@ -44,8 +38,8 @@ import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, rele
 // page, panel and dialog is checked against axe-core's rules for WCAG 2.2 AA in both themes
 // (e2e/axe.ts), and the keyboard's focus is followed where something it was on goes away.
 const CONTRACT = join(import.meta.dirname, 'fixtures', 'service-contract.md')
-// An invoice whose fields are lines of their own, which the stand-in reads for the invoice template,
-// and a delivery period, which only a template that asks for it reads.
+// An invoice, which the stand-in takes for one by its opening words, so that the search filters it
+// by its type, and whose delivery period a search finds by "March".
 const INVOICE = join(import.meta.dirname, 'fixtures', 'invoice.md')
 // A second invoice of the same order, 120 EUR over its total, which a chat compares with the first.
 const SECOND_INVOICE = join(import.meta.dirname, 'fixtures', 'second-invoice.md')
@@ -889,169 +883,11 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(switched.filter({ hasText: 'ollama on again' })).toHaveCount(1)
   })
 
-  await test.step("make the project's own invoice template from the built-in one, then delete it", async () => {
-    // The library's extraction templates, the built-in ones among them, as every workspace has them.
-    await page.goto('/')
-    await page.getByRole('link', { name: /^Supplier contracts/ }).click()
-    await page.getByRole('button', { name: 'Extraction templates' }).click()
-    const heading = page.getByRole('heading', { name: 'Extraction templates' })
-    const invoice = page.getByRole('list', { name: 'Templates' }).locator(':scope > li').filter({ hasText: /^Invoice/ })
-    await expect(invoice).toContainText('Built in')
-    await expect(invoice).toContainText('For invoice documents · 16 fields, 5 required')
-    await invoice.getByText('Its fields').click()
-    await expect(invoice).toContainText('invoice_number · Text, required · The invoice\'s own number.')
-    await expectAccessible(page, 'the extraction templates')
-
-    // Customised, it is the project's own, a field added, whose name its facts take as the server makes it.
-    await invoice.getByRole('button', { name: 'Customise Invoice' }).click()
-    const form = page.getByRole('form', { name: 'Your own Invoice template' })
-    await expect(form.getByLabel('Name', { exact: true }).first()).toBeFocused()
-    await form.getByRole('button', { name: 'Add a field' }).click()
-    const added = form.getByRole('group', { name: 'Field 17' })
-    await expect(added.getByLabel('Name')).toBeFocused()
-    await added.getByLabel('Name').fill('VAT number')
-    await expect(added).toContainText('Its facts are named vat_number.')
-    await added.getByLabel('Every document of the kind states it').check()
-    await expectAccessible(page, 'an extraction template being written')
-    await form.getByRole('button', { name: 'Save' }).click()
-    await expect(page.getByText('Saved “Invoice”.')).toBeVisible()
-    await expect(heading).toBeFocused()
-    await expect(invoice).toContainText('Replaces the built-in one')
-    await expect(invoice).toContainText('17 fields, 6 required')
-    // What is indexed from now on is read for it; no invoice is here yet to read again.
-    await expect(page.getByText('Documents uploaded from now on are read for the templates as they are.')).toBeVisible()
-    await expect(page.getByRole('button', { name: /^Read (it|them) again$/ })).toHaveCount(0)
-
-    // Deleted for good after a question, the built-in one applies again.
-    await invoice.getByRole('button', { name: 'Delete Invoice' }).click()
-    const question = page.getByRole('dialog', { name: 'Delete the template “Invoice”?' })
-    await expect(question).toContainText("The project's invoice documents are read for the built-in invoice template")
-    await expectAccessible(page, 'the question before a template is deleted')
-    await question.getByRole('button', { name: 'Delete it' }).click()
-    await expect(heading).toBeFocused()
-    await expect(invoice).toContainText('Built in')
-
-    // Both are the organisation's to ask about.
-    await page.goto('/organization/audit')
-    await page.getByLabel('What').selectOption('template_created')
-    await expect(page.getByRole('listitem').filter({ hasText: 'Made an extraction template' })).toContainText(
-      'Invoice · for invoice documents, 17 fields',
-    )
-  })
-
-  await test.step("upload an invoice, read for its template, and find its facts in the project's facts table", async () => {
-    // Uploaded now that the templates are on, it is read for the built-in invoice template.
+  await test.step('upload an invoice, whose readiness the webhook hears of', async () => {
     await page.goto('/')
     await page.getByRole('link', { name: /^Supplier contracts/ }).click()
     await page.locator('input[name="files"]').setInputFiles(INVOICE)
     await expect(page.getByRole('treeitem', { name: 'invoice.md' })).toHaveAccessibleDescription(/^Ready/, { timeout: 60_000 })
-    await page.getByRole('button', { name: 'Extraction templates' }).click()
-    const invoice = page.getByRole('list', { name: 'Templates' }).locator(':scope > li').filter({ hasText: /^Invoice/ })
-    await expect(invoice).toContainText('1 document read for it')
-    await invoice.getByRole('button', { name: 'Facts table of Invoice' }).click()
-    // The button went with the view: the keyboard goes on from the table's heading.
-    await expect(page.getByRole('heading', { name: 'Invoice facts' })).toBeFocused()
-    const grid = page.getByRole('grid', { name: 'Facts of invoice documents' })
-    const row = grid.getByRole('row').filter({ hasText: 'INV-2026-0412' })
-    await expect(row).toContainText('EUR 1,250.00')
-    await expect(row).toContainText('Acme Logistics Ltd')
-    await expect(page.getByText('1 document, 1 with unchecked facts', { exact: true })).toBeVisible()
-    const total = grid.getByRole('columnheader', { name: 'total amount', exact: true })
-    await total.getByRole('button').click()
-    await expect(total).toHaveAttribute('aria-sort', 'ascending')
-
-    // One stop of Tab, the arrows between the cells; a cell's quote shows on focus, and Enter opens its facts, each to open where it was found.
-    await grid.getByRole('columnheader', { name: 'Document', exact: true }).getByRole('button').focus()
-    await page.keyboard.press('ArrowDown')
-    await page.keyboard.press('ArrowRight')
-    const number = grid.getByRole('button', { name: 'INV-2026-0412', exact: true })
-    await expect(number).toBeFocused()
-    await expect(page.getByText('Quoted as “Invoice number: INV-2026-0412”.')).toBeVisible()
-    await expectAccessible(page, 'the facts table')
-    await page.keyboard.press('Enter')
-    const facts = page.getByRole('dialog', { name: /^invoice number of / })
-    await expect(facts.getByRole('button', { name: 'Check', exact: true })).toBeFocused()
-    await expect(facts).toContainText('Not checked.')
-    await expectAccessible(page, "a cell's facts")
-    await facts.getByRole('button', { name: 'Open in the document' }).click()
-    await expect(facts).toBeHidden()
-    await expect(page).toHaveURL(/\/documents\/\d+\?(.*&)?block=\d+/)
-    await expect(page.getByRole('region', { name: 'Text of invoice.md' }).getByText('Invoice number: INV-2026-0412')).toBeInViewport()
-    await expect(number).toBeFocused()
-
-    // Kept by a condition the invoice does not meet, then by none.
-    const condition = page.getByRole('button', { name: 'Condition', exact: true })
-    await condition.click()
-    const form = page.getByRole('form', { name: 'Keep the rows whose…' })
-    await expect(form.getByLabel('Field')).toBeFocused()
-    await form.getByLabel('Field').selectOption('total_amount')
-    await form.getByLabel('Condition').selectOption('min')
-    await form.getByLabel('Number').fill('2000')
-    await expectAccessible(page, 'a condition of the facts table being chosen')
-    await form.getByRole('button', { name: 'Add' }).click()
-    await expect(page.getByText('No document meets these conditions')).toBeVisible()
-    await expect(condition).toBeFocused()
-    await page.getByRole('button', { name: 'Remove the condition total amount is at least 2000' }).click()
-    await expect(row).toBeVisible()
-    await expect(condition).toBeFocused()
-
-    // The invoice number checked as read, the button that did it then taking the check back.
-    await number.click()
-    await facts.getByRole('button', { name: 'Check', exact: true }).click()
-    await expect(facts).toContainText(/Checked by .+ on /)
-    await expect(facts.getByRole('button', { name: 'Take back the check' })).toBeFocused()
-    await page.keyboard.press('Escape')
-    await expect(number).toBeFocused()
-
-    // The total corrected: its own value in the cell, which the model's reading follows.
-    await row.getByRole('button', { name: 'EUR 1,250.00', exact: true }).click()
-    const totals = page.getByRole('dialog', { name: /^total amount of / })
-    const correct = totals.getByRole('button', { name: 'Correct…' })
-    await correct.click()
-    const correction = totals.getByRole('form', { name: 'Correct EUR 1,250.00' })
-    await expect(correction.getByLabel('Amount')).toBeFocused()
-    await expect(correction.getByLabel('Currency')).toHaveValue('EUR')
-    await correction.getByLabel('Amount').fill('1205')
-    await expectAccessible(page, "a fact's correction")
-    await correction.getByRole('button', { name: 'Save' }).click()
-    await expect(totals).toContainText(/Corrected by .+ on .+; read as “EUR 1,250.00”\./)
-    await expect(correct).toBeFocused()
-    await page.keyboard.press('Escape')
-    await expect(row).toContainText('1,205.00 EUR')
-
-    // "Unchecked" keeps it while a fact of it is unchecked.
-    const unchecked = page.getByRole('button', { name: 'Unchecked' })
-    await unchecked.click()
-    await expect(unchecked).toHaveAttribute('aria-pressed', 'true')
-    await expect(page.getByText('1 of 1 document, 1 with unchecked facts', { exact: true })).toBeVisible()
-    await expect(row).toBeVisible()
-    await unchecked.click()
-
-    // Every row it keeps downloads as a CSV file of the table as it shows, the correction in its cell.
-    const download = page.getByRole('button', { name: 'Download', exact: true })
-    await download.click()
-    const downloads = page.getByRole('menu')
-    await expect(downloads.getByRole('menuitem').first()).toBeFocused()
-    await expectAccessible(page, "the facts table's downloads")
-    const downloading = page.waitForEvent('download')
-    await downloads.getByRole('menuitem', { name: 'CSV file, as the table shows' }).click()
-    await expect(download).toBeFocused()
-    const csv = await readFile(await (await downloading).path(), 'utf8')
-    // With the byte order mark Excel needs to read its names, which trim() takes off.
-    expect(csv.startsWith('\ufeffDocument,invoice_number,issue_date,')).toBe(true)
-    const [, line, ...more] = csv.trim().split(/\r?\n/)
-    expect(more).toEqual([])
-    expect(line).toContain('INV-2026-0412')
-    expect(line).toContain('"1,205.00 EUR"')
-
-    // All three are the organisation's to ask about, by the field and the file, never the value.
-    await page.goto('/organization/audit')
-    await page.getByLabel('What').selectOption('fact_corrected')
-    await expect(page.getByRole('listitem').filter({ hasText: 'Corrected a fact' })).toContainText('invoice.md · total amount')
-    await page.getByLabel('What').selectOption('facts_exported')
-    await expect(page.getByRole('listitem').filter({ hasText: 'Downloaded a facts table' })).toContainText(
-      'invoice facts as a CSV file, sorted by total amount',
-    )
   })
 
   await test.step("find the invoice's event posted to the webhook, signed with its secret, and its delivery in the log", async () => {
@@ -1071,58 +907,11 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expectAccessible(page, "a webhook's deliveries")
   })
 
-  await test.step('add a field to the invoice template, read the invoice again for it, and read what changed', async () => {
-    await page.goto('/')
-    await page.getByRole('link', { name: /^Supplier contracts/ }).click()
-    await page.getByRole('button', { name: 'Extraction templates' }).click()
-    const invoice = page.getByRole('list', { name: 'Templates' }).locator(':scope > li').filter({ hasText: /^Invoice/ })
-    // The delivery period the invoice states, which the built-in template does not ask for.
-    await invoice.getByRole('button', { name: 'Customise Invoice' }).click()
-    const form = page.getByRole('form', { name: 'Your own Invoice template' })
-    await form.getByRole('button', { name: 'Add a field' }).click()
-    await form.getByRole('group', { name: 'Field 17' }).getByLabel('Name').fill('Delivery period')
-    await form.getByRole('button', { name: 'Save' }).click()
-    await expect(page.getByText('The invoice document here keeps the facts read before until read again.')).toBeVisible()
-
-    // Read again after a question that names it; the button that asked goes, the one that shows what changed takes the focus.
-    await page.getByRole('button', { name: 'Read it again' }).click()
-    const question = page.getByRole('dialog', { name: 'Read the invoice document again?' })
-    await expectAccessible(page, 'the question before documents are read again')
-    await question.getByRole('button', { name: 'Read it again' }).click()
-    await expect(page.getByText('1 document is being read again.')).toBeVisible()
-    const whatChanged = page.getByRole('button', { name: 'What changed', exact: true })
-    await expect(whatChanged).toBeFocused()
-    await whatChanged.click()
-    await expect(page.getByRole('heading', { name: 'What changed in the Invoice facts' })).toBeFocused()
-
-    // Followed while it is read, then the field it found; the total its member corrected was read as before, so it stands, unnamed.
-    const changed = page.getByRole('list', { name: 'Documents read differently' }).getByRole('listitem')
-    await expect(changed).toContainText('delivery period', { timeout: 60_000 })
-    await expect(changed).toContainText('Found “March 2026”.')
-    await expect(changed).not.toContainText('total amount')
-    await expect(page.getByRole('status').filter({ hasText: 'read again' })).toHaveText('1 document read again: 1 changed.')
-    await expectAccessible(page, 'what a reading changed')
-
-    // The template says so, and its facts table has the field's column, beside the correction.
-    await page.getByRole('button', { name: 'Back to the templates' }).click()
-    await expect(invoice).toContainText('1 changed when read again')
-    await invoice.getByRole('button', { name: 'Facts table of Invoice' }).click()
-    const row = page.getByRole('grid', { name: 'Facts of invoice documents' }).getByRole('row').filter({ hasText: 'INV-2026-0412' })
-    await expect(row).toContainText('March 2026')
-    await expect(row).toContainText('1,205.00 EUR')
-  })
-
-  await test.step('upload a second invoice of the same order, read for its template, which the facts table lists beside the first', async () => {
+  await test.step('upload a second invoice of the same order', async () => {
     await page.goto('/')
     await page.getByRole('link', { name: /^Supplier contracts/ }).click()
     await page.locator('input[name="files"]').setInputFiles(SECOND_INVOICE)
     await expect(page.getByRole('treeitem', { name: 'second-invoice.md' })).toHaveAccessibleDescription(/^Ready/, { timeout: 60_000 })
-    await page.getByRole('button', { name: 'Extraction templates' }).click()
-    const invoice = page.getByRole('list', { name: 'Templates' }).locator(':scope > li').filter({ hasText: /^Invoice/ })
-    await invoice.getByRole('button', { name: 'Facts table of Invoice' }).click()
-    const rows = page.getByRole('grid', { name: 'Facts of invoice documents' }).getByRole('row')
-    await expect(rows.filter({ hasText: 'INV-2026-0413' })).toContainText('EUR 1,320.00')
-    await expect(rows.filter({ hasText: 'INV-2026-0412' })).toContainText('1,205.00 EUR')
   })
 
   await test.step('ask in a chat for a Word document, which the agent writes into My files, and open it from its step', async () => {

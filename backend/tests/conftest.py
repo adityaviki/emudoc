@@ -206,8 +206,6 @@ from app.indexing.enrich import (  # noqa: E402
     InferredSections,
     ProfileWithSections,
     SectionSummary,
-    TemplatedDocumentAnalysis,
-    TemplatedWindowAnalysis,
     WindowAnalysis,
 )
 from app.indexing.pipeline import Services, process_document  # noqa: E402
@@ -299,8 +297,6 @@ class FakeLLM:
         self.agent_prompts: list[str] = []
         # The names of the tools each agent turn was offered.
         self.agent_tools: list[list[str]] = []
-        # The extraction template a request that lists them names, as the model would.
-        self.template: str | None = None
         # Facts every reply that reads a document adds to those the fake finds itself.
         self.more_facts: list[ExtractedFact] = []
 
@@ -348,10 +344,6 @@ class FakeLLM:
         facts = self._facts(content) + self.more_facts
         if schema is WindowAnalysis:
             return WindowAnalysis(sections=sections, facts=facts)
-        if schema is TemplatedWindowAnalysis:
-            return schema(template=self.template, sections=sections, facts=facts)
-        if schema is TemplatedDocumentAnalysis:
-            return schema(**profile, template=self.template, sections=sections, facts=facts)
         assert schema is DocumentAnalysis
         return DocumentAnalysis(**profile, sections=sections, facts=facts)
 
@@ -830,8 +822,9 @@ def drop_schema() -> None:
     `filing_rules` and `tags`, 2026-11-05; `comment_threads`, `comments`, `my_file_writings`,
     `question_sets`, `question_set_arrivals`, `question_reports`, `cross_checks`,
     `workflow_runs`, `workflow_findings`, `automations`, `automation_checks`,
-    `automation_arrivals` and `draft_templates`, 2026-11-16), which a database the suite built
-    before still holds and whose keys would keep the others."""
+    `automation_arrivals`, `draft_templates`, `extraction_templates`, `fact_checks` and
+    `fact_changes`, 2026-11-16), which a database the suite built before still holds and whose
+    keys would keep the others."""
     with engine.begin() as connection:
         held = connection.execute(
             text("SELECT tablename FROM pg_tables WHERE schemaname = current_schema()")

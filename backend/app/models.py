@@ -33,8 +33,8 @@ _settings = get_settings()
 # The pipeline's stages in order (app/indexing/pipeline.py): the malware scan comes first,
 # since nothing may open the file before it has passed (app/scanning.py).
 STAGES = ("scan", "parse", "structure", "enrich", "embed")
-# What a fact's value is (`Fact.value_type`), and so what a field of an extraction template may
-# be (app/extraction.py).
+# What a fact's value is (`Fact.value_type`), as the enrich stage reads it (app/indexing/
+# enrich.py).
 FACT_TYPES = ("text", "number", "date", "money")
 # Where a document's view stands, the PDF of its file the document pane shows a Word, PowerPoint
 # or Excel file by (app/conversion.py): being made, made, or not made for the reason
@@ -165,10 +165,8 @@ NATURAL_ORDER = "natural_order"
 # their own (a quarantine, the sample project a new account's organisation starts with). An owner
 # or admin switches a model provider off or on again for the install (app/switches.py). A
 # project, folder, document or chat `_deleted` went into the trash (app/trash.py), `_restored`
-# came out of it, and `_purged` was deleted for good from it by a member. A project's extraction
-# templates (app/extraction.py) are made, changed and deleted for good, with no trash, and its
-# facts tables downloaded (app/fact_export.py), which is its documents' content leaving the app;
-# its filing rules were made, changed and deleted until they were removed on 2026-11-05, and their
+# came out of it, and `_purged` was deleted for good from it by a member. A project's filing
+# rules were made, changed and deleted until they were removed on 2026-11-05, and their
 # actions stay so that those entries still read. Until 2026-11-13 a
 # draft was asked of the agent, changed and deleted, and a version of it downloaded, whose actions
 # stay so that those entries still read, as do those of a project's own template of a kind the
@@ -195,7 +193,9 @@ NATURAL_ORDER = "natural_order"
 # its answers deleted for good; and until cross-checks went (S.6, 2026-11-16), a project's
 # cross-checks were made, changed and deleted, run by a member or by an automation, a discrepancy
 # report asked of the agent and a run deleted for good, and its automations made, changed and
-# deleted. Those actions stay so that their entries still read.
+# deleted; and until extraction templates went (S.6, 2026-11-16), a project's templates were made,
+# changed and deleted for good, its facts tables downloaded, and a fact checked or corrected by a
+# member and the check taken back. Those actions stay so that their entries still read.
 AUDIT_ACTIONS = (
     "sign_up",
     "sign_in",
@@ -1222,10 +1222,6 @@ class Document(Base):
         ARRAY(String(20)), default=list, server_default="{}"
     )
     summary: Mapped[str | None] = mapped_column(Text)
-    # The kind of document of the extraction template its facts were read for (app/
-    # extraction.py), which `doc_type` then names too; null when they were read for none, and
-    # until the enrich stage has run.
-    template: Mapped[str | None] = mapped_column(String(100))
 
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -1483,8 +1479,6 @@ class Fact(Base):
 
     __tablename__ = "facts"
     __table_args__ = (
-        # What a check's deletion looks through for the fact it set: the few checked ones.
-        Index("ix_facts_check_id", "check_id", postgresql_where=text("check_id IS NOT NULL")),
         # A project's facts, and a page of them in order as the versioned API lists them
         # (app/api/v1/query.py), the same short scan whatever the project holds.
         Index("ix_facts_project_id_id", "project_id", "id"),
@@ -1507,123 +1501,8 @@ class Fact(Base):
     page: Mapped[int | None] = mapped_column(Integer)
     block_ordinal: Mapped[int | None] = mapped_column(Integer)
     passage_id: Mapped[int | None] = mapped_column(ForeignKey("passages.id", ondelete="SET NULL"))
-    # True when the quote was found in the source block: the model's quote, not a person's word,
-    # which is `check`.
+    # True when the quote was found in the source block.
     verified: Mapped[bool] = mapped_column(Boolean, default=False)
-    # A member's check of the fact, which outlives the row (app/fact_checks.py): with a
-    # correction, the columns above hold the member's value and the check what the model read.
-    check_id: Mapped[int | None] = mapped_column(ForeignKey("fact_checks.id", ondelete="SET NULL"))
-    check: Mapped["FactCheck | None"] = relationship(lazy="selectin")
-
-
-class FactCheck(Base):
-    """A member's word on a fact: that the model read it right, or what the document says in its
-    place (app/fact_checks.py). Kept by the document, the field's name and the model's reading,
-    since the facts themselves are written anew at every run of the enrich stage, which gives
-    the check again to a fact reading the same."""
-
-    __tablename__ = "fact_checks"
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    document_id: Mapped[int] = mapped_column(
-        ForeignKey("documents.id", ondelete="CASCADE"), index=True
-    )
-    name: Mapped[str] = mapped_column(String(100))
-    # What the model read, as the fact held it.
-    read_value: Mapped[str] = mapped_column(Text)
-    read_number: Mapped[float | None] = mapped_column(Float)
-    read_date: Mapped[dt.date | None] = mapped_column(Date)
-    read_currency: Mapped[str | None] = mapped_column(String(10))
-    # The member's value, typed as the fact's, when they wrote another; null when they checked
-    # the model's.
-    value: Mapped[str | None] = mapped_column(Text)
-    number: Mapped[float | None] = mapped_column(Float)
-    date: Mapped[dt.date | None] = mapped_column(Date)
-    currency: Mapped[str | None] = mapped_column(String(10))
-    checked_by: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), index=True
-    )
-    checked_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-    # The member's name as it is now, which the table shows; None once their account is gone.
-    checker: Mapped[str | None] = column_property(
-        select(User.name).where(User.id == checked_by).correlate_except(User).scalar_subquery()
-    )
-
-    @property
-    def corrected(self) -> bool:
-        return self.value is not None
-
-
-class FactChange(Base):
-    """What a document's last reading by the enrich stage changed of the facts the reading before
-    left, field by field for the fields of its templates (app/fact_changes.py): one row a
-    document, written anew at each reading that had one before it, so that a template changed
-    and its documents read again show what the change did. Its values are what the document
-    says, as its facts are, and go with the document."""
-
-    __tablename__ = "fact_changes"
-    __table_args__ = (
-        CheckConstraint("jsonb_typeof(changes) = 'array'", name="ck_fact_changes_changes"),
-        # A project's last readings, the newest first, as the page lists them.
-        Index("ix_fact_changes_project_read", "project_id", "read_at"),
-    )
-
-    document_id: Mapped[int] = mapped_column(
-        ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
-    )
-    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
-    read_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    # The kind of the template the document was read for before and now; null for none.
-    template_before: Mapped[str | None] = mapped_column(String(100))
-    template_after: Mapped[str | None] = mapped_column(String(100))
-    # [{"name", "before", "after", "before_count", "after_count", "checked"}]: for each field
-    # whose facts changed, the values read before and no longer, and those read now and not
-    # before, each list cut at a few, with how many there were; `checked` when a value gone was
-    # a member's check, which the new reading disagrees with.
-    changes: Mapped[list] = mapped_column(JSONB, default=list)
-    # Whether the reading changed a field or the template, and how many of its fields lost a
-    # member's check: the page lists the changed readings, those first.
-    changed: Mapped[bool] = mapped_column(Boolean, default=False)
-    checks_unheld: Mapped[int] = mapped_column(Integer, default=0)
-
-
-class ExtractionTemplate(Base):
-    """The fields a project's documents of one kind are read for (app/extraction.py): what the
-    enrich stage asks the model to find in an invoice, a contract or a kind of the members' own,
-    each field becoming facts under its name. A project's template replaces the built-in one of
-    its kind, which applies while the project has none of its own."""
-
-    __tablename__ = "extraction_templates"
-    __table_args__ = (
-        UniqueConstraint("project_id", "doc_type"),
-        CheckConstraint("jsonb_typeof(fields) = 'array'", name="ck_extraction_templates_fields"),
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    # The tenant, as for every row a member reaches by its id.
-    org_id: Mapped[int] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
-    )
-    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
-    # The kind of document it is for, in lowercase words ("invoice", "delivery note"): what the
-    # model names when it finds a document is one, and the document's `doc_type` then.
-    doc_type: Mapped[str] = mapped_column(String(100))
-    title: Mapped[str] = mapped_column(String(200))
-    description: Mapped[str] = mapped_column(Text, default="", server_default="")
-    # [{"name", "type", "description", "required", "examples"}], in the order they are asked.
-    fields: Mapped[list] = mapped_column(JSONB, default=list)
-    # Who made it; null once their account is gone. Indexed for the account purge.
-    created_by: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), index=True
-    )
-    created_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-    updated_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
 
 
 class MyFile(Base):

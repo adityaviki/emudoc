@@ -16,6 +16,14 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 
 ### Users
 
+- Extraction templates are gone, with the facts table: the library no longer offers "Extraction
+  templates", whose fields a project's documents of each kind were read for, nor a kind's facts
+  table to sort, filter and download as a CSV file or an Excel workbook, nor "Check" and
+  "Correct…" on a fact, nor what a document's last reading changed. Every document's facts are
+  still read as it is indexed, its parties, numbers, dates, amounts and terms, each with the words
+  it was read from: ask the agent across them in a chat, "which invoices are over 5,000 EUR?",
+  and it answers from the facts of every document, citing where each one is written. A fact a
+  member corrected keeps the corrected value until its document is indexed again.
 - Writing templates are gone: My files no longer offers "Templates", and a project no longer sets
   how its reply emails, dispute letters, summary memos, comparison tables and reports read, nor
   keeps a built-in outline for each. Ask the agent in a chat for a letter or a report and say how
@@ -57,6 +65,32 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 
 ### Admins
 
+- Migration b8d9a8dd4ff8 drops the `extraction_templates`, `fact_checks` and `fact_changes`
+  tables with the projects' own templates, the members' checks of facts and what each document's
+  last reading changed, the column `template` of `documents` and `check_id` of `facts`; a
+  downgrade makes them again, empty. The facts stay, each with its value, a corrected one with
+  the member's until its document is indexed again. `GET|POST /api/projects/{id}/templates`,
+  `PUT|DELETE /api/templates/{id}`, `POST /api/projects/{id}/templates/read-again`,
+  `GET /api/projects/{id}/fact-table`, `GET /api/projects/{id}/fact-table/export`,
+  `GET /api/projects/{id}/fact-changes`, `PUT /api/facts/{id}/check` and
+  `DELETE /api/fact-checks/{id}` are gone, for API keys too, and so are a document's `template`
+  and a fact's `check` in the page's API; no setting goes, and `RATE_EXPORTS` now counts the
+  downloads of chats and of My files alone. A break of `/api/v1`: its `Document`, which the
+  bodies of the `document.ready` and `document.failed` webhooks carry too, no longer holds
+  `template`, and its `Fact` no longer holds `check`, whose schema `FactCheck` goes (0.1.0
+  promised nothing more before 1.0); the contract is written again without them. A project's
+  export no longer holds its `templates`, a document's `template` or a fact's `check`. The enrich
+  stage reads every document's facts without a template, as it read a document of a kind no
+  template was for, so its prompt version moves from ad937674 to 0410b918. The documents
+  indexed before keep their facts, named and typed by a template's fields where they were read
+  for one, and nothing reads them again by itself: "Index again", or
+  `POST /api/projects/{id}/reprocess?from_stage=enrich` for a whole project, reads them the new
+  way, at a model's cost. `python -m app.maintenance fact-accuracy` stays, scoring the sample's
+  contract and invoices under the names the enrich stage asks the facts to take
+  (`document_number`, `total_amount` and the like) in place of a built-in template's fields; the
+  price list, whose prices take none of them, is no longer scored. The audit log's
+  `template_created`, `template_changed`, `template_deleted`, `fact_checked`, `fact_corrected`,
+  `fact_check_removed` and `facts_exported` entries stay and still read.
 - Migration 162cbce435ce drops the `draft_templates` table with the projects' own writing
   templates in it; a downgrade makes it again, empty. `GET /api/projects/{id}/draft-templates`
   and `PUT|DELETE /api/projects/{id}/draft-templates/{kind}` are gone, for API keys too, and the

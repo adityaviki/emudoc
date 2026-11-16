@@ -479,7 +479,6 @@ def document_of(document: DocumentRow) -> Document:
         doc_type=document.doc_type,
         doc_date=document.doc_date,
         summary=document.summary,
-        template=document.template,
         created_at=document.created_at,
         version=document.version,
     )

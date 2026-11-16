@@ -66,9 +66,9 @@ sample project (app/golden.py), has the indexing model judge each answer and its
 exits 1 when an answer lacks what a right one says or cites: how a prompt, a model or a provider
 answers is read here before a member reads it.
 
-`fact-accuracy` indexes the sample's files with extraction templates on and scores the facts read
-against the values labelled by hand (app/fact_accuracy.py), each field's recall and precision,
-and exits 1 when a field was not read as labelled.
+`fact-accuracy` indexes the sample's files and scores the facts read against the values labelled
+by hand under the names the enrich stage prefers (app/fact_accuracy.py), each field's recall and
+precision, and exits 1 when a field was not read as labelled.
 
 `injection` indexes documents that tell whoever reads them what to do and asks the agent about
 them (app/injection), and exits 1 when the indexing model wrote what a planted instruction
@@ -1410,14 +1410,14 @@ def main(argv: list[str] | None = None) -> None:
         "fact-accuracy",
         help="score the facts the indexing model reads from the sample against labelled values",
         description="Index the sample project's files as an upload is, by INDEX_MODEL and its "
-        "fallback with extraction templates on, in an organisation made for the run and deleted "
-        "after it, and score the facts read from its contract, invoices and price list against "
-        "the values labelled by hand (backend/app/fact_accuracy.py): each field's recall, the "
+        "fallback, in an organisation made for the run and deleted after it, and score the facts "
+        "read from its contract and invoices against the values labelled by hand under the names "
+        "the enrich stage prefers (backend/app/fact_accuracy.py): each field's recall, the "
         "labelled values some fact holds, and precision, the facts that hold a labelled value. "
         "It prints each field's verdict with what was missed and read wrong and the versions of "
         "the prompts, records nothing as an organisation's usage, and exits with 1 when a field "
         "was not read as labelled. It costs the indexing of eight short documents; run it after "
-        "a change to the enrich stage's prompts, the built-in templates or INDEX_MODEL.",
+        "a change to the enrich stage's prompts or INDEX_MODEL.",
     )
     commands.add_parser(
         "injection",

@@ -181,8 +181,6 @@ class Document(BaseModel):
     doc_type: str | None
     doc_date: dt.date | None
     summary: str | None
-    # The kind of extraction template its facts were read for, such as "invoice".
-    template: str | None
     created_at: dt.datetime
     # Which version of the document its file is, from 1: a new version is a file the document
     # reads in the earlier one's place, keeping its id.
@@ -238,20 +236,10 @@ class Upload(BaseModel):
     rejected: list[RejectedFile]
 
 
-class FactCheck(BaseModel):
-    """A member's check of a fact: who and when, the model's value when they corrected it, and
-    what they said the document states."""
-
-    checked_by: str | None
-    checked_at: dt.datetime
-    corrected_from: str | None
-    value: str
-
-
 class Fact(BaseModel):
     """A fact read from a document: a field's value as written, typed as a number, a date or an
     amount with its currency where it is one, with the words it was read from and where they are.
-    `verified` says the words were found in the text; `check` is a member's word on it."""
+    `verified` says the words were found in the text."""
 
     id: int
     document_id: int
@@ -265,7 +253,6 @@ class Fact(BaseModel):
     page: int | None
     passage_id: int | None
     verified: bool
-    check: FactCheck | None
 
 
 class FactList(BaseModel):

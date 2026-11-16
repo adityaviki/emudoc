@@ -5,14 +5,14 @@ import { matching, nothingFound } from './articles.ts'
 const article = (slug: string, title: string, text: string): HelpArticle => ({ slug, title, summary: '', text: `# ${title}\n\n${text}` })
 const HELP = [
   article('documents', 'Uploading and organising documents', 'A file may be up to 100 MB. Deleting puts it in the trash.'),
-  article('checking', 'Facts and checks', 'The facts table shows the facts of every document of a kind.'),
+  article('asking', 'Searching and asking', 'The assistant cites the passage each figure of an answer comes from.'),
   article('data', 'Your data: exports, the trash and deletion', 'Exporting a project gives one ZIP file.'),
 ]
 
 describe('matching', () => {
   it('finds the articles that hold every word, ignoring case', () => {
     expect(matching(HELP, 'ZIP file').map((found) => found.slug)).toEqual(['data'])
-    expect(matching(HELP, 'facts table').map((found) => found.slug)).toEqual(['checking'])
+    expect(matching(HELP, 'Passage figure').map((found) => found.slug)).toEqual(['asking'])
     expect(matching(HELP, 'invoice')).toEqual([])
   })
 

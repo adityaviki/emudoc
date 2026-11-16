@@ -33,7 +33,6 @@ import tempfile
 import zipfile
 from collections import defaultdict
 from collections.abc import Sequence
-from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from itertools import count
 from pathlib import Path, PurePosixPath
@@ -45,8 +44,6 @@ from app.accounts import zone_of
 from app.bounces import address_hash
 from app.db import SessionLocal
 from app.errors import summary
-from app.extraction import templates_for
-from app.fact_checks import check_out
 from app.folders import PATH_SEPARATOR, folder_paths
 from app.jobs import EXPORT_PROJECT, Lease, LeaseLost, enqueue, renew
 from app.mail import project_export_email
@@ -111,13 +108,11 @@ from app.schemas import (
     ExportedSession,
     ExportedShareLink,
     ExportedSpared,
-    ExportedTemplate,
     ExportedUsage,
     ExportedVersion,
     ExportedVersionText,
     ExportedVisit,
     ProjectExportFile,
-    TemplateFieldOut,
 )
 from app.storage import Storage, export_key
 
@@ -158,10 +153,9 @@ PROJECT_ABOUT = (
     "project, its folders, its documents and the chats about them: those shared with the "
     "project and the member's own, whose answers cite passages as [P<number>]. "
     "documents/ holds what was read from each document: its outline, its passages by number, and "
-    "the facts found in it, each with the passage it came from. templates holds the project's own "
-    "extraction templates, the fields its documents of each kind are read for, and share_links the "
-    "links that show its documents and the answers of its chats to whoever holds them, without "
-    "their addresses. What is in the trash is left out, and so are other members' private chats."
+    "the facts found in it, each with the passage it came from. share_links holds the links that "
+    "show its documents and the answers of its chats to whoever holds them, without their "
+    "addresses. What is in the trash is left out, and so are other members' private chats."
 )
 CHOSEN_ABOUT = (
     "A copy of documents chosen from a project in Emudoc, for the member named in exported_by. "
@@ -169,11 +163,10 @@ CHOSEN_ABOUT = (
     "scan passed it, and versions/ the files a document had before a new version took their "
     "place. project.json lists the project, the folders the documents are in and the documents. "
     "documents/ holds what was read from each document: its outline, its passages by number, "
-    "and the facts found in it, each with the passage it came from. templates holds the "
-    "project's own extraction templates, the fields its documents of each kind are read for, and "
-    "share_links the links that show the chosen documents to whoever holds them, without their "
-    "addresses. The project's chats are left out, and so is a chosen document that went into the "
-    "trash before the export was made."
+    "and the facts found in it, each with the passage it came from. share_links holds the links "
+    "that show the chosen documents to whoever holds them, without their addresses. The "
+    "project's chats are left out, and so is a chosen document that went into the trash before "
+    "the export was made."
 )
 EXPORT_FAILED = (
     "The export could not be made. Ask for another; if that one fails too, write to support."
@@ -512,7 +505,6 @@ def _write(path: Path, export_id: int, storage: Storage) -> int:
             "exported_by": ExportedBy(name=user.name, email=user.email),
             "about": PROJECT_ABOUT if chosen is None else CHOSEN_ABOUT,
             "folders": sorted(listed_folders, key=str.lower),
-            "templates": _templates(session, project.id),
             "share_links": _share_links(
                 session, project.id, user.id, None if chosen is None else ids
             ),
@@ -633,7 +625,6 @@ def _read(
                 page=row.page,
                 passage_id=row.passage_id,
                 verified=row.verified,
-                check=check_out(row.check) if row.check is not None else None,
             )
         )
     return [
@@ -827,25 +818,10 @@ def _listed(document: Document, folder: str, original: str | None, data: str) ->
         language=document.language,
         edited_details=document.edited_details,
         summary=document.summary,
-        template=document.template,
         page_count=document.page_count,
         uploaded_at=document.created_at,
         version=document.version,
     )
-
-
-def _templates(session: Session, project_id: int) -> list[ExportedTemplate]:
-    """The project's own extraction templates (app/extraction.py), as its members wrote them."""
-    return [
-        ExportedTemplate(
-            doc_type=template.doc_type,
-            title=template.title,
-            description=template.description,
-            fields=[TemplateFieldOut(**asdict(field)) for field in template.fields],
-        )
-        for template in templates_for(session, project_id)
-        if template.id is not None
-    ]
 
 
 def _share_links(
