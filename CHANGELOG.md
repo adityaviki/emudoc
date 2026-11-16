@@ -16,6 +16,14 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 
 ### Users
 
+- Question sets are gone, with their reports: the library no longer offers "Question sets", and
+  no set asks its questions every day, one day a week or as documents arrive. Ask the agent the
+  same questions in a chat when you want them answered: it answers from the documents as they
+  read then, citing each passage. The notices of a report ready already under the bell stay
+  until they are pruned, and open the project.
+- The weekly digest is gone: nobody is told on Monday morning what arrived in their projects
+  over the week, and the account page no longer offers "What arrived this week". The library's
+  "Date added" order, newest first, lists what arrived in a folder.
 - Reviews are gone: a document is no longer put in review, assigned to a member, approved or
   disputed. The library's "Reviews", the review controls on a document's tab and in its menu,
   the marks beside a document's name in the library and in the facts table, the search's "In
@@ -36,6 +44,27 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 
 ### Admins
 
+- Migration f149fd1a2183 drops the `question_sets`, `question_set_arrivals` and `question_reports`
+  tables with the sets, the documents waiting for them and the reports in them, the column
+  `digested_on` of `memberships`, the `run_question_set`, `write_question_report` and
+  `send_digests` jobs, queued or kept, with their kinds, and what the members and the workspace
+  chose for the notices of a report ready and of the weekly digest; every webhook stops
+  listening for `report.completed`, one that listened for nothing else hearing nothing until an
+  admin chooses its events again, and the delivery log's entries of that event go with the tries
+  still waiting. A downgrade makes the tables and the column again, empty.
+  `GET|POST /api/projects/{id}/question-sets`, `PUT|DELETE /api/question-sets/{id}`,
+  `POST /api/question-sets/{id}/run`, `GET /api/projects/{id}/reports` and
+  `GET|DELETE /api/reports/{id}` are gone, for API keys too, and no setting goes. A break of
+  `/api/v1`: `GET /api/v1/projects/{id}/reports` and `GET /api/v1/reports/{id}` are gone with
+  their `Report`, `ReportSummary`, `ReportAnswer` and `ReportList`, and the webhook event
+  `report.completed` (`ReportEvent`) is no longer sent, nor may a webhook choose it (0.1.0
+  promised nothing more before 1.0); the contract is written again without them. An account's
+  export no longer lists the question sets its member made, nor a membership's `digested_on`.
+  The notices of the two kinds already sent stay in the notification centres until they are
+  pruned; the audit log's `question_set_created`, `question_set_changed`,
+  `question_set_deleted`, `question_set_run` and `question_report_deleted` entries stay and
+  still read, and so do the usage rows of the reports' answers, of the kind `answer`, which the
+  Administration page's costs count with the chats'.
 - Migration cc45ffa7565c drops the `my_file_writings` table with the writings under way or failed
   in it, the columns `review`, `assignee_id`, `review_changed_by` and `review_changed_at` of
   `documents` and `review` and `assignee_id` of `automations`, the `write_draft` jobs, queued or

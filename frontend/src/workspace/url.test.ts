@@ -112,8 +112,6 @@ describe('buildWorkspaceUrl', () => {
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, checks: true } })).toBe('/projects/3?checks=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, check: 5 } })).toBe('/projects/3?check=5')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, run: 8 } })).toBe('/projects/3?run=8')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, questionSets: true } })).toBe('/projects/3?question-sets=')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, report: 12 } })).toBe('/projects/3?report=12')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, writingTemplates: true } })).toBe('/projects/3?writing-templates=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, mail: true } })).toBe('/projects/3?mail=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, connectors: true } })).toBe('/projects/3?connectors=')
@@ -142,8 +140,6 @@ describe('buildWorkspaceUrl', () => {
       { ...home, library: { folderId: null, checks: true }, chatId: 12 },
       { ...home, library: { folderId: null, check: 5 }, document: { id: 41, focus: { block: 2 } } },
       { ...home, library: { folderId: null, run: 8 }, document: { id: 41, focus: { block: 2 } } },
-      { ...home, library: { folderId: null, questionSets: true }, chatId: 12 },
-      { ...home, library: { folderId: null, report: 12 }, document: { id: 41, focus: { passage: 812 } } },
       { ...home, library: { folderId: null, writingTemplates: true }, chatId: 12 },
       { ...home, library: { folderId: null, mail: true }, chatId: 12 },
       { ...home, library: { folderId: null, connectors: true } },
@@ -166,6 +162,10 @@ describe('buildWorkspaceUrl', () => {
     // and a search narrowed to a review's state is a search without it.
     expect(buildWorkspaceUrl(parse('/projects/3?reviews=mine')!)).toBe('/projects/3')
     expect(buildWorkspaceUrl(parse('/projects/3?q=notice&review=disputed')!)).toBe('/projects/3?q=notice')
+    // A notice's link to a question set's report, from before question sets went, opens the library, and so does the
+    // sets' own place.
+    expect(buildWorkspaceUrl(parse('/projects/3?report=12')!)).toBe('/projects/3')
+    expect(buildWorkspaceUrl(parse('/projects/3?question-sets')!)).toBe('/projects/3')
   })
 })
 

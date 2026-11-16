@@ -331,11 +331,11 @@ def test_the_purge_takes_the_account_its_organisation_and_their_files(
     assert session.get(Organization, organization_id) is None
     # Everything else the database held was Ada's or her organisation's, but the mail sent to
     # her, which is no organisation's, and keeps its subject alone once sent, for the operator,
-    # until the finished jobs are pruned, and the weekly digests' job the housekeeper queued.
+    # until the finished jobs are pruned.
     for model in (Document, Chat, ChatMessage, UsageEvent, UserSession, AuthToken, Browser):
         assert not session.scalar(select(func.count()).select_from(model)), model.__name__
     assert mailer.sent
-    jobs = session.scalars(select(Job).where(Job.kind != "send_digests")).all()
+    jobs = session.scalars(select(Job)).all()
     assert {job.kind for job in jobs} == {"send_email"}
     assert all(set(job.payload) == {"email", "subject", "try", "trace_id"} for job in jobs)
     assert session.scalars(select(Project.name)).all() == ["Globex files"]

@@ -1,6 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
 import {
-  CalendarClock,
   Camera,
   Check,
   ChevronDown,
@@ -89,7 +88,6 @@ import { fileKind, originalFileItem } from './files.ts'
 import { BY_NAME, growing, hasMore, listed, nameOf, placeKey, showMore, useListings } from './listing.ts'
 import type { Arrangement, Listing } from './listing.ts'
 import { useLibraryMutations } from './mutations.ts'
-import { QuestionSetsView, ReportView } from './QuestionSets.tsx'
 import type { LibraryMutations } from './mutations.ts'
 import { useDocumentMarks, useFavorites } from './organizing.ts'
 import { PlaceBar, Seen } from './Places.tsx'
@@ -245,8 +243,6 @@ export function Library() {
   if (workspace.url.library.checks) return <CrossChecksView />
   if (workspace.url.library.check != null) return <FindingsView checkId={workspace.url.library.check} />
   if (workspace.url.library.run != null) return <RunView runId={workspace.url.library.run} />
-  if (workspace.url.library.questionSets) return <QuestionSetsView />
-  if (workspace.url.library.report != null) return <ReportView reportId={workspace.url.library.report} />
   if (workspace.url.library.mail && mail) return <MailboxView />
   if (workspace.url.library.connectors && connectors) return <ConnectorsView />
   if (workspace.url.library.myFiles) return <MyFilesView />
@@ -314,13 +310,6 @@ export function Library() {
             onClick={workspace.showMyFiles}
             title="My files: your own Word and Excel files in this project, which only you see"
             aria-label="My files"
-            className="px-2"
-          />
-          <Button
-            icon={<CalendarClock className="size-4" />}
-            onClick={workspace.showQuestionSets}
-            title="Question sets: questions asked of the documents on a schedule or as they arrive, their answers kept as reports"
-            aria-label="Question sets"
             className="px-2"
           />
           {mail && (

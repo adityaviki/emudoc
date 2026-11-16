@@ -4,9 +4,9 @@ import { Markdown } from '../components/Markdown.tsx'
 import { CitationChip } from './ChatPane.tsx'
 
 /**
- * A text the model wrote whole, a discrepancy report, a question set's answer or a shared answer, its citations numbered
- * in the order it first makes them and opening the passages they cite, which it lists below it. A reference to a
- * passage it was never shown stays plain text. `opens` names where a citation opens, when not in the document.
+ * A text the model wrote whole, a discrepancy report or a shared answer, its citations numbered in the order it first
+ * makes them and opening the passages they cite, which it lists below it. A reference to a passage it was never shown
+ * stays plain text. `opens` names where a citation opens, when not in the document.
  */
 export function CitedText({
   text,

@@ -6,8 +6,8 @@ The housekeeper (app/maintenance.py) deletes the older ones each round with `pru
 organisation in one statement, and leaves a chat whose answer is still being written. A chat's
 last question is `chats.updated_at`, which only asking sets, so renaming or sharing an old chat
 does not keep it. A chat in the trash (app/trash.py) is still held to it, and goes at whichever
-comes first, its retention or the trash's own TRASH_DAYS. The runs of cross-checks and the reports
-of question sets hold what documents said, as a chat's answers do, and are kept as long.
+comes first, its retention or the trash's own TRASH_DAYS. The runs of cross-checks hold what
+documents said, as a chat's answers do, and are kept as long.
 
 An account is deleted in two steps. The request (`POST /api/auth/account/deletion`) marks the
 user due for purging DELETION_GRACE from now and signs them out everywhere else; until then the
@@ -122,17 +122,6 @@ _PRUNE_RUNS = text(
            OR workflow_runs.report_status NOT IN ('queued', 'writing'))
     """
 )
-# A report of a question set's answers holds what documents said, as a chat's answers do, and is
-# kept as long, from when it was made; never one the worker is still answering.
-_PRUNE_REPORTS = text(
-    f"""
-    DELETE FROM question_reports
-    USING organizations
-    WHERE organizations.id = question_reports.org_id
-      AND {_past_retention("question_reports.created_at")}
-      AND question_reports.status NOT IN ('queued', 'running')
-    """
-)
 
 
 def day(moment: datetime, zone: tzinfo = UTC) -> str:
@@ -152,12 +141,6 @@ def prune_runs(connection: Connection) -> int:
     """Delete the runs of cross-checks (app/check_runs.py) made longer ago than their
     organisation keeps a chat; returns how many."""
     return connection.execute(_PRUNE_RUNS).rowcount
-
-
-def prune_reports(connection: Connection) -> int:
-    """Delete the reports of question sets (app/question_reports.py) made longer ago than their
-    organisation keeps a chat; returns how many."""
-    return connection.execute(_PRUNE_REPORTS).rowcount
 
 
 def deletion_pending(due: datetime, zone: tzinfo = UTC) -> str:

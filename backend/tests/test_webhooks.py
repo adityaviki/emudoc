@@ -16,7 +16,6 @@ from sqlalchemy import func, select, text, update
 
 from app import webhooks
 from app.api.v1.library import document_of
-from app.api.v1.reports import summary_of
 from app.api.v1.runs import run_of
 from app.config import get_settings
 from app.encrypted import WEBHOOK_SECRETS, decrypt, encrypt_secrets
@@ -24,7 +23,6 @@ from app.jobs import (
     DELIVER_WEBHOOK,
     INDEX_DOCUMENT,
     RUN_WORKFLOW,
-    WRITE_QUESTION_REPORT,
     Lease,
     LeaseLost,
     claim,
@@ -33,7 +31,6 @@ from app.keyring import key_of
 from app.models import (
     Document,
     Job,
-    QuestionReport,
     Webhook,
     WebhookDelivery,
     WorkflowRun,
@@ -60,7 +57,6 @@ from app.webhooks import (
 from app.worker import Worker
 from tests.test_api import create_project
 from tests.test_audit import actions
-from tests.test_authorization import QUESTION_SET
 from tests.test_check_runs import TOTAL, invoices, made, run
 from tests.test_encrypted import fingerprint, keyed, new_key  # noqa: F401 (a fixture)
 
@@ -192,6 +188,9 @@ def test_an_admin_adds_a_webhook_whose_secret_is_shown_once(client, session, acc
     )
     listed = hooks(client)
     assert [hook["url"] for hook in listed] == [HOOK] and "secret" not in listed[0]
+    # A question set's report was an event until question sets went (S.6): no longer one.
+    gone = {"url": HOOK, "events": ["report.completed"]}
+    assert client.post("/api/organization/webhooks", json=gone).status_code == 422
 
     # Kept encrypted for its row, and read back to sign with.
     row = session.get(Webhook, made_now["id"])
@@ -462,26 +461,6 @@ def test_a_run_of_cross_checks_worked_out_is_announced(client, session, services
     assert [d["subject_id"] for d in log_of(client, hook["id"])["deliveries"]] == [
         started["id"]
     ] * 2
-
-
-def test_a_report_of_a_question_set_is_announced_without_its_answers(
-    client, session, services, receiver
-):
-    hook = add(client, events=["report.completed"])
-    project = create_project(client)
-    question_set = client.post(f"/api/projects/{project['id']}/question-sets", json=QUESTION_SET)
-    started = client.post(f"/api/question-sets/{question_set.json()['id']}/run").json()
-    services.llm.agent_turns.append(_report())
-    assert run_due(services, WRITE_QUESTION_REPORT) == 1
-    run_due(services, DELIVER_WEBHOOK)
-    [event] = receiver.bodies()
-    assert event["type"] == "report.completed"
-    kept = session.get(QuestionReport, started["id"], populate_existing=True)
-    assert event["data"] == summary_of(kept).model_dump(mode="json")
-    assert (event["data"]["status"], event["data"]["answered"]) == ("done", 1)
-    # What the report is, never what an answer says.
-    assert b"INV-1" not in receiver.requests[0].content
-    assert [d["subject_id"] for d in log_of(client, hook["id"])["deliveries"]] == [started["id"]]
 
 
 def _report():

@@ -42,8 +42,7 @@ Everyone reads the workspace's settings on its page; its owners and admins choos
 - **Language of its documents**: the one documents without one of their own are searched and
   read in ([A document's details](/help/documents)).
 - **Chats kept**: until they are deleted, or a number of days after their last question. The
-  runs of the cross-checks, the question sets' reports and the drafts, which hold what documents
-  said as answers do, are kept as long.
+  runs of the cross-checks, which hold what documents said as answers do, are kept as long.
 - **Audit log kept**: $audit_days days until they choose fewer or more. The audit log, under
   Security, says who did what and when, and downloads as a CSV file.
 - **How members are told** of each kind of notice, until each chooses for themselves.
@@ -100,14 +99,12 @@ program's address, starting with `https://`, and the events it is told of:
 | `document.ready` | once a document can be searched and asked about, and again each time it is indexed again |
 | `document.failed` | once a document could not be read, or the malware scan quarantined it |
 | `check_run.completed` | once a run of a project's cross-checks is worked out, and again when its report is written |
-| `report.completed` | once a question set's report is answered, or failed; it says which set and how many questions were answered, and a program reads the answers by the report's id |
 
 Each event is posted as JSON: its `id`, its `type`, `created_at` and `data`, which is what the
-versioned API answers for the document, the run or the report (without its answers), so a
-program reads one model however it heard. It is signed with the webhook's secret, shown once as
-the webhook is added: the `Emudoc-Signature` header is `t=` the time in seconds and `v1=` the
-HMAC-SHA256, in hex, of that time, a full stop and the body as sent. Check it before anything
-else, as in Python:
+versioned API answers for the document or the run, so a program reads one model however it
+heard. It is signed with the webhook's secret, shown once as the webhook is added: the
+`Emudoc-Signature` header is `t=` the time in seconds and `v1=` the HMAC-SHA256, in hex, of that
+time, a full stop and the body as sent. Check it before anything else, as in Python:
 
 ```python
 import hashlib

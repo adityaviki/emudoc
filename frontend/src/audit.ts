@@ -425,6 +425,8 @@ function describeAutomation(detail: AuditEvent['detail']): string {
   return parts.join(', ')
 }
 
+// A project's question sets made, changed, deleted and run, and their reports deleted, until question sets went on
+// 2026-11-16: their rows from before keep their words.
 const QUESTION_SET_ACTIONS = new Set<AuditAction>([
   'question_set_created',
   'question_set_changed',

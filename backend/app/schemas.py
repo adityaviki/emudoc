@@ -4,7 +4,6 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_serializer
 
 from app.costs import costs_shown
-from app.question_sets import MAX_SET_QUESTIONS, QUESTION_CHARS
 from app.selection import MAX_CHOSEN
 
 
@@ -1134,111 +1133,6 @@ class AutomationsOut(BaseModel):
     max_automations: int
 
 
-# QUESTION_SET_SCHEDULES and REPORT_TRIGGERS in app/models.py.
-QuestionSetSchedule = Literal["daily", "weekly"]
-ReportTrigger = Literal["schedule", "arrivals", "member"]
-_SavedQuestion = Annotated[
-    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=QUESTION_CHARS)
-]
-
-
-class QuestionSetIn(BaseModel):
-    """A question set as a member writes it, whole (app/question_sets.py): its name; its
-    questions, in the order they are asked; its schedule, every day or one day a week (`weekday`,
-    Monday 0), at `hour` o'clock of its maker's zone, or none; whether documents arriving in the
-    project run it; whom the reports its schedule and its arrivals make are told to; and whether
-    it is on. Something runs it: a schedule, arrivals, or both."""
-
-    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
-    questions: list[_SavedQuestion] = Field(min_length=1, max_length=MAX_SET_QUESTIONS)
-    schedule: QuestionSetSchedule | None = None
-    weekday: int | None = Field(default=None, ge=0, le=6)
-    hour: int = Field(default=8, ge=0, le=23)
-    on_arrivals: bool = False
-    audience: AutomationAudience = "maker"
-    enabled: bool = True
-
-
-class QuestionSetOut(QuestionSetIn):
-    id: int
-    # The zone its hour is in, its maker's, "UTC" while they chose none or once they are gone.
-    time_zone: str
-    # When its schedule runs it next; None without one or while it is off.
-    next_run_at: dt.datetime | None
-    # Who made it, by their id and their name as it is now; None once their account is gone.
-    created_by: int | None
-    made_by: str | None
-    # Why it would run nothing or tell nobody as the organisation stands now; None when it runs
-    # as it says.
-    problem: str | None
-    # When it last made a report, of those kept, and whether one is waiting or being answered.
-    last_report_at: dt.datetime | None
-    running: bool
-    updated_at: dt.datetime
-
-
-class QuestionSetsOut(BaseModel):
-    """A project's question sets, by name, how many it may have and how many questions a set
-    may ask."""
-
-    question_sets: list[QuestionSetOut]
-    max_question_sets: int
-    max_questions: int
-
-
-class ReportAnswerOut(BaseModel):
-    """One question of a report, as it was asked, and its answer, which cites the passages it
-    was shown as [P<id>]. `status` is `queued` until it is asked and `running` while it is; a failed
-    one says why in `error` (the day's spending used up, the agent's run failed); `notice` is what
-    the answer adds about itself, such as that it was cut off."""
-
-    question: str
-    status: RunStatus
-    content: str
-    sources: list[SourceOut]
-    notice: str | None
-    error: str | None
-
-
-class QuestionReportSummaryOut(BaseModel):
-    """A report as the project's list shows it: which set, by its id while it is there and its
-    name as it was; what ran it (its schedule, documents that arrived, or a member, by their name
-    as it is now, None once their account is gone); how far it is; how many of its questions
-    were answered and failed; and how many documents arrived for it, the first few by name."""
-
-    id: int
-    question_set_id: int | None
-    title: str
-    trigger: ReportTrigger
-    run_by: str | None
-    status: RunStatus
-    questions: int
-    answered: int
-    failed: int
-    arrived: int
-    names: list[str]
-    created_at: dt.datetime
-    finished_at: dt.datetime | None
-
-
-class QuestionReportOut(QuestionReportSummaryOut):
-    """A report whole: every question with its answer, why it failed, and what its answers
-    used."""
-
-    project_id: int
-    user_id: int | None
-    error: str | None
-    answers: list[ReportAnswerOut]
-    usage: dict[str, UsageOut]
-
-
-class QuestionReportsOut(BaseModel):
-    """A page of a project's reports, the newest first, and the id to ask before for the next."""
-
-    reports: list[QuestionReportSummaryOut]
-    next_before: int | None
-
-
 class MailboxIn(BaseModel):
     """A project's address as its members set it (app/inbound.py): whom it takes mail from
     besides themselves, each an address or a domain, and the folder what arrives goes into, the
@@ -1635,16 +1529,12 @@ class AccountDeletionIn(BaseModel):
 
 
 # The kinds of notice (NOTICE_KINDS in app/models.py, app/notices.py).
-NoticeKind = Literal[
-    "upload_indexed",
-    "project_export",
-    "checks_run",
-    "report_ready",
-    "weekly_digest",
-]
+NoticeKind = Literal["upload_indexed", "project_export", "checks_run"]
 # The kinds of notice no longer told, whose notices stay in the centres to read
 # (PAST_NOTICE_KINDS in app/models.py).
-PastNoticeKind = Literal["mentioned", "thread_replied", "review_assigned"]
+PastNoticeKind = Literal[
+    "mentioned", "thread_replied", "review_assigned", "report_ready", "weekly_digest"
+]
 
 
 class NoticeChoiceIn(BaseModel):
@@ -2061,9 +1951,7 @@ SharedOut = Annotated[SharedDocumentOut | SharedAnswerOut, Field(discriminator="
 
 # WEBHOOK_EVENTS and WEBHOOK_DELIVERY_STATUSES in app/models.py, which the database's check
 # constraints hold.
-WebhookEvent = Literal[
-    "document.ready", "document.failed", "check_run.completed", "report.completed"
-]
+WebhookEvent = Literal["document.ready", "document.failed", "check_run.completed"]
 WebhookDeliveryStatus = Literal["pending", "delivered", "failed"]
 # The longest address a webhook takes, as `webhooks.url` holds it.
 WEBHOOK_URL_CHARS = 2000
@@ -2461,8 +2349,6 @@ class ExportedMembership(BaseModel):
     joined_at: dt.datetime
     # The organisation's private projects the user was chosen to see, by name.
     private_projects: list[str]
-    # The Monday whose weekly digest of what arrived they were last told (app/digests.py).
-    digested_on: dt.date | None = None
 
 
 class ExportedSession(BaseModel):
@@ -2584,24 +2470,6 @@ class ExportedVisit(BaseModel):
     opened_at: dt.datetime
 
 
-class ExportedQuestionSet(BaseModel):
-    """A question set the user made (app/question_sets.py), with its questions, their words; the
-    reports of its answers are the organisation's, about its documents, and stay out."""
-
-    organization: str
-    project: str
-    title: str
-    questions: list[str]
-    schedule: str | None
-    weekday: int | None
-    hour: int
-    on_arrivals: bool
-    audience: str
-    enabled: bool
-    created_at: dt.datetime
-    updated_at: dt.datetime
-
-
 class ExportedShareLink(BaseModel):
     """A link the user made to a document or an answer that has not expired
     (app/share_links.py), never its token."""
@@ -2631,7 +2499,6 @@ class AccountExport(BaseModel):
     favorite_documents: list[ExportedFavorite] = []
     recent_documents: list[ExportedVisit] = []
     share_links: list[ExportedShareLink] = []
-    question_sets: list[ExportedQuestionSet] = []
     my_files: list[ExportedMyFile] = []
     notifications: list[ExportedNotification]
     usage: list[ExportedUsage]

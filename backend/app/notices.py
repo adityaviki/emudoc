@@ -21,8 +21,7 @@ run again by "Index again", is told of by nothing else: whoever pressed it is wa
 
 A settled upload's documents are what the project's automations watch arrive
 (app/automations.py): kept for each that watches them in the same transaction, they run its
-cross-checks once they have gone quiet; and so are its question sets that run on arrivals
-(app/question_sets.py), whose questions they have asked.
+cross-checks once they have gone quiet.
 
 An upload is found settled by whoever ends its last piece of work. The worker looks once a
 document's index job is finished (`after_index`, which app/worker.py runs after the job's row
@@ -59,7 +58,6 @@ from app.models import (
     User,
 )
 from app.postbox import BY_EMAIL, post_notice
-from app.question_sets import arrived as arrived_for_sets
 from app.schemas import NoticeChoiceOut
 from app.usage import MONTHS
 
@@ -70,19 +68,12 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 # The kinds of notice, and the way of telling them this module makes itself; a project's export
-# is told by app/export.py, what an automation's run found by app/check_runs.py, a question
-# set's report kept by app/question_reports.py, and the weekly digest of what arrived by
-# app/digests.py. A member mentioned in a comment, or told of a reply in a thread they wrote in,
-# was told until comments went, and a member assigned a document's review until reviews went
-# (S.6, 2026-11-16); those notices stay in the centres until they are pruned
-# (PAST_NOTICE_KINDS).
-(
-    UPLOAD_INDEXED,
-    PROJECT_EXPORT,
-    CHECKS_RUN,
-    REPORT_READY,
-    WEEKLY_DIGEST,
-) = NOTICE_KINDS
+# is told by app/export.py, and what an automation's run found by app/check_runs.py. A member
+# mentioned in a comment, or told of a reply in a thread they wrote in, was told until comments
+# went, a member assigned a document's review until reviews went, and a question set's report
+# kept and the weekly digest of what arrived until question sets went (S.6, 2026-11-16); those
+# notices stay in the centres until they are pruned (PAST_NOTICE_KINDS).
+UPLOAD_INDEXED, PROJECT_EXPORT, CHECKS_RUN = NOTICE_KINDS
 IN_APP = NOTICE_CHANNELS[0]
 # How long a notice stays in its member's notification centre, read or not.
 NOTIFICATION_DAYS = 90
@@ -176,8 +167,8 @@ def organization_choices(organization: Organization) -> list[NoticeChoiceOut]:
 def audience_of(
     session: Session, project: Project, audience: str, maker_id: int | None
 ) -> list[User]:
-    """Whom an automation or a question set tells (AUTOMATION_AUDIENCES), of the organisation's
-    members who see the project now: its maker, everyone, or nobody."""
+    """Whom an automation tells (AUTOMATION_AUDIENCES), of the organisation's members who see
+    the project now: its maker, everyone, or nobody."""
     if audience == "nobody" or (audience == "maker" and maker_id is None):
         return []
     query = select(Membership).where(Membership.org_id == project.org_id)
@@ -234,14 +225,12 @@ def record_upload(
 def settle_upload(session: Session, upload_id: int, app_url: str) -> bool:
     """Mark the upload settled if none of its documents is waiting or being indexed any more,
     post its member's notice if it took long enough, and keep its documents for the project's
-    automations that watch them (app/automations.py) and its question sets that run on arrivals
-    (app/question_sets.py); commits. Returns whether it was settled now, rather than before or
-    not yet."""
+    automations that watch them (app/automations.py); commits. Returns whether it was settled
+    now, rather than before or not yet."""
     settled = session.execute(_SETTLE, {"id": upload_id}).first()
     if settled is not None:
         _tell(session, settled, app_url)
         arrived(session, settled.id, settled.project_id)
-        arrived_for_sets(session, settled.id, settled.project_id)
     session.commit()
     return settled is not None
 

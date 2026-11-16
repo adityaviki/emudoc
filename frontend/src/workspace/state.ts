@@ -114,10 +114,6 @@ export interface Workspace {
   showFindings(checkId: number): void
   /** Shows a run of the project's cross-checks, kept with what it found, in the library, likewise. */
   showRun(runId: number): void
-  /** Shows the project's question sets, with the reports of their answers, in the library, likewise. */
-  showQuestionSets(): void
-  /** Shows one report of a question set's answers in the library, likewise. */
-  showReport(reportId: number): void
   /** Shows the project's address, whose mail becomes its documents, in the library, likewise. */
   showMailbox(): void
   /** Shows the member's own files in the project, their My files, in the library, likewise. */

@@ -141,7 +141,8 @@ describe('a row', () => {
     expect(describeDetail(event('automation_changed', turnedOff))).toBe(
       'New invoices · any document anywhere, running Totals, off, changed what it watches, on or off',
     )
-    // A question set: how many questions and when it runs, never a question; a run says what ran it.
+    // A question set, in a row from before question sets went: how many questions and when it ran, never a question;
+    // a run says what ran it.
     const questions = { name: 'Monday checks', questions: 3, schedule: 'on Mondays at 08:00', arrivals: true, audience: 'project', enabled: true }
     expect(describeDetail(event('question_set_created', questions))).toBe('Monday checks · 3 questions, on Mondays at 08:00, as documents arrive')
     expect(describeDetail(event('question_set_changed', { ...questions, schedule: null, enabled: false, changed: ['schedule', 'enabled'] }))).toBe(

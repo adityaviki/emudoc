@@ -6,12 +6,11 @@ and the events it is told of, of WEBHOOK_EVENTS. A document's indexing that ends
 is `document.ready` or `document.failed`, once its document is settled, its index job ended and
 none queued after it (a retry waiting is not settled); a run of cross-checks worked out, its
 report written or failed when one was asked for, is `check_run.completed`; a report of a
-question set's answers kept, or failed, is `report.completed`, which says what the report is and
-never what an answer says, since a program reads that by the report's id. Each is announced
-from the end of the job that brought it about (`Handler.after` in app/worker.py), once the job's
-row says it ended, and a job's end looked at twice announces nothing twice: a delivery is unique
-by its hook and that job. A document indexed again, or a run whose report is asked for after,
-settles again and is announced again, under a new event.
+question set's answers kept was `report.completed` until question sets went (S.6, 2026-11-16).
+Each is announced from the end of the job that brought it about (`Handler.after` in
+app/worker.py), once the job's row says it ended, and a job's end looked at twice announces
+nothing twice: a delivery is unique by its hook and that job. A document indexed again, or a
+run whose report is asked for after, settles again and is announced again, under a new event.
 
 An event's body is the versioned API's own (app/api/v1/): `{id, type, created_at, data}`, `data`
 what `GET /api/v1/…` answers for the document or the run, so that a program reads one model
@@ -78,7 +77,6 @@ from app.models import (
     Job,
     Organization,
     Project,
-    QuestionReport,
     Webhook,
     WebhookDelivery,
     WorkflowRun,
@@ -92,7 +90,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-DOCUMENT_READY, DOCUMENT_FAILED, CHECK_RUN_COMPLETED, REPORT_COMPLETED = WEBHOOK_EVENTS
+DOCUMENT_READY, DOCUMENT_FAILED, CHECK_RUN_COMPLETED = WEBHOOK_EVENTS
 PREFIX = "whsec_"
 # The most webhooks one organisation holds, so that one event is not posted a hundred times.
 MAX_WEBHOOKS = 10
@@ -268,38 +266,6 @@ def announce_run(run_id: int, job_id: int) -> int:
             job_id,
             lambda event_id, created_at: CheckRunEvent(
                 id=event_id, type=CHECK_RUN_COMPLETED, created_at=created_at, data=run_of(run)
-            ),
-        )
-        session.commit()
-        return told
-
-
-def announce_report(report_id: int, job_id: int) -> int:
-    """Announce a report of a question set kept, or failed, to the organisation's webhooks that
-    listen for it, once the job `job_id` that answered its questions ended; returns to how many.
-    The body says what the report is, never what an answer says. A report still being answered,
-    or in a project in the trash, announces nothing."""
-    from app.api.v1.reports import summary_of
-    from app.api.v1.schemas import ReportEvent
-
-    with SessionLocal() as session:
-        report = session.get(QuestionReport, report_id)
-        if report is None or report.status not in ("done", "failed"):
-            return 0
-        project = session.get(Project, report.project_id)
-        if project.deleted_at is not None:
-            return 0
-        told = _announce(
-            session,
-            project.organization,
-            REPORT_COMPLETED,
-            report_id,
-            job_id,
-            lambda event_id, created_at: ReportEvent(
-                id=event_id,
-                type=REPORT_COMPLETED,
-                created_at=created_at,
-                data=summary_of(report),
             ),
         )
         session.commit()

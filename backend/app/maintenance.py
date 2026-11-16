@@ -106,7 +106,6 @@ from app.config import export_env_file, get_settings
 from app.connectors.sync import prune_connectors
 from app.db import MIGRATION_LOCK, SessionLocal, check_schema, engine, unbounded
 from app.deadletters import NamedJob, describe, failed_jobs, named_jobs, requeue
-from app.digests import queue_digests
 from app.encrypted import describe_encrypted, encrypt_secrets, keys
 from app.export import EXPORT_DAYS, EXPORT_KEPT, prune_exports
 from app.fact_accuracy import describe_facts, run_facts
@@ -140,12 +139,10 @@ from app.notices import (
 )
 from app.parsing import MIME_TYPES
 from app.postgres import concerns, database_report, describe_database, span
-from app.question_sets import queue_due_sets
 from app.ratelimit import prune_rate_limits
 from app.restore import after_restore, describe_restore
 from app.retention import (
     prune_chats,
-    prune_reports,
     prune_runs,
     purge_due_accounts,
     reapply_erasures,
@@ -537,7 +534,6 @@ def housekeeping(storage: Storage) -> None:
         deliveries = prune_deliveries(connection)
         chats = prune_chats(connection)
         runs = prune_runs(connection)
-        reports = prune_reports(connection)
         audited = prune_audit(connection)
         credentials = prune_credentials(connection)
         spared = prune_suppressions(connection)
@@ -551,9 +547,6 @@ def housekeeping(storage: Storage) -> None:
     reapply_erasures(storage)
     accounts = purge_due_accounts(storage)
     uploads = settle_uploads()
-    with SessionLocal() as session:
-        sets = queue_due_sets(session)
-        digests = queue_digests(session)
     if accounts:
         log.info("Housekeeping: deleted %s accounts whose deletion was due", accounts)
     if uploads:
@@ -591,15 +584,6 @@ def housekeeping(storage: Storage) -> None:
             "Housekeeping: deleted %s runs of cross-checks kept past the workspace's retention",
             runs,
         )
-    if reports:
-        log.info(
-            "Housekeeping: deleted %s reports of question sets kept past the workspace's retention",
-            reports,
-        )
-    if sets:
-        log.info("Housekeeping: queued again the jobs of %s question sets that had none", sets)
-    if digests:
-        log.info("Housekeeping: queued the weekly digests' job, which had none")
     if emptied.projects or emptied.folders or emptied.documents or emptied.chats:
         log.info(
             "Housekeeping: deleted for good what was in the trash for %s days: %s projects, "

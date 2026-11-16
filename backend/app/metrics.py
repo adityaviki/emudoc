@@ -68,12 +68,9 @@ from app.jobs import (
     RECEIVE_MAIL,
     RENDER_PAGES,
     RUN_AUTOMATION,
-    RUN_QUESTION_SET,
     RUN_WORKFLOW,
-    SEND_DIGESTS,
     SEND_EMAIL,
     SYNC_CONNECTOR,
-    WRITE_QUESTION_REPORT,
 )
 from app.models import STAGES
 from app.postgres import archive, database_report
@@ -112,9 +109,6 @@ JOBS = (
     RECEIVE_MAIL,
     SYNC_CONNECTOR,
     DELIVER_WEBHOOK,
-    RUN_QUESTION_SET,
-    WRITE_QUESTION_REPORT,
-    SEND_DIGESTS,
 )
 # What a lane of the worker's threads runs (app/worker.py).
 INDEXER = "indexer"

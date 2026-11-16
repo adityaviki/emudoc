@@ -14,7 +14,6 @@ from app.config import get_settings
 from app.encrypted import CONNECTOR_TOKENS, encrypt
 from app.indexing.pipeline import process_document
 from app.models import Connector
-from app.question_reports import write_report
 from tests.conftest import FakeTurn
 from tests.test_api import create_project
 from tests.test_chats import answered, ask, new_chat
@@ -25,8 +24,6 @@ from tests.test_templates import INVOICE
 Route = tuple[str, str, dict]
 # An automation of the world's project (tests/test_automations.py imports this module).
 AUTOMATION = {"title": "New invoices", "kind": "invoice"}
-# A question set of the world's project (tests/test_question_sets.py imports this module).
-QUESTION_SET = {"title": "Every morning", "questions": ["What is due?"], "schedule": "daily"}
 
 
 def word(text: str) -> bytes:
@@ -41,13 +38,11 @@ def word(text: str) -> bytes:
 @dataclass
 class World:
     """A project with a folder, an indexed document with a fact a member checked, the upload it came
-    in with, an extraction template of its own, a cross-check with a run of it and an automation, a
-    question set with a report of its answers, and a chat holding one
-    answered
-    question, and in its trash a folder, a document and a chat; another project in the trash; an
-    invitation to the organisation and an API key of it, all made by the local owner in the local
-    organisation, and another member of it; the project has an address, a folder of the
-    owner's Google Drive connected, and its document a share link."""
+    in with, an extraction template of its own, a cross-check with a run of it and an automation,
+    and a chat holding one answered question, and in its trash a folder, a document and a chat;
+    another project in the trash; an invitation to the organisation and an API key of it, all made
+    by the local owner in the local organisation, and another member of it; the project has an
+    address, a folder of the owner's Google Drive connected, and its document a share link."""
 
     org_id: int
     project_id: int
@@ -74,8 +69,6 @@ class World:
     connector_id: int
     webhook_id: int
     link_id: int
-    question_set_id: int
-    report_id: int
     my_file_id: int
 
 
@@ -139,11 +132,6 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
     session.flush()
     connector.refresh_token = encrypt(CONNECTOR_TOKENS, connector.id, "refresh-1")
     session.commit()
-    question_set = client.post(f"/api/projects/{project['id']}/question-sets", json=QUESTION_SET)
-    assert question_set.status_code == 201, question_set.text
-    report = client.post(f"/api/question-sets/{question_set.json()['id']}/run").json()
-    services.llm.agent_turns.append(FakeTurn(TextPart("Nothing is due.")))
-    write_report(report["id"], services)
     letter = {"file": ("Letter.docx", word("Dear Acme,"))}
     my_file = client.post(f"/api/projects/{project['id']}/my-files", files=letter)
     assert my_file.status_code == 201, my_file.text
@@ -180,8 +168,6 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
         connector.id,
         hook.json()["id"],
         link.json()["id"],
-        question_set.json()["id"],
-        report["id"],
         my_file.json()["id"],
     )
 
@@ -215,9 +201,6 @@ def reads(w: World) -> list[Route]:
         ("GET", f"/api/check-runs/{w.run_id}", {}),
         ("GET", f"/api/check-runs/{w.run_id}/findings", {"params": {"rule": 0}}),
         ("GET", f"/api/projects/{w.project_id}/automations", {}),
-        ("GET", f"/api/projects/{w.project_id}/question-sets", {}),
-        ("GET", f"/api/projects/{w.project_id}/reports", {}),
-        ("GET", f"/api/reports/{w.report_id}", {}),
         ("GET", f"/api/projects/{w.project_id}/mailbox", {}),
         ("GET", f"/api/projects/{w.project_id}/connectors", {}),
         ("GET", f"/api/projects/{w.project_id}/draft-templates", {}),
@@ -271,9 +254,6 @@ def writes(w: World) -> list[Route]:
         ("POST", f"/api/check-runs/{w.run_id}/report", {}),
         ("POST", f"/api/projects/{w.project_id}/automations", {"json": AUTOMATION}),
         ("PUT", f"/api/automations/{w.automation_id}", {"json": AUTOMATION}),
-        ("POST", f"/api/projects/{w.project_id}/question-sets", {"json": QUESTION_SET}),
-        ("PUT", f"/api/question-sets/{w.question_set_id}", {"json": QUESTION_SET}),
-        ("POST", f"/api/question-sets/{w.question_set_id}/run", {}),
         (
             "PUT",
             f"/api/projects/{w.project_id}/draft-templates/report",
@@ -311,8 +291,6 @@ def writes(w: World) -> list[Route]:
         ("DELETE", f"/api/check-runs/{w.run_id}", {}),
         ("DELETE", f"/api/projects/{w.project_id}/draft-templates/report", {}),
         ("DELETE", f"/api/automations/{w.automation_id}", {}),
-        ("DELETE", f"/api/reports/{w.report_id}", {}),
-        ("DELETE", f"/api/question-sets/{w.question_set_id}", {}),
         ("DELETE", f"/api/projects/{w.project_id}/mailbox", {}),
         ("DELETE", f"/api/projects/{w.project_id}/connectors/{w.connector_id}", {}),
         ("DELETE", f"/api/cross-checks/{w.cross_check_id}", {}),

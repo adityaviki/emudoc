@@ -322,9 +322,7 @@ def test_housekeeping_prunes_old_finished_jobs(session, services, account):
     session.commit()
 
     housekeeping(services.storage)
-    # The weekly digests' job, which the housekeeper queues when there is none, aside.
-    kept = {job.id for job in all_jobs(session) if job.kind != "send_digests"}
-    assert kept == {rows["recent"], rows["queued"]}
+    assert {job.id for job in all_jobs(session)} == {rows["recent"], rows["queued"]}
 
 
 def test_worker_indexes_queued_documents_and_recovers_interrupted_ones(
