@@ -1,8 +1,10 @@
-// A member's own files in a project, their My files (backend/app/my_files.py): the words of their list and of a file's
-// place in the library, its versions, what keeps one from being shown or served, and a copy into the library.
+// A member's own files in a project, their My files (backend/app/my_files.py): which side of the library is shown, the
+// words of their list and of a file's place, its versions, what keeps one from being shown or served, and a copy into
+// the project's files.
 
 import type { Document, MyFile, MyFileKind, MyFileVersion, MyFiles } from './api.ts'
-import { formatDateTime, formatSize } from './format.ts'
+import { formatDate, formatDateTime, formatSize } from './format.ts'
+import type { LibraryView } from './workspace/url.ts'
 
 /** The query of the member's files in a project, which a file added, changed or deleted asks again. */
 export const myFilesKey = (projectId: number) => ['my-files', projectId] as const
@@ -16,8 +18,30 @@ export const KIND_WORDS: Record<MyFileKind, string> = { docx: 'Word document', x
 /** How often an open file, or the list, is asked again while a version waits for its scan or its pages. */
 export const MY_FILE_POLL = 2000
 
-export const MY_FILES_NOTE =
-  'Your own Word documents and Excel workbooks in this project, which only you see. Copy one into the project’s library to share it with its members.'
+export const MY_FILES_NOTE = 'Only you see these files. Copy one to project files to share it with the project’s members.'
+
+/** The library's two sides, a tab each: the project's files, which every member sees, and the member's own. */
+export type FilesSide = 'project' | 'mine'
+
+/** The side the library shows: My files for the member's list and each of their files, the project's for everything else. */
+export function filesSide(view: LibraryView): FilesSide {
+  return view.myFiles || view.myFile != null ? 'mine' : 'project'
+}
+
+/**
+ * Whether a press on a side's tab goes anywhere: to the other side, or back to the side's own list from a page within it
+ * (the trash, Email in or the connected folders; one of the member's files). Within the project's folders it stays.
+ */
+export function tabLeads(view: LibraryView, side: FilesSide): boolean {
+  if (filesSide(view) !== side) return true
+  return side === 'mine' ? view.myFile != null : Boolean(view.trash || view.mail || view.connectors)
+}
+
+/** How many files the member keeps here, and the most a member may once they come near it. */
+export function myFilesCount(count: number, limit: number): string {
+  if (count >= limit * 0.9) return `${count} of ${limit} files`
+  return `${count} file${count === 1 ? '' : 's'}`
+}
 
 /** Whether the version waits for its malware scan or its pages, which the page follows. */
 export function waiting(version: MyFileVersion): boolean {
@@ -33,6 +57,12 @@ export function servable(version: MyFileVersion): boolean {
 export function myFileWords(file: MyFile): string {
   const versions = `${file.versions} version${file.versions === 1 ? '' : 's'}`
   return [KIND_WORDS[file.kind], formatSize(file.latest.size_bytes), versions, `changed ${formatDateTime(file.updated_at)}`].join(' · ')
+}
+
+/** What a file's row says beside its name: the agent, when it wrote the newest version, the versions past the first, and the day it changed. */
+export function myFileLine(file: MyFile): string {
+  const versions = file.versions > 1 ? `${file.versions} versions` : null
+  return [file.latest.by_model ? 'By the agent' : null, versions, formatDate(file.updated_at)].filter(Boolean).join(' · ')
 }
 
 /** A version's name in the file's list of them. */
@@ -75,11 +105,11 @@ export function myFileDeletionQuestion(file: MyFile): string {
   return `Delete “${file.name}”${versions} for good? Nobody can bring it back.`
 }
 
-/** What the page says once a file was copied into the library: a new document, or the next version of the one it came from. */
+/** What the page says once a file was copied to the project's files: a new document, or the next version of the one it came from. */
 export function copiedWords(document: Document, asVersion: boolean): string {
   return asVersion
-    ? `“${document.filename}” in the library is now version ${document.version}. Its new file is being read.`
-    : `“${document.filename}” is in the library now, being read. Your file stays here.`
+    ? `“${document.filename}” in project files is now version ${document.version}. Its new file is being read.`
+    : `“${document.filename}” is in project files now, being read. Your file stays here.`
 }
 
 /** Whether the list should be asked again: a file's newest version waits for its scan or its pages. */

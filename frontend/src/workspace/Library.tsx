@@ -10,7 +10,6 @@ import {
   FileUp,
   Folder as FolderIcon,
   FolderInput,
-  FolderLock,
   FolderPlus,
   FolderSync,
   FolderUp,
@@ -233,7 +232,7 @@ export function Library() {
   if (workspace.url.library.mail && mail) return <MailboxView />
   if (workspace.url.library.connectors && connectors) return <ConnectorsView />
   if (workspace.url.library.myFiles) return <MyFilesView />
-  if (workspace.url.library.myFile != null) return <MyFileView fileId={workspace.url.library.myFile} />
+  if (workspace.url.library.myFile != null) return <MyFileView key={workspace.url.library.myFile} fileId={workspace.url.library.myFile} />
   // The files of the whole project a search finds are no place of their own: "All files", pressed, says where they are.
   const placeLabel = flat && !allNamed(place) ? placeName(place) : null
   const searchResults = search && (
@@ -263,27 +262,19 @@ export function Library() {
       }}
     >
       <div className="@container shrink-0 border-b border-line bg-surface">
-        {/* Always there, "All files" alone at the root, so that choosing a place or a folder moves nothing under it. */}
-        <div className="flex h-11 items-center gap-1 px-3">
-          <Breadcrumb
-            folderId={search || allNamed(place) ? null : folderId}
-            placeLabel={placeLabel}
-            mutations={mutations}
-            dragging={dragging}
-            onUpload={uploads ? uploadDropped : null}
-          />
-        </div>
-        {/* The library's buttons, then what it shows and how, then the project's search. */}
-        <div className="flex flex-col gap-2 px-3 pb-2.5">
-        {/* Its buttons take a second line rather than run under the pane beside it. */}
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            icon={<FolderLock className="size-4" />}
-            onClick={workspace.showMyFiles}
-            title="My files: your own Word and Excel files in this project, which only you see"
-            aria-label="My files"
-            className="px-2"
-          />
+        {/* The path, always there with "All files" alone at the root, and the library's buttons at its end, which take a
+            line of their own below it when the pane is too narrow for both: how wide the path is moves neither. */}
+        <div className="flex min-h-11 flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1.5">
+          <div className="flex min-w-32 flex-1">
+            <Breadcrumb
+              folderId={search || allNamed(place) ? null : folderId}
+              placeLabel={placeLabel}
+              mutations={mutations}
+              dragging={dragging}
+              onUpload={uploads ? uploadDropped : null}
+            />
+          </div>
+        <div className="ml-auto flex items-center gap-2 empty:hidden">
           {mail && (
             <Button
               icon={<Mail className="size-4" />}
@@ -347,6 +338,9 @@ export function Library() {
             </>
           )}
         </div>
+        </div>
+        {/* What it shows and how, then the project's search. */}
+        <div className="flex flex-col gap-2 px-3 pb-2.5">
         <PlaceBar
           place={place}
           arrangement={arrangement}

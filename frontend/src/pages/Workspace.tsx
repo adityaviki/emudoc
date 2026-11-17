@@ -14,6 +14,7 @@ import { useFolderTree, useFolders, useLocalStorage } from '../hooks.ts'
 import { offerTour, workspaceTour } from '../tour.ts'
 import { ChatPane } from '../workspace/ChatPane.tsx'
 import { DocumentTab } from '../workspace/DocumentTab.tsx'
+import { FilesTabs } from '../workspace/FilesTabs.tsx'
 import { Library } from '../workspace/Library.tsx'
 import { documentQuery, isGone, placeListingsKey } from '../workspace/listing.ts'
 import { WorkspaceShortcuts } from '../workspace/Shortcuts.tsx'
@@ -216,9 +217,12 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
       key: 'library',
       label: 'Library',
       node: (
-        <ErrorBoundary part="library" resetKey={libraryPlace(url.library)}>
-          <Library />
-        </ErrorBoundary>
+        // The project's files and the member's own, a tab each: a side that breaks leaves the tabs to the other.
+        <FilesTabs>
+          <ErrorBoundary part="library" resetKey={libraryPlace(url.library)}>
+            <Library />
+          </ErrorBoundary>
+        </FilesTabs>
       ),
       share: hasMiddle ? 25 : 55,
       min: 240,

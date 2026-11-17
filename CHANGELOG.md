@@ -16,6 +16,10 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 
 ### Users
 
+- The library has two tabs at its top, **Project files** and **My files**, so that the files every
+  member sees and your own, which only you see, are never taken for each other. My files lists
+  your files as the library lists documents, says who sees them, and opens each under a path
+  back to the list; "Copy to the library" is now "Copy to project files".
 - A step of an answer that was not done says so in a sentence, such as "Read around a passage ·
   Not done: the model asked in a form the tool does not take.", rather than showing what the
   model sent. And the agent reads a passage, a section, a document or a file of My files by the
