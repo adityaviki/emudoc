@@ -32,7 +32,7 @@ from pydantic import BeforeValidator, Field
 from sqlalchemy import select
 
 from app import sheet_files
-from app.agent.tools import LIVE, Tool, ToolContext, _Input
+from app.agent.tools import LIVE, DocumentId, FileId, Tool, ToolContext, _Input
 from app.audit import audit_event
 from app.conversion import ConvertError
 from app.draft_export import draft_file
@@ -104,7 +104,7 @@ class ListMyFilesInput(_Input):
 
 
 class ReadFileInput(_Input):
-    file_id: int = Field(description="The file's id, as list_my_files shows it.")
+    file_id: FileId = Field(description="The file's id, as list_my_files shows it.")
     version: int | None = Field(
         None, ge=1, description="A version to read rather than the newest, by its number."
     )
@@ -162,7 +162,7 @@ class DocumentChange(_Input):
 
 
 class EditDocumentInput(_Input):
-    file_id: int = Field(description="The file's id, as list_my_files shows it.")
+    file_id: FileId = Field(description="The file's id, as list_my_files shows it.")
     version: int = Field(
         ge=1, description="The version read_file showed, which must be the file's newest."
     )
@@ -290,7 +290,7 @@ class SpreadsheetChange(_Input):
 
 
 class EditSpreadsheetInput(_Input):
-    file_id: int = Field(description="The file's id, as list_my_files shows it.")
+    file_id: FileId = Field(description="The file's id, as list_my_files shows it.")
     version: int = Field(
         ge=1, description="The version read_file showed, which must be the file's newest."
     )
@@ -303,7 +303,9 @@ class EditSpreadsheetInput(_Input):
 
 
 class CopyToMyFilesInput(_Input):
-    document_id: int = Field(description="The document's id, as list_documents and search show it.")
+    document_id: DocumentId = Field(
+        description="The document's id, as list_documents and search show it."
+    )
 
 
 def list_my_files(ctx: ToolContext, args: ListMyFilesInput) -> str:
