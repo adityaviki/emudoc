@@ -1,7 +1,7 @@
 import { Download, ExternalLink, FileCode, FileImage, FileSpreadsheet, FileText, FileType, Presentation } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { fileUrl, isImage, isPdf, isSheet } from '../api.ts'
-import type { Document } from '../api.ts'
+import type { Document, MyFileKind } from '../api.ts'
 import type { MenuItem } from '../components/Menu.tsx'
 import { scanPassed } from '../indexing.ts'
 
@@ -33,6 +33,11 @@ export function fileKind(document: Document): FileKind {
   if (document.mime_type === 'text/html') return { ...KINDS.markdown, label: 'HTML' }
   if (document.mime_type === 'application/rtf') return { ...KINDS.text, label: 'RTF' }
   return KINDS.text
+}
+
+/** How a file of My files is drawn, as the library draws a document of its kind. */
+export function myFileKind(kind: MyFileKind): FileKind {
+  return kind === 'xlsx' ? KINDS.sheet : KINDS.word
 }
 
 /**

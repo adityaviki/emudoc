@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Copy, Download, FilePlus, FileSpreadsheet, FileText, FileUp, Pencil, RotateCcw, Trash2 } from 'lucide-react'
+import { ChevronRight, Copy, Download, FilePlus, FileUp, FolderLock, Lock, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { ApiError, api, mayChange, myFilePageUrl, myFileUrl } from '../api.ts'
 import type { Document, MyFile, MyFileDetail } from '../api.ts'
@@ -18,7 +18,9 @@ import {
   heldWords,
   myFileDeletionQuestion,
   myFileKey,
+  myFileLine,
   myFileWords,
+  myFilesCount,
   myFilesKey,
   myVersionName,
   myVersionWords,
@@ -28,6 +30,7 @@ import {
   waiting,
 } from '../myFiles.ts'
 import { viewContent } from '../views.ts'
+import { myFileKind } from './files.ts'
 import { listingsKey } from './listing.ts'
 import { useWorkspace } from './state.ts'
 
@@ -36,13 +39,19 @@ function Refusal({ error }: { error: Error }) {
   return <Notice tone="bad">{error.message}</Notice>
 }
 
-const KindIcon = ({ file }: { file: MyFile }) =>
-  file.kind === 'xlsx' ? <FileSpreadsheet aria-hidden className="size-4 shrink-0 text-muted" /> : <FileText aria-hidden className="size-4 shrink-0 text-muted" />
+/** A file's icon in the colour the library gives a document of its kind. */
+function KindIcon({ file }: { file: MyFile }) {
+  const { icon: Icon, color } = myFileKind(file.kind)
+  return <Icon aria-hidden className={`size-4 shrink-0 ${color}`} />
+}
+
+/** The bar atop My files and each of its files, as the project's files have their path: its words start where theirs do. */
+const BAR = 'flex h-11 shrink-0 items-center gap-1 border-b border-line bg-surface px-3'
 
 /**
- * The member's own files in the project, in the library's place: the Word documents and Excel workbooks they keep here,
- * which nobody else sees, the one changed last first, each opening in the same place; and a file added from this
- * computer.
+ * The member's own files in the project, under the library's "My files" tab: the Word documents and Excel workbooks they
+ * keep here, which nobody else sees, the one changed last first, each a row as the library's are and opening in the same
+ * place; and a file added from this computer.
  */
 export function MyFilesView() {
   const workspace = useWorkspace()
@@ -70,14 +79,13 @@ export function MyFilesView() {
   const listed = files.data?.files ?? []
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-page">
-      <div className="flex h-11 shrink-0 items-center gap-1.5 border-b border-line bg-surface px-2">
-        <IconButton label="Back to the library" onClick={() => workspace.goToFolder(null)}>
-          <ArrowLeft className="size-4" />
-        </IconButton>
-        <h2 ref={heading} tabIndex={-1} className="flex-1 truncate text-[13px] font-semibold">
+    <div className="@container flex h-full min-h-0 flex-col bg-page">
+      <div className={BAR}>
+        <h2 ref={heading} tabIndex={-1} className="min-w-0 truncate px-1.5 text-[13px] font-semibold">
           My files
         </h2>
+        <span className="flex-1" />
+        {files.data && listed.length > 0 && <span className="mr-1 shrink-0 text-xs text-muted">{myFilesCount(listed.length, files.data.limit)}</span>}
         <Button icon={<FilePlus className="size-4" />} disabled={add.isPending} onClick={() => picker.current?.click()}>
           {add.isPending ? 'Adding…' : 'Add a file'}
         </Button>
@@ -94,43 +102,43 @@ export function MyFilesView() {
           }}
         />
       </div>
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
-        <p className="text-xs text-muted">{MY_FILES_NOTE}</p>
-        {add.isPaused && <Notice tone="info">The file is added once you are back online.</Notice>}
-        {add.isError && <Refusal error={add.error} />}
+      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+        {/* Who sees them, said where they are, so that nobody takes them for the project's. */}
+        <p className="flex items-start gap-1.5 px-1.5 pt-1 pb-2 text-xs text-muted">
+          <Lock aria-hidden className="mt-px size-3.5 shrink-0" />
+          {MY_FILES_NOTE}
+        </p>
+        <div className="space-y-2 empty:hidden">
+          {add.isPaused && <Notice tone="info">The file is added once you are back online.</Notice>}
+          {add.isError && <Refusal error={add.error} />}
+          {files.isError && <Notice tone="bad">Could not load your files: {files.error.message}</Notice>}
+        </div>
         {files.isPending && <Loading />}
-        {files.isError && <Notice tone="bad">Could not load your files: {files.error.message}</Notice>}
         {files.data && listed.length === 0 && (
-          <EmptyState icon={<FileText />} title="No files yet">
-            Add a Word document or an Excel workbook to keep it here.
+          <EmptyState icon={<FolderLock />} title="No files of your own yet">
+            Add a Word document or an Excel workbook to keep it here, or ask in a chat for a letter or a workbook: the agent
+            writes it here.
           </EmptyState>
         )}
         {listed.length > 0 && (
-          <section aria-labelledby="my-files-list" className="space-y-2">
-            <h3 id="my-files-list" className="text-xs font-semibold text-muted">
-              {listed.length} of {files.data?.limit} files
-            </h3>
-            <ul aria-label="My files" className="space-y-1.5">
-              {listed.map((file) => (
-                <li key={file.id}>
-                  <button
-                    type="button"
-                    onClick={() => workspace.showMyFile(file.id)}
-                    className="flex w-full items-start gap-2 rounded-md border border-line bg-surface px-3 py-2 text-left transition hover:bg-sunken"
-                  >
-                    <KindIcon file={file} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[13px] font-medium break-words">{file.name}</span>
-                      <span className="flex items-center gap-1.5 text-xs text-muted">
-                        {waiting(file.latest) && <Spinner className="size-3" />}
-                        {myFileWords(file)}
-                      </span>
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </section>
+          <ul aria-label="My files">
+            {listed.map((file) => (
+              <li key={file.id}>
+                <button
+                  type="button"
+                  title={myFileWords(file)}
+                  onClick={() => workspace.showMyFile(file.id)}
+                  className="flex h-8 w-full items-center gap-2 rounded-md px-1.5 text-left text-[13px] transition hover:bg-sunken"
+                >
+                  <KindIcon file={file} />
+                  <span className="min-w-0 flex-1 truncate">{file.name}</span>
+                  {waiting(file.latest) && <Spinner className="size-3" />}
+                  {/* A narrow pane keeps the names, the rest in the row's title. */}
+                  <span className="hidden shrink-0 text-xs text-muted @xs:inline">{myFileLine(file)}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
     </div>
@@ -138,7 +146,7 @@ export function MyFilesView() {
 }
 
 /**
- * One of the member's files, in the library's place: its pages as they look, its versions to open and download, a new
+ * One of the member's files, under the library's "My files" tab, the way back to their list its path: its pages as they look, its versions to open and download, a new
  * version uploaded from this computer, and the file renamed, deleted or copied into the project's library.
  */
 export function MyFileView({ fileId }: { fileId: number }) {
@@ -212,13 +220,22 @@ export function MyFileView({ fileId }: { fileId: number }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-page">
-      <div className="flex h-11 shrink-0 items-center gap-1.5 border-b border-line bg-surface px-2">
-        <IconButton label="Back to My files" onClick={workspace.showMyFiles}>
-          <ArrowLeft className="size-4" />
-        </IconButton>
-        <h2 ref={heading} tabIndex={-1} className="flex-1 truncate text-[13px] font-semibold">
-          {data?.name ?? 'File'}
-        </h2>
+      <div className={BAR}>
+        <nav aria-label="Path" className="flex min-w-0 flex-1 items-center gap-0.5 text-[13px]">
+          <button
+            type="button"
+            aria-label="Back to My files"
+            title="Back to My files"
+            onClick={workspace.showMyFiles}
+            className="h-6.5 shrink-0 rounded-md px-1.5 text-muted transition hover:bg-sunken hover:text-ink"
+          >
+            My files
+          </button>
+          <ChevronRight aria-hidden className="size-3.5 shrink-0 text-muted/60" />
+          <h2 ref={heading} tabIndex={-1} title={data?.name} className="min-w-0 truncate px-1.5 font-semibold">
+            {data?.name ?? 'File'}
+          </h2>
+        </nav>
         {data && (
           <>
             <IconButton label="Rename this file" onClick={() => setRenaming(data.name)}>
@@ -292,7 +309,7 @@ export function MyFileView({ fileId }: { fileId: number }) {
               />
               {changes && servable(data.latest) && (
                 <Button icon={<Copy className="size-4" />} onClick={() => setCopying((open) => !open)} aria-expanded={copying}>
-                  Copy to the library
+                  Copy to project files
                 </Button>
               )}
             </div>
@@ -370,7 +387,7 @@ export function MyFileView({ fileId }: { fileId: number }) {
   )
 }
 
-/** Where a copy of the file goes in the library: a folder for a new document, or the document it was copied from as its next version. */
+/** Where a copy of the file goes in the project's files: a folder for a new document, or the document it was copied from as its next version. */
 function CopyForm({ file, onClose }: { file: MyFileDetail; onClose: () => void }) {
   const workspace = useWorkspace()
   const { project, folders } = workspace
@@ -391,9 +408,9 @@ function CopyForm({ file, onClose }: { file: MyFileDetail; onClose: () => void }
   return (
     <section aria-labelledby={`${id}-heading`} className="space-y-2 rounded-md border border-line bg-surface p-3">
       <h3 id={`${id}-heading`} className="text-[13px] font-semibold">
-        Copy “{file.name}” to the library
+        Copy “{file.name}” to project files
       </h3>
-      <p className="text-xs text-muted">Its newest version becomes a document the project’s members see, read and indexed as any upload. Your file stays here.</p>
+      <p className="text-xs text-muted">Its newest version becomes a document every member of the project sees, read and indexed as any upload. Your file stays here.</p>
       {file.origin_name && (
         <fieldset className="space-y-1 text-[13px]">
           <legend className="sr-only">As what</legend>
@@ -409,7 +426,7 @@ function CopyForm({ file, onClose }: { file: MyFileDetail; onClose: () => void }
       )}
       {!asVersion && (
         <SelectField label="Folder" value={folder} onChange={(event) => setFolder(event.target.value)}>
-          <option value="">The library’s top</option>
+          <option value="">All files, at the top</option>
           {folderChoices(folders).map((choice) => (
             <option key={choice.id} value={choice.id}>
               {choice.label}
