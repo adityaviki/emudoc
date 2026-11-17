@@ -16,6 +16,11 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 
 ### Users
 
+- A step of an answer that was not done says so in a sentence, such as "Read around a passage ·
+  Not done: the model asked in a form the tool does not take.", rather than showing what the
+  model sent. And the agent reads a passage, a section, a document or a file of My files by the
+  reference its results show it by, `P4` or `doc 6` as well as the number, so a step asked that
+  way is done rather than asked again.
 - Extraction templates are gone, with the facts table: the library no longer offers "Extraction
   templates", whose fields a project's documents of each kind were read for, nor a kind's facts
   table to sort, filter and download as a CSV file or an Excel workbook, nor "Check" and

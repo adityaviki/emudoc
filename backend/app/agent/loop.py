@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -40,6 +40,12 @@ from app.usage import ModelUsage
 log = logging.getLogger(__name__)
 
 MAX_RETRIES = 2
+
+# A step's line where its call was not run, shown after the step's own words ("Read around a
+# passage · …"), while the model reads why and goes on (`_run_tool`).
+REFUSED = "Not done: the model asked in a form the tool does not take."
+FAILED = "Not done: the tool failed unexpectedly."
+NOT_OFFERED = "Not done: the model asked for a tool it does not have."
 
 SYSTEM_PROMPT = """\
 You answer questions about the documents in one project of a document workspace. You learn \
@@ -263,13 +269,14 @@ def run_agent(
             break
 
         results = []
-        for call, arguments in zip(calls, inputs, strict=True):
+        for call, raw_input in zip(calls, inputs, strict=True):
             asked = offered.get(call.tool_name)
+            arguments = _read_input(asked, raw_input)
             yield {
                 "type": "tool_call",
                 "id": call.tool_call_id,
                 "name": call.tool_name,
-                "input": asked.stepped(arguments) if asked else arguments,
+                "input": _step_input(asked, raw_input, arguments),
             }
             known = set(sources)
             # Timed for the run's trace by its name among the tools, never the model's word.
@@ -283,7 +290,9 @@ def run_agent(
                     sources=sources,
                     writing=writing,
                 )
-                output, is_error = _run_tool(context, offered, call.tool_name, arguments)
+                output, line, is_error = _run_tool(
+                    context, call.tool_name, asked, raw_input, arguments
+                )
                 traced["outcome"] = "error" if is_error else "ok"
             new_sources = [source for key, source in sources.items() if key not in known]
             if new_sources:
@@ -291,7 +300,7 @@ def run_agent(
             yield {
                 "type": "tool_result",
                 "id": call.tool_call_id,
-                "summary": output.split("\n", 1)[0][:200],
+                "summary": line,
                 "is_error": is_error,
                 # The file of My files the call wrote, which its step opens.
                 **({"file": context.wrote} if context.wrote else {}),
@@ -345,32 +354,66 @@ def _tool_inputs(calls: list[ToolCallPart]) -> list[dict[str, Any]] | None:
         return None
 
 
-def _run_tool(
-    context: ToolContext, offered: dict[str, Tool], name: str, raw_input: Any
-) -> tuple[str, bool]:
-    """Validate and run one tool call of those offered. Returns the result text and whether it
-    is an error."""
-    tool = offered.get(name)
+def _read_input(tool: Tool | None, raw_input: dict[str, Any]) -> BaseModel | str | None:
+    """A call's input as its tool reads it (an id the model wrote as its reference, `P4` or `doc
+    6`, read as its number: `PassageId` and the others in app/agent/tools.py); for an input the
+    tool refuses, what is wrong with it, which the model is told; None for a tool not offered."""
     if tool is None:
-        return f"Unknown tool {name!r}.", True
-    if name in TOOLS and context.within() == []:
-        # The chat's folder or documents are gone: whatever it was asked, a reading tool would
-        # find nothing, and the model is told why rather than that nothing matched.
-        return NOTHING_LEFT, False
+        return None
     try:
-        arguments = tool.input_model.model_validate(raw_input)
+        return tool.input_model.model_validate(raw_input)
     except ValidationError as error:
-        problems = "; ".join(
+        return "; ".join(
             f"{'.'.join(str(part) for part in item['loc']) or 'input'}: {item['msg']}"
             for item in error.errors()
         )
-        return json.dumps({"INVALID_JSON": json.dumps(raw_input), "problems": problems}), True
+
+
+def _step_input(
+    tool: Tool | None, raw_input: dict[str, Any], arguments: BaseModel | str | None
+) -> dict[str, Any]:
+    """What the chat's step keeps of a call's input: as its tool read it, so the page names
+    document 6 where the model wrote `doc 6`, trimmed by the tool's `step`; as the model sent it
+    where the tool refused it or was not offered."""
+    if tool is None:
+        return raw_input
+    if isinstance(arguments, BaseModel):
+        return tool.stepped(arguments.model_dump(mode="json", exclude_unset=True))
+    return tool.stepped(raw_input)
+
+
+def _run_tool(
+    context: ToolContext,
+    name: str,
+    tool: Tool | None,
+    raw_input: dict[str, Any],
+    arguments: BaseModel | str | None,
+) -> tuple[str, str, bool]:
+    """Run one tool call of those offered, its input read by `_read_input`. Returns the result
+    the model reads, the step's line that whoever reads the chat sees, and whether it is an
+    error. The line is the result's first line, or where the call was not run, a sentence of the
+    members' own: never the model's input or the problems it is told of, which are the model's
+    to correct (found on 2026-11-14, a refused `read` shown as its JSON)."""
+    if tool is None:
+        return f"Unknown tool {name!r}.", NOT_OFFERED, True
+    if name in TOOLS and context.within() == []:
+        # The chat's folder or documents are gone: whatever it was asked, a reading tool would
+        # find nothing, and the model is told why rather than that nothing matched.
+        return NOTHING_LEFT, _first_line(NOTHING_LEFT), False
+    if not isinstance(arguments, BaseModel):
+        refused = json.dumps({"INVALID_JSON": json.dumps(raw_input), "problems": arguments})
+        return refused, REFUSED, True
     try:
-        return tool.run(context, arguments), False
+        output = tool.run(context, arguments)
     except PoolTimeout:
         # Not the tool's doing, and nothing the model can work around: the answer ends with the
         # sentence that says to try again (`answer` in app/answers.py).
         raise
     except Exception:
         log.exception("Tool %s failed", name)
-        return "The tool failed unexpectedly. Try a different approach.", True
+        return "The tool failed unexpectedly. Try a different approach.", FAILED, True
+    return output, _first_line(output), False
+
+
+def _first_line(output: str) -> str:
+    return output.split("\n", 1)[0][:200]

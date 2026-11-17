@@ -8,11 +8,12 @@ None of these changes anything the project's members share: a file of My files i
 alone, every write of it a version they can go back on (indexing-approach.md, "What the documents
 say is data")."""
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 from pydantic_ai.tools import ToolDefinition
 from sqlalchemy import ColumnElement, and_, func, or_, select
 from sqlalchemy.orm import InstrumentedAttribute, Session
@@ -128,6 +129,29 @@ class _Input(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+def _written_as(*names: str) -> BeforeValidator:
+    """An id as a model may send it: the number, or the reference the results show it by, which
+    a model copies (Claude Opus 5.5 sent a `read` `{"passage_id": "P4"}` on 2026-11-14), taken as
+    the number it names. The schema stays an integer, so no provider's tool definition changes,
+    and another kind's reference, a section's `S4` for a passage, is still refused."""
+    written = re.compile(rf"\[?\s*(?:(?:{'|'.join(names)})\s*)?(\d+)\s*\]?", re.IGNORECASE)
+
+    def read(value: Any) -> Any:
+        if isinstance(value, str) and (match := written.fullmatch(value.strip())):
+            return int(match.group(1))
+        return value
+
+    return BeforeValidator(read)
+
+
+# Each kind of id by the reference the tools' results give it: [P12] (`cite`), [S4]
+# (`get_outline`), doc 6 (`list_documents`, `search`, `query_facts`) and file 3 (`list_my_files`).
+PassageId = Annotated[int, _written_as("P")]
+SectionId = Annotated[int, _written_as("S")]
+DocumentId = Annotated[int, _written_as("doc", "document")]
+FileId = Annotated[int, _written_as("file")]
+
+
 class ListDocumentsInput(_Input):
     query: str | None = Field(
         None, description="Words to look for in titles, file names and summaries."
@@ -139,14 +163,14 @@ class ListDocumentsInput(_Input):
 
 
 class GetOutlineInput(_Input):
-    document_id: int = Field(description="The document's id, as shown by list_documents.")
+    document_id: DocumentId = Field(description="The document's id, as shown by list_documents.")
 
 
 class SearchInput(_Input):
     query: str = Field(
         description="What to look for: key terms, a phrase, or a question in plain words."
     )
-    document_ids: list[int] | None = Field(
+    document_ids: list[DocumentId] | None = Field(
         None,
         description="Search only these documents. Omit to search the whole project.",
     )
@@ -156,7 +180,9 @@ class SearchInput(_Input):
 
 class QueryFactsInput(_Input):
     names: list[str] | None = Field(None, description="Fact names to match, e.g. total_amount.")
-    document_ids: list[int] | None = Field(None, description="Only facts from these documents.")
+    document_ids: list[DocumentId] | None = Field(
+        None, description="Only facts from these documents."
+    )
     folder: str | None = Field(None, description=FOLDER_HELP)
     doc_type: str | None = Field(None, description="Only facts from documents of this type.")
     contains: str | None = Field(None, description="Only facts whose value contains this text.")
@@ -168,14 +194,14 @@ class QueryFactsInput(_Input):
 
 
 class ReadInput(_Input):
-    section_id: int | None = Field(
+    section_id: SectionId | None = Field(
         None,
         description="Read this section and its subsections (ids come from get_outline).",
     )
-    passage_id: int | None = Field(
+    passage_id: PassageId | None = Field(
         None, description="Read this passage together with the passages around it."
     )
-    document_id: int | None = Field(
+    document_id: DocumentId | None = Field(
         None, description="Read this document from the start, or the pages given below."
     )
     page_from: int | None = Field(None, description="First page to read, with document_id.")

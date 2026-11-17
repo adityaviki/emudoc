@@ -3,11 +3,13 @@ import json
 import re
 from datetime import UTC, datetime
 
+import pytest
+from pydantic import ValidationError
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, ThinkingPart, ToolCallPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from sqlalchemy import select
 
-from app.agent.loop import MAX_RETRIES, run_agent
+from app.agent.loop import FAILED, MAX_RETRIES, NOT_OFFERED, REFUSED, run_agent
 from app.agent.tools import (
     TOOLS,
     GetOutlineInput,
@@ -22,6 +24,7 @@ from app.agent.tools import (
     read,
     search,
 )
+from app.agent.writing import WRITING_TOOLS
 from app.config import get_settings
 from app.models import Folder, Passage, Project, Section
 from app.usage import ModelUsage
@@ -333,6 +336,81 @@ def test_invalid_tool_input_is_returned_to_the_model_not_run(services, indexed):
     assert sent[0].outcome == "failed" and "INVALID_JSON" in data_of(sent[0].content)
     assert "limit" in json.loads(data_of(sent[0].content))["problems"]
     assert sent[1].outcome == "failed" and data_of(sent[1].content) == "Unknown tool 'nonexistent'."
+    # Whoever reads the chat is told in a sentence that the step was not done, never shown the
+    # model's input or the problems the model was told of, which are the model's to correct.
+    assert [result["summary"] for result in results] == [REFUSED, NOT_OFFERED]
+    step = next(event for event in events if event["type"] == "tool_call")
+    assert step["input"] == {"query": "x", "limit": "many"}
+
+
+def test_an_id_written_as_the_results_write_it_is_read_as_its_number(session, services, indexed):
+    """Claude Opus 5.5 called `read` with {"passage_id": "P4"} on 2026-11-14, the citation's own
+    form, which the tool's integer refused: an id is taken as the results show it, and the step
+    keeps the number, so the page names document 6 where the model wrote "doc 6"."""
+    passage = session.scalar(
+        select(Passage).where(Passage.document_id == indexed.id).order_by(Passage.ordinal.desc())
+    )
+    services.llm.agent_turns = [
+        FakeTurn(
+            ToolCallPart("read", {"passage_id": f"P{passage.id}"}, "call_1"),
+            ToolCallPart("get_outline", {"document_id": f"doc {indexed.id}"}, "call_2"),
+            ToolCallPart("search", {"query": "notice", "document_ids": [f"doc {indexed.id}"]}, "c"),
+        ),
+        FakeTurn(TextPart("90 days.")),
+    ]
+    events = run(services, indexed)
+
+    assert [event["input"] for event in events if event["type"] == "tool_call"] == [
+        {"passage_id": passage.id},
+        {"document_id": indexed.id},
+        {"query": "notice", "document_ids": [indexed.id]},
+    ]
+    results = [event for event in events if event["type"] == "tool_result"]
+    assert not any(result["is_error"] for result in results)
+    read_back, outline, found = (
+        data_of(part.content) for part in services.llm.agent_requests[1][2].parts
+    )
+    assert f"[P{passage.id}] p. 2" in read_back and "ninety (90) days" in read_back
+    assert "1.1 Interpretation" in outline and "ninety (90) days" in found
+
+
+# The reference each kind of id is shown by in the tools' results.
+REFERENCES = {
+    "passage_id": "P{}",
+    "section_id": "[S{}]",
+    "document_id": "doc {}",
+    "document_ids": "doc {}",
+    "file_id": "file {}",
+}
+
+
+def test_every_id_a_tool_takes_is_read_as_the_results_write_it():
+    """Each tool's id, of the reading tools and of My files', takes its reference as well as its
+    number, a tool added later too; another kind's reference is refused, for the model to
+    correct; and the schema each provider is sent stays an integer."""
+    ids = 0
+    for tool in (*TOOLS.values(), *WRITING_TOOLS.values()):
+        schema = tool.definition().parameters_json_schema["properties"]
+        for name in tool.input_model.model_fields:
+            if not name.endswith(("_id", "_ids")):
+                continue
+            ids += 1
+            listed = name.endswith("_ids")
+            written = REFERENCES[name].format(7)
+            assert "integer" in json.dumps(schema[name]) and "string" not in json.dumps(
+                schema[name]
+            )
+            try:
+                taken = tool.input_model.model_validate({name: [written] if listed else written})
+            except ValidationError as error:
+                # Another field the tool needs is missing: this one was taken.
+                assert all(item["loc"][0] != name for item in error.errors()), (tool.name, name)
+            else:
+                assert getattr(taken, name) == ([7] if listed else 7), (tool.name, name)
+            with pytest.raises(ValidationError) as refused:
+                tool.input_model.model_validate({name: ["X7"] if listed else "X7"})
+            assert any(item["loc"][0] == name for item in refused.value.errors())
+    assert ids == 10
 
 
 def test_a_reply_that_cannot_be_used_reissues_the_turn(services, indexed):
@@ -412,7 +490,7 @@ def test_each_tool_call_runs_in_a_session_of_its_own(services, indexed, monkeypa
         "done",
     ]
     first, second = (event for event in events if event["type"] == "tool_result")
-    assert first["is_error"] and "failed unexpectedly" in first["summary"]
+    assert first["is_error"] and first["summary"] == FAILED
     assert second["is_error"] is False
     assert len(sessions) == 2 and sessions[0] is not sessions[1]
     assert not any(session.in_transaction() for session in sessions)
