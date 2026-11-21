@@ -94,6 +94,7 @@ export function hitUrl(hit: Pick<SearchAllHit, 'project_id' | 'document_id' | 'p
     projectId: hit.project_id,
     library: { folderId: null },
     document: { id: hit.document_id, focus: { passage: hit.passage_id } },
+    myFile: null,
     chatId: null,
     about: null,
   })

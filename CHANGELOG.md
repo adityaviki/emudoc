@@ -16,13 +16,17 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 
 ### Users
 
+- A file of My files opens where the project's documents open, in a tab of the middle pane beside
+  theirs, rather than in place of the library: open your own Word documents and workbooks next to
+  the documents they draw on, and move, pin and close their tabs as a document's. A lock on the tab
+  and "In My files: only you see it." under its name say it is yours alone.
 - Asked for a long document, a report of a few thousand words drawn from several documents, the
   agent writes it into your My files rather than stopping with "The model sent nothing for 60
   seconds" or "did not finish within 120 seconds" while it wrote.
 - The library has two tabs at its top, **Project files** and **My files**, so that the files every
   member sees and your own, which only you see, are never taken for each other. My files lists
-  your files as the library lists documents, says who sees them, and opens each under a path
-  back to the list; "Copy to the library" is now "Copy to project files".
+  your files as the library lists documents and says who sees them; "Copy to the library" is now
+  "Copy to project files".
 - A step of an answer that was not done says so in a sentence, such as "Read around a passage ·
   Not done: the model asked in a form the tool does not take.", rather than showing what the
   model sent. And the agent reads a passage, a section, a document or a file of My files by the

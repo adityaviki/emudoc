@@ -20,7 +20,7 @@ import { moved, renamed } from './changes.ts'
 import type { Change, MoveItems, TrashItems } from './changes.ts'
 import { documentKey, editListings, findListed, listed, listingsKey, restore, snapshotListings } from './listing.ts'
 import { documentTypesKey } from './organizing.ts'
-import { useWorkspace } from './state.ts'
+import { documentTab, useWorkspace } from './state.ts'
 import {
   DEFAULT_LIMITS,
   NOTHING_TO_UPLOAD,
@@ -189,7 +189,7 @@ export function useLibraryMutations() {
       setLast(null)
       const previous = await snapshotListings(queryClient, projectId)
       editDocuments(documentIds, () => null)
-      workspace.closeTabs([...documentIds, ...inFolders])
+      workspace.closeTabs([...documentIds, ...inFolders].map(documentTab))
       return { previous }
     },
     onSuccess: (_data, items) => setLast({ kind: 'trash', items }),

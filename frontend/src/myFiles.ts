@@ -2,6 +2,8 @@
 // words of their list and of a file's place, its versions, what keeps one from being shown or served, and a copy into
 // the project's files.
 
+import { queryOptions } from '@tanstack/react-query'
+import { api } from './api.ts'
 import type { Document, MyFile, MyFileKind, MyFileVersion, MyFiles } from './api.ts'
 import { formatDate, formatDateTime, formatSize } from './format.ts'
 import type { LibraryView } from './workspace/url.ts'
@@ -19,22 +21,33 @@ export const KIND_WORDS: Record<MyFileKind, string> = { docx: 'Word document', x
 export const MY_FILE_POLL = 2000
 
 export const MY_FILES_NOTE = 'Only you see these files. Copy one to project files to share it with the project’s members.'
+/** Said on an open file, whose tab sits among the project's documents'. */
+export const MY_FILE_NOTE = 'In My files: only you see it.'
+
+/** One file with every version, asked again while its newest waits; its tab and its view share it. */
+export function myFileQuery(fileId: number) {
+  return queryOptions({
+    queryKey: myFileKey(fileId),
+    queryFn: () => api.myFile(fileId),
+    refetchInterval: (query) => (query.state.data && waiting(query.state.data.latest) ? MY_FILE_POLL : false),
+  })
+}
 
 /** The library's two sides, a tab each: the project's files, which every member sees, and the member's own. */
 export type FilesSide = 'project' | 'mine'
 
-/** The side the library shows: My files for the member's list and each of their files, the project's for everything else. */
+/** The side the library shows: My files for the member's list, the project's for everything else. */
 export function filesSide(view: LibraryView): FilesSide {
-  return view.myFiles || view.myFile != null ? 'mine' : 'project'
+  return view.myFiles ? 'mine' : 'project'
 }
 
 /**
- * Whether a press on a side's tab goes anywhere: to the other side, or back to the side's own list from a page within it
- * (the trash, Email in or the connected folders; one of the member's files). Within the project's folders it stays.
+ * Whether a press on a side's tab goes anywhere: to the other side, or back to the project's folders from a page within
+ * its side (the trash, Email in or the connected folders). Within the project's folders, or on My files' list, it stays.
  */
 export function tabLeads(view: LibraryView, side: FilesSide): boolean {
   if (filesSide(view) !== side) return true
-  return side === 'mine' ? view.myFile != null : Boolean(view.trash || view.mail || view.connectors)
+  return side === 'project' && Boolean(view.trash || view.mail || view.connectors)
 }
 
 /** How many files the member keeps here, and the most a member may once they come near it. */

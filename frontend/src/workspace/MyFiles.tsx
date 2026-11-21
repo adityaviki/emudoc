@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronRight, Copy, Download, FilePlus, FileUp, FolderLock, Lock, Pencil, RotateCcw, Trash2 } from 'lucide-react'
+import { Copy, Download, FilePlus, FileUp, FolderLock, Lock, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { ApiError, api, mayChange, myFilePageUrl, myFileUrl } from '../api.ts'
 import type { Document, MyFile, MyFileDetail } from '../api.ts'
 import { useMe } from '../auth.ts'
@@ -12,6 +13,7 @@ import { useStatus } from '../hooks.ts'
 import {
   MY_FILES_NOTE,
   MY_FILE_ACCEPT,
+  MY_FILE_NOTE,
   MY_FILE_POLL,
   copiedWords,
   following,
@@ -19,6 +21,7 @@ import {
   myFileDeletionQuestion,
   myFileKey,
   myFileLine,
+  myFileQuery,
   myFileWords,
   myFilesCount,
   myFilesKey,
@@ -32,7 +35,8 @@ import {
 import { viewContent } from '../views.ts'
 import { myFileKind } from './files.ts'
 import { listingsKey } from './listing.ts'
-import { useWorkspace } from './state.ts'
+import { myFileTab, shownAfter, tabKey, useWorkspace } from './state.ts'
+import { TAB_ID } from './TabStrip.tsx'
 
 /** A refusal as the page shows it, in its own words. */
 function Refusal({ error }: { error: Error }) {
@@ -45,13 +49,13 @@ function KindIcon({ file }: { file: MyFile }) {
   return <Icon aria-hidden className={`size-4 shrink-0 ${color}`} />
 }
 
-/** The bar atop My files and each of its files, as the project's files have their path: its words start where theirs do. */
+/** The bar atop My files, as the project's files have their path: its words start where theirs do. */
 const BAR = 'flex h-11 shrink-0 items-center gap-1 border-b border-line bg-surface px-3'
 
 /**
  * The member's own files in the project, under the library's "My files" tab: the Word documents and Excel workbooks they
- * keep here, which nobody else sees, the one changed last first, each a row as the library's are and opening in the same
- * place; and a file added from this computer.
+ * keep here, which nobody else sees, the one changed last first, each a row as the library's are and opening, as theirs
+ * do, in a tab of the middle pane; and a file added from this computer, opened there too.
  */
 export function MyFilesView() {
   const workspace = useWorkspace()
@@ -73,7 +77,7 @@ export function MyFilesView() {
     onSuccess: (added) => {
       queryClient.setQueryData(myFileKey(added.id), added)
       void queryClient.invalidateQueries({ queryKey: myFilesKey(project.id) })
-      workspace.showMyFile(added.id)
+      workspace.openMyFile(added.id)
     },
   })
   const listed = files.data?.files ?? []
@@ -127,7 +131,7 @@ export function MyFilesView() {
                 <button
                   type="button"
                   title={myFileWords(file)}
-                  onClick={() => workspace.showMyFile(file.id)}
+                  onClick={() => workspace.openMyFile(file.id)}
                   className="flex h-8 w-full items-center gap-2 rounded-md px-1.5 text-left text-[13px] transition hover:bg-sunken"
                 >
                   <KindIcon file={file} />
@@ -146,8 +150,9 @@ export function MyFilesView() {
 }
 
 /**
- * One of the member's files, under the library's "My files" tab, the way back to their list its path: its pages as they look, its versions to open and download, a new
- * version uploaded from this computer, and the file renamed, deleted or copied into the project's library.
+ * One of the member's files, in a tab of the middle pane beside the project's documents, which says it is theirs alone:
+ * its pages as they look, its versions to open and download, a new version uploaded from this computer, and the file
+ * renamed, deleted (its tab closed with it) or copied into the project's library.
  */
 export function MyFileView({ fileId }: { fileId: number }) {
   const workspace = useWorkspace()
@@ -166,11 +171,7 @@ export function MyFileView({ fileId }: { fileId: number }) {
   useEffect(() => {
     if (window.document.activeElement === window.document.body) heading.current?.focus()
   }, [])
-  const file = useQuery({
-    queryKey: myFileKey(fileId),
-    queryFn: () => api.myFile(fileId),
-    refetchInterval: (query) => (query.state.data && waiting(query.state.data.latest) ? MY_FILE_POLL : false),
-  })
+  const file = useQuery(myFileQuery(fileId))
   const data = file.data
   const kept = (detail: MyFileDetail) => {
     queryClient.setQueryData(myFileKey(fileId), detail)
@@ -208,9 +209,18 @@ export function MyFileView({ fileId }: { fileId: number }) {
   const remove = useMutation({
     mutationFn: () => api.deleteMyFile(fileId),
     onSuccess: () => {
-      queryClient.removeQueries({ queryKey: myFileKey(fileId) })
       void queryClient.invalidateQueries({ queryKey: myFilesKey(project.id) })
-      workspace.showMyFiles()
+      // The tab goes with the file, and the keyboard on from the tab shown next, else from the library: the question
+      // closed first, since the page beneath it takes no focus while it is open.
+      const key = myFileTab(fileId)
+      const next = shownAfter(workspace.openTabs, key, new Set([key]))
+      flushSync(() => setDeleting(false))
+      workspace.closeTabs([key])
+      queryClient.removeQueries({ queryKey: myFileKey(fileId) })
+      const library = () =>
+        window.document.querySelector<HTMLElement>('[role="tree"]') ??
+        window.document.querySelector<HTMLElement>('[role="tablist"][aria-label="Files"] [aria-selected="true"]')
+      ;(next ? window.document.getElementById(`${TAB_ID}${tabKey(next)}`) : library())?.focus()
     },
     onError: (error) => setRefused(error),
   })
@@ -220,33 +230,33 @@ export function MyFileView({ fileId }: { fileId: number }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-page">
-      <div className={BAR}>
-        <nav aria-label="Path" className="flex min-w-0 flex-1 items-center gap-0.5 text-[13px]">
-          <button
-            type="button"
-            aria-label="Back to My files"
-            title="Back to My files"
-            onClick={workspace.showMyFiles}
-            className="h-6.5 shrink-0 rounded-md px-1.5 text-muted transition hover:bg-sunken hover:text-ink"
-          >
-            My files
-          </button>
-          <ChevronRight aria-hidden className="size-3.5 shrink-0 text-muted/60" />
-          <h2 ref={heading} tabIndex={-1} title={data?.name} className="min-w-0 truncate px-1.5 font-semibold">
-            {data?.name ?? 'File'}
-          </h2>
-        </nav>
-        {data && (
-          <>
-            <IconButton label="Rename this file" onClick={() => setRenaming(data.name)}>
-              <Pencil className="size-4" />
-            </IconButton>
-            <IconButton label="Delete this file" danger disabled={remove.isPending} onClick={() => setDeleting(true)}>
-              <Trash2 className="size-4" />
-            </IconButton>
-          </>
-        )}
-      </div>
+      {/* As a document's tab heads it, with whose the file is, since its tab sits among the project's documents'. */}
+      <header className="shrink-0 border-b border-line bg-surface px-4 py-2.5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 ref={heading} tabIndex={-1} title={data?.name} className="truncate text-[15px] font-semibold tracking-tight">
+              {data?.name ?? 'File'}
+            </h2>
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+              <span className="flex items-center gap-1">
+                <Lock aria-hidden className="size-3.5 shrink-0" />
+                {MY_FILE_NOTE}
+              </span>
+              {data && <span>{myFileWords(data)}</span>}
+            </div>
+          </div>
+          {data && (
+            <div className="flex shrink-0 items-center gap-1">
+              <IconButton label="Rename this file" onClick={() => setRenaming(data.name)}>
+                <Pencil className="size-4" />
+              </IconButton>
+              <IconButton label="Delete this file" danger disabled={remove.isPending} onClick={() => setDeleting(true)}>
+                <Trash2 className="size-4" />
+              </IconButton>
+            </div>
+          )}
+        </div>
+      </header>
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
         {file.isPending && <Loading />}
         {file.isError && <Notice tone="bad">Could not load the file: {file.error.message}</Notice>}
@@ -277,10 +287,7 @@ export function MyFileView({ fileId }: { fileId: number }) {
                 <Button onClick={() => setRenaming(null)}>Cancel</Button>
               </form>
             )}
-            <div className="space-y-0.5 text-xs text-muted">
-              <p>{myFileWords(data)}</p>
-              {data.origin_name && <p>Copied from “{data.origin_name}” in the library.</p>}
-            </div>
+            {data.origin_name && <p className="text-xs text-muted">Copied from “{data.origin_name}” in the library.</p>}
             <div className="flex flex-wrap gap-2">
               {servable(data.latest) && (
                 <a
