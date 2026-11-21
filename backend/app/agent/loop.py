@@ -162,7 +162,8 @@ def run_agent(
 
     `usage` is filled with each model call as it is answered, so a caller that leaves the
     loop before its `done` event still knows what the calls so far cost (app/usage.py); one
-    that leaves mid-turn closes the loop first, which counts the call it was in.
+    that leaves mid-turn closes the loop first, which counts the call it was in, and a turn
+    that fails after its first event counts as far as the provider had reported.
 
     `writing` offers the tools of the member's My files (app/agent/writing.py), for an answer to a
     member who may keep files there (`offers_my_files` in app/answers.py): a call that writes a
@@ -199,6 +200,8 @@ def run_agent(
     max_turns = get_settings().agent_max_turns
 
     while turns < max_turns:
+        # Unbound until this turn's stream opens, so a failure before it never charges the last.
+        stream = None
         try:
             with services.llm.stream_agent(system, conversation, tools) as stream:
                 try:
@@ -217,6 +220,12 @@ def run_agent(
                     raise
                 response = stream.response()
         except LLMError as error:
+            # A turn that failed after its first event, given up as quiet or as too long or
+            # broken off by the provider, was made and is paid for as far as it went, as one the
+            # reader left is: one given up while it wrote a file had been charged nothing for
+            # its whole prompt (2026-11-21).
+            if stream is not None and stream.model:
+                usage.add(stream.model, stream.used())
             # The answer's error is the asker's to read: a deployment tells them the members'
             # sentence, and the operator reads which model failed and why in the log (app/llm.py).
             development = get_settings().environment == "development"

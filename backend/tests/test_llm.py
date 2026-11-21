@@ -31,6 +31,7 @@ from pydantic_ai.profiles import ModelProfile
 from pydantic_ai.usage import RequestUsage
 
 from app.agent.loop import run_agent
+from app.agent.writing import WRITING_TOOLS
 from app.config import Settings, export_env_file
 from app.errors import shown
 from app.indexing.enrich import DocumentAnalysis
@@ -556,6 +557,36 @@ def test_a_turn_that_runs_too_long_is_given_up(monkeypatch):
     # The stream never went quiet; it was cut off for running past the turn's time.
     assert error.value.transient is True and 1 <= len(received) < 200
     assert stopped.wait(timeout=5)
+
+
+def test_a_turn_given_up_after_it_began_is_charged_as_far_as_it_went(
+    monkeypatch, services, indexed
+):
+    async def searches_then_goes_quiet(messages: list, info: AgentInfo):
+        if len(messages) == 1:
+            yield {
+                0: DeltaToolCall(
+                    name="search",
+                    json_args=json.dumps({"query": "termination notice"}),
+                    tool_call_id="c1",
+                )
+            }
+        else:
+            yield "The notice "
+            await asyncio.sleep(60)
+            yield "never sent"
+
+    monkeypatch.setattr("app.llm.STREAM_STALL", 0.2)
+    llm = scripted_llm(FunctionModel(stream_function=searches_then_goes_quiet))
+    usage = ModelUsage()
+    question = [{"role": "user", "content": "What is the notice period?"}]
+    recorded = Services(llm, services.embedder, services.storage)
+    events = list(run_agent(recorded, indexed.project_id, question, usage))
+
+    assert events[-1]["type"] == "error" and "sent nothing for 0.2 seconds" in events[-1]["message"]
+    # The second turn was made and is paid for as far as it went, though it never ended: a turn
+    # given up while it wrote a file had been charged nothing (2026-11-21).
+    assert usage.models[SCRIPTED].calls == 2
 
 
 # Fallbacks: the next model is asked what the first could not answer, and only then.
@@ -1248,6 +1279,9 @@ def test_agent_loop_over_recorded_claude_streams(monkeypatch, services, indexed)
     assert opening["cache_control"]["type"] == "ephemeral"
     assert opening["output_config"] == {"effort": "medium"}
     assert [tool["name"] for tool in opening["tools"]] == TOOL_NAMES
+    # Each tool's input is sent as it is written, not held back until whole, so a turn that
+    # writes a long file into one never falls silent (the next test).
+    assert all(tool["eager_input_streaming"] is True for tool in opening["tools"])
     assert "Project: Test project" in opening["system"][0]["text"]
 
     # The follow-up echoes the assistant turn unchanged, thinking block and signature
@@ -1265,6 +1299,48 @@ def test_agent_loop_over_recorded_claude_streams(monkeypatch, services, indexed)
     (result,) = follow_up[2]["content"]
     assert result["type"] == "tool_result" and result["tool_use_id"] == "toolu_01"
     assert "ninety (90) days" in json.dumps(result["content"])
+
+
+def paced(response: httpx2.Response, pause: float) -> httpx2.Response:
+    """The streamed `response` sent an event at a time, `pause` seconds apart, as a model
+    writes it."""
+    events = [event for event in response.content.split(b"\n\n") if event]
+
+    async def written():
+        for event in events:
+            await asyncio.sleep(pause)
+            yield event + b"\n\n"
+
+    return httpx2.Response(200, headers={"content-type": "text/event-stream"}, content=written())
+
+
+def test_a_claude_turn_writing_a_long_file_is_not_given_up_as_quiet(monkeypatch):
+    words = ["The service ", "maps short ", "codes to ", "long URLs ", "and redirects."] * 3
+    pieces = ['{"title": "URL shorteners", "markdown": "', *words, '"}']
+    recorder = Recorder(
+        paced(
+            claude_stream(
+                (
+                    {"type": "tool_use", "id": "toolu_01", "name": "create_document", "input": {}},
+                    [{"type": "input_json_delta", "partial_json": piece} for piece in pieces],
+                ),
+                stop_reason="tool_use",
+            ),
+            pause=0.05,
+        )
+    )
+    monkeypatch.setattr("app.llm.STREAM_STALL", 0.2)
+    llm = recorded_llm(monkeypatch, recorder, CLAUDE)
+    create = WRITING_TOOLS["create_document"].definition()
+    with llm.stream_agent("Write what is asked.", QUESTION, [create]) as stream:
+        response = stream.response()
+
+    # The call took far longer than the silence allowed, and arrived whole, since its input
+    # came as it was written.
+    (call,) = response.tool_calls
+    assert call.args_as_dict() == {"title": "URL shorteners", "markdown": "".join(words)}
+    (tool,) = recorder.body()["tools"]
+    assert tool["name"] == "create_document" and tool["eager_input_streaming"] is True
 
 
 # A retired model, as each provider says so: not found.

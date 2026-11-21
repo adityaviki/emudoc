@@ -86,8 +86,12 @@ INDEX_MAX_TOKENS = 16000
 INDEX_TIMEOUT = 300
 # How long one agent turn may take, and the longest silence inside it, in seconds. A turn that
 # outlives either is cancelled and the chat shows the error; a provider that hangs would
-# otherwise hold a request thread for good.
-AGENT_TIMEOUT = 120
+# otherwise hold a request thread for good. The silence is what tells a hung provider, so the
+# turn's own limit is set by the longest turn there is: one that writes a file of My files, the
+# whole of it a tool call's input (`create_document`, up to DRAFT_CHARS, some 25,000 tokens),
+# which a model writing 50 tokens a second takes eight minutes over. At 120 seconds a report of
+# a few thousand words from three articles was cut off (2026-11-21).
+AGENT_TIMEOUT = 600
 STREAM_STALL = 60
 # Attempts at one Gemini request, the first included.
 GOOGLE_ATTEMPTS = 3
@@ -729,8 +733,16 @@ class LLM:
         # every turn. Other providers ignore the setting. The SDK's timeout is the HTTP
         # library's, which for a stream is per read, so it is the longest pause allowed; the
         # whole turn is bounded by `ModelStream`.
+        # Anthropic holds back a tool call's input until each of its values is whole unless its
+        # tools stream eagerly, so a turn writing a long document into `create_document` sent
+        # nothing for minutes and was given up as quiet after STREAM_STALL (2026-11-21). OpenAI's
+        # and OpenRouter's streams send a call's input as it is written anyway; Gemini sends a
+        # call whole, so there STREAM_STALL still bounds how long a file may take to write.
         settings = _settings(
-            self._settings.agent_effort, anthropic_cache=True, timeout=STREAM_STALL
+            self._settings.agent_effort,
+            anthropic_cache=True,
+            anthropic_eager_input_streaming=True,
+            timeout=STREAM_STALL,
         )
         try:
             return self._model(name), settings
