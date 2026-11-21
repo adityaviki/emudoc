@@ -16,6 +16,9 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 
 ### Users
 
+- Asked for a long document, a report of a few thousand words drawn from several documents, the
+  agent writes it into your My files rather than stopping with "The model sent nothing for 60
+  seconds" or "did not finish within 120 seconds" while it wrote.
 - The library has two tabs at its top, **Project files** and **My files**, so that the files every
   member sees and your own, which only you see, are never taken for each other. My files lists
   your files as the library lists documents, says who sees them, and opens each under a path
@@ -74,6 +77,10 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 
 ### Admins
 
+- An agent turn may now run 10 minutes (it was 2), and Claude's tools stream their input as it
+  is written, so a turn that writes a long file into My files keeps sending and is no longer
+  given up as silent after a minute. A turn given up or broken off after it began now counts in
+  the answer's usage and costs as far as the provider had reported it, where it counted nothing.
 - Migration b8d9a8dd4ff8 drops the `extraction_templates`, `fact_checks` and `fact_changes`
   tables with the projects' own templates, the members' checks of facts and what each document's
   last reading changed, the column `template` of `documents` and `check_id` of `facts`; a
