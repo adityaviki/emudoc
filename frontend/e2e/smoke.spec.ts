@@ -158,7 +158,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.getByRole('treeitem', { name: 'price-list.csv' }).click()
     const csvTab = page.getByRole('tab', { name: /^price-list\.csv/ })
     await expect(csvTab).toHaveAttribute('aria-selected', 'true')
-    const tabs = page.getByRole('tab')
+    const tabs = page.getByRole('tablist', { name: 'Open documents' }).getByRole('tab')
     await expect(tabs).toHaveText(['acme-service-contract.pdf', 'price-list.csv'])
     await csvTab.dragTo(pdfTab, { targetPosition: { x: 4, y: 8 } })
     await expect(tabs).toHaveText(['price-list.csv', 'acme-service-contract.pdf'])
@@ -334,7 +334,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     const around = [
       page.getByRole('banner'),
       page.getByRole('tree', { name: 'Files' }),
-      page.getByRole('tablist'),
+      page.getByRole('tablist', { name: 'Open documents' }),
       page.getByPlaceholder('Ask a question about these documents'),
       page.getByRole('button', { name: 'Clear highlight' }),
       page.getByRole('button', { name: 'Print', exact: true }),
@@ -538,7 +538,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expectAccessible(page, 'the library with a document partly indexed')
     await march.click()
     await page.keyboard.press('Enter')
-    const tab = page.getByRole('tabpanel')
+    const tab = page.getByRole('tabpanel', { name: /^march\.md/ })
     await expect(tab.getByText('Found by its words, not yet by meaning')).toBeVisible()
     await expectAccessible(page, 'a document partly indexed')
     await tab.getByRole('button', { name: 'Index the rest' }).click()
