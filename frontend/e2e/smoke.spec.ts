@@ -929,13 +929,25 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expectAccessible(page, 'a step that wrote a file of My files')
     await open.click()
 
-    // In the library's place, its heading focused: the member's alone, written by the agent.
+    // In a tab of the middle pane, where the project's documents open, its heading focused: the member's alone, written
+    // by the agent.
+    const tabs = page.getByRole('tablist', { name: 'Open documents' })
+    // Its name says whose it is (its parts, flex items, read with a space between them).
+    const tab = tabs.getByRole('tab', { name: /^Notes on the invoice\.docx ?, in My files$/ })
+    await expect(tab).toHaveAttribute('aria-selected', 'true')
+    await expect(page).toHaveURL(/\/my-files\/\d+/)
     await expect(page.getByRole('heading', { name: 'Notes on the invoice.docx' })).toBeFocused()
+    await expect(page.getByText('In My files: only you see it.')).toBeVisible()
     await expect(page.getByRole('list', { name: 'Versions' })).toContainText('Written by the agent · From a chat')
     await expectAccessible(page, 'a file of My files the agent wrote')
-    await page.getByRole('button', { name: 'Back to My files' }).click()
-    await expect(page.getByRole('list', { name: 'My files' })).toContainText('Notes on the invoice.docx')
+    // The library's My files lists it, and its row shows the same tab.
+    await page.getByRole('tab', { name: 'My files', exact: true }).click()
+    const listed = page.getByRole('list', { name: 'My files' })
+    await expect(listed).toContainText('Notes on the invoice.docx')
     await expectAccessible(page, 'My files')
+    await listed.getByRole('button', { name: /^Notes on the invoice\.docx/ }).click()
+    await expect(tabs.getByRole('tab', { name: /^Notes on the invoice\.docx/ })).toHaveCount(1)
+    await expect(tab).toHaveAttribute('aria-selected', 'true')
     await page.goto('/organization/audit')
     await page.getByLabel('What').selectOption('my_file_added')
     await expect(page.getByRole('listitem').filter({ hasText: 'by the agent in a chat' })).toContainText('a Word document, by the agent in a chat')
@@ -952,9 +964,13 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(open).toBeVisible({ timeout: 30_000 })
     await expect(page.getByText('Made the workbook "Lines of the invoice" in My files')).toBeVisible()
     await open.click()
+    await expect(page.getByRole('tablist', { name: 'Open documents' }).getByRole('tab', { name: /^Lines of the invoice\.xlsx ?, in My files$/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
     await expect(page.getByRole('heading', { name: 'Lines of the invoice.xlsx' })).toBeFocused()
     await expect(page.getByRole('list', { name: 'Versions' })).toContainText('Written by the agent · From a chat')
-    await page.getByRole('button', { name: 'Back to My files' }).click()
+    await page.getByRole('tab', { name: 'My files', exact: true }).click()
     await expect(page.getByRole('list', { name: 'My files' })).toContainText('Lines of the invoice.xlsx')
   })
 

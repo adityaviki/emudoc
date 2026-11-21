@@ -561,11 +561,11 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
     workspace.openDocument(source.document_id, { passage: source.id })
   }
 
-  // A file of My files a step wrote opens in the library's place: the button lets go of the focus, which the
-  // file's view then takes to its heading.
+  // A file of My files a step wrote opens in a tab of the middle pane, as a cited document does: the button lets go of
+  // the focus, which the file's view then takes to its heading.
   function openFile(file: StepFile) {
     if (window.document.activeElement instanceof HTMLElement) window.document.activeElement.blur()
-    workspace.showMyFile(file.id)
+    workspace.openMyFile(file.id)
   }
 
   // An answer the page gave up following is read again from its first event, as after a reload.
@@ -765,7 +765,8 @@ function ScopeChooser({ scope, words, pathOf, pending, onChoose }: ScopeChooserP
     .map((folder) => ({ id: folder.id, path: pathOf(folder.id) }))
     .sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true, sensitivity: 'base' }))
   const open = workspace.openTabs.flatMap((tab) => {
-    const document = workspace.openDocuments.get(tab.id)
+    // A file of My files is no document a chat reads.
+    const document = tab.myFile ? undefined : workspace.openDocuments.get(tab.id)
     return document ? [document] : []
   })
   const listed = open.some((document) => sameScope({ document_ids: [document.id] }, current))

@@ -12,6 +12,7 @@ const home: WorkspaceUrl = {
   projectId: 3,
   library: { folderId: null },
   document: null,
+  myFile: null,
   chatId: null,
   about: null,
   canonical: true,
@@ -86,8 +87,24 @@ describe('parseWorkspaceUrl', () => {
     expect(parse('/projects/3?name=+')).toEqual({ ...home, canonical: false })
   })
 
+  it('reads a file of My files open in the middle, the library where it was', () => {
+    expect(parse('/projects/3/my-files/8?my-files&chat=12')).toEqual({ ...home, library: { folderId: null, myFiles: true }, myFile: 8, chatId: 12 })
+    expect(parse('/projects/3/my-files/8?folder=7')).toEqual({ ...home, library: { folderId: 7 }, myFile: 8 })
+  })
+
+  it('reads the library\'s file of My files, from before it opened in the middle, as open there beside the list', () => {
+    expect(parse('/projects/3?my-file=8&chat=12')).toEqual({ ...home, library: { folderId: null, myFiles: true }, myFile: 8, chatId: 12, canonical: false })
+    // Beside a document, the document stays and the library lists the files.
+    expect(parse('/projects/3/documents/41?my-file=8')).toEqual({
+      ...home,
+      library: { folderId: null, myFiles: true },
+      document: { id: 41, focus: null },
+      canonical: false,
+    })
+  })
+
   it('says null for a path outside a project workspace', () => {
-    for (const path of ['/', '/projects', '/projects/x', '/projects/3/settings', '/projects/3/documents/x', '/account']) {
+    for (const path of ['/', '/projects', '/projects/x', '/projects/3/settings', '/projects/3/documents/x', '/projects/3/my-files/x', '/account']) {
       expect(parse(path), path).toBeNull()
     }
   })
@@ -110,6 +127,7 @@ describe('buildWorkspaceUrl', () => {
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, connectors: true } })).toBe('/projects/3?connectors=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, favorites: true } })).toBe('/projects/3?favorites=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, recent: true } })).toBe('/projects/3?recent=')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, myFiles: true }, myFile: 8 })).toBe('/projects/3/my-files/8?my-files=')
     expect(buildWorkspaceUrl({ ...home, chatId: 'new', about: { folder_id: 7 } })).toBe('/projects/3?chat=new&about=f7')
     expect(buildWorkspaceUrl({ ...home, chatId: 'new', about: { document_ids: [41, 42] } })).toBe('/projects/3?chat=new&about=d41-42')
     expect(buildWorkspaceUrl({ ...home, chatId: 'new', about: {} })).toBe('/projects/3?chat=new')
@@ -134,6 +152,8 @@ describe('buildWorkspaceUrl', () => {
       { ...home, library: { folderId: null, recent: true } },
       { ...home, chatId: 'new', about: { folder_id: 7 } },
       { ...home, document: { id: 41, focus: null }, chatId: 'new', about: { document_ids: [41, 42] } },
+      { ...home, library: { folderId: null, myFiles: true }, myFile: 8, chatId: 12 },
+      { ...home, library: { folderId: 7, search: { q: 'notice', filter: EMPTY_FILTER } }, myFile: 8 },
     ]
     for (const url of urls) expect(parse(buildWorkspaceUrl(url))).toEqual(url)
   })
@@ -142,6 +162,7 @@ describe('buildWorkspaceUrl', () => {
     expect(buildWorkspaceUrl(parse('/projects/3/ask/5')!)).toBe('/projects/3?chat=5')
     expect(buildWorkspaceUrl(parse('/projects/3/search?folder=7&q=notice')!)).toBe('/projects/3?folder=7&q=notice')
     expect(buildWorkspaceUrl(parse('/projects/3/documents/41?recent&name=inv')!)).toBe('/projects/3/documents/41?q=inv&recent=')
+    expect(buildWorkspaceUrl(parse('/projects/3?my-file=8')!)).toBe('/projects/3/my-files/8?my-files=')
     // A notice's link to a thread of comments, from before they went, opens its document.
     expect(buildWorkspaceUrl(parse('/projects/3/documents/41?thread=5')!)).toBe('/projects/3/documents/41')
     // A notice's link to the documents in review assigned to its member, from before reviews went, opens the library,

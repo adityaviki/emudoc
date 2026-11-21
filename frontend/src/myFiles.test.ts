@@ -117,8 +117,8 @@ describe('the list', () => {
 })
 
 describe('the library’s two sides', () => {
-  it('shows My files for the list and each file, and the project’s files for everything else', () => {
-    expect([filesSide({ folderId: null, myFiles: true }), filesSide({ folderId: null, myFile: 4 })]).toEqual(['mine', 'mine'])
+  it('shows My files for the list, and the project’s files for everything else', () => {
+    expect(filesSide({ folderId: null, myFiles: true })).toBe('mine')
     expect([filesSide({ folderId: 3 }), filesSide({ folderId: null, trash: true }), filesSide({ folderId: null, recent: true })]).toEqual([
       'project',
       'project',
@@ -126,9 +126,9 @@ describe('the library’s two sides', () => {
     ])
   })
 
-  it('leads from a tab to the other side, or back to its own list from a page within it, and stays within the folders', () => {
+  it('leads from a tab to the other side, or back to the folders from a page within them, and stays on its own list', () => {
     expect([tabLeads({ folderId: 3 }, 'mine'), tabLeads({ folderId: null, myFiles: true }, 'project')]).toEqual([true, true])
-    expect([tabLeads({ folderId: null, myFile: 4 }, 'mine'), tabLeads({ folderId: null, myFiles: true }, 'mine')]).toEqual([true, false])
+    expect(tabLeads({ folderId: null, myFiles: true }, 'mine')).toBe(false)
     const within = [{ trash: true as const }, { mail: true as const }, { connectors: true as const }].map((page) => tabLeads({ folderId: null, ...page }, 'project'))
     expect(within).toEqual([true, true, true])
     expect([tabLeads({ folderId: 3 }, 'project'), tabLeads({ folderId: null, favorites: true }, 'project')]).toEqual([false, false])

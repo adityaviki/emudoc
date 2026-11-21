@@ -4,33 +4,35 @@ import { FileText, Library as LibraryIcon, MessageSquare } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { api, auth } from '../api.ts'
-import type { Document } from '../api.ts'
+import type { Document, MyFileDetail } from '../api.ts'
 import { setSignedIn, useMe } from '../auth.ts'
 import { ErrorBoundary } from '../components/ErrorBoundary.tsx'
 import { Tour } from '../components/Tour.tsx'
 import { Loading, Notice, Segmented } from '../components/ui.tsx'
 import { libraryPlace } from '../failures.ts'
 import { useFolderTree, useFolders, useLocalStorage } from '../hooks.ts'
+import { myFileQuery } from '../myFiles.ts'
 import { offerTour, workspaceTour } from '../tour.ts'
 import { ChatPane } from '../workspace/ChatPane.tsx'
 import { DocumentTab } from '../workspace/DocumentTab.tsx'
 import { FilesTabs } from '../workspace/FilesTabs.tsx'
 import { Library } from '../workspace/Library.tsx'
 import { documentQuery, isGone, placeListingsKey } from '../workspace/listing.ts'
+import { MyFileView } from '../workspace/MyFiles.tsx'
 import { WorkspaceShortcuts } from '../workspace/Shortcuts.tsx'
 import { SplitPanes } from '../workspace/SplitPane.tsx'
 import type { Pane as SplitPane } from '../workspace/SplitPane.tsx'
 import { DOCUMENT_PANEL, TAB_ID, TabStrip } from '../workspace/TabStrip.tsx'
-import { SPLIT_KEY, WorkspaceContext, isTabsStore, moved, pinned, tabsStorageKey, useWorkspace } from '../workspace/state.ts'
-import type { OpenTab, Pane, TabsStore, Workspace as WorkspaceState } from '../workspace/state.ts'
+import { SPLIT_KEY, WorkspaceContext, documentTab, isTabsStore, moved, myFileTab, pinned, shownAfter, tabKey, tabsStorageKey, useWorkspace } from '../workspace/state.ts'
+import type { OpenTab, Pane, TabKey, TabsStore, Workspace as WorkspaceState } from '../workspace/state.ts'
 import { buildWorkspaceUrl, sameFocus, useWorkspaceUrl, withSearch } from '../workspace/url.ts'
 import type { Go, WorkspaceUrl } from '../workspace/url.ts'
 
 const EMPTY_TABS: TabsStore = { v: 1, open: [] }
 
 /**
- * A project's panes: the library on the left, with the project's search, the agent on the right, and while a document is
- * open, the documents' tabs between them.
+ * A project's panes: the library on the left, with the project's search, the agent on the right, and while a document or a
+ * file of My files is open, their tabs between them.
  */
 export function Workspace() {
   const [url, go] = useWorkspaceUrl()
@@ -59,21 +61,24 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
 
   const activeDocumentId = url.document?.id ?? null
   const activeFocus = url.document?.focus ?? null
+  const activeMyFileId = url.document ? null : url.myFile
+  const activeTab = activeDocumentId != null ? documentTab(activeDocumentId) : activeMyFileId != null ? myFileTab(activeMyFileId) : null
 
-  // The URL is the active tab: make sure it is in the open list, and remember where it points
-  // so that coming back to it restores the highlight.
+  // The URL is the active tab: make sure it is in the open list, and remember where a document's
+  // points so that coming back to it restores the highlight.
   useEffect(() => {
-    if (activeDocumentId == null) return
+    if (activeTab == null) return
     setTabs((store) => {
-      const entry = store.open.find((tab) => tab.id === activeDocumentId)
-      if (entry && sameFocus(entry.focus, activeFocus)) return store
-      const updated: OpenTab = { ...entry, id: activeDocumentId, focus: activeFocus ?? undefined }
+      const entry = store.open.find((tab) => tabKey(tab) === activeTab)
+      if (entry && (entry.myFile || sameFocus(entry.focus, activeFocus))) return store
+      const updated: OpenTab =
+        activeDocumentId != null ? { ...entry, id: activeDocumentId, focus: activeFocus ?? undefined } : { ...entry, id: activeMyFileId!, myFile: true }
       return {
         v: 1,
-        open: entry ? store.open.map((tab) => (tab.id === activeDocumentId ? updated : tab)) : [...store.open, updated],
+        open: entry ? store.open.map((tab) => (tabKey(tab) === activeTab ? updated : tab)) : [...store.open, updated],
       }
     })
-  }, [activeDocumentId, activeFocus, setTabs])
+  }, [activeTab, activeDocumentId, activeMyFileId, activeFocus, setTabs])
 
   // A document opened in the middle pane is one of the member's recent ones (backend/app/recents.py);
   // the list shows it next time it is asked for, and a visit that does not reach the server is let go.
@@ -85,24 +90,33 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
     )
   }, [activeDocumentId, projectId, queryClient])
 
-  // Each tab's document is asked for by itself; the library holds only the pages it shows.
+  // Each tab's document, or file of My files, is asked for by itself; the library holds only the pages it shows.
+  const documentTabs = useMemo(() => tabs.open.filter((tab) => !tab.myFile), [tabs.open])
+  const myFileTabs = useMemo(() => tabs.open.filter((tab) => tab.myFile), [tabs.open])
   const tabDocuments = useQueries({
-    queries: tabs.open.map((tab) => documentQuery(queryClient, projectId, tab.id)),
-    combine: tabsCame,
+    queries: documentTabs.map((tab) => documentQuery(queryClient, projectId, tab.id)),
+    combine: tabsCame<Document>,
   })
-  const openDocuments = useMemo(
-    () => new Map(tabDocuments.documents.map((document) => [document.id, document])),
-    [tabDocuments.documents],
-  )
+  const tabMyFiles = useQueries({
+    queries: myFileTabs.map((tab) => myFileQuery(tab.id)),
+    combine: tabsCame<MyFileDetail>,
+  })
+  const openDocuments = useMemo(() => new Map(tabDocuments.came.map((document) => [document.id, document])), [tabDocuments.came])
+  const openMyFiles = useMemo(() => new Map(tabMyFiles.came.map((file) => [file.id, file])), [tabMyFiles.came])
 
-  // Tabs whose documents are gone (deleted here or elsewhere) are closed.
-  const goneIds = tabs.open.filter((_, index) => tabDocuments.gone[index]).map((tab) => tab.id).join()
+  // Tabs whose documents or files are gone (deleted here or elsewhere) are closed.
+  const goneKeys = [
+    ...documentTabs.filter((_, index) => tabDocuments.gone[index]),
+    ...myFileTabs.filter((_, index) => tabMyFiles.gone[index]),
+  ]
+    .map(tabKey)
+    .join()
   useEffect(() => {
-    if (!goneIds) return
-    const closing = new Set(goneIds.split(',').map(Number))
-    setTabs((store) => ({ v: 1, open: store.open.filter((tab) => !closing.has(tab.id)) }))
-    if (activeDocumentId != null && closing.has(activeDocumentId)) go({ document: null }, { replace: true })
-  }, [goneIds, activeDocumentId, setTabs, go])
+    if (!goneKeys) return
+    const closing = new Set(goneKeys.split(','))
+    setTabs((store) => ({ v: 1, open: store.open.filter((tab) => !closing.has(tabKey(tab))) }))
+    if (activeTab != null && closing.has(activeTab)) go({ document: null, myFile: null }, { replace: true })
+  }, [goneKeys, activeTab, setTabs, go])
 
   const goToFolder = useCallback<WorkspaceState['goToFolder']>(
     (folderId, options) => go({ library: { folderId } }, options),
@@ -115,38 +129,40 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
     return {
       project: project.data,
       openDocuments,
+      openMyFiles,
       folders: folders.data ?? [],
       tree,
       url,
       openTabs,
-      activeDocumentId,
+      activeTab,
       openDocument(id, focus = null, options) {
         setTabs((store) =>
-          store.open.some((tab) => tab.id === id) ? store : { v: 1, open: [...store.open, { id }] },
+          store.open.some((tab) => !tab.myFile && tab.id === id) ? store : { v: 1, open: [...store.open, { id }] },
         )
         setMobilePane('document')
-        go({ document: { id, focus } }, options)
+        go({ document: { id, focus }, myFile: null }, options)
       },
-      closeTabs(ids) {
-        const closing = new Set(ids)
-        if (activeDocumentId != null && closing.has(activeDocumentId)) {
-          // Move to the nearest tab that stays open: the one to the right, else to the left.
-          const index = openTabs.findIndex((tab) => tab.id === activeDocumentId)
-          const remaining = openTabs.filter((tab) => !closing.has(tab.id))
-          const next = remaining.find((tab) => openTabs.indexOf(tab) > index) ?? remaining.at(-1)
-          go({ document: next ? { id: next.id, focus: next.focus ?? null } : null }, { replace: true })
-        }
-        setTabs((store) => ({ v: 1, open: store.open.filter((tab) => !closing.has(tab.id)) }))
+      openMyFile(id, options) {
+        setTabs((store) =>
+          store.open.some((tab) => tab.myFile && tab.id === id) ? store : { v: 1, open: [...store.open, { id, myFile: true }] },
+        )
+        setMobilePane('document')
+        go({ document: null, myFile: id }, options)
       },
-      moveTab(id, index) {
+      closeTabs(keys) {
+        const closing = new Set(keys)
+        if (activeTab != null && closing.has(activeTab)) go(shownIn(shownAfter(openTabs, activeTab, closing)), { replace: true })
+        setTabs((store) => ({ v: 1, open: store.open.filter((tab) => !closing.has(tabKey(tab))) }))
+      },
+      moveTab(key, index) {
         setTabs((store) => {
-          const open = moved(store.open, id, index)
+          const open = moved(store.open, key, index)
           return open === store.open ? store : { v: 1, open }
         })
       },
-      pinTab(id, pin) {
+      pinTab(key, pin) {
         setTabs((store) => {
-          const open = pinned(store.open, id, pin)
+          const open = pinned(store.open, key, pin)
           return open === store.open ? store : { v: 1, open }
         })
       },
@@ -174,10 +190,6 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
         setMobilePane('library')
         go({ library: { folderId: null, myFiles: true } })
       },
-      showMyFile(fileId) {
-        setMobilePane('library')
-        go({ library: { folderId: null, myFile: fileId } })
-      },
       showPlace(place) {
         setMobilePane('library')
         go({ library: { folderId: null, ...place } })
@@ -191,7 +203,7 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
       setMobilePane,
       draggingFiles,
     }
-  }, [project.data, openDocuments, folders.data, tree, url, openTabs, activeDocumentId, mobilePane, draggingFiles, go, goToFolder, setTabs])
+  }, [project.data, openDocuments, openMyFiles, folders.data, tree, url, openTabs, activeTab, activeDocumentId, mobilePane, draggingFiles, go, goToFolder, setTabs])
 
   if (project.isPending) return <Loading />
   if (project.isError || !workspace) {
@@ -207,8 +219,9 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
     )
   }
 
-  // The middle pane holds the documents' tabs; it goes away with the last of them, and a narrow screen then shows the library.
-  const hasMiddle = activeDocumentId != null
+  // The middle pane holds the tabs of the documents and the files of My files; it goes away with the last of them, and a
+  // narrow screen then shows the library.
+  const hasMiddle = activeTab != null
   const shown: Pane = mobilePane === 'document' && !hasMiddle ? 'library' : mobilePane
   // Beside a document the library is a sidebar; alone with the agent it is the main view.
   // Each pane breaks alone, and starts afresh once it is moved elsewhere (src/failures.ts).
@@ -233,8 +246,8 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
             key: 'document',
             label: 'Document',
             node: (
-              <ErrorBoundary part="document" resetKey={activeDocumentId}>
-                {activeDocumentId != null && <MiddlePane documentId={activeDocumentId} />}
+              <ErrorBoundary part="document" resetKey={activeTab}>
+                <MiddlePane />
               </ErrorBoundary>
             ),
             share: 45,
@@ -311,23 +324,48 @@ function useWorkspaceTour(sample: boolean) {
   return { steps, end }
 }
 
+/** Where the URL goes to show an open tab, or to show none. */
+function shownIn(tab: OpenTab | undefined): Parameters<Go>[0] {
+  if (!tab) return { document: null, myFile: null }
+  return tab.myFile ? { document: null, myFile: tab.id } : { document: { id: tab.id, focus: tab.focus ?? null }, myFile: null }
+}
+
+interface Came<T> {
+  came: T[]
+  gone: boolean[]
+}
+
 /**
- * The tabs' documents that have come, and for each tab whether its document is gone. Plain
- * arrays, which the queries' combined result keeps as they were while nothing in them changes.
+ * The tabs' documents (or files) that have come, and for each tab whether its document is gone.
+ * Plain arrays, which the queries' combined result keeps as they were while nothing in them changes.
  */
-function tabsCame(results: UseQueryResult<Document>[]) {
+function tabsCame<T>(results: UseQueryResult<T>[]): Came<T> {
   return {
-    documents: results.flatMap((result) => (result.data ? [result.data] : [])),
+    came: results.flatMap((result) => (result.data ? [result.data] : [])),
     gone: results.map((result) => isGone(result.error)),
   }
 }
 
-/** The middle pane: the tab strip with the active document below it. */
-function MiddlePane({ documentId }: { documentId: number }) {
+/** The middle pane: the tab strip with the active document, or file of My files, below it. */
+function MiddlePane() {
+  const { url } = useWorkspace()
   return (
     <div className="flex h-full min-h-0 flex-col bg-page">
       <TabStrip />
-      <DocumentPanel documentId={documentId} />
+      {url.document ? <DocumentPanel documentId={url.document.id} /> : url.myFile != null ? <MyFilePanel fileId={url.myFile} /> : null}
+    </div>
+  )
+}
+
+/** The active file of My files below the tabs. */
+function MyFilePanel({ fileId }: { fileId: number }) {
+  const key: TabKey = myFileTab(fileId)
+  return (
+    <div id={DOCUMENT_PANEL} role="tabpanel" aria-labelledby={`${TAB_ID}${key}`} className="min-h-0 flex-1">
+      {/* A file that breaks leaves the tabs, from which another opens. */}
+      <ErrorBoundary part="document" resetKey={key}>
+        <MyFileView key={fileId} fileId={fileId} />
+      </ErrorBoundary>
     </div>
   )
 }
@@ -340,7 +378,7 @@ function DocumentPanel({ documentId }: { documentId: number }) {
 
   return (
     <>
-      <div id={DOCUMENT_PANEL} role="tabpanel" aria-labelledby={`${TAB_ID}${documentId}`} className="min-h-0 flex-1">
+      <div id={DOCUMENT_PANEL} role="tabpanel" aria-labelledby={`${TAB_ID}${documentTab(documentId)}`} className="min-h-0 flex-1">
         {/* A document that breaks leaves the tabs, from which another opens. */}
         <ErrorBoundary part="document" resetKey={documentId}>
           {document.data ? (

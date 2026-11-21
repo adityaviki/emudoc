@@ -1,5 +1,5 @@
-// The workspace's URL: which project, where the library is and what it searches, which document is open in the middle
-// and which chat is open on the right. Nothing else reads or writes the route shape.
+// The workspace's URL: which project, where the library is and what it searches, which document or file of My files is
+// open in the middle and which chat is open on the right. Nothing else reads or writes the route shape.
 
 import { useCallback, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router'
@@ -15,7 +15,7 @@ export interface WorkspaceSearch {
   filter: DocumentFilter
 }
 
-/** The folder the library shows, with `search` the project's search in its place (the files whose names hold its words, wherever they are, then the passages it finds); or, with `trash`, the project's trash, with `mail`, its address and what it received, with `connectors`, the folders of its members' Google Drive, Dropbox or OneDrive it keeps in step with, with `myFiles`, the member's own files in it, with `myFile`, one of them; with `favorites`, the member's favourites, and with `recent`, the documents they opened lately. The favourites and the recent
+/** The folder the library shows, with `search` the project's search in its place (the files whose names hold its words, wherever they are, then the passages it finds); or, with `trash`, the project's trash, with `mail`, its address and what it received, with `connectors`, the folders of its members' Google Drive, Dropbox or OneDrive it keeps in step with, with `myFiles`, the member's own files in it; with `favorites`, the member's favourites, and with `recent`, the documents they opened lately. The favourites and the recent
 documents take `search` too, which then matches their names alone. */
 export interface LibraryView {
   folderId: number | null
@@ -24,7 +24,6 @@ export interface LibraryView {
   mail?: true
   connectors?: true
   myFiles?: true
-  myFile?: number
   favorites?: true
   recent?: true
 }
@@ -37,8 +36,10 @@ export interface OpenDocument {
 export interface WorkspaceUrl {
   projectId: number
   library: LibraryView
-  /** The document in the middle pane; null leaves the library and the agent side by side. */
+  /** The document in the middle pane; null leaves the library and the agent side by side, or the file below there. */
   document: OpenDocument | null
+  /** The file of the member's My files in the middle pane, where `document` is null; null for none. */
+  myFile: number | null
   chatId: number | 'new' | null
   /** What a new chat will be about, until its first question makes it; null for the whole project. */
   about: ScopeIn | null
@@ -63,18 +64,22 @@ export function parseWorkspaceUrl(pathname: string, query: string): WorkspaceUrl
   if (params.has('trash')) library.trash = true
   else if (params.has('mail')) library.mail = true
   else if (params.has('connectors')) library.connectors = true
-  else if (id(params.get('my-file')) != null) library.myFile = id(params.get('my-file')) ?? undefined
-  else if (params.has('my-files')) library.myFiles = true
+  // A file of My files opened in the library's place before it opened in the middle (2026-11-21): the list is shown there now.
+  else if (params.has('my-files') || id(params.get('my-file')) != null) library.myFiles = true
   else if (params.has('favorites')) library.favorites = true
   else if (params.has('recent')) library.recent = true
 
   let document: OpenDocument | null = null
-  // The search tab's path and the filter by name's parameter, from before the search was the library's, are rewritten.
-  let canonical = !params.has('name')
+  let myFile: number | null = null
+  // The search tab's path, the filter by name's parameter and the library's file of My files are rewritten.
+  let canonical = !params.has('name') && !params.has('my-file')
   const opened = /^documents\/(\d+)$/.exec(rest)
+  const kept = /^my-files\/(\d+)$/.exec(rest)
   const legacyChat = /^ask(?:\/(\d+|new))?$/.exec(rest)
   if (opened) {
     document = { id: Number(opened[1]), focus: parseFocus(params) }
+  } else if (kept) {
+    myFile = Number(kept[1])
   } else if (legacyChat) {
     canonical = false
     chatId = legacyChat[1] === 'new' ? 'new' : (id(legacyChat[1] ?? null) ?? chatId)
@@ -83,8 +88,10 @@ export function parseWorkspaceUrl(pathname: string, query: string): WorkspaceUrl
   } else if (rest !== '') {
     return null
   }
+  // The library's file of My files, beside no document, is opened in the middle.
+  if (document == null && myFile == null) myFile = id(params.get('my-file'))
   const about = chatId === 'new' ? parseAbout(params.get('about')) : null
-  return { projectId, library, document, chatId, about, canonical }
+  return { projectId, library, document, myFile, chatId, about, canonical }
 }
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/
@@ -151,7 +158,6 @@ export function buildWorkspaceUrl(url: Omit<WorkspaceUrl, 'canonical'>): string 
   if (url.library.mail) params.set('mail', '')
   if (url.library.connectors) params.set('connectors', '')
   if (url.library.myFiles) params.set('my-files', '')
-  if (url.library.myFile != null) params.set('my-file', String(url.library.myFile))
   if (url.library.favorites) params.set('favorites', '')
   if (url.library.recent) params.set('recent', '')
   if (url.document) {
@@ -162,6 +168,8 @@ export function buildWorkspaceUrl(url: Omit<WorkspaceUrl, 'canonical'>): string 
       else if ('block' in focus) params.set('block', String(focus.block))
       else params.set('page', String(focus.page))
     }
+  } else if (url.myFile != null) {
+    path += `/my-files/${url.myFile}`
   }
   if (url.chatId != null) params.set('chat', String(url.chatId))
   const about = url.chatId === 'new' && url.about ? writeAbout(url.about) : null
