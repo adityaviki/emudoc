@@ -20,7 +20,7 @@ FROM python:3.13-slim-trixie@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d981
 
 # The frontend's build is the same files on every platform, so it runs on the builder's own
 # (BUILDPLATFORM), never emulated, when the image is built for amd64 and arm64 together.
-FROM --platform=$BUILDPLATFORM node:24-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9 AS frontend
+FROM --platform=$BUILDPLATFORM node:24-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS frontend
 RUN npm install --global pnpm@11.2.2
 WORKDIR /app/frontend
 COPY frontend/package.json frontend/pnpm-lock.yaml ./
