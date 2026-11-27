@@ -48,11 +48,14 @@ import {
   myFileLine,
   myFileQuery,
   myFileUploads,
+  myFileWhere,
   myFileWords,
   myFilesCount,
   myFilesKey,
+  myFilesNamed,
   myFilesTree,
   myFolderDeletionQuestion,
+  noMyFileNameWords,
   myVersionName,
   myVersionWords,
   retryable,
@@ -80,12 +83,21 @@ function KindIcon({ file }: { file: MyFile }) {
   return <Icon aria-hidden className={`size-4 shrink-0 ${color}`} />
 }
 
-interface MyFilesSectionProps {
-  open: boolean
-  onToggle: () => void
-  /** Whether the project's files are open below, to which the list leaves most of the pane, scrolling past its share. */
-  capped: boolean
-}
+type MyFilesSectionProps =
+  | {
+      open: boolean
+      onToggle: () => void
+      /** Whether the project's files are open below, to which the list leaves most of the pane, scrolling past its share. */
+      capped: boolean
+      found?: undefined
+    }
+  | {
+      /** A search's words: the files whose names hold them, flat under a heading above the project's files it found. */
+      found: string
+      open?: undefined
+      onToggle?: undefined
+      capped?: undefined
+    }
 
 /** Where the browser keeps which of the member's folders of My files are open, a list of ids for each project. */
 const OPEN_FOLDERS = 'emudoc.my-folders-open'
@@ -121,9 +133,10 @@ const folderKey = (folderId: number) => `d${folderId}`
  * by name, then the files, the one changed last first), each a row as the library's are and opening, as theirs do, in a
  * tab of the middle pane. Its heading opens and closes the list; what the project files' right-click offers, it offers
  * for its own: on its empty space or its heading a new folder, files uploaded and a folder uploaded whole, on a folder
- * the same into it with its rename and deletion, and on a file what may be done to it.
+ * the same into it with its rename and deletion, and on a file what may be done to it. In a search's results (`found`),
+ * the files whose names hold its words, each saying where it is, under a heading of their own: the same rows and menus.
  */
-export function MyFilesSection({ open, onToggle, capped }: MyFilesSectionProps) {
+export function MyFilesSection({ open = true, onToggle, capped = false, found }: MyFilesSectionProps) {
   const workspace = useWorkspace()
   const { project } = workspace
   const changes = mayChange(useMe().role)
@@ -327,7 +340,7 @@ export function MyFilesSection({ open, onToggle, capped }: MyFilesSectionProps) 
   }
 
   function startFolder(parentId: number | null) {
-    if (!open) onToggle()
+    if (!open) onToggle?.()
     reveal(parentId)
     setCreating(parentId)
   }
@@ -511,7 +524,8 @@ export function MyFilesSection({ open, onToggle, capped }: MyFilesSectionProps) 
     )
   }
 
-  function fileRow(file: MyFile) {
+  /** A file's row; a search's says where in My files the file is. */
+  function fileRow(file: MyFile, where?: string) {
     const key = fileKey(file.id)
     return (
       <button
@@ -537,7 +551,16 @@ export function MyFilesSection({ open, onToggle, capped }: MyFilesSectionProps) 
         }`}
       >
         <KindIcon file={file} />
-        <span className="min-w-0 flex-1 truncate">{file.name}</span>
+        <span className="min-w-0 flex-1 truncate">
+          {file.name}
+          {/* The space read in the button's name, "Letter.docx in My files". */}
+          {where && (
+            <>
+              {' '}
+              <span className="ml-0.5 text-[11px] text-muted">in {where}</span>
+            </>
+          )}
+        </span>
         {waiting(file.latest) && <Spinner className="size-3" />}
         {/* A narrow pane keeps the names, the rest in the row's title. */}
         <span className="hidden shrink-0 text-xs text-muted @xs:inline">{myFileLine(file)}</span>
@@ -547,143 +570,114 @@ export function MyFilesSection({ open, onToggle, capped }: MyFilesSectionProps) 
 
   const nothing = files.data != null && listed.length === 0 && folders.length === 0 && creating !== null
 
-  return (
-    <>
-      <section
-        aria-labelledby={MY_FILES_TOGGLE}
-        className={`@container flex min-h-0 flex-col ${capped ? 'max-h-[35%] shrink-0' : ''}`}
-        // A right-click on the heading or the list's empty space, or the menu key on the heading, offers what adds to the
-        // top of My files; a row offers its own, and a name being typed the browser's.
-        onContextMenu={(event) => {
-          if (event.target instanceof HTMLInputElement) return
-          setMenuFor(null)
-          menu.open(event, addingMenu(null))
-        }}
-      >
-        <SectionBar id={MY_FILES_TOGGLE} controls={body} open={open} onToggle={onToggle} icon={<FolderLock />} title="My files">
-          {files.data && listed.length > 0 && (
-            <span className="mr-1 hidden shrink-0 text-xs text-muted @3xs:inline">{myFilesCount(listed.length, files.data.limit)}</span>
-          )}
-          {/* A phone or a tablet, which opens no menu by a right-click, keeps a button for uploading, as the project files do. */}
-          <Button
-            variant="ghost"
-            icon={add.isPending ? <Spinner /> : <Upload className="size-4" />}
-            disabled={add.isPending}
-            onClick={() => pick(filesInput.current, null)}
-            title="Upload Word documents or Excel workbooks of your own from this device"
-            aria-label={add.isPending ? 'Uploading…' : 'Upload files'}
-            className="h-7 px-1.5 pointer-fine:hidden"
-          />
-          <input
-            ref={filesInput}
-            type="file"
-            name="my-files"
-            multiple
-            hidden
-            accept={MY_FILE_ACCEPT}
-            onChange={(event) => {
-              const picked = [...(event.target.files ?? [])]
-              event.target.value = ''
-              if (picked.length) send(picked.map((file) => ({ file, folder: '' })))
-            }}
-          />
-          {/* A folder's files, each with its path from the folder chosen, which the browser asks the member to allow. */}
-          <input
-            ref={(input) => {
-              folderInput.current = input
-              if (input) input.webkitdirectory = true
-            }}
-            type="file"
-            name="my-folder"
-            hidden
-            onChange={(event) => {
-              const picked = [...(event.target.files ?? [])]
-              event.target.value = ''
-              if (picked.length) send(chosenFolder(picked))
-            }}
-          />
-          <input
-            ref={versionInput}
-            type="file"
-            name="my-file-next-version"
-            hidden
-            onChange={(event) => {
-              const picked = event.target.files?.[0]
-              const file = versionOf.current
-              event.target.value = ''
-              if (picked && file) newVersion.mutate({ file, picked })
-            }}
-          />
-        </SectionBar>
-        <div id={body} hidden={!open} className="min-h-0 overflow-y-auto px-2 pb-2">
-          <div className="space-y-2 pb-1 empty:hidden">
-            {add.isPending && !add.isPaused && (
-              <Notice tone="info">
-                <span role="status" className="flex items-center gap-2">
-                  <Spinner className="size-3" />
-                  {addingWords(add.variables.items.length)}
-                </span>
-              </Notice>
-            )}
-            {add.isPaused && <Notice tone="info">The files are added once you are back online.</Notice>}
-            {add.isError && <Refusal error={add.error} />}
-            {add.data && add.data.rejected.length > 0 && (
-              <Notice>
-                <div className="flex items-start justify-between gap-3">
-                  <ul>
-                    {add.data.rejected.map((one) => (
-                      <li key={`${one.index}-${one.filename}`}>
-                        <span className="font-medium">{one.filename}</span>: {one.reason}
-                      </li>
-                    ))}
-                  </ul>
-                  <IconButton label="Dismiss" onClick={() => add.reset()} className="p-0.5!">
-                    <X className="size-3.5" />
-                  </IconButton>
-                </div>
-              </Notice>
-            )}
-            {leftOut.length > 0 && (
-              <Notice tone="info">
-                <div className="flex items-start justify-between gap-3">
-                  <span>{leftOutWords(leftOut)}</span>
-                  <IconButton label="Dismiss" onClick={() => setLeftOut([])} className="p-0.5!">
-                    <X className="size-3.5" />
-                  </IconButton>
-                </div>
-              </Notice>
-            )}
-            {refused && <Refusal error={refused} />}
-            {copy.data && copy.variables && (
-              <Notice tone="info">
-                <div role="status" className="flex flex-wrap items-center justify-between gap-2">
-                  <span>{copiedWords(copy.data, 'as_version' in copy.variables.choice)}</span>
-                  <span className="flex items-center gap-1">
-                    <Button onClick={() => workspace.openDocument(copy.data.id)}>Open it</Button>
-                    <IconButton label="Dismiss" onClick={() => copy.reset()} className="p-0.5!">
-                      <X className="size-3.5" />
-                    </IconButton>
-                  </span>
-                </div>
-              </Notice>
-            )}
-            {files.isError && <Notice tone="bad">Could not load your files: {files.error.message}</Notice>}
+  const notices = (
+    <div className="space-y-2 pb-1 empty:hidden">
+      {add.isPending && !add.isPaused && (
+        <Notice tone="info">
+          <span role="status" className="flex items-center gap-2">
+            <Spinner className="size-3" />
+            {addingWords(add.variables.items.length)}
+          </span>
+        </Notice>
+      )}
+      {add.isPaused && <Notice tone="info">The files are added once you are back online.</Notice>}
+      {add.isError && <Refusal error={add.error} />}
+      {add.data && add.data.rejected.length > 0 && (
+        <Notice>
+          <div className="flex items-start justify-between gap-3">
+            <ul>
+              {add.data.rejected.map((one) => (
+                <li key={`${one.index}-${one.filename}`}>
+                  <span className="font-medium">{one.filename}</span>: {one.reason}
+                </li>
+              ))}
+            </ul>
+            <IconButton label="Dismiss" onClick={() => add.reset()} className="p-0.5!">
+              <X className="size-3.5" />
+            </IconButton>
           </div>
-          {files.isPending && (
-            <div className="flex justify-center py-2">
-              <Spinner />
-            </div>
-          )}
-          {nothing && (
-            // Said in a box of the project files' kind, so that the section opened is not taken for one closed.
-            <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-ink/20 px-3 py-4 text-[13px] text-muted">
-              <FolderLock aria-hidden className="size-4 shrink-0" />
-              No files yet
-            </div>
-          )}
-          {files.data && !nothing && <ul aria-label="My files">{rows(tree, null)}</ul>}
-        </div>
-      </section>
+        </Notice>
+      )}
+      {leftOut.length > 0 && (
+        <Notice tone="info">
+          <div className="flex items-start justify-between gap-3">
+            <span>{leftOutWords(leftOut)}</span>
+            <IconButton label="Dismiss" onClick={() => setLeftOut([])} className="p-0.5!">
+              <X className="size-3.5" />
+            </IconButton>
+          </div>
+        </Notice>
+      )}
+      {refused && <Refusal error={refused} />}
+      {copy.data && copy.variables && (
+        <Notice tone="info">
+          <div role="status" className="flex flex-wrap items-center justify-between gap-2">
+            <span>{copiedWords(copy.data, 'as_version' in copy.variables.choice)}</span>
+            <span className="flex items-center gap-1">
+              <Button onClick={() => workspace.openDocument(copy.data.id)}>Open it</Button>
+              <IconButton label="Dismiss" onClick={() => copy.reset()} className="p-0.5!">
+                <X className="size-3.5" />
+              </IconButton>
+            </span>
+          </div>
+        </Notice>
+      )}
+      {files.isError && <Notice tone="bad">Could not load your files: {files.error.message}</Notice>}
+    </div>
+  )
+  const loading = files.isPending && (
+    <div className="flex justify-center py-2">
+      <Spinner />
+    </div>
+  )
+  // The pickers, hidden: files and a folder chosen into the place the menu was opened on, and a file's next version.
+  const pickers = (
+    <>
+      <input
+        ref={filesInput}
+        type="file"
+        name="my-files"
+        multiple
+        hidden
+        accept={MY_FILE_ACCEPT}
+        onChange={(event) => {
+          const picked = [...(event.target.files ?? [])]
+          event.target.value = ''
+          if (picked.length) send(picked.map((file) => ({ file, folder: '' })))
+        }}
+      />
+      {/* A folder's files, each with its path from the folder chosen, which the browser asks the member to allow. */}
+      <input
+        ref={(input) => {
+          folderInput.current = input
+          if (input) input.webkitdirectory = true
+        }}
+        type="file"
+        name="my-folder"
+        hidden
+        onChange={(event) => {
+          const picked = [...(event.target.files ?? [])]
+          event.target.value = ''
+          if (picked.length) send(chosenFolder(picked))
+        }}
+      />
+      <input
+        ref={versionInput}
+        type="file"
+        name="my-file-next-version"
+        hidden
+        onChange={(event) => {
+          const picked = event.target.files?.[0]
+          const file = versionOf.current
+          event.target.value = ''
+          if (picked && file) newVersion.mutate({ file, picked })
+        }}
+      />
+    </>
+  )
+  // Beside the section, outside it, so that a right-click in them never reaches its handler.
+  const layers = (
+    <>
       {menu.element}
       {deleting && (
         <Confirm
@@ -714,6 +708,83 @@ export function MyFilesSection({ open, onToggle, capped }: MyFilesSectionProps) 
         />
       )}
       {copying && <CopyDialog file={copying} onCopy={(choice) => copy.mutate({ file: copying, choice })} onClose={() => setCopying(null)} />}
+    </>
+  )
+
+  if (found != null) {
+    // A search's: the files whose names hold its words, flat, each saying where it is, or a line where none does. Its
+    // heading takes the keyboard as the section's button would, once a file it held is deleted.
+    const matches = myFilesNamed(listed, found)
+    return (
+      <>
+        <section aria-labelledby={MY_FILES_TOGGLE} className="@container pb-3">
+          <h2 id={MY_FILES_TOGGLE} tabIndex={-1} className="px-2 pb-1.5 text-xs font-semibold text-muted">
+            My files
+          </h2>
+          {notices}
+          {loading}
+          {files.data &&
+            (matches.length > 0 ? (
+              <ul aria-label="My files">
+                {matches.map((file) => (
+                  <li key={fileKey(file.id)}>
+                    {renaming === fileKey(file.id) ? renameFileRow(file) : fileRow(file, myFileWhere(file, folders))}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="px-2 py-1.5 text-[13px] text-muted">{noMyFileNameWords(found)}</p>
+            ))}
+        </section>
+        {pickers}
+        {layers}
+      </>
+    )
+  }
+
+  return (
+    <>
+      <section
+        aria-labelledby={MY_FILES_TOGGLE}
+        className={`@container flex min-h-0 flex-col ${capped ? 'max-h-[35%] shrink-0' : ''}`}
+        // A right-click on the heading or the list's empty space, or the menu key on the heading, offers what adds to the
+        // top of My files; a row offers its own, and a name being typed the browser's.
+        onContextMenu={(event) => {
+          if (event.target instanceof HTMLInputElement) return
+          setMenuFor(null)
+          menu.open(event, addingMenu(null))
+        }}
+      >
+        <SectionBar id={MY_FILES_TOGGLE} controls={body} open={open} onToggle={() => onToggle?.()} icon={<FolderLock />} title="My files">
+          {files.data && listed.length > 0 && (
+            <span className="mr-1 hidden shrink-0 text-xs text-muted @3xs:inline">{myFilesCount(listed.length, files.data.limit)}</span>
+          )}
+          {/* A phone or a tablet, which opens no menu by a right-click, keeps a button for uploading, as the project files do. */}
+          <Button
+            variant="ghost"
+            icon={add.isPending ? <Spinner /> : <Upload className="size-4" />}
+            disabled={add.isPending}
+            onClick={() => pick(filesInput.current, null)}
+            title="Upload Word documents or Excel workbooks of your own from this device"
+            aria-label={add.isPending ? 'Uploading…' : 'Upload files'}
+            className="h-7 px-1.5 pointer-fine:hidden"
+          />
+        </SectionBar>
+        <div id={body} hidden={!open} className="min-h-0 overflow-y-auto px-2 pb-2">
+          {notices}
+          {loading}
+          {nothing && (
+            // Said in a box of the project files' kind, so that the section opened is not taken for one closed.
+            <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-ink/20 px-3 py-4 text-[13px] text-muted">
+              <FolderLock aria-hidden className="size-4 shrink-0" />
+              No files yet
+            </div>
+          )}
+          {files.data && !nothing && <ul aria-label="My files">{rows(tree, null)}</ul>}
+        </div>
+      </section>
+      {pickers}
+      {layers}
     </>
   )
 }

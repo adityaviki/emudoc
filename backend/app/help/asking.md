@@ -3,12 +3,13 @@
 ## Searching a project
 
 **Search the project**, the box under the library's buttons, searches as you type. The files
-whose names hold your words come first, under "Files", as rows of the library, each with the
-folder it is in; the passages that hold them are listed below, under "Passages". Passages are
-found by their words and by their meaning together, so "late delivery penalty" also finds a
-clause about liquidated damages. Click a passage to open its document at that passage beside the
-library, the search staying where it was. Escape in the box empties it and the folders come back.
-While the library shows your favourites or your recent documents, the names searched are theirs.
+whose names hold your words come first, each with the folder it is in: your own under "My
+files", then the project's under "Project files", as rows of the library; the passages that hold
+them are listed below, under "Passages". Passages are found by their words and by their meaning
+together, so "late delivery penalty" also finds a clause about liquidated damages. Click a
+passage to open its document at that passage beside the library, the search staying where it
+was. Escape in the box empties it and the folders come back. While the library shows your
+favourites or your recent documents, the names searched are theirs alone.
 
 Words are matched in each document's language, so that "invoices" also finds "invoice": the one
 the document was read to be written in, or the one the workspace chose on its page

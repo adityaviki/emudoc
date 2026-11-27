@@ -11,7 +11,10 @@ import {
   leftOutWords,
   myFileDeletionQuestion,
   myFileUploads,
+  myFileWhere,
+  myFilesNamed,
   myFilesTree,
+  noMyFileNameWords,
   myFolderDeletionQuestion,
   myFileLine,
   myFileWords,
@@ -127,6 +130,35 @@ describe('the list', () => {
   it('counts the files, and the most a member keeps once they come near it', () => {
     expect([myFilesCount(1, 200), myFilesCount(2, 200), myFilesCount(179, 200)]).toEqual(['1 file', '2 files', '179 files'])
     expect([myFilesCount(180, 200), myFilesCount(200, 200)]).toEqual(['180 of 200 files', '200 of 200 files'])
+  })
+})
+
+describe('a search of the library in My files', () => {
+  const folders: MyFolder[] = [
+    { id: 1, name: 'Letters', parent_id: null },
+    { id: 2, name: '2026', parent_id: 1 },
+    { id: 3, name: 'Loop', parent_id: 4 },
+    { id: 4, name: 'Back', parent_id: 3 },
+  ]
+  const files = [file({ id: 1, name: 'Dispute letter.docx' }), file({ id: 2, name: 'Invoice lines.xlsx' }), file({ id: 3, name: 'LETTER to Acme.docx' })]
+
+  it('finds the files whose names hold the words in any case, in the list order, and none without words', () => {
+    expect(myFilesNamed(files, ' letter ').map((one) => one.id)).toEqual([1, 3])
+    expect(myFilesNamed(files, 'xlsx').map((one) => one.id)).toEqual([2])
+    expect(myFilesNamed(files, 'nothing like it')).toEqual([])
+    expect(myFilesNamed(files, '  ')).toEqual([])
+  })
+
+  it('says where a file is: its folder by its path, else the top of My files', () => {
+    expect(myFileWhere({ folder_id: 2 }, folders)).toBe('Letters / 2026')
+    expect(myFileWhere({ folder_id: 1 }, folders)).toBe('Letters')
+    expect(myFileWhere({ folder_id: null }, folders)).toBe('My files')
+    expect(myFileWhere({ folder_id: 99 }, folders)).toBe('My files')
+    expect(myFileWhere({ folder_id: 3 }, folders)).toBe('Back / Loop')
+  })
+
+  it('says when no name holds the words', () => {
+    expect(noMyFileNameWords(' acme ')).toBe('No file’s name in My files holds “acme”.')
   })
 })
 

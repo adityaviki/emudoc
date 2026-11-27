@@ -3,7 +3,10 @@
 
 /** The button that shows and hides the library's project files under its search (workspace/Library.tsx). */
 export const PROJECT_FILES_TOGGLE = 'project-files-toggle'
-/** The button that shows and hides the member's My files above them (workspace/MyFiles.tsx). */
+/**
+ * The button that shows and hides the member's My files above them (workspace/MyFiles.tsx); in a search's results, the
+ * heading of the files of My files it found, which takes the keyboard as the button would.
+ */
 export const MY_FILES_TOGGLE = 'my-files-toggle'
 
 /**

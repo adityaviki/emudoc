@@ -42,9 +42,9 @@ export function placeName(place: ListingPlace): string {
   return 'All files'
 }
 
-/** What the search's files say when no name holds its words, in any case: of every folder's files, a favourite's or a recent one's. */
+/** What the search's project files say when no name holds its words, in any case: of every folder's files, a favourite's or a recent one's. */
 export function noNameWords(place: ListingPlace & { name: string }): string {
-  const whose = 'favorites' in place ? 'No favourite’s name' : 'recent' in place ? 'No recent file’s name' : 'No file’s name'
+  const whose = 'favorites' in place ? 'No favourite’s name' : 'recent' in place ? 'No recent file’s name' : 'No project file’s name'
   return `${whose} holds “${place.name}”.`
 }
 

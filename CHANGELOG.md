@@ -16,6 +16,9 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 
 ### Users
 
+- Search the project finds your own files too: those whose names hold your words are listed
+  under "My files", each with the folder it is in and the same right-click menu, above the
+  project's files it finds, now headed "Project files".
 - Where the workspace sends no email, the help menu no longer shows "Write to your workspace's
   admins" with the addresses to write to from your own email: it shows its links alone. The help
   pages' "Getting help" says whom to write to.
