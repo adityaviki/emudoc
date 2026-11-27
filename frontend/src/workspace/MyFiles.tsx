@@ -8,7 +8,8 @@ import { useMe } from '../auth.ts'
 import { folderChoices } from '../library.ts'
 import { Confirm } from '../components/Confirm.tsx'
 import { PagesView } from '../components/DocumentViews.tsx'
-import { Button, EmptyState, FIELD, IconButton, Loading, Notice, SelectField, Spinner } from '../components/ui.tsx'
+import { Button, FIELD, IconButton, Loading, Notice, SectionBar, SelectField, Spinner } from '../components/ui.tsx'
+import { MY_FILES_TOGGLE } from '../focus.ts'
 import { useStatus } from '../hooks.ts'
 import {
   MY_FILES_NOTE,
@@ -49,24 +50,25 @@ function KindIcon({ file }: { file: MyFile }) {
   return <Icon aria-hidden className={`size-4 shrink-0 ${color}`} />
 }
 
-/** The bar atop My files, as the project's files have their path: its words start where theirs do. */
-const BAR = 'flex h-11 shrink-0 items-center gap-1 border-b border-line bg-surface px-3'
+interface MyFilesSectionProps {
+  open: boolean
+  onToggle: () => void
+  /** Whether the project's files are open below, to which the list leaves most of the pane, scrolling past its share. */
+  capped: boolean
+}
 
 /**
- * The member's own files in the project, under the library's "My files" tab: the Word documents and Excel workbooks they
- * keep here, which nobody else sees, the one changed last first, each a row as the library's are and opening, as theirs
- * do, in a tab of the middle pane; and a file added from this computer, opened there too.
+ * The member's own files in the project, atop the library above the project's files: the Word documents and Excel
+ * workbooks they keep here, which nobody else sees, the one changed last first, each a row as the library's are and
+ * opening, as theirs do, in a tab of the middle pane; and a file added from this computer, opened there too. Its heading
+ * opens and closes the list; the count and "Add a file" stay on it while it is closed.
  */
-export function MyFilesView() {
+export function MyFilesSection({ open, onToggle, capped }: MyFilesSectionProps) {
   const workspace = useWorkspace()
   const { project } = workspace
   const queryClient = useQueryClient()
-  const heading = useRef<HTMLHeadingElement>(null)
   const picker = useRef<HTMLInputElement>(null)
-  // Opened from a button that went with the view before it: the keyboard goes on from here.
-  useEffect(() => {
-    if (window.document.activeElement === window.document.body) heading.current?.focus()
-  }, [])
+  const body = useId()
   const files = useQuery({
     queryKey: myFilesKey(project.id),
     queryFn: () => api.myFiles(project.id),
@@ -81,17 +83,25 @@ export function MyFilesView() {
     },
   })
   const listed = files.data?.files ?? []
+  const adding = add.isPending ? 'Adding…' : 'Add a file'
 
   return (
-    <div className="@container flex h-full min-h-0 flex-col bg-page">
-      <div className={BAR}>
-        <h2 ref={heading} tabIndex={-1} className="min-w-0 truncate px-1.5 text-[13px] font-semibold">
-          My files
-        </h2>
-        <span className="flex-1" />
-        {files.data && listed.length > 0 && <span className="mr-1 shrink-0 text-xs text-muted">{myFilesCount(listed.length, files.data.limit)}</span>}
-        <Button icon={<FilePlus className="size-4" />} disabled={add.isPending} onClick={() => picker.current?.click()}>
-          {add.isPending ? 'Adding…' : 'Add a file'}
+    <section aria-labelledby={MY_FILES_TOGGLE} className={`@container flex min-h-0 flex-col ${capped ? 'max-h-[45%] shrink-0' : ''}`}>
+      <SectionBar id={MY_FILES_TOGGLE} controls={body} open={open} onToggle={onToggle} icon={<FolderLock />} title="My files">
+        {files.data && listed.length > 0 && (
+          <span className="mr-1 hidden shrink-0 text-xs text-muted @3xs:inline">{myFilesCount(listed.length, files.data.limit)}</span>
+        )}
+        {/* A narrow pane keeps the icon only. */}
+        <Button
+          variant="ghost"
+          icon={<FilePlus className="size-4" />}
+          disabled={add.isPending}
+          onClick={() => picker.current?.click()}
+          title="Add a Word document or an Excel workbook of your own from this computer"
+          aria-label={adding}
+          className="h-7 px-1.5 @xs:px-2"
+        >
+          <span className="hidden @xs:inline">{adding}</span>
         </Button>
         <input
           ref={picker}
@@ -105,24 +115,23 @@ export function MyFilesView() {
             if (file) add.mutate(file)
           }}
         />
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-2">
-        {/* Who sees them, said where they are, so that nobody takes them for the project's. */}
-        <p className="flex items-start gap-1.5 px-1.5 pt-1 pb-2 text-xs text-muted">
-          <Lock aria-hidden className="mt-px size-3.5 shrink-0" />
-          {MY_FILES_NOTE}
-        </p>
-        <div className="space-y-2 empty:hidden">
+      </SectionBar>
+      <div id={body} hidden={!open} className="min-h-0 overflow-y-auto border-b border-line p-2">
+        <div className="space-y-2 pb-1 empty:hidden">
           {add.isPaused && <Notice tone="info">The file is added once you are back online.</Notice>}
           {add.isError && <Refusal error={add.error} />}
           {files.isError && <Notice tone="bad">Could not load your files: {files.error.message}</Notice>}
         </div>
-        {files.isPending && <Loading />}
+        {files.isPending && (
+          <div className="flex justify-center py-2">
+            <Spinner />
+          </div>
+        )}
         {files.data && listed.length === 0 && (
-          <EmptyState icon={<FolderLock />} title="No files of your own yet">
-            Add a Word document or an Excel workbook to keep it here, or ask in a chat for a letter or a workbook: the agent
-            writes it here.
-          </EmptyState>
+          <p className="px-1.5 py-1 text-[13px] text-muted">
+            No files of your own yet. Add a Word document or an Excel workbook, or ask in a chat for a letter or a workbook:
+            the agent writes it here.
+          </p>
         )}
         {listed.length > 0 && (
           <ul aria-label="My files">
@@ -144,8 +153,13 @@ export function MyFilesView() {
             ))}
           </ul>
         )}
+        {/* Who sees them, said where they are, so that nobody takes them for the project's below. */}
+        <p className="flex items-start gap-1.5 px-1.5 pt-2 pb-0.5 text-xs text-muted">
+          <Lock aria-hidden className="mt-px size-3.5 shrink-0" />
+          {MY_FILES_NOTE}
+        </p>
       </div>
-    </div>
+    </section>
   )
 }
 
@@ -210,17 +224,14 @@ export function MyFileView({ fileId }: { fileId: number }) {
     mutationFn: () => api.deleteMyFile(fileId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: myFilesKey(project.id) })
-      // The tab goes with the file, and the keyboard on from the tab shown next, else from the library: the question
-      // closed first, since the page beneath it takes no focus while it is open.
+      // The tab goes with the file, and the keyboard on from the tab shown next, else from the heading of My files, whose
+      // list held it: the question closed first, since the page beneath it takes no focus while it is open.
       const key = myFileTab(fileId)
       const next = shownAfter(workspace.openTabs, key, new Set([key]))
       flushSync(() => setDeleting(false))
       workspace.closeTabs([key])
       queryClient.removeQueries({ queryKey: myFileKey(fileId) })
-      const library = () =>
-        window.document.querySelector<HTMLElement>('[role="tree"]') ??
-        window.document.querySelector<HTMLElement>('[role="tablist"][aria-label="Files"] [aria-selected="true"]')
-      ;(next ? window.document.getElementById(`${TAB_ID}${tabKey(next)}`) : library())?.focus()
+      window.document.getElementById(next ? `${TAB_ID}${tabKey(next)}` : MY_FILES_TOGGLE)?.focus()
     },
     onError: (error) => setRefused(error),
   })

@@ -1,4 +1,4 @@
-import { LoaderCircle } from 'lucide-react'
+import { ChevronRight, LoaderCircle } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useId } from 'react'
 import type { AnchorHTMLAttributes, ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, Ref, SelectHTMLAttributes } from 'react'
@@ -276,6 +276,44 @@ export function Section({ title, description, id, children }: { title: string; d
       {description && <p className="mt-0.5 text-[13px] leading-relaxed text-muted">{description}</p>}
       <div className="mt-4">{children}</div>
     </section>
+  )
+}
+
+interface SectionBarProps {
+  /** The heading's button, which the section is labelled by and a page may give the focus to. */
+  id: string
+  /** The element the button shows and hides. */
+  controls: string
+  open: boolean
+  onToggle: () => void
+  icon: ReactNode
+  title: string
+  /** What the bar holds at its end, beside the heading: a count, a button. */
+  children?: ReactNode
+}
+
+/** The heading of a part that opens and closes, such as the library's My files: a button turning its chevron as it does. */
+export function SectionBar({ id, controls, open, onToggle, icon, title, children }: SectionBarProps) {
+  return (
+    <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line bg-surface pr-2 pl-1">
+      <h2 className="flex min-w-0 flex-1">
+        <button
+          id={id}
+          type="button"
+          aria-expanded={open}
+          aria-controls={controls}
+          onClick={onToggle}
+          className="flex h-7 min-w-0 items-center gap-1.5 rounded-md pr-2 pl-1 text-[13px] font-semibold text-ink transition hover:bg-sunken"
+        >
+          <ChevronRight aria-hidden className={`size-4 shrink-0 text-muted transition-transform ${open ? 'rotate-90' : ''}`} />
+          <span aria-hidden className="flex shrink-0 text-muted [&_svg]:size-4">
+            {icon}
+          </span>
+          <span className="truncate">{title}</span>
+        </button>
+      </h2>
+      {children}
+    </div>
   )
 }
 
