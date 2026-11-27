@@ -42,8 +42,8 @@ On a server with Docker, a name that leads to it and ports 80 and 443 open:
 
 ```bash
 mkdir emudoc && cd emudoc
-curl -fsSLO https://raw.githubusercontent.com/adityaviki/emudoc/v0.1.0/deploy/compose.yml
-curl -fsSL -o .env https://raw.githubusercontent.com/adityaviki/emudoc/v0.1.0/deploy/.env.example
+curl -fsSLO https://raw.githubusercontent.com/adityaviki/emudoc/v0.2.0/deploy/compose.yml
+curl -fsSL -o .env https://raw.githubusercontent.com/adityaviki/emudoc/v0.2.0/deploy/.env.example
 chmod 600 .env && sed -i "s|^POSTGRES_PASSWORD=$|&$(openssl rand -hex 24)|; s|^ENCRYPTION_KEYS=$|&$(openssl rand -base64 32)|" .env
 docker compose up -d --wait          # after setting APP_URL, a model's key and COMPOSE_PROFILES in .env
 ```
