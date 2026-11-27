@@ -664,18 +664,14 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(grace.getByRole('dialog')).toHaveCount(0)
     await expect(grace.getByRole('img', { name: /^Ready/ })).toBeVisible()
     await expect(grace.getByRole('button', { name: 'Upload', exact: true })).toHaveCount(0)
-    // Uploading is the project's files' menu's, a right-click on their empty space: a viewer's has none.
+    // Uploading is the project's files' menu's, a right-click on their empty space, which offers a viewer nothing: none opens.
     const files = grace.getByRole('tree', { name: 'Files' })
-    const filesMenu = async () => {
-      await expect(async () => {
-        const box = await files.boundingBox()
-        await files.click({ button: 'right', position: { x: 12, y: (box?.height ?? 40) - 12 } })
-        await expect(grace.getByRole('menuitem', { name: 'Select all' })).toBeVisible({ timeout: 2_000 })
-      }).toPass({ timeout: 60_000 })
+    const rightClickFiles = async () => {
+      const box = await files.boundingBox()
+      await files.click({ button: 'right', position: { x: 12, y: (box?.height ?? 40) - 12 } })
     }
-    await filesMenu()
-    await expect(grace.getByRole('menuitem', { name: 'Upload files' })).toHaveCount(0)
-    await grace.keyboard.press('Escape')
+    await rightClickFiles()
+    await expect(grace.getByRole('menu')).toHaveCount(0)
 
     await page.reload()
     await expect(page.getByText('Nobody is invited at the moment.')).toBeVisible()
@@ -687,8 +683,12 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     expect((await saved).status()).toBe(200)
     await expect(role).toHaveValue('member')
     await grace.reload()
-    await filesMenu()
-    await expect(grace.getByRole('menuitem', { name: 'Upload files' })).toBeVisible()
+    // Opened again until the click lands, since a menu closes as the library scrolls while it loads.
+    await expect(async () => {
+      await rightClickFiles()
+      await expect(grace.getByRole('menuitem', { name: 'Upload files' })).toBeVisible({ timeout: 2_000 })
+    }).toPass({ timeout: 60_000 })
+    await expect(grace.getByRole('menuitem', { name: 'Select all' })).toHaveCount(0)
     await grace.keyboard.press('Escape')
   })
 

@@ -4,8 +4,6 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
-  ChevronsDownUp,
-  ChevronsUpDown,
   Download,
   FileUp,
   Folder as FolderIcon,
@@ -1067,42 +1065,22 @@ function Listing({
     ]
   }
 
-  const backgroundMenu: MenuItem[] = [
-    // A flat place holds no folder of its own to make one in, and what is uploaded there goes to the root.
-    ...(changes && !flat
-      ? ([
+  // What adds to the place shown, for whoever may change the project's files (the owner's word of 2026-11-27 took "Select
+  // all", "Expand all" and "Collapse all" off it: Ctrl+A on the tree still selects everything). A flat place holds no
+  // folder of its own to make one in, and what is uploaded there goes to the root.
+  const backgroundMenu: MenuItem[] =
+    changes && !flat
+      ? [
           { label: 'New folder', icon: FolderPlus, onSelect: () => onCreatingChange(true) },
           { label: 'Upload files', icon: Upload, onSelect: onPickFiles },
           { label: 'Upload a folder', icon: FolderUp, onSelect: onPickFolder },
-          'separator',
-        ] satisfies MenuItem[])
-      : []),
-    { label: 'Select all', shortcut: 'Ctrl+A', disabled: !items.length, onSelect: () => setSelected(new Set(keys)) },
-    // Only the tree opens folders in place.
-    ...(flat || grid
-      ? []
-      : ([
-          'separator',
-          {
-            label: 'Expand all',
-            icon: ChevronsUpDown,
-            // Every folder below this one that has subfolders or files of its own.
-            onSelect: () => setOpenFolders((current) => [...new Set([...current, ...expandable(tree, folderId)])]),
-          },
-          {
-            label: 'Collapse all',
-            icon: ChevronsDownUp,
-            disabled: !entries.some((entry) => entry.depth > 0),
-            onSelect: () => {
-              const shown = folderId == null ? null : tree.subtree(folderId)
-              setOpenFolders((current) => (shown ? current.filter((id) => id === folderId || !shown.has(id)) : []))
-            },
-          },
-        ] satisfies MenuItem[])),
-  ]
+        ]
+      : []
 
   function onContextMenu(event: MouseEvent, item?: Item) {
     if (!item) {
+      // Nothing to offer, the browser's own menu.
+      if (!backgroundMenu.length) return
       setMenuFor(null)
       menu.open(event, backgroundMenu)
       return
@@ -1620,14 +1598,6 @@ function listingLines(place: ListingPlace, listing: ListingResult | undefined, d
   else if (listing.isError && !listing.data) lines.push({ gap: 'failed', place, depth })
   else if (hasMore(listing.data)) lines.push({ gap: 'more', place, depth })
   return lines
-}
-
-/** The folders below this one that have anything in them to show when opened. */
-function expandable(tree: FolderTree, rootId: number | null): number[] {
-  return [...tree.byId.values()]
-    .filter((folder) => folder.id !== rootId && (tree.children.has(folder.id) || folder.document_count > 0))
-    .filter((folder) => rootId == null || tree.pathTo(folder.parent_id).some((above) => above.id === rootId))
-    .map((folder) => folder.id)
 }
 
 /** The items not inside a folder that is itself among them; acting on a folder covers what it holds. */

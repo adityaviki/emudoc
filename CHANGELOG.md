@@ -16,6 +16,9 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 
 ### Users
 
+- The right-click menu of Project files' empty space no longer offers "Select all", "Expand all"
+  or "Collapse all": it offers "New folder", "Upload files" and "Upload a folder". Ctrl+A in the
+  list still selects everything, and a folder's arrow opens and closes it.
 - Keep My files in folders: right-click the My files heading, the list's empty space or a folder
   for "New folder", "Upload files" (several at once) and "Upload a folder", which brings its
   Word documents and Excel workbooks with their subfolders and says which other files it left
