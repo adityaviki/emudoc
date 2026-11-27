@@ -14,6 +14,8 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 
 ## Unreleased
 
+## 0.2.0 (2026-11-27)
+
 ### Users
 
 - A new chat no longer opens on a heading and a paragraph about AI-written answers: it shows
