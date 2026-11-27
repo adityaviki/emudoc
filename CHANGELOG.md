@@ -16,6 +16,8 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 
 ### Users
 
+- The library shows its files as a list alone: the List and Grid buttons beside the order are
+  gone, and so is the grid of pictures of the files' first pages.
 - The right-click menu of Project files' empty space no longer offers "Select all", "Expand all"
   or "Collapse all": it offers "New folder", "Upload files" and "Upload a folder". Ctrl+A in the
   list still selects everything, and a folder's arrow opens and closes it.

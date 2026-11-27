@@ -1,4 +1,4 @@
-import { ArrowDownUp, Clock, Folder as FolderIcon, LayoutGrid, List, Star, Trash2, X } from 'lucide-react'
+import { ArrowDownUp, Clock, Folder as FolderIcon, Star, Trash2, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useId, useRef, useState } from 'react'
 import type { DocumentFilter, DocumentType, Folder, ListingPlace } from '../api.ts'
@@ -7,11 +7,10 @@ import type { MenuItem } from '../components/Menu.tsx'
 import { Checkbox, FIELD, IconButton, SelectField } from '../components/ui.tsx'
 import { useContextMenu } from '../components/useContextMenu.tsx'
 import { FIRST_ORDER, MAX_WITHIN, SORTS, SORT_NAMES, allNamed, datesProblem, filterWords, folderChoices, sortWords } from '../library.ts'
-import type { LibraryLayout } from '../library.ts'
 import type { Arrangement } from './listing.ts'
 
 /**
- * Words for the eye alone beside a row's or a tile's name, which its description reads out apart: drawn from an attribute
+ * Words for the eye alone beside a row's name, which its description reads out apart: drawn from an attribute
  * by CSS, they are no text of the row's own, whose name is the file's (axe's label-content-name-mismatch holds every
  * text drawn inside it to its name).
  */
@@ -23,8 +22,6 @@ interface PlaceBarProps {
   place: ListingPlace
   arrangement: Arrangement
   onArrange: (arrangement: Arrangement) => void
-  layout: LibraryLayout
-  onLayout: (layout: LibraryLayout) => void
   onPlace: (place: ListingPlace) => void
   onTrash: () => void
 }
@@ -36,18 +33,18 @@ const PLACES: { label: string; icon: LucideIcon; place: ListingPlace }[] = [
   { label: 'Recent', icon: Clock, place: { recent: true } },
 ]
 
-/** Each of a pair of buttons, pressed or not, as the bar draws it inside its sunken group. */
+/** Each of the group's buttons, pressed or not, as the bar draws it inside its sunken group. */
 const segment = (pressed: boolean) =>
   `flex size-6.5 items-center justify-center rounded-[5px] transition ${pressed ? 'bg-surface text-ink shadow-xs' : 'text-muted hover:text-ink'}`
 
 /**
  * Above the library's search box: what it shows, each place an icon pressed while it is shown (all its files, the
  * member's favourites or recent ones), and in the same group the way to the project's trash, a page of its own that is
- * never pressed here; then the order it lists them in, and as a list or a grid. A search matches the names of the place
- * shown, all the files of the project from a folder.
+ * never pressed here; then the order it lists them in. A search matches the names of the place shown, all the files of
+ * the project from a folder.
  */
 export function PlaceBar(props: PlaceBarProps) {
-  const { place, arrangement, layout } = props
+  const { place, arrangement } = props
   const menu = useContextMenu()
   const recent = 'recent' in place
   const shown = (one: ListingPlace) =>
@@ -99,26 +96,6 @@ export function PlaceBar(props: PlaceBarProps) {
         <ArrowDownUp className="size-3.5 shrink-0 text-muted" />
         <span className="hidden truncate @xs:inline">{recent ? 'Latest opened' : SORTS[arrangement.sort].label}</span>
       </button>
-      <div role="group" aria-label="Show as" className="flex shrink-0 rounded-md bg-sunken p-0.5">
-        {(
-          [
-            ['list', 'List', List],
-            ['grid', 'Grid', LayoutGrid],
-          ] as const
-        ).map(([value, label, Icon]) => (
-          <button
-            key={value}
-            type="button"
-            aria-pressed={layout === value}
-            aria-label={label}
-            title={label}
-            onClick={() => props.onLayout(value)}
-            className={segment(layout === value)}
-          >
-            <Icon className="size-3.5" />
-          </button>
-        ))}
-      </div>
       {menu.element}
     </div>
   )

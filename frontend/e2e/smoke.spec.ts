@@ -1389,7 +1389,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await releaseTurns(request)
   })
 
-  await test.step('list the favourites and the recent ones from the icons above the files, in another order and as a grid, then move a new invoice into a folder', async () => {
+  await test.step('list the favourites and the recent ones from the icons above the files, then in another order, then move a new invoice into a folder', async () => {
     const invoice = page.getByRole('treeitem', { name: 'invoice.md', exact: true })
     // What the library shows, a place an icon, the one shown pressed.
     const places = page.getByRole('group', { name: 'Show', exact: true })
@@ -1420,7 +1420,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     // Measured with the invoice open, whose tab narrows the library: its buttons may take two lines.
     const top = (await places.boundingBox())?.y
 
-    // Every file, by name from Z, then as a grid of tiles that the arrows move through.
+    // Every file, by name from Z.
     await allFiles.click()
     await expect(allFiles).toHaveAttribute('aria-pressed', 'true')
     await expect(path).toHaveCount(0)
@@ -1432,19 +1432,6 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     const invoices = page.getByRole('treeitem', { name: /^(second-)?invoice\.md$/ })
     await expect(invoices.nth(0)).toHaveAccessibleName('second-invoice.md')
     await expect(invoices.nth(1)).toHaveAccessibleName('invoice.md')
-    await page.getByRole('button', { name: 'Grid' }).click()
-    const grid = page.getByRole('grid', { name: 'Files' })
-    const tile = grid.getByRole('gridcell', { name: 'second-invoice.md', exact: true })
-    // A click puts the keyboard on the tile without selecting it, and the arrows move it on.
-    const tileId = (await tile.getAttribute('id')) ?? ''
-    await tile.click()
-    await expect(grid).toBeFocused()
-    await expect(grid).toHaveAttribute('aria-activedescendant', tileId)
-    await expect(tile).toHaveAttribute('aria-selected', 'false')
-    await page.keyboard.press('ArrowRight')
-    await expect(grid).not.toHaveAttribute('aria-activedescendant', tileId)
-    await expectAccessible(page, 'the library as a grid')
-    await page.getByRole('button', { name: 'List' }).click()
     await order.click()
     await page.getByRole('menuitemradio', { name: 'A to Z' }).click()
 

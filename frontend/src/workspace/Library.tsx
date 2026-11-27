@@ -34,7 +34,6 @@ import {
   ACCEPTED_TYPES_LABEL,
   mayChange,
   SCOPE_DOCUMENTS,
-  thumbnailUrl,
 } from '../api.ts'
 import type { Document, Folder, ListingPlace, ScopeIn, UploadItem } from '../api.ts'
 import { useMe } from '../auth.ts'
@@ -58,14 +57,11 @@ import {
   SORT_NAMES,
   allNamed,
   emptyPlaceWords,
-  gridMove,
-  hasThumbnail,
   narrows,
   noNameWords,
   placeName,
   placeOf,
 } from '../library.ts'
-import type { LibraryLayout } from '../library.ts'
 import { SUMMARY_QUESTION, comparisonQuestion } from '../scopes.ts'
 import { LIBRARY_SEARCH, librarySearchPlaceholder } from '../search.ts'
 import { MAX_CHOSEN } from '../selection.ts'
@@ -139,15 +135,13 @@ type Uploads = (transfer: DataTransfer, targetId: number | null) => void
 const treeKey = (projectId: number) => `emudoc.tree-open.${projectId}`
 const isIdList = (value: unknown): value is number[] =>
   Array.isArray(value) && value.every((id) => typeof id === 'number')
-// The order and the layout the member chose last, in this browser.
+// The order the member chose last, in this browser.
 const ARRANGEMENT_KEY = 'emudoc.library-order'
-const LAYOUT_KEY = 'emudoc.library-layout'
 const isArrangement = (value: unknown): value is Arrangement =>
   typeof value === 'object' &&
   value !== null &&
   SORT_NAMES.includes((value as Arrangement).sort) &&
   ['asc', 'desc'].includes((value as Arrangement).order)
-const isLayout = (value: unknown): value is LibraryLayout => value === 'list' || value === 'grid'
 // Which of the member's My files and the project's files are open under the search, in this browser for every project.
 interface OpenSections {
   mine: boolean
@@ -160,8 +154,6 @@ const isOpenSections = (value: unknown): value is OpenSections =>
   value !== null &&
   typeof (value as OpenSections).mine === 'boolean' &&
   typeof (value as OpenSections).project === 'boolean'
-// How wide a tile of the grid is at the least, with the gap after it, in pixels.
-const TILE_WIDTH = 128
 
 /**
  * The file manager: a folder's contents, and the project's search in their place, the files whose names hold its words
@@ -215,7 +207,6 @@ export function Library() {
   const place: ListingPlace = placeOf(workspace.url.library) ?? { folder: folderId }
   const flat = !('folder' in place)
   const [arrangement, setArrangement] = useLocalStorage<Arrangement>(ARRANGEMENT_KEY, BY_NAME, isArrangement)
-  const [layout, setLayout] = useLocalStorage<LibraryLayout>(LAYOUT_KEY, 'list', isLayout)
   const [sections, setSections] = useLocalStorage<OpenSections>(SECTIONS_KEY, BOTH_OPEN, isOpenSections)
   const projectBody = useId()
   // A folder, a place, a search or a page of the project's files opened from elsewhere (a document's path, the trash's
@@ -290,8 +281,6 @@ export function Library() {
           place={place}
           arrangement={arrangement}
           onArrange={setArrangement}
-          layout={layout}
-          onLayout={setLayout}
           onPlace={(chosen) => ('folder' in chosen ? workspace.goToFolder(null) : workspace.showPlace(chosen))}
           onTrash={workspace.showTrash}
         />
@@ -506,12 +495,11 @@ export function Library() {
             <div className="min-h-0 flex-1 overflow-y-auto p-2">{searchResults}</div>
           ) : (
             <Listing
-              key={`${placeKey(place)}:${nameOf(place) ?? ''}:${layout}`}
+              key={`${placeKey(place)}:${nameOf(place) ?? ''}`}
               place={place}
               heading={search ? (allNamed(place) ? 'Files' : placeName(place)) : undefined}
               after={searchResults || undefined}
               arrangement={arrangement}
-              layout={layout}
               creating={creating}
               onCreatingChange={setCreating}
               mutations={mutations}
@@ -703,8 +691,6 @@ interface ListingProps {
   /** A folder, shown as a tree of it and the folders in it; or a place across the project's folders, shown flat. */
   place: ListingPlace
   arrangement: Arrangement
-  /** Rows, or a grid of tiles of the place itself, its folders opened by going into them. */
-  layout: LibraryLayout
   creating: boolean
   onCreatingChange: (creating: boolean) => void
   mutations: LibraryMutations
@@ -726,7 +712,6 @@ interface ListingProps {
 function Listing({
   place,
   arrangement,
-  layout,
   creating,
   onCreatingChange,
   mutations,
@@ -751,10 +736,9 @@ function Listing({
   const marks = useDocumentMarks(project.id, (error) => mutations.setNotice(error.message))
   const favorites = useFavorites(project.id)
   const flat = !('folder' in place)
-  const grid = layout === 'grid'
   const folderId = 'folder' in place ? place.folder : null
-  // The grid shows the folder's own contents, its folders opened by going into them; a flat place has no folders.
-  const openSet = flat || grid ? new Set<number>() : new Set(openFolders)
+  // A flat place has no folders to open.
+  const openSet = flat ? new Set<number>() : new Set(openFolders)
   // Each folder the tree shows open is listed by itself, a page at a time; a flat place is one listing.
   const listedPlaces: ListingPlace[] = flat ? [place] : foldersShown(tree, folderId, openSet).map((id) => ({ folder: id }))
   const listingResults = useListings(project.id, listedPlaces, arrangement)
@@ -776,8 +760,6 @@ function Listing({
   const [moving, setMoving] = useState<Item[] | null>(null)
   // The item whose own menu was opened last, marked while a menu is open in place of being selected.
   const [menuFor, setMenuFor] = useState<string | null>(null)
-  // How many tiles a row of the grid holds, from the listing's width.
-  const [columns, setColumns] = useState(1)
   const menu = useContextMenu()
   const list = useRef<HTMLDivElement>(null)
   // A closed folder held under a drag opens after a moment, so the drag can go deeper.
@@ -798,18 +780,6 @@ function Listing({
     },
     [],
   )
-
-  // The grid's scroller, whose width less its padding the tiles share; there before the first page comes.
-  const scroller = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const element = scroller.current
-    if (!grid || !element) return
-    const measure = () => setColumns(Math.max(1, Math.floor((element.clientWidth - 16 + 8) / TILE_WIDTH)))
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(element)
-    return () => observer.disconnect()
-  }, [grid])
 
   /**
    * Where a click or an arrow puts the cursor, and what it selects: Shift everything from the anchor, Ctrl (⌘) the item
@@ -855,9 +825,9 @@ function Listing({
     setOpenFolders((current) => (expanded ? [...new Set([...current, id])] : current.filter((open) => open !== id)))
   }
 
-  /** A folder opens in place in the tree, and is gone into in the grid; a file opens in the middle pane. */
+  /** A folder opens in place in the tree; a file opens in the middle pane. */
   function activate(item: Item) {
-    if (item.kind === 'folder' && !grid) setExpanded(item.folder.id, !openSet.has(item.folder.id))
+    if (item.kind === 'folder') setExpanded(item.folder.id, !openSet.has(item.folder.id))
     else open(item)
   }
 
@@ -1106,13 +1076,6 @@ function Listing({
       // The arrows move the cursor alone, Space then selecting what it reached; with Shift they select as they go.
       select(keys[Math.max(0, Math.min(keys.length - 1, next))], { ctrlKey: false, metaKey: false, shiftKey: event.shiftKey })
     }
-    // The grid's arrows move by a tile and by a row; its folders are gone into with Enter.
-    if (grid && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key) && !event.altKey) {
-      const next = gridMove(event.key, index, columns, keys.length, event.ctrlKey || event.metaKey)
-      event.preventDefault()
-      if (next !== null) moveTo(next)
-      return
-    }
     switch (event.key) {
       case 'ArrowDown':
         return moveTo(index < 0 ? 0 : index + 1)
@@ -1314,9 +1277,9 @@ function Listing({
       dropping: dropTarget === key,
       favorite: item.kind === 'file' && favorites.has(item.document.id),
       where: flat && item.kind === 'file' ? whereOf(item.document) : undefined,
-      // A plain click opens the item (a file in the middle pane, a folder in place or gone into in the grid; the owner's
-      // word of 2026-11-05) and puts the cursor on it; with Ctrl or Shift it selects instead. A double-click's second
-      // click opens nothing again, so a folder does not close as it opened.
+      // A plain click opens the item (a file in the middle pane, a folder in place; the owner's word of 2026-11-05) and
+      // puts the cursor on it; with Ctrl or Shift it selects instead. A double-click's second click opens nothing again,
+      // so a folder does not close as it opened.
       onClick: (event) => {
         select(key, event)
         if (event.detail <= 1 && !event.ctrlKey && !event.metaKey && !event.shiftKey) activate(item)
@@ -1348,8 +1311,8 @@ function Listing({
       folderCount: item.kind === 'folder' ? (tree.children.get(item.folder.id)?.length ?? 0) + item.folder.document_count : undefined,
     }
   }
-  // The listing is one stop of the keyboard, its cursor the row or tile a screen reader reads out; busy while a page of
-  // it comes, when its line says so in a row's place.
+  // The listing is one stop of the keyboard, its cursor the row a screen reader reads out; busy while a page of it comes,
+  // when its line says so in a row's place.
   const keyboard = {
     ref: list,
     'aria-label': 'Files',
@@ -1372,44 +1335,9 @@ function Listing({
   // What the items selected together offer, from the bar under the listing as from the menu of one of them.
   const selectionMenu = liveSelected.size ? itemsMenu(selectedItems) : []
   const treeRows = lines.map((line) => (isEntry(line) ? <Row key={itemKey(line.item)} {...propsOf(line.item, line.depth)} /> : gapOf(line)))
-  // The grid's rows, each `columns` tiles, a gap after a place's files on a row of its own.
-  const gridRows: Line[][] = []
-  for (const line of lines) {
-    const last = gridRows.at(-1)
-    if (isEntry(line) && last && last.length < columns && isEntry(last[0])) last.push(line)
-    else gridRows.push([line])
-  }
   return (
     <>
-      {grid ? (
-        <div ref={scroller} {...background} className="min-h-0 flex-1 overflow-y-auto p-2">
-          {heading && <ListingHeading>{heading}</ListingHeading>}
-          {emptyState}
-          {ghost}
-          {lines.length > 0 && (
-            <div {...keyboard} role="grid" className="group/list space-y-2 outline-none">
-              {gridRows.map((row) =>
-                isEntry(row[0]) ? (
-                  <div
-                    key={itemKey(row[0].item)}
-                    role="row"
-                    className="grid gap-2"
-                    style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
-                  >
-                    {row.flatMap((line) => (isEntry(line) ? [<Tile key={itemKey(line.item)} {...propsOf(line.item, 0)} />] : []))}
-                  </div>
-                ) : (
-                  <div key={`gap:${placeKey((row[0] as Gap).place) ?? 'root'}`} role="row">
-                    <div role="gridcell">{gapOf(row[0] as Gap)}</div>
-                  </div>
-                ),
-              )}
-            </div>
-          )}
-          {menu.element}
-          {after}
-        </div>
-      ) : after === undefined ? (
+      {after === undefined ? (
         <div {...keyboard} {...background} role="tree" className="group/list min-h-0 flex-1 overflow-y-auto p-2 outline-none">
           {emptyState}
           {ghost}
@@ -1653,7 +1581,7 @@ function ItemIcon({ item, className }: { item: Item; className: string }) {
 }
 
 /**
- * What describes a file's row or tile, by the ids of what says it: its state as the status icon gives it, its star and
+ * What describes a file's row, by the ids of what says it: its state as the status icon gives it, its star and
  * where it is, rather than all it holds.
  */
 function describedBy(id: string, props: RowProps): string | undefined {
@@ -1785,89 +1713,6 @@ function Row(props: RowProps) {
         </span>
       )}
       <span className="ml-1 flex">{menuButton}</span>
-    </div>
-  )
-}
-
-/**
- * A folder or a file as a tile of the grid: a file's thumbnail where the server draws one (a PDF, a scan, an image),
- * else its kind's icon, with its name, state and menu under it, and then its star.
- */
-function Tile(props: RowProps) {
-  const { item, selected, selecting, menuOpen, isCursor, renaming, movable, dropping, folderCount } = props
-  const name = itemName(item)
-  const id = rowId(itemKey(item))
-  // A thumbnail the server could not draw (an unreadable page, a missing file) leaves the kind's icon in its place.
-  const [broken, setBroken] = useState(false)
-  const picture = item.kind === 'file' && hasThumbnail(item.document) && !broken
-  const state = `${selected ? 'border-accent bg-accent-soft' : menuOpen ? 'border-line bg-sunken' : 'border-line bg-surface hover:bg-sunken'} ${
-    isCursor ? 'group-focus/list:ring-2 group-focus/list:ring-accent/50' : ''
-  } ${dropping ? 'bg-accent-soft ring-2 ring-accent' : ''}`
-  return (
-    <div
-      role="gridcell"
-      id={id}
-      aria-label={name}
-      aria-describedby={describedBy(id, props)}
-      aria-selected={selected}
-      data-key={itemKey(item)}
-      draggable={movable && !renaming}
-      onClick={(event) => {
-        event.stopPropagation()
-        if (!renaming) props.onClick(event)
-      }}
-      onContextMenu={props.onContextMenu}
-      onDragStart={props.onDragStart}
-      onDragEnd={props.onDragEnd}
-      onDragOver={props.onDragOver}
-      onDragLeave={props.onDragLeave}
-      onDrop={props.onDrop}
-      className={`group flex min-w-0 flex-col rounded-lg border p-1.5 text-[13px] transition-colors select-none ${state}`}
-    >
-      <div className="relative flex aspect-[4/3] items-center justify-center overflow-hidden rounded-md bg-sunken">
-        <SelectBox selected={selected} shown={selecting} onCheck={props.onCheck} className="absolute top-0.5 left-0.5" />
-        {picture ? (
-          <img
-            src={thumbnailUrl(item.document)}
-            alt=""
-            loading="lazy"
-            draggable={false}
-            onError={() => setBroken(true)}
-            className="size-full object-cover object-top"
-          />
-        ) : (
-          <ItemIcon item={item} className="size-8" />
-        )}
-      </div>
-      <div className="mt-1.5 flex min-w-0 items-center gap-1">
-        <div className="min-w-0 flex-1">
-          {renaming ? (
-            <RenameInput value={name} isFile={item.kind === 'file'} onCommit={props.onRename} onCancel={props.onCancelRename} />
-          ) : (
-            <p className="truncate" title={item.kind === 'file' ? (item.document.title ?? name) : name}>
-              {name}
-            </p>
-          )}
-        </div>
-        {item.kind === 'file' && <StatusIcon id={`${id}-status`} document={item.document} />}
-        <IconButton
-          label="More actions"
-          // Tab goes from the grid to the actions of the tile its cursor is on, not through every tile's.
-          tabIndex={isCursor ? 0 : -1}
-          className={`size-6! shrink-0 ${selected || menuOpen ? '' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
-          onClick={(event) => {
-            event.stopPropagation()
-            props.onMenuButton(event.currentTarget)
-          }}
-        >
-          <MoreHorizontal className="size-4" />
-        </IconButton>
-      </div>
-      <div className="flex min-h-5 min-w-0 items-center text-[11px] text-muted">
-        {item.kind === 'folder' && <Seen text={folderCount === 1 ? '1 item' : `${folderCount ?? 0} items`} />}
-        {props.favorite && <FavoriteMark id={`${id}-star`} />}
-        {props.where && <Where id={`${id}-where`} where={props.where} className="ml-1.5 min-w-0 truncate" />}
-      </div>
     </div>
   )
 }

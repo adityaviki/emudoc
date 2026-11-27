@@ -1,11 +1,8 @@
 // The library's ways of reading a project (backend/app/api/documents.py, document_filter.py): its places and orders as
-// the page names them, what narrows a search in words and why it cannot be used as written, and where the grid's keys move
-// its cursor.
+// the page names them, and what narrows a search in words and why it cannot be used as written.
 
-import { THUMBNAIL_TYPES } from './api.ts'
-import type { Document, DocumentFilter, DocumentSort, Folder, ListingPlace, SortOrder } from './api.ts'
+import type { DocumentFilter, DocumentSort, Folder, ListingPlace, SortOrder } from './api.ts'
 import { formatDate } from './format.ts'
-import { scanPassed } from './indexing.ts'
 import type { LibraryView } from './workspace/url.ts'
 
 /** What each order is called, and how each of its directions reads. */
@@ -21,9 +18,6 @@ export const FIRST_ORDER: Record<DocumentSort, SortOrder> = { name: 'asc', added
 
 /** An order in words, for the button that changes it. */
 export const sortWords = (sort: DocumentSort, order: SortOrder) => `${SORTS[sort].label}, ${SORTS[sort][order].toLowerCase()}`
-
-/** How the library shows a place: a tree of rows, or a grid of tiles. */
-export type LibraryLayout = 'list' | 'grid'
 
 /**
  * The place of the library's that the view names, or null for a folder's: the favourites or the recent documents, narrowed
@@ -110,32 +104,6 @@ export function filterWords(filter: DocumentFilter, folder: string | null): stri
 export function datesProblem(filter: Pick<DocumentFilter, 'after' | 'before'>): string | null {
   if (filter.after && filter.before && filter.after > filter.before) return 'Its earliest date is after its latest. Choose dates the other way round.'
   return null
-}
-
-/** Whether the server draws the document a thumbnail: a PDF, a scan or an image, once its scan has passed. */
-export const hasThumbnail = (document: Document) =>
-  (THUMBNAIL_TYPES.has(document.mime_type) || document.view_state === 'ready') && document.status !== 'quarantined' && scanPassed(document)
-
-/**
- * Where a key moves the grid's cursor from `index`, of `count` tiles in rows of `columns`: the arrows by a tile and by a
- * row, Home and End to the row's ends, and with Ctrl to the grid's; null for a key it does not take, or none to move to.
- */
-export function gridMove(key: string, index: number, columns: number, count: number, ctrl = false): number | null {
-  if (count === 0) return null
-  if (index < 0) return 0
-  const rowStart = index - (index % columns)
-  const target = {
-    ArrowLeft: index - 1,
-    ArrowRight: index + 1,
-    ArrowUp: index - columns,
-    ArrowDown: index + columns,
-    Home: ctrl ? 0 : rowStart,
-    End: ctrl ? count - 1 : Math.min(rowStart + columns, count) - 1,
-  }[key]
-  if (target === undefined) return null
-  // Down from a row above a shorter last one goes to the last tile; nothing else moves past either end.
-  if (key === 'ArrowDown' && target >= count) return rowStart + columns < count ? count - 1 : null
-  return target >= 0 && target < count ? target : null
 }
 
 /** A folder a form offers, named by its path from the project's top. */

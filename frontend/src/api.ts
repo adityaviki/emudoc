@@ -2194,10 +2194,6 @@ export const versionFileUrl = (documentId: number, number: number) =>
   `/api/documents/${documentId}/versions/${number}/file`
 export const pageImageUrl = (documentId: number, page: number) =>
   `/api/documents/${documentId}/pages/${page}.png`
-/** A small picture of the document's first page, or of the image, for the library's grid; its version names the file it was drawn from. */
-export const thumbnailUrl = (document: Document) => `/api/documents/${document.id}/thumbnail.png?v=${document.version}`
-/** The types the server draws a thumbnail of (PAGE_TYPES and IMAGE_TYPES in backend/app/parsing/__init__.py). */
-export const THUMBNAIL_TYPES = new Set(['application/pdf', 'image/tiff', 'image/heic', 'image/heif', 'image/png', 'image/jpeg', 'image/webp'])
 /** A share link's file and pages, which its view's cookie reaches. */
 export const sharedFileUrl = (linkId: number) => `/api/shared/${linkId}/file`
 export const sharedPageUrl = (linkId: number, page: number) => `/api/shared/${linkId}/pages/${page}.png`

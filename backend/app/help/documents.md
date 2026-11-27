@@ -66,14 +66,14 @@ leave it open. Click the pin, or Unpin in its menu, to let it go.
 Choose files with the box at the left of each one, which shows as you point at a file, on every
 file once one is chosen, and always on a touch screen. Ctrl (⌘ on a Mac) and a click do the same,
 Shift and a click choose every file from the last one, and Ctrl+A chooses every file shown. A
-plain click opens a file, or a folder (in place in the list, or going into it in the grid), and
-chooses nothing. From the keyboard, the arrows move without choosing, Space adds the file
-reached or takes it out, and Shift and the arrows choose the files in a row; F2 renames the file
-the keyboard is on, and Delete deletes the chosen files, or that file when none is chosen. The
-bar under the files says how many are chosen; its Actions offers what can be done to them, and
-Clear selection or Esc lets them go. Opening a file's menu or clicking the empty space keeps them
-chosen. Besides asking about them together, moving and deleting them, a member who may change
-the project does two things to as many as $chosen of them at once:
+plain click opens a file, or opens a folder in place in the list, and chooses nothing. From the
+keyboard, the arrows move without choosing, Space adds the file reached or takes it out, and
+Shift and the arrows choose the files in a row; F2 renames the file the keyboard is on, and
+Delete deletes the chosen files, or that file when none is chosen. The bar under the files says
+how many are chosen; its Actions offers what can be done to them, and Clear selection or Esc lets
+them go. Opening a file's menu or clicking the empty space keeps them chosen. Besides asking
+about them together, moving and deleting them, a member who may change the project does two
+things to as many as $chosen of them at once:
 
 - **Index … documents again** reads each of them again from the start, and **Index the rest**
   indexes the partly indexed among them in full. One being indexed already is left to finish.
@@ -91,9 +91,8 @@ with the icons above the files:
 - **Trash** shows what was deleted from the project, to take back or delete for good.
 
 Beside them, the order of the files (by name, date added, the document's own date or size, either
-way) and whether they show as a list or as a grid of pictures of their first pages. Your browser
-remembers both. Under them, **Search the project** finds files by their names and passages by
-their words ([Searching and asking](/help/asking)).
+way), which your browser remembers. Under them, **Search the project** finds files by their names
+and passages by their words ([Searching and asking](/help/asking)).
 
 ## A document's details and its note
 

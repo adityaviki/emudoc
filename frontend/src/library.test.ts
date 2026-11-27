@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Document, Folder } from './api.ts'
+import type { Folder } from './api.ts'
 import { formatDate } from './format.ts'
 import {
   EMPTY_FILTER,
@@ -8,9 +8,7 @@ import {
   filterParts,
   filterWords,
   folderChoices,
-  gridMove,
   datesProblem,
-  hasThumbnail,
   noNameWords,
   placeName,
   placeOf,
@@ -101,48 +99,6 @@ describe('a search', () => {
     expect(withoutPart(filter, 1).mentions).toEqual(['late delivery'])
     expect(narrows(EMPTY_FILTER)).toBe(false)
     expect(narrows({ ...EMPTY_FILTER, mentions: ['x'] })).toBe(true)
-  })
-})
-
-describe('the grid', () => {
-  // Seven tiles in rows of three: 0 1 2 / 3 4 5 / 6.
-  it('moves by a tile and by a row, and to a row’s ends or the grid’s', () => {
-    expect(gridMove('ArrowRight', 2, 3, 7)).toBe(3)
-    expect(gridMove('ArrowLeft', 0, 3, 7)).toBeNull()
-    expect(gridMove('ArrowDown', 1, 3, 7)).toBe(4)
-    expect(gridMove('ArrowUp', 1, 3, 7)).toBeNull()
-    // Down from above the short last row lands on its last tile; from the last row, nowhere.
-    expect(gridMove('ArrowDown', 5, 3, 7)).toBe(6)
-    expect(gridMove('ArrowDown', 6, 3, 7)).toBeNull()
-    expect(gridMove('Home', 4, 3, 7)).toBe(3)
-    expect(gridMove('End', 3, 3, 7)).toBe(5)
-    expect(gridMove('End', 6, 3, 7)).toBe(6)
-    expect(gridMove('End', 0, 3, 7, true)).toBe(6)
-    expect(gridMove('Home', 6, 3, 7, true)).toBe(0)
-    // No cursor yet: the first tile; a key it does not take, or nothing to move in, nothing.
-    expect(gridMove('ArrowDown', -1, 3, 7)).toBe(0)
-    expect(gridMove('Enter', 2, 3, 7)).toBeNull()
-    expect(gridMove('ArrowDown', 0, 3, 0)).toBeNull()
-  })
-
-  it('draws a thumbnail of a PDF, a scan or an image once the scan has passed', () => {
-    const scanned = { stages: { scan: { status: 'done', detail: '' } }, status: 'ready' } as unknown as Document
-    expect(hasThumbnail({ ...scanned, mime_type: 'application/pdf' })).toBe(true)
-    expect(hasThumbnail({ ...scanned, mime_type: 'image/heic' })).toBe(true)
-    expect(hasThumbnail({ ...scanned, mime_type: 'text/plain' })).toBe(false)
-    expect(hasThumbnail({ ...scanned, mime_type: 'application/pdf', stages: {} })).toBe(false)
-    expect(hasThumbnail({ ...scanned, mime_type: 'application/pdf', status: 'quarantined' })).toBe(false)
-  })
-
-  it("draws a Word file's thumbnail from its view once the view is made", () => {
-    const word = {
-      stages: { scan: { status: 'done', detail: '' } },
-      status: 'ready',
-      mime_type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    } as unknown as Document
-    expect(hasThumbnail({ ...word, view_state: 'ready' })).toBe(true)
-    expect(hasThumbnail({ ...word, view_state: 'queued' })).toBe(false)
-    expect(hasThumbnail({ ...word, view_state: null })).toBe(false)
   })
 })
 
