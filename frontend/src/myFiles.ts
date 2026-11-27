@@ -18,7 +18,6 @@ export const KIND_WORDS: Record<MyFileKind, string> = { docx: 'Word document', x
 /** How often an open file, or the list, is asked again while a version waits for its scan or its pages. */
 export const MY_FILE_POLL = 2000
 
-export const MY_FILES_NOTE = 'Only you see these files. Copy one to project files to share it with the project’s members.'
 /** Said on an open file, whose tab sits among the project's documents'. */
 export const MY_FILE_NOTE = 'In My files: only you see it.'
 

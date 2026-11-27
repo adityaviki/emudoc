@@ -31,7 +31,7 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 - The library lists **My files** under its search box and **Project files** below them, each
   opened and closed by its heading, so that your own files, which only you see, sit beside the
   files every member sees without being taken for them. My files lists your files as the library lists
-  documents and says who sees them; "Copy to the library" is now "Copy to project files".
+  documents; "Copy to the library" is now "Copy to project files".
 - A step of an answer that was not done says so in a sentence, such as "Read around a passage ·
   Not done: the model asked in a form the tool does not take.", rather than showing what the
   model sent. And the agent reads a passage, a section, a document or a file of My files by the
