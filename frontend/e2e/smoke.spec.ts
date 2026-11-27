@@ -275,7 +275,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     // A file whose name holds the words comes first, a row of the library's above the passages.
     await box.fill('CONTRACT')
     await expect(page).toHaveURL(/[?&]q=CONTRACT/)
-    await expect(page.getByRole('heading', { name: 'Files' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Files', exact: true })).toBeVisible()
     await expect(page.getByRole('treeitem', { name: 'service-contract.md', exact: true })).toBeVisible()
     await expect(hit.first()).toBeVisible()
     await page.getByRole('button', { name: 'Clear search' }).click()
@@ -927,11 +927,26 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByText('In My files: only you see it.')).toBeVisible()
     await expect(page.getByRole('list', { name: 'Versions' })).toContainText('Written by the agent · From a chat')
     await expectAccessible(page, 'a file of My files the agent wrote')
-    // The library's My files lists it, and its row shows the same tab.
-    await page.getByRole('tab', { name: 'My files', exact: true }).click()
+    // The library's My files, above the project's files, lists it, and its row shows the same tab.
     const listed = page.getByRole('list', { name: 'My files' })
     await expect(listed).toContainText('Notes on the invoice.docx')
     await expectAccessible(page, 'My files')
+    // Each section's heading closes and opens it (the button's name is its title alone: the file's tab holds the words).
+    const mine = page.getByRole('button', { name: 'My files', exact: true })
+    await expect(mine).toHaveAttribute('aria-expanded', 'true')
+    await mine.click()
+    await expect(mine).toHaveAttribute('aria-expanded', 'false')
+    await expect(listed).toBeHidden()
+    await expectAccessible(page, 'My files closed')
+    const projectFiles = page.getByRole('button', { name: 'Project files', exact: true })
+    await projectFiles.click()
+    await expect(projectFiles).toHaveAttribute('aria-expanded', 'false')
+    await expect(page.getByRole('tree', { name: 'Files' })).toBeHidden()
+    // Both open again, since the browser keeps them as left for the steps after.
+    await projectFiles.click()
+    await expect(page.getByRole('tree', { name: 'Files' })).toBeVisible()
+    await mine.click()
+    await expect(listed).toBeVisible()
     await listed.getByRole('button', { name: /^Notes on the invoice\.docx/ }).click()
     await expect(tabs.getByRole('tab', { name: /^Notes on the invoice\.docx/ })).toHaveCount(1)
     await expect(tab).toHaveAttribute('aria-selected', 'true')
@@ -957,7 +972,6 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     )
     await expect(page.getByRole('heading', { name: 'Lines of the invoice.xlsx' })).toBeFocused()
     await expect(page.getByRole('list', { name: 'Versions' })).toContainText('Written by the agent · From a chat')
-    await page.getByRole('tab', { name: 'My files', exact: true }).click()
     await expect(page.getByRole('list', { name: 'My files' })).toContainText('Lines of the invoice.xlsx')
   })
 
@@ -1432,9 +1446,12 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     }).toPass({ timeout: 60_000 })
     await expect(page.getByText('Indexing 2 documents again.')).toBeVisible()
 
-    // An export of the two alone, which the projects page lists with the project's own.
-    await second.click({ button: 'right' })
-    await page.getByRole('menuitem', { name: 'Export 2 documents' }).click()
+    // An export of the two alone, which the projects page lists with the project's own. The right-click moves the cursor
+    // to a row at the tree's edge, under My files, which scrolls it into view and closes the menu: opened again, as above.
+    await expect(async () => {
+      await second.click({ button: 'right' })
+      await page.getByRole('menuitem', { name: 'Export 2 documents' }).click({ timeout: 2_000 })
+    }).toPass({ timeout: 60_000 })
     await expect(page.getByText(/^An export of 2 documents is being made\./)).toBeVisible()
     await page.getByRole('link', { name: 'Emudoc' }).click()
     const card = page.locator('div').filter({ has: page.getByRole('link', { name: /^Supplier contracts/ }) }).last()

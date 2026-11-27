@@ -126,8 +126,6 @@ export interface Workspace {
   showTrash(): void
   /** Shows the project's address, whose mail becomes its documents, in the library, likewise. */
   showMailbox(): void
-  /** Shows the list of the member's own files in the project, their My files, in the library, likewise. */
-  showMyFiles(): void
   /** Shows the project's connected folders in the library, likewise. */
   showConnectors(): void
   /** Shows a place of the library that is not a folder (the member's favourites or recent ones), likewise. */

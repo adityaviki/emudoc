@@ -3,7 +3,6 @@ import type { Document, MyFile, MyFileVersion } from './api.ts'
 import { formatDate, formatDateTime } from './format.ts'
 import {
   copiedWords,
-  filesSide,
   following,
   heldWords,
   myFileDeletionQuestion,
@@ -14,7 +13,6 @@ import {
   myVersionWords,
   retryable,
   servable,
-  tabLeads,
   unshownWords,
   waiting,
 } from './myFiles.ts'
@@ -113,24 +111,5 @@ describe('the list', () => {
   it('counts the files, and the most a member keeps once they come near it', () => {
     expect([myFilesCount(1, 200), myFilesCount(2, 200), myFilesCount(179, 200)]).toEqual(['1 file', '2 files', '179 files'])
     expect([myFilesCount(180, 200), myFilesCount(200, 200)]).toEqual(['180 of 200 files', '200 of 200 files'])
-  })
-})
-
-describe('the library’s two sides', () => {
-  it('shows My files for the list, and the project’s files for everything else', () => {
-    expect(filesSide({ folderId: null, myFiles: true })).toBe('mine')
-    expect([filesSide({ folderId: 3 }), filesSide({ folderId: null, trash: true }), filesSide({ folderId: null, recent: true })]).toEqual([
-      'project',
-      'project',
-      'project',
-    ])
-  })
-
-  it('leads from a tab to the other side, or back to the folders from a page within them, and stays on its own list', () => {
-    expect([tabLeads({ folderId: 3 }, 'mine'), tabLeads({ folderId: null, myFiles: true }, 'project')]).toEqual([true, true])
-    expect(tabLeads({ folderId: null, myFiles: true }, 'mine')).toBe(false)
-    const within = [{ trash: true as const }, { mail: true as const }, { connectors: true as const }].map((page) => tabLeads({ folderId: null, ...page }, 'project'))
-    expect(within).toEqual([true, true, true])
-    expect([tabLeads({ folderId: 3 }, 'project'), tabLeads({ folderId: null, favorites: true }, 'project')]).toEqual([false, false])
   })
 })

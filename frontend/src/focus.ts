@@ -1,6 +1,21 @@
 // Where the keyboard goes when it leaves something, or what it was on goes away: the rules the
 // components that move the focus follow (components/Menu.tsx, workspace/Library.tsx).
 
+/** The button that shows and hides the library's project files (workspace/FilesSections.tsx). */
+export const PROJECT_FILES_TOGGLE = 'project-files-toggle'
+/** The button that shows and hides the member's My files above them (workspace/MyFiles.tsx). */
+export const MY_FILES_TOGGLE = 'my-files-toggle'
+
+/**
+ * Gives the library the keyboard once what held it went (the last tab closed): its tree, or, while the project's files
+ * are hidden or show a page without one (the trash, Email in), the button of their heading.
+ */
+export function focusLibrary() {
+  const tree = window.document.querySelector<HTMLElement>('[role="tree"]')
+  if (tree && !tree.closest('[hidden]')) tree.focus()
+  else window.document.getElementById(PROJECT_FILES_TOGGLE)?.focus()
+}
+
 /**
  * Whether Tab, or Shift+Tab when `backward`, takes the keyboard out of a layer that has `stops`
  * places Tab stops at, the focus on the one at `at` (-1 for none of them, such as a menu's item,

@@ -1,12 +1,10 @@
-// A member's own files in a project, their My files (backend/app/my_files.py): which side of the library is shown, the
-// words of their list and of a file's place, its versions, what keeps one from being shown or served, and a copy into
-// the project's files.
+// A member's own files in a project, their My files (backend/app/my_files.py): the words of their list atop the library
+// and of a file's place, its versions, what keeps one from being shown or served, and a copy into the project's files.
 
 import { queryOptions } from '@tanstack/react-query'
 import { api } from './api.ts'
 import type { Document, MyFile, MyFileKind, MyFileVersion, MyFiles } from './api.ts'
 import { formatDate, formatDateTime, formatSize } from './format.ts'
-import type { LibraryView } from './workspace/url.ts'
 
 /** The query of the member's files in a project, which a file added, changed or deleted asks again. */
 export const myFilesKey = (projectId: number) => ['my-files', projectId] as const
@@ -31,23 +29,6 @@ export function myFileQuery(fileId: number) {
     queryFn: () => api.myFile(fileId),
     refetchInterval: (query) => (query.state.data && waiting(query.state.data.latest) ? MY_FILE_POLL : false),
   })
-}
-
-/** The library's two sides, a tab each: the project's files, which every member sees, and the member's own. */
-export type FilesSide = 'project' | 'mine'
-
-/** The side the library shows: My files for the member's list, the project's for everything else. */
-export function filesSide(view: LibraryView): FilesSide {
-  return view.myFiles ? 'mine' : 'project'
-}
-
-/**
- * Whether a press on a side's tab goes anywhere: to the other side, or back to the project's folders from a page within
- * its side (the trash, Email in or the connected folders). Within the project's folders, or on My files' list, it stays.
- */
-export function tabLeads(view: LibraryView, side: FilesSide): boolean {
-  if (filesSide(view) !== side) return true
-  return side === 'project' && Boolean(view.trash || view.mail || view.connectors)
 }
 
 /** How many files the member keeps here, and the most a member may once they come near it. */

@@ -6,6 +6,7 @@ import type { MyFileDetail } from '../api.ts'
 import { StatusDot } from '../components/IndexingStatus.tsx'
 import type { MenuItem } from '../components/Menu.tsx'
 import { useContextMenu } from '../components/useContextMenu.tsx'
+import { focusLibrary } from '../focus.ts'
 import { servable } from '../myFiles.ts'
 import { onMac, tabMoveKeys, tabMoveOf } from '../shortcuts.ts'
 import { fileKind, myFileKind, originalFileItem } from './files.ts'
@@ -100,7 +101,7 @@ export function TabStrip() {
 
   function close(key: TabKey) {
     // The last tab takes the middle pane with it: the keyboard goes back to the library.
-    if (order.length === 1) window.document.querySelector<HTMLElement>('[role="tree"]')?.focus()
+    if (order.length === 1) focusLibrary()
     else refocus.current = true
     workspace.closeTabs([key])
   }

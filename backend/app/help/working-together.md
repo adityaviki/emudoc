@@ -2,9 +2,10 @@
 
 ## My files
 
-The library has two tabs at its top. **Project files** holds the documents and folders every
-member of the project sees. **My files** holds your own Word documents and Excel workbooks in
-the project, which only you see: nobody else does, the workspace's owners and admins included.
+The library shows two lists, each opened and closed by its heading. **My files**, at the top,
+holds your own Word documents and Excel workbooks in the project, which only you see: nobody
+else does, the workspace's owners and admins included. **Project files**, below it, holds the
+documents and folders every member of the project sees.
 "Add a file" keeps one there$my_views, up to $my_files in a project. A file opens in a tab beside the
 documents you have open, a lock on it saying it is yours alone. Edit it in Word or Excel and
 give it back with "Upload a new version": every version stays, to show or download. "Copy to

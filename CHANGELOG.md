@@ -28,10 +28,10 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 - Asked for a long document, a report of a few thousand words drawn from several documents, the
   agent writes it into your My files rather than stopping with "The model sent nothing for 60
   seconds" or "did not finish within 120 seconds" while it wrote.
-- The library has two tabs at its top, **Project files** and **My files**, so that the files every
-  member sees and your own, which only you see, are never taken for each other. My files lists
-  your files as the library lists documents and says who sees them; "Copy to the library" is now
-  "Copy to project files".
+- The library shows **My files** at its top and **Project files** below them, each opened and
+  closed by its heading, so that your own files, which only you see, sit beside the files every
+  member sees without being taken for them. My files lists your files as the library lists
+  documents and says who sees them; "Copy to the library" is now "Copy to project files".
 - A step of an answer that was not done says so in a sentence, such as "Read around a passage ·
   Not done: the model asked in a form the tool does not take.", rather than showing what the
   model sent. And the agent reads a passage, a section, a document or a file of My files by the

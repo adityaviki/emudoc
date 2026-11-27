@@ -15,7 +15,7 @@ export interface WorkspaceSearch {
   filter: DocumentFilter
 }
 
-/** The folder the library shows, with `search` the project's search in its place (the files whose names hold its words, wherever they are, then the passages it finds); or, with `trash`, the project's trash, with `mail`, its address and what it received, with `connectors`, the folders of its members' Google Drive, Dropbox or OneDrive it keeps in step with, with `myFiles`, the member's own files in it; with `favorites`, the member's favourites, and with `recent`, the documents they opened lately. The favourites and the recent
+/** The folder the library shows, with `search` the project's search in its place (the files whose names hold its words, wherever they are, then the passages it finds); or, with `trash`, the project's trash, with `mail`, its address and what it received, with `connectors`, the folders of its members' Google Drive, Dropbox or OneDrive it keeps in step with; with `favorites`, the member's favourites, and with `recent`, the documents they opened lately. The favourites and the recent
 documents take `search` too, which then matches their names alone. */
 export interface LibraryView {
   folderId: number | null
@@ -23,7 +23,6 @@ export interface LibraryView {
   trash?: true
   mail?: true
   connectors?: true
-  myFiles?: true
   favorites?: true
   recent?: true
 }
@@ -64,15 +63,14 @@ export function parseWorkspaceUrl(pathname: string, query: string): WorkspaceUrl
   if (params.has('trash')) library.trash = true
   else if (params.has('mail')) library.mail = true
   else if (params.has('connectors')) library.connectors = true
-  // A file of My files opened in the library's place before it opened in the middle (2026-11-21): the list is shown there now.
-  else if (params.has('my-files') || id(params.get('my-file')) != null) library.myFiles = true
   else if (params.has('favorites')) library.favorites = true
   else if (params.has('recent')) library.recent = true
 
   let document: OpenDocument | null = null
   let myFile: number | null = null
-  // The search tab's path, the filter by name's parameter and the library's file of My files are rewritten.
-  let canonical = !params.has('name') && !params.has('my-file')
+  // The search tab's path, the filter by name's parameter, the library's file of My files (opened in its place until
+  // 2026-11-21) and its list of them (a place of its own until 2026-11-27, shown atop the library since) are rewritten.
+  let canonical = !params.has('name') && !params.has('my-file') && !params.has('my-files')
   const opened = /^documents\/(\d+)$/.exec(rest)
   const kept = /^my-files\/(\d+)$/.exec(rest)
   const legacyChat = /^ask(?:\/(\d+|new))?$/.exec(rest)
@@ -157,7 +155,6 @@ export function buildWorkspaceUrl(url: Omit<WorkspaceUrl, 'canonical'>): string 
   if (url.library.trash) params.set('trash', '')
   if (url.library.mail) params.set('mail', '')
   if (url.library.connectors) params.set('connectors', '')
-  if (url.library.myFiles) params.set('my-files', '')
   if (url.library.favorites) params.set('favorites', '')
   if (url.library.recent) params.set('recent', '')
   if (url.document) {
