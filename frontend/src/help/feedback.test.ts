@@ -1,14 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import type { Member } from '../api.ts'
 import {
   MAX_FEEDBACK_CHARS,
   attachedWords,
-  byHandWords,
   feedbackOf,
   feedbackPage,
-  mailtoOf,
-  readersByHand,
   sentTo,
+  stillStuck,
   writeHeading,
 } from './feedback.ts'
 
@@ -64,35 +61,9 @@ describe('whom the help menu writes to', () => {
 })
 
 describe('where the install mails nothing', () => {
-  const member = (user_id: number, name: string, role: Member['role']): Member => ({
-    user_id,
-    name,
-    email: `${name.toLowerCase() || 'nameless'}@example.com`,
-    role,
-    joined_at: '2026-11-13T09:00:00Z',
-    mfa_enabled: null,
-    last_seen_at: null,
-  })
-  const members = [member(1, 'Ada', 'owner'), member(2, 'Bob', 'admin'), member(3, '', 'admin'), member(4, 'Cy', 'member'), member(5, 'Dee', 'viewer')]
-
-  it("lists the server's address for help, else the owners and admins but the member, as the list orders them", () => {
-    expect(readersByHand('help@example.com', members, 4)).toEqual([{ name: 'Support', email: 'help@example.com' }])
-    expect(readersByHand(null, members, 4).map((reader) => reader.name)).toEqual(['Ada', 'Bob', 'nameless@example.com'])
-    expect(readersByHand(null, members, 2).map((reader) => reader.email)).toEqual(['ada@example.com', 'nameless@example.com'])
-    expect(readersByHand(null, members.slice(0, 1), 1)).toEqual([])
-  })
-
-  it('says the menu sends nothing, and whom to write to', () => {
-    expect(byHandWords('help@example.com')).toBe('This workspace sends no email, so the help menu cannot send your message. Write to support from your own email:')
-    expect(byHandWords(null)).toBe('This workspace sends no email, so the help menu cannot send your message. Write to one of its owners or admins from your own email:')
-  })
-
-  it("writes a mail that carries the page's address and the failed request, encoded", () => {
-    const failed = { reference: '0123456789abcdef0123456789abcdef', status: 500 }
-    const href = mailtoOf('ada@example.com', 'https://emudoc.example.com', '/projects/12?chat=7', failed)
-    expect(href.startsWith('mailto:ada@example.com?subject=Help%20with%20Emudoc&body=')).toBe(true)
-    const body = decodeURIComponent(href.split('&body=')[1])
-    expect(body).toBe(`\n\nPage: https://emudoc.example.com/projects/12?chat=7\nLast failed request: ${failed.reference}, answered 500`)
-    expect(decodeURIComponent(mailtoOf('a@example.com', 'https://x.example', '/', null).split('&body=')[1])).toBe('\n\nPage: https://x.example/')
+  it("has the help pages name whom to write to from the member's own mail, where the menu offers no way", () => {
+    expect(stillStuck(true, null)).toBe('Still stuck? The question mark in the header says whom to write to.')
+    expect(stillStuck(false, 'help@example.com')).toBe('Still stuck? Write to help@example.com from your own email.')
+    expect(stillStuck(false, null)).toBe("Still stuck? Write to one of your workspace's owners or admins from your own email.")
   })
 })

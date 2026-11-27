@@ -704,20 +704,15 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expectAccessible(page, 'the usage page')
   })
 
-  await test.step("find in the help menu, the run mailing nothing, the workspace's admin to write to, by a mail that carries the page, and the code's source", async () => {
-    // This run names no SUPPORT_EMAIL and no relay, so the menu sends nothing and names the workspace's owners and admins: Ada.
+  await test.step("find in the help menu, the run mailing nothing, the code's source and no way to write", async () => {
+    // This run names no relay, so the menu sends nothing and offers no way to write: its links alone.
     await grace.getByRole('button', { name: 'Help', exact: true }).click()
     const help = grace.getByRole('dialog', { name: 'Help' })
-    await expect(help.getByText("Write to your workspace's admins", { exact: true })).toBeVisible()
-    await expect(help.getByText('This workspace sends no email, so the help menu cannot send your message.', { exact: false })).toBeVisible()
-    await expect(help.getByRole('button', { name: 'Send' })).toHaveCount(0)
-    const ada = help.getByRole('link', { name: `Ada Lovelace, ${address}`, exact: true })
-    // The mail from her own carries the page she wrote from, as the form's message did.
-    const href = (await ada.getAttribute('href')) ?? ''
-    expect(href.startsWith(`mailto:${address}?subject=`)).toBe(true)
-    expect(decodeURIComponent(href)).toMatch(/Page: http:\/\/[^/]+\/projects\/\d+/)
-    // The code's source, which the AGPL has the deployment offer: a checkout's is the public repository.
+    // The code's source, which the AGPL has the deployment offer: a checkout's is the public repository. It shows once
+    // the menu knows what the server offers, and so whether it mails.
     await expect(help.getByRole('link', { name: 'Source code', exact: true })).toHaveAttribute('href', 'https://github.com/adityaviki/emudoc')
+    await expect(help.getByText("Write to your workspace's admins", { exact: true })).toHaveCount(0)
+    await expect(help.getByRole('button', { name: 'Send' })).toHaveCount(0)
     await expectAccessible(grace, 'the help menu')
     await grace.keyboard.press('Escape')
     await expect(help).toHaveCount(0)
@@ -731,6 +726,8 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page).toHaveURL(/\/help$/)
     await expect(menu).toHaveCount(0)
     await expect(page.getByRole('heading', { level: 1, name: 'Help', exact: true })).toBeVisible()
+    // The menu offering no way to write where the run mails nothing, the pages' last line says whom to write to.
+    await expect(page.getByText("Still stuck? Write to one of your workspace's owners or admins from your own email.", { exact: true })).toBeVisible()
     await expectAccessible(page, 'the help pages')
     await page.getByLabel('Search the help').fill('zip file')
     await expect(page.getByRole('link', { name: /^Getting started/ })).toHaveCount(0)
@@ -743,7 +740,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     // What the run does not do it does not promise: it mails nothing, and has a status page.
     await page.getByRole('link', { name: 'All help' }).click()
     await page.getByRole('link', { name: /^Getting help/ }).click()
-    await expect(article).toContainText("This workspace sends no email, so the menu sends nothing: it names the workspace's owners and admins")
+    await expect(article).toContainText("This workspace sends no email, so the menu sends no message: write to one of the workspace's owners or admins from your own email")
     await expect(article.getByRole('link', { name: 'its status page' })).toHaveAttribute('href', 'https://status.example.com')
     await page.goBack()
     await page.getByRole('link', { name: /^Your data/ }).click()

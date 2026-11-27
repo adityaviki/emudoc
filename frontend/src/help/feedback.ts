@@ -4,11 +4,10 @@
 // and the request the page last saw refused or failed. Never the query's words, which hold a
 // search, nor anything else the page shows. Each part keeps to what the server takes
 // (FeedbackIn in backend/app/schemas.py), since a part outside it would have the message refused.
-// Where the install mails nothing (`Help.mail`), the menu sends nothing and names whom to write
-// to from the member's own mail instead, each address a link to a mail that carries the same;
-// where that is nobody, a sole owner or admin without SUPPORT_EMAIL, it shows no way to write.
+// Where the install mails nothing (`Help.mail`), the menu sends nothing and offers no way to
+// write, its links alone; the help pages say whom to write to from the member's own mail.
 
-import type { FailedRequest, Feedback, FeedbackKind, Member } from '../api.ts'
+import type { FailedRequest, Feedback, FeedbackKind } from '../api.ts'
 import { pagePath } from '../errors.ts'
 
 /** What the member writes about, as the menu offers it, with what to tell of each. */
@@ -57,36 +56,12 @@ export function sentTo(to: string | null): string {
   return to ?? "your workspace's admins"
 }
 
-/** Someone the member writes to from their own mail, as the menu lists them. */
-export interface Reader {
-  name: string
-  email: string
-}
-
 /**
- * Whom a member writes to from their own mail where the install mails nothing: SUPPORT_EMAIL, or
- * else the workspace's owners and admins but the member, in the members list's order (owners first).
- * None, for a sole owner or admin, and the menu leaves out the way to write.
+ * The help pages' last line: the menu where it writes for help (or while it is not known whether
+ * it does), else whom to write to from the member's own mail, as the support article says.
  */
-export function readersByHand(supportEmail: string | null, members: Member[], myId: number): Reader[] {
-  if (supportEmail) return [{ name: 'Support', email: supportEmail }]
-  return members
-    .filter((member) => (member.role === 'owner' || member.role === 'admin') && member.user_id !== myId)
-    .map((member) => ({ name: member.name || member.email, email: member.email }))
-}
-
-/** What the menu says in place of its form where the install mails nothing, before the readers it lists. */
-export function byHandWords(supportEmail: string | null): string {
-  const nothing = 'This workspace sends no email, so the help menu cannot send your message.'
-  return supportEmail ? `${nothing} Write to support from your own email:` : `${nothing} Write to one of its owners or admins from your own email:`
-}
-
-/**
- * A mail to `address` from the member's own, carrying what the form would have attached that the
- * page knows: the page's address and the reference of the last request that failed there.
- */
-export function mailtoOf(address: string, origin: string, page: string, failed: FailedRequest | null): string {
-  const lines = ['', '', `Page: ${origin}${page}`]
-  if (failed) lines.push(`Last failed request: ${failed.reference}, answered ${failed.status}`)
-  return `mailto:${address}?subject=${encodeURIComponent('Help with Emudoc')}&body=${encodeURIComponent(lines.join('\n'))}`
+export function stillStuck(mail: boolean, supportEmail: string | null): string {
+  if (mail) return 'Still stuck? The question mark in the header says whom to write to.'
+  const whom = supportEmail ?? "one of your workspace's owners or admins"
+  return `Still stuck? Write to ${whom} from your own email.`
 }

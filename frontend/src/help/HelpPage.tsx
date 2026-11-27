@@ -4,18 +4,21 @@ import { Link, useParams } from 'react-router'
 import type { HelpArticle } from '../api.ts'
 import { Markdown } from '../components/Markdown.tsx'
 import { FIELD, Loading, Notice } from '../components/ui.tsx'
-import { useHelpArticles, usePageTitle } from '../hooks.ts'
+import { useHelp, useHelpArticles, usePageTitle } from '../hooks.ts'
 import { matching, nothingFound } from './articles.ts'
+import { stillStuck } from './feedback.ts'
 
 /**
  * The help pages, a member's: their contents at /help, with a search over them, and an article at
  * /help/<slug>, both in the shell, so that the help menu leads to them from anywhere. The server
  * fills them in from the deployment's own figures and services (backend/app/help), so they say
- * what this Emudoc does; the menu itself says whom to write to.
+ * what this Emudoc does. Their last line sends a member to the menu to write for help, or, where the install mails
+ * nothing and the menu offers no way to write, names whom to write to from their own mail (`stillStuck`).
  */
 export function HelpPage() {
   const { slug } = useParams()
   const help = useHelpArticles()
+  const offered = useHelp()
   const scroller = useRef<HTMLDivElement>(null)
   // An article opened from the foot of another starts at its top.
   useEffect(() => {
@@ -49,7 +52,7 @@ export function HelpPage() {
           <Contents articles={help.data} />
         )}
         <p className="mt-4 text-center text-[13px] leading-relaxed text-muted">
-          Still stuck? The question mark in the header says whom to write to.
+          {stillStuck(offered.data?.mail !== false, offered.data?.support_email ?? null)}
         </p>
       </div>
     </div>

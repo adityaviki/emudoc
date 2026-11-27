@@ -380,7 +380,8 @@ def _pausing(settings: Settings, mail: bool) -> str:
 
 def _write_to(support: str, mail: bool) -> str:
     """Where the help menu's words go: SUPPORT_EMAIL or the workspace's owners and admins, by
-    the menu's message, or from the member's own mail where the install sends none."""
+    the menu's message. Where the install sends no mail the menu offers no way to write, so the
+    article names whom to write to from the member's own mail."""
     address = f"[{support}](mailto:{support})" if support else ""
     if mail:
         readers = (
@@ -397,21 +398,12 @@ def _write_to(support: str, mail: bool) -> str:
             "failed there, so that its reader can find what you met, and says where it went; the "
             f"answer comes to your email address.{also}"
         )
-    readers = (
-        f"{address}, the address your team set for help"
-        if support
-        else "the workspace's owners and admins"
-    )
-    alone = (
-        ""
-        if support
-        else " An owner or admin who is the only one has nobody to write to, and finds the "
-        "menu's links alone."
-    )
+    nothing = "This workspace sends no email, so the menu sends no message: write to "
+    if support:
+        return f"{nothing}{address}, the address your team set for help, from your own email."
     return (
-        "This workspace sends no email, so the menu sends nothing: it names "
-        f"{readers}, to write to from your own email, each a link to a message that carries the "
-        f"page you were on and the reference of the last request that failed there.{alone}"
+        f"{nothing}one of the workspace's owners or admins from your own email, whom "
+        "[the workspace's page](/organization) lists under Members."
     )
 
 
