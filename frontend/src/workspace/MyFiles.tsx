@@ -12,7 +12,6 @@ import { Button, FIELD, IconButton, Loading, Notice, SectionBar, SelectField, Sp
 import { MY_FILES_TOGGLE, focusLibrary } from '../focus.ts'
 import { useStatus } from '../hooks.ts'
 import {
-  MY_FILES_NOTE,
   MY_FILE_ACCEPT,
   MY_FILE_NOTE,
   MY_FILE_POLL,
@@ -127,12 +126,6 @@ export function MyFilesSection({ open, onToggle, capped }: MyFilesSectionProps) 
             <Spinner />
           </div>
         )}
-        {files.data && listed.length === 0 && (
-          <p className="px-1.5 py-1 text-[13px] text-muted">
-            No files of your own yet. Add a Word document or an Excel workbook, or ask in a chat for a letter or a workbook:
-            the agent writes it here.
-          </p>
-        )}
         {listed.length > 0 && (
           <ul aria-label="My files">
             {listed.map((file) => (
@@ -153,11 +146,6 @@ export function MyFilesSection({ open, onToggle, capped }: MyFilesSectionProps) 
             ))}
           </ul>
         )}
-        {/* Who sees them, said where they are, so that nobody takes them for the project's below. */}
-        <p className="flex items-start gap-1.5 px-1.5 pt-2 pb-0.5 text-xs text-muted">
-          <Lock aria-hidden className="mt-px size-3.5 shrink-0" />
-          {MY_FILES_NOTE}
-        </p>
       </div>
     </section>
   )
