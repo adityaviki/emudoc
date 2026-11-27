@@ -220,6 +220,31 @@ export function Library() {
     setSections((current) => (current.project ? current : { ...current, project: true }))
   }, [workspace.url.library, setSections])
 
+  // What adds to the folder shown, for whoever may change the project's files: the heading's "More actions" and a
+  // right-click on the listing's empty space offer it (the owner's word of 2026-11-27 took "Select all", "Expand all" and
+  // "Collapse all" off it: Ctrl+A on the tree still selects everything). A flat place holds no folder of its own to make
+  // one in, and the sample project takes no uploads. A new folder is named in the listing, opened if it was closed. Made
+  // as a menu opens, since its items reach the pickers.
+  const barMenu = useContextMenu()
+  const adds = changes && !flat
+  function addingMenu(): MenuItem[] {
+    if (!adds) return []
+    const newFolder: MenuItem = {
+      label: 'New folder',
+      icon: FolderPlus,
+      onSelect: () => {
+        setSections((current) => (current.project ? current : { ...current, project: true }))
+        setCreating(true)
+      },
+    }
+    if (!uploads) return [newFolder]
+    return [
+      newFolder,
+      { label: 'Upload files', icon: Upload, onSelect: () => fileInput.current?.click() },
+      { label: 'Upload a folder', icon: FolderUp, onSelect: () => folderInput.current?.click() },
+    ]
+  }
+
   function uploadItems(items: UploadItem[], targetId: number | null, unread: string[] = []) {
     const refusal = project.sample ? SAMPLE_UPLOADS : mutations.startUpload(items, targetId, unread)
     if (refusal) mutations.setNotice(refusal)
@@ -284,7 +309,8 @@ export function Library() {
     >
       <div className="@container shrink-0 border-b border-line bg-surface">
         {/* What it shows and how, then the project's search; where in the project's files it is, the bar over them says, and
-            uploading is the project files' menu's (right-click), the empty library's buttons' or a drop's. */}
+            uploading is the project files' menu's (their heading's "More actions", or a right-click on the listing), the
+            empty library's buttons' or a drop's. */}
         <div className="flex flex-col gap-2 px-3 py-2.5">
         <PlaceBar
           place={place}
@@ -435,6 +461,8 @@ export function Library() {
           onToggle={() => setSections((current) => ({ ...current, project: !current.project }))}
           icon={<Folders />}
           title="Project files"
+          onMenu={adds ? (element) => barMenu.openAt(element, addingMenu()) : undefined}
+          menuOpen={barMenu.isOpen}
           trail={
             <Breadcrumb
               folderId={allNamed(place) ? null : folderId}
@@ -465,7 +493,7 @@ export function Library() {
               className="h-7 px-1.5"
             />
           )}
-          {/* A phone or a tablet, which opens no menu by a right-click, keeps a button for uploading, and its camera. */}
+          {/* A phone or a tablet keeps a button for uploading, and its camera, beside "More actions". */}
           {uploads && (
             <Button
               variant="ghost"
@@ -490,6 +518,7 @@ export function Library() {
           )}
         </SectionBar>
       )}
+      {barMenu.element}
       {/* Closed, the listing stays, hidden: its selection and its folders' pages are there as it opens again. */}
       <div
         id={projectBody}
@@ -519,6 +548,7 @@ export function Library() {
                 dragging.current = payload
               }}
               onUploadDropped={uploadDropped}
+              backgroundMenu={addingMenu}
               onPickFiles={() => fileInput.current?.click()}
               onPickFolder={() => folderInput.current?.click()}
               onPickVersion={
@@ -709,6 +739,8 @@ interface ListingProps {
   dragging: DragRef
   onDragChange: (payload: DragPayload | null) => void
   onUploadDropped: Uploads
+  /** What a right-click on the empty space offers: what adds to the folder shown, as the heading's "More actions" does. */
+  backgroundMenu: () => MenuItem[]
   onPickFiles: () => void
   onPickFolder: () => void
   /** Choose a file to give the document as its new version; none where the library takes no uploads. */
@@ -733,6 +765,7 @@ function Listing({
   dragging,
   onDragChange,
   onUploadDropped,
+  backgroundMenu,
   onPickFiles,
   onPickFolder,
   onPickVersion,
@@ -1050,24 +1083,13 @@ function Listing({
     ]
   }
 
-  // What adds to the place shown, for whoever may change the project's files (the owner's word of 2026-11-27 took "Select
-  // all", "Expand all" and "Collapse all" off it: Ctrl+A on the tree still selects everything). A flat place holds no
-  // folder of its own to make one in, and what is uploaded there goes to the root.
-  const backgroundMenu: MenuItem[] =
-    changes && !flat
-      ? [
-          { label: 'New folder', icon: FolderPlus, onSelect: () => onCreatingChange(true) },
-          { label: 'Upload files', icon: Upload, onSelect: onPickFiles },
-          { label: 'Upload a folder', icon: FolderUp, onSelect: onPickFolder },
-        ]
-      : []
-
   function onContextMenu(event: MouseEvent, item?: Item) {
     if (!item) {
       // Nothing to offer, the browser's own menu.
-      if (!backgroundMenu.length) return
+      const offered = backgroundMenu()
+      if (!offered.length) return
       setMenuFor(null)
-      menu.open(event, backgroundMenu)
+      menu.open(event, offered)
       return
     }
     // Opening a menu leaves the selection as it is (the owner's word of 2026-11-05): a selected item offers what the

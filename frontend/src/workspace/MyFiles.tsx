@@ -126,15 +126,18 @@ function useOpenFolders(projectId: number) {
 /** What a row of the list is, by the key its menu and the keyboard know it by: a file's `f<id>`, a folder's `d<id>`. */
 const fileKey = (fileId: number) => `f${fileId}`
 const folderKey = (folderId: number) => `d${folderId}`
+/** What the heading's "More actions" opens its menu as, apart from a row's and from a right-click on the space. */
+const HEADING = 'heading'
 
 /**
  * The member's own files in the project, in the library under its search and above the project's files: the Word
  * documents and Excel workbooks they keep here, which nobody else sees, in folders of their own if they like (the folders
  * by name, then the files, the one changed last first), each a row as the library's are and opening, as theirs do, in a
- * tab of the middle pane. Its heading opens and closes the list; what the project files' right-click offers, it offers
- * for its own: on its empty space or its heading a new folder, files uploaded and a folder uploaded whole, on a folder
- * the same into it with its rename and deletion, and on a file what may be done to it. In a search's results (`found`),
- * the files whose names hold its words, each saying where it is, under a heading of their own: the same rows and menus.
+ * tab of the middle pane. Its heading opens and closes the list; what the project files' menus offer, it offers for its
+ * own: from its heading's "More actions" or a right-click on its empty space or its heading a new folder, files uploaded
+ * and a folder uploaded whole, on a folder the same into it with its rename and deletion, and on a file what may be done
+ * to it. In a search's results (`found`), the files whose names hold its words, each saying where it is, under a heading
+ * of their own: the same rows and menus.
  */
 export function MyFilesSection({ open = true, onToggle, capped = false, found }: MyFilesSectionProps) {
   const workspace = useWorkspace()
@@ -755,11 +758,23 @@ export function MyFilesSection({ open = true, onToggle, capped = false, found }:
           menu.open(event, addingMenu(null))
         }}
       >
-        <SectionBar id={MY_FILES_TOGGLE} controls={body} open={open} onToggle={() => onToggle?.()} icon={<FolderLock />} title="My files">
+        <SectionBar
+          id={MY_FILES_TOGGLE}
+          controls={body}
+          open={open}
+          onToggle={() => onToggle?.()}
+          icon={<FolderLock />}
+          title="My files"
+          onMenu={(element) => {
+            setMenuFor(HEADING)
+            menu.openAt(element, addingMenu(null))
+          }}
+          menuOpen={menu.isOpen && menuFor === HEADING}
+        >
           {files.data && listed.length > 0 && (
             <span className="mr-1 hidden shrink-0 text-xs text-muted @3xs:inline">{myFilesCount(listed.length, files.data.limit)}</span>
           )}
-          {/* A phone or a tablet, which opens no menu by a right-click, keeps a button for uploading, as the project files do. */}
+          {/* A phone or a tablet keeps a button for uploading beside "More actions", as the project files do. */}
           <Button
             variant="ghost"
             icon={add.isPending ? <Spinner /> : <Upload className="size-4" />}

@@ -50,12 +50,9 @@ const DELIVERIES = join(import.meta.dirname, 'fixtures', 'deliveries')
 // The project the workspace the setup makes starts with (backend/app/sample).
 const SAMPLE = 'Sample: Acme supplier contract'
 
-/** "New folder" from the menu of the listing's empty space, under its last row, where its own padding is. */
+/** "New folder" from the menu of the heading "Project files", its "More actions" (the colleague's step right-clicks the listing's space). */
 async function newFolder(page: Page, name: string) {
-  const files = page.getByRole('tree', { name: 'Files' })
-  const box = await files.boundingBox()
-  if (!box) throw new Error('The listing is not shown.')
-  await files.click({ button: 'right', position: { x: box.width / 2, y: box.height - 4 } })
+  await page.getByRole('button', { name: 'More actions for Project files' }).click()
   await page.getByRole('menuitem', { name: 'New folder' }).click()
   await page.getByLabel('New name').fill(name)
   await page.getByLabel('New name').press('Enter')
@@ -1012,9 +1009,9 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.getByRole('menuitem', { name: 'Download' }).click()
     const workbook = join(await mkdtemp(join(tmpdir(), 'emudoc-e2e-')), 'Invoice lines.xlsx')
     await (await downloading).saveAs(workbook)
-    // The heading's right-click, as the project files' empty space, offers a new folder and uploads.
+    // The heading's "More actions", as the project files' heading, offers a new folder and uploads (a right-click on it too).
     const mine = page.getByRole('button', { name: 'My files', exact: true })
-    await mine.click({ button: 'right' })
+    await page.getByRole('button', { name: 'More actions for My files' }).click()
     for (const item of ['Upload files', 'Upload a folder']) await expect(page.getByRole('menuitem', { name: item })).toBeVisible()
     await expectAccessible(page, "My files' menu")
     await page.getByRole('menuitem', { name: 'New folder' }).click()
