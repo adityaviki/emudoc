@@ -10,8 +10,9 @@ the documents and folders every member of the project sees.
 documents you have open, a lock on it saying it is yours alone. Edit it in Word or Excel and
 give it back with "Upload a new version": every version stays, to show or download. "Copy to
 project files" gives the project's members a copy, as a new document or as the next version of
-the document it came from, if you may change the project. My files are not searched, exported
-with the project or shared by link.
+the document it came from, if you may change the project. Right-click a file in the list for all
+of these, as in Project files: open, download, rename, upload a new version, copy or delete it.
+My files are not searched, exported with the project or shared by link.
 
 The assistant writes there for you, whatever your role. Ask in a chat for a letter, a memo or a
 report and it writes the Word document into your My files, its sources as numbered notes, and

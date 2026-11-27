@@ -367,7 +367,7 @@ def test_what_a_deployment_does_not_do_the_help_does_not_say(monkeypatch):
     assert "a folder of your Google Drive or OneDrive" in documents
     assert "Emudoc looks again every 15 minutes" in documents
     assert "as an image." in documents
-    assert "A file may be up to 250 MB. Upload files" in documents
+    assert "A file may be up to 250 MB. Right-click the empty space" in documents
     assert ", shown as it looks, page by page" in article("working-together")
     assert "up to USD 25.00 a day, as whoever runs Emudoc set it" in article("asking")
     assert 'You may sign in with "Continue with Google"' in article("account")

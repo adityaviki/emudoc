@@ -16,6 +16,14 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 
 ### Users
 
+- Right-click a file in My files for what a file of Project files offers: open, download,
+  rename (or F2), upload a new version, copy to project files, or delete it (or the Delete key).
+  Right-click the list's empty space to add a file.
+- The top of the library no longer shows Upload, "Upload a folder" or "All files". Upload by
+  right-clicking the empty space of Project files ("Upload files", "Upload a folder"), with an
+  empty library's buttons, or by dropping files on the library. The folder you are in shows after
+  the Project files heading, where Email in and Connected folders now sit; on a phone or a tablet,
+  Upload and "Take a photo" sit there too.
 - My files and Project files, opened with nothing in them, say so in a dashed box right under
   their heading: "No files yet" in My files, "This library is empty" with its upload buttons in
   Project files.

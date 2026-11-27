@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Copy, Download, FilePlus, FileUp, FolderLock, Lock, Pencil, RotateCcw, Trash2 } from 'lucide-react'
+import { Copy, Download, FilePlus, FileUp, FolderLock, Lock, Pencil, RotateCcw, Trash2, X } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { ApiError, api, mayChange, myFilePageUrl, myFileUrl } from '../api.ts'
@@ -8,14 +8,20 @@ import { useMe } from '../auth.ts'
 import { folderChoices } from '../library.ts'
 import { Confirm } from '../components/Confirm.tsx'
 import { PagesView } from '../components/DocumentViews.tsx'
+import type { MenuItem } from '../components/Menu.tsx'
+import { RenameInput } from '../components/RenameInput.tsx'
 import { Button, FIELD, IconButton, Loading, Notice, SectionBar, SelectField, Spinner } from '../components/ui.tsx'
+import { useContextMenu } from '../components/useContextMenu.tsx'
 import { MY_FILES_TOGGLE, focusLibrary } from '../focus.ts'
 import { useStatus } from '../hooks.ts'
 import {
+  COPY_WORDS,
   MY_FILE_ACCEPT,
+  MY_FILE_NAME_CHARS,
   MY_FILE_NOTE,
   MY_FILE_POLL,
   copiedWords,
+  copyQuestion,
   following,
   heldWords,
   myFileDeletionQuestion,
@@ -33,7 +39,7 @@ import {
   waiting,
 } from '../myFiles.ts'
 import { viewContent } from '../views.ts'
-import { myFileKind } from './files.ts'
+import { myFileDownloadItem, myFileKind } from './files.ts'
 import { listingsKey } from './listing.ts'
 import { myFileTab, shownAfter, tabKey, useWorkspace } from './state.ts'
 import { TAB_ID } from './TabStrip.tsx'
@@ -65,9 +71,28 @@ interface MyFilesSectionProps {
 export function MyFilesSection({ open, onToggle, capped }: MyFilesSectionProps) {
   const workspace = useWorkspace()
   const { project } = workspace
+  const changes = mayChange(useMe().role)
   const queryClient = useQueryClient()
   const picker = useRef<HTMLInputElement>(null)
+  const versionInput = useRef<HTMLInputElement>(null)
+  // The file whose new version the file picker is choosing.
+  const versionOf = useRef<MyFile | null>(null)
   const body = useId()
+  const rowId = (fileId: number) => `${body}-file-${fileId}`
+  const menu = useContextMenu()
+  // The row whose menu is open, drawn as the library's is.
+  const [menuFor, setMenuFor] = useState<number | null>(null)
+  const [renaming, setRenaming] = useState<number | null>(null)
+  // Enter or Escape ended a rename: the keyboard goes back to the file's row.
+  const backTo = useRef<number | null>(null)
+  const [deleting, setDeleting] = useState<MyFile | null>(null)
+  const [copying, setCopying] = useState<MyFile | null>(null)
+  const [refused, setRefused] = useState<Error | null>(null)
+  useEffect(() => {
+    if (renaming != null || backTo.current == null) return
+    window.document.getElementById(rowId(backTo.current))?.focus()
+    backTo.current = null
+  })
   const files = useQuery({
     queryKey: myFilesKey(project.id),
     queryFn: () => api.myFiles(project.id),
@@ -81,8 +106,94 @@ export function MyFilesSection({ open, onToggle, capped }: MyFilesSectionProps) 
       workspace.openMyFile(added.id)
     },
   })
+  const kept = (detail: MyFileDetail) => {
+    queryClient.setQueryData(myFileKey(detail.id), detail)
+    void queryClient.invalidateQueries({ queryKey: myFilesKey(project.id) })
+  }
+  const rename = useMutation({
+    mutationFn: ({ file, name }: { file: MyFile; name: string }) => api.renameMyFile(file.id, name),
+    onMutate: () => setRefused(null),
+    onSuccess: kept,
+    onError: (error) => setRefused(error),
+  })
+  const newVersion = useMutation({
+    mutationFn: ({ file, picked }: { file: MyFile; picked: File }) => api.addMyFileVersion(file.id, picked, file.latest.number),
+    onMutate: () => setRefused(null),
+    onSuccess: (detail) => {
+      kept(detail)
+      workspace.openMyFile(detail.id)
+    },
+    onError: async (error, { file }) => {
+      setRefused(error)
+      // Another version came meanwhile: the list shows it, and the member uploads theirs again after it.
+      if (error instanceof ApiError && error.status === 409) {
+        await queryClient.invalidateQueries({ queryKey: myFileKey(file.id) })
+        await queryClient.invalidateQueries({ queryKey: myFilesKey(project.id) })
+      }
+    },
+  })
+  const copy = useMutation({
+    mutationFn: ({ file, choice }: { file: MyFile; choice: CopyChoice }) => api.copyMyFile(file.id, choice),
+    onMutate: () => setRefused(null),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: listingsKey(project.id) })
+      void queryClient.invalidateQueries({ queryKey: ['folders', project.id] })
+      void queryClient.invalidateQueries({ queryKey: ['project', project.id] })
+    },
+    onError: (error) => setRefused(error),
+  })
+  const remove = useMutation({
+    mutationFn: (file: MyFile) => api.deleteMyFile(file.id),
+    onMutate: () => setRefused(null),
+    onSuccess: (_, file) => {
+      void queryClient.invalidateQueries({ queryKey: myFilesKey(project.id) })
+      // Its tab goes with it, and the keyboard on from the heading of My files, whose list held it: the question closed
+      // first, since the page beneath it takes no focus while it is open.
+      flushSync(() => setDeleting(null))
+      workspace.closeTabs([myFileTab(file.id)])
+      queryClient.removeQueries({ queryKey: myFileKey(file.id) })
+      window.document.getElementById(MY_FILES_TOGGLE)?.focus()
+    },
+    onError: (error) => {
+      setDeleting(null)
+      setRefused(error)
+    },
+  })
   const listed = files.data?.files ?? []
   const adding = add.isPending ? 'Adding…' : 'Add a file'
+
+  function pickVersion(file: MyFile) {
+    const input = versionInput.current
+    if (!input) return
+    versionOf.current = file
+    input.accept = file.kind === 'xlsx' ? '.xlsx' : '.docx'
+    input.click()
+  }
+
+  /** What a file's row offers, as the project's files' menu does: what My files can do to one of its files. */
+  function fileMenu(file: MyFile): MenuItem[] {
+    return [
+      { label: 'Open', onSelect: () => workspace.openMyFile(file.id) },
+      myFileDownloadItem(file),
+      { label: 'Rename', icon: Pencil, shortcut: 'F2', onSelect: () => setRenaming(file.id) },
+      { label: 'Upload a new version…', icon: FileUp, disabled: newVersion.isPending, onSelect: () => pickVersion(file) },
+      // Whoever may change the project's files, once the newest version may be downloaded.
+      ...(changes
+        ? [{ label: 'Copy to project files…', icon: Copy, disabled: !servable(file.latest), onSelect: () => setCopying(file) }]
+        : []),
+      'separator',
+      { label: 'Delete', icon: Trash2, shortcut: 'Del', danger: true, onSelect: () => setDeleting(file) },
+    ]
+  }
+
+  // The list's empty space, as the project files' does.
+  const backgroundMenu: MenuItem[] = [{ label: 'Add a file', icon: FilePlus, disabled: add.isPending, onSelect: () => picker.current?.click() }]
+
+  function renamed(file: MyFile, name: string) {
+    const trimmed = name.trim()
+    setRenaming(null)
+    if (trimmed && trimmed !== file.name) rename.mutate({ file, name: trimmed })
+  }
 
   return (
     <section aria-labelledby={MY_FILES_TOGGLE} className={`@container flex min-h-0 flex-col ${capped ? 'max-h-[35%] shrink-0' : ''}`}>
@@ -114,11 +225,45 @@ export function MyFilesSection({ open, onToggle, capped }: MyFilesSectionProps) 
             if (file) add.mutate(file)
           }}
         />
+        <input
+          ref={versionInput}
+          type="file"
+          name="my-file-next-version"
+          hidden
+          onChange={(event) => {
+            const picked = event.target.files?.[0]
+            const file = versionOf.current
+            event.target.value = ''
+            if (picked && file) newVersion.mutate({ file, picked })
+          }}
+        />
       </SectionBar>
-      <div id={body} hidden={!open} className="min-h-0 overflow-y-auto px-2 pb-2">
+      <div
+        id={body}
+        hidden={!open}
+        className="min-h-0 overflow-y-auto px-2 pb-2"
+        onContextMenu={(event) => {
+          setMenuFor(null)
+          menu.open(event, backgroundMenu)
+        }}
+      >
         <div className="space-y-2 pb-1 empty:hidden">
           {add.isPaused && <Notice tone="info">The file is added once you are back online.</Notice>}
           {add.isError && <Refusal error={add.error} />}
+          {refused && <Refusal error={refused} />}
+          {copy.data && copy.variables && (
+            <Notice tone="info">
+              <div role="status" className="flex flex-wrap items-center justify-between gap-2">
+                <span>{copiedWords(copy.data, 'as_version' in copy.variables.choice)}</span>
+                <span className="flex items-center gap-1">
+                  <Button onClick={() => workspace.openDocument(copy.data.id)}>Open it</Button>
+                  <IconButton label="Dismiss" onClick={() => copy.reset()} className="p-0.5!">
+                    <X className="size-3.5" />
+                  </IconButton>
+                </span>
+              </div>
+            </Notice>
+          )}
           {files.isError && <Notice tone="bad">Could not load your files: {files.error.message}</Notice>}
         </div>
         {files.isPending && (
@@ -137,11 +282,44 @@ export function MyFilesSection({ open, onToggle, capped }: MyFilesSectionProps) 
           <ul aria-label="My files">
             {listed.map((file) => (
               <li key={file.id}>
+                {renaming === file.id ? (
+                  <div className="flex h-8 items-center gap-2 rounded-md bg-accent-soft px-1.5">
+                    <KindIcon file={file} />
+                    <div className="min-w-0 flex-1">
+                      <RenameInput
+                        value={file.name}
+                        isFile
+                        maxLength={MY_FILE_NAME_CHARS}
+                        onCommit={(name) => renamed(file, name)}
+                        onCancel={() => setRenaming(null)}
+                        onKeys={() => {
+                          backTo.current = file.id
+                        }}
+                      />
+                    </div>
+                  </div>
+                ) : (
                 <button
+                  id={rowId(file.id)}
                   type="button"
                   title={myFileWords(file)}
                   onClick={() => workspace.openMyFile(file.id)}
-                  className="flex h-8 w-full items-center gap-2 rounded-md px-1.5 text-left text-[13px] transition hover:bg-sunken"
+                  onContextMenu={(event) => {
+                    setMenuFor(file.id)
+                    menu.open(event, fileMenu(file))
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'F2') {
+                      event.preventDefault()
+                      setRenaming(file.id)
+                    } else if (event.key === 'Delete') {
+                      event.preventDefault()
+                      setDeleting(file)
+                    }
+                  }}
+                  className={`flex h-8 w-full items-center gap-2 rounded-md px-1.5 text-left text-[13px] transition hover:bg-sunken ${
+                    menu.isOpen && menuFor === file.id ? 'bg-sunken' : ''
+                  }`}
                 >
                   <KindIcon file={file} />
                   <span className="min-w-0 flex-1 truncate">{file.name}</span>
@@ -149,11 +327,24 @@ export function MyFilesSection({ open, onToggle, capped }: MyFilesSectionProps) 
                   {/* A narrow pane keeps the names, the rest in the row's title. */}
                   <span className="hidden shrink-0 text-xs text-muted @xs:inline">{myFileLine(file)}</span>
                 </button>
+                )}
               </li>
             ))}
           </ul>
         )}
+        {menu.element}
       </div>
+      {deleting && (
+        <Confirm
+          title="Delete this file?"
+          body={myFileDeletionQuestion(deleting)}
+          action="Delete for good"
+          disabled={remove.isPending}
+          onConfirm={() => remove.mutate(deleting)}
+          onClose={() => setDeleting(null)}
+        />
+      )}
+      {copying && <CopyDialog file={copying} onCopy={(choice) => copy.mutate({ file: copying, choice })} onClose={() => setCopying(null)} />}
     </section>
   )
 }
@@ -284,7 +475,7 @@ export function MyFileView({ fileId }: { fileId: number }) {
                   <input
                     className={`${FIELD} mt-1`}
                     value={renaming}
-                    maxLength={300}
+                    maxLength={MY_FILE_NAME_CHARS}
                     // The form opened at the member's press: the keyboard goes to what it asks.
                     autoFocus
                     onChange={(event) => setRenaming(event.target.value)}
@@ -403,16 +594,73 @@ export function MyFileView({ fileId }: { fileId: number }) {
   )
 }
 
-/** Where a copy of the file goes in the project's files: a folder for a new document, or the document it was copied from as its next version. */
+/** Where a copy goes in the project's files: a folder for a new document, or the next version of the document it came from. */
+type CopyChoice = { as_version: true } | { folder_id: number | null }
+
+interface CopyChoicesProps {
+  file: MyFile
+  asVersion: boolean
+  onAsVersion: (asVersion: boolean) => void
+  folder: string
+  onFolder: (folder: string) => void
+}
+
+/** The choice of where a copy goes: as a new version of its origin while it has one, else as a new document in a folder. */
+function CopyChoices({ file, asVersion, onAsVersion, folder, onFolder }: CopyChoicesProps) {
+  const { folders } = useWorkspace()
+  const id = useId()
+  return (
+    <div className="space-y-2">
+      {file.origin_name && (
+        <fieldset className="space-y-1 text-[13px]">
+          <legend className="sr-only">As what</legend>
+          <label className="flex items-center gap-2">
+            <input type="radio" name={`${id}-as`} checked={asVersion} onChange={() => onAsVersion(true)} />
+            As a new version of “{file.origin_name}”
+          </label>
+          <label className="flex items-center gap-2">
+            <input type="radio" name={`${id}-as`} checked={!asVersion} onChange={() => onAsVersion(false)} />
+            As a new document
+          </label>
+        </fieldset>
+      )}
+      {!asVersion && (
+        <SelectField label="Folder" value={folder} onChange={(event) => onFolder(event.target.value)}>
+          <option value="">All files, at the top</option>
+          {folderChoices(folders).map((choice) => (
+            <option key={choice.id} value={choice.id}>
+              {choice.label}
+            </option>
+          ))}
+        </SelectField>
+      )}
+    </div>
+  )
+}
+
+const choiceOf = (asVersion: boolean, folder: string): CopyChoice => (asVersion ? { as_version: true } : { folder_id: folder ? Number(folder) : null })
+
+/** "Copy to project files…" from a file's row: asked in a dialog, where the copy goes chosen in it; what came of it, the list says. */
+function CopyDialog({ file, onCopy, onClose }: { file: MyFile; onCopy: (choice: CopyChoice) => void; onClose: () => void }) {
+  const [folder, setFolder] = useState('')
+  const [asVersion, setAsVersion] = useState(file.origin_name != null)
+  return (
+    <Confirm {...copyQuestion(file)} danger={false} onConfirm={() => onCopy(choiceOf(asVersion, folder))} onClose={onClose}>
+      <CopyChoices file={file} asVersion={asVersion} onAsVersion={setAsVersion} folder={folder} onFolder={setFolder} />
+    </Confirm>
+  )
+}
+
+/** Where a copy of the open file goes in the project's files, under its buttons, and what came of it. */
 function CopyForm({ file, onClose }: { file: MyFileDetail; onClose: () => void }) {
   const workspace = useWorkspace()
-  const { project, folders } = workspace
+  const { project } = workspace
   const queryClient = useQueryClient()
   const id = useId()
   const [folder, setFolder] = useState('')
   const [asVersion, setAsVersion] = useState(file.origin_name != null)
   const copy = useMutation({
-    mutationFn: () => api.copyMyFile(file.id, asVersion ? { as_version: true } : { folder_id: folder ? Number(folder) : null }),
+    mutationFn: () => api.copyMyFile(file.id, choiceOf(asVersion, folder)),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: listingsKey(project.id) })
       void queryClient.invalidateQueries({ queryKey: ['folders', project.id] })
@@ -426,30 +674,8 @@ function CopyForm({ file, onClose }: { file: MyFileDetail; onClose: () => void }
       <h3 id={`${id}-heading`} className="text-[13px] font-semibold">
         Copy “{file.name}” to project files
       </h3>
-      <p className="text-xs text-muted">Its newest version becomes a document every member of the project sees, read and indexed as any upload. Your file stays here.</p>
-      {file.origin_name && (
-        <fieldset className="space-y-1 text-[13px]">
-          <legend className="sr-only">As what</legend>
-          <label className="flex items-center gap-2">
-            <input type="radio" name={`${id}-as`} checked={asVersion} onChange={() => setAsVersion(true)} />
-            As a new version of “{file.origin_name}”
-          </label>
-          <label className="flex items-center gap-2">
-            <input type="radio" name={`${id}-as`} checked={!asVersion} onChange={() => setAsVersion(false)} />
-            As a new document
-          </label>
-        </fieldset>
-      )}
-      {!asVersion && (
-        <SelectField label="Folder" value={folder} onChange={(event) => setFolder(event.target.value)}>
-          <option value="">All files, at the top</option>
-          {folderChoices(folders).map((choice) => (
-            <option key={choice.id} value={choice.id}>
-              {choice.label}
-            </option>
-          ))}
-        </SelectField>
-      )}
+      <p className="text-xs text-muted">{COPY_WORDS}</p>
+      <CopyChoices file={file} asVersion={asVersion} onAsVersion={setAsVersion} folder={folder} onFolder={setFolder} />
       <div className="flex gap-2">
         <Button variant="primary" disabled={copy.isPending || copied != null} onClick={() => copy.mutate()}>
           {copy.isPending ? 'Copying…' : 'Copy'}

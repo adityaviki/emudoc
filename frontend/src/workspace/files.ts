@@ -1,9 +1,10 @@
 import { Download, ExternalLink, FileCode, FileImage, FileSpreadsheet, FileText, FileType, Presentation } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { fileUrl, isImage, isPdf, isSheet } from '../api.ts'
-import type { Document, MyFileKind } from '../api.ts'
+import { fileUrl, isImage, isPdf, isSheet, myFileUrl } from '../api.ts'
+import type { Document, MyFile, MyFileKind } from '../api.ts'
 import type { MenuItem } from '../components/Menu.tsx'
 import { scanPassed } from '../indexing.ts'
+import { servable } from '../myFiles.ts'
 
 /** How a kind of file is drawn: its icon, the colour class for it, and a short name. */
 export interface FileKind {
@@ -64,6 +65,21 @@ export function originalFileItem(document: Document): MenuItem {
     onSelect: () => {
       const anchor = window.document.createElement('a')
       Object.assign(anchor, link)
+      anchor.click()
+    },
+  }
+}
+
+/** A file of My files' newest version downloaded, once it may be: its tab's menu's last item, and its row's. */
+export function myFileDownloadItem(file: MyFile): MenuItem {
+  return {
+    label: 'Download',
+    icon: Download,
+    disabled: !servable(file.latest),
+    // Followed as a click on the link would be, so the download leaves the page where it is.
+    onSelect: () => {
+      const anchor = window.document.createElement('a')
+      Object.assign(anchor, { href: myFileUrl(file.id, file.latest.number), download: '' })
       anchor.click()
     },
   }
