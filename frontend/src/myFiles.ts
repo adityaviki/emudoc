@@ -2,6 +2,7 @@
 // and of a file's place, its versions, what keeps one from being shown or served, and a copy into the project's files.
 
 import { queryOptions } from '@tanstack/react-query'
+import type { Question } from './components/Confirm.tsx'
 import { api } from './api.ts'
 import type { Document, MyFile, MyFileKind, MyFileVersion, MyFiles } from './api.ts'
 import { formatDate, formatDateTime, formatSize } from './format.ts'
@@ -11,6 +12,8 @@ export const myFilesKey = (projectId: number) => ['my-files', projectId] as cons
 /** The query of one file with every version. */
 export const myFileKey = (fileId: number) => ['my-file', fileId] as const
 
+/** The longest name a file takes (`NAME_CHARS` in backend/app/my_files.py). */
+export const MY_FILE_NAME_CHARS = 300
 /** The files My files keeps, for the file pickers. */
 export const MY_FILE_ACCEPT = '.docx,.xlsx'
 /** What each kind of file is called. */
@@ -96,6 +99,14 @@ export function retryable(version: MyFileVersion): boolean {
 export function myFileDeletionQuestion(file: MyFile): string {
   const versions = file.versions === 1 ? '' : ` and its ${file.versions} versions`
   return `Delete “${file.name}”${versions} for good? Nobody can bring it back.`
+}
+
+/** What a copy into the project's files does, said before it is made. */
+export const COPY_WORDS = 'Its newest version becomes a document every member of the project sees, read and indexed as any upload. Your file stays here.'
+
+/** What "Copy to project files…" in a file's menu asks, with where the copy goes chosen under it. */
+export function copyQuestion(file: MyFile): Question {
+  return { title: `Copy “${file.name}” to project files?`, body: COPY_WORDS, action: 'Copy' }
 }
 
 /** What the page says once a file was copied to the project's files: a new document, or the next version of the one it came from. */

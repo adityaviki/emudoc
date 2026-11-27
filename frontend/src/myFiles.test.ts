@@ -3,6 +3,7 @@ import type { Document, MyFile, MyFileVersion } from './api.ts'
 import { formatDate, formatDateTime } from './format.ts'
 import {
   copiedWords,
+  copyQuestion,
   following,
   heldWords,
   myFileDeletionQuestion,
@@ -60,6 +61,14 @@ describe('a file of My files', () => {
   it('asks before it is deleted for good, naming its versions', () => {
     expect(myFileDeletionQuestion(file())).toBe('Delete “Dispute.docx” for good? Nobody can bring it back.')
     expect(myFileDeletionQuestion(file({ versions: 4 }))).toBe('Delete “Dispute.docx” and its 4 versions for good? Nobody can bring it back.')
+  })
+
+  it('asks before a copy into the project files, by the file’s name', () => {
+    expect(copyQuestion(file())).toEqual({
+      title: 'Copy “Dispute.docx” to project files?',
+      body: 'Its newest version becomes a document every member of the project sees, read and indexed as any upload. Your file stays here.',
+      action: 'Copy',
+    })
   })
 
   it('says where its copy went in the project’s files', () => {

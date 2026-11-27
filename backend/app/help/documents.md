@@ -2,11 +2,12 @@
 
 ## What you can upload
 
-$formats. A file may be up to $max_upload_mb MB$max_pages. Upload files with Upload, or a folder with the
-folders in it with "Upload a folder", or drop either on the library or on a folder in it. On a
-phone or a tablet, "Take a photo" beside them takes a photo of a page and uploads it. A larger
-upload is sent $max_upload_files files or $max_request_mb MB at a time, and a panel under the
-toolbar shows how far it has gone, file by file under "Each file", until Stop. A file Emudoc does
+$formats. A file may be up to $max_upload_mb MB$max_pages. Right-click the empty space of Project
+files and choose "Upload files", or "Upload a folder" for a folder with the folders in it, or drop
+either on the library or on a folder in it. On a phone or a tablet, Upload and "Take a photo" on
+the Project files heading upload files and a photo of a page. A larger upload is sent
+$max_upload_files files or $max_request_mb MB at a time, and a panel under the toolbar shows how
+far it has gone, file by file under "Each file", until Stop. A file Emudoc does
 not read is left out before anything is sent, and so are a folder's hidden files. A file saved
 with a password cannot be read: save it again without one. A scanned page, and each page of a
 TIFF, is read by the AI model as an image$ocr_pages. It is read the way its text runs, even

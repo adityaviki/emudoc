@@ -47,6 +47,7 @@ import type { MenuItem } from '../components/Menu.tsx'
 import { SearchBox } from '../components/SearchBox.tsx'
 import { Confirm } from '../components/Confirm.tsx'
 import { Button, EmptyState, IconButton, Notice, SectionBar, SelectField, Spinner } from '../components/ui.tsx'
+import { RenameInput } from '../components/RenameInput.tsx'
 import { useContextMenu } from '../components/useContextMenu.tsx'
 import { uploadCutOff, uploadWaiting } from '../connection.ts'
 import { libraryPlace } from '../failures.ts'
@@ -284,85 +285,9 @@ export function Library() {
       }}
     >
       <div className="@container shrink-0 border-b border-line bg-surface">
-        {/* The path, always there with "All files" alone at the root, and the library's buttons at its end, which take a
-            line of their own below it when the pane is too narrow for both: how wide the path is moves neither. */}
-        <div className="flex min-h-11 flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1.5">
-          <div className="flex min-w-32 flex-1">
-            <Breadcrumb
-              folderId={search || allNamed(place) ? null : folderId}
-              placeLabel={placeLabel}
-              mutations={mutations}
-              dragging={dragging}
-              onUpload={uploads ? uploadDropped : null}
-            />
-          </div>
-        <div className="ml-auto flex items-center gap-2 empty:hidden">
-          {mail && (
-            <Button
-              icon={<Mail className="size-4" />}
-              onClick={workspace.showMailbox}
-              title="Email in: the project’s address, whose mail becomes its documents"
-              aria-label="Email in"
-              className="px-2"
-            />
-          )}
-          {connectors && (
-            <Button
-              icon={<FolderSync className="size-4" />}
-              onClick={workspace.showConnectors}
-              title="Connected folders: folders of Google Drive, Dropbox or OneDrive the project keeps in step with"
-              aria-label="Connected folders"
-              className="px-2"
-            />
-          )}
-          {/* A new folder is made from the menu of the listing's empty space, as in a file manager. */}
-          {changes && (
-            <>
-              {/* A narrow pane keeps the icon only. */}
-              {uploads && (
-                <Button
-                  data-tour="upload"
-                  icon={
-                    upload.isPaused ? <WifiOff className="size-4" /> : upload.isPending ? <Spinner /> : <Upload className="size-4" />
-                  }
-                  onClick={() => fileInput.current?.click()}
-                  disabled={upload.isPending}
-                  title={waiting ?? ACCEPTED_TYPES_LABEL}
-                  aria-label={upload.isPaused ? 'Waiting for the connection' : upload.isPending ? 'Uploading…' : 'Upload'}
-                  className="px-2 @xs:px-3"
-                >
-                  <span className="hidden @xs:inline">
-                    {upload.isPaused ? 'Waiting…' : upload.isPending ? 'Uploading…' : 'Upload'}
-                  </span>
-                </Button>
-              )}
-              {uploads && (
-                <Button
-                  icon={<FolderUp className="size-4" />}
-                  onClick={() => folderInput.current?.click()}
-                  disabled={upload.isPending}
-                  title="Upload a folder, with the folders in it"
-                  aria-label="Upload a folder"
-                  className="px-2"
-                />
-              )}
-              {/* A phone's or a tablet's camera; a computer worked by a mouse has a file for it already. */}
-              {uploads && (
-                <Button
-                  icon={<Camera className="size-4" />}
-                  onClick={() => photoInput.current?.click()}
-                  disabled={upload.isPending}
-                  title="Take a photo of a page"
-                  aria-label="Take a photo"
-                  className="px-2 pointer-fine:hidden"
-                />
-              )}
-            </>
-          )}
-        </div>
-        </div>
-        {/* What it shows and how, then the project's search. */}
-        <div className="flex flex-col gap-2 px-3 pb-2.5">
+        {/* What it shows and how, then the project's search; where in the project's files it is, the bar over them says, and
+            uploading is the project files' menu's (right-click), the empty library's buttons' or a drop's. */}
+        <div className="flex flex-col gap-2 px-3 py-2.5">
         <PlaceBar
           place={place}
           arrangement={arrangement}
@@ -514,10 +439,68 @@ export function Library() {
           onToggle={() => setSections((current) => ({ ...current, project: !current.project }))}
           icon={<Folders />}
           title="Project files"
-        />
+          trail={
+            <Breadcrumb
+              folderId={allNamed(place) ? null : folderId}
+              placeLabel={placeLabel}
+              mutations={mutations}
+              dragging={dragging}
+              onUpload={uploads ? uploadDropped : null}
+            />
+          }
+        >
+          {mail && (
+            <Button
+              variant="ghost"
+              icon={<Mail className="size-4" />}
+              onClick={workspace.showMailbox}
+              title="Email in: the project’s address, whose mail becomes its documents"
+              aria-label="Email in"
+              className="h-7 px-1.5"
+            />
+          )}
+          {connectors && (
+            <Button
+              variant="ghost"
+              icon={<FolderSync className="size-4" />}
+              onClick={workspace.showConnectors}
+              title="Connected folders: folders of Google Drive, Dropbox or OneDrive the project keeps in step with"
+              aria-label="Connected folders"
+              className="h-7 px-1.5"
+            />
+          )}
+          {/* A phone or a tablet, which opens no menu by a right-click, keeps a button for uploading, and its camera. */}
+          {uploads && (
+            <Button
+              variant="ghost"
+              icon={upload.isPaused ? <WifiOff className="size-4" /> : upload.isPending ? <Spinner /> : <Upload className="size-4" />}
+              onClick={() => fileInput.current?.click()}
+              disabled={upload.isPending}
+              title={waiting ?? ACCEPTED_TYPES_LABEL}
+              aria-label={upload.isPaused ? 'Waiting for the connection' : upload.isPending ? 'Uploading…' : 'Upload'}
+              className="h-7 px-1.5 pointer-fine:hidden"
+            />
+          )}
+          {uploads && (
+            <Button
+              variant="ghost"
+              icon={<Camera className="size-4" />}
+              onClick={() => photoInput.current?.click()}
+              disabled={upload.isPending}
+              title="Take a photo of a page"
+              aria-label="Take a photo"
+              className="h-7 px-1.5 pointer-fine:hidden"
+            />
+          )}
+        </SectionBar>
       )}
       {/* Closed, the listing stays, hidden: its selection and its folders' pages are there as it opens again. */}
-      <div id={projectBody} hidden={!search && !sections.project} className="flex min-h-0 flex-1 flex-col">
+      <div
+        id={projectBody}
+        hidden={!search && !sections.project}
+        data-tour={uploads && !search ? 'upload' : undefined}
+        className="flex min-h-0 flex-1 flex-col"
+      >
         {/* A folder or a search that breaks leaves the path and the search's box, from which another opens. */}
         <ErrorBoundary part="library" resetKey={libraryPlace(workspace.url.library)}>
           {search && !search.q ? (
@@ -632,7 +615,7 @@ export function Library() {
 
 interface BreadcrumbProps {
   folderId: number | null
-  /** The name of a place that is not a folder, which follows the root's in the path; null for a folder's. */
+  /** The name of a place that is not a folder, the path's one part; null for a folder's. */
   placeLabel: string | null
   mutations: LibraryMutations
   dragging: DragRef
@@ -641,27 +624,25 @@ interface BreadcrumbProps {
 }
 
 /**
- * The path to the current folder, from "All files" (the place menu's word for the root; the header names the
- * project). Each part opens that folder and takes drops into it.
+ * The path to the current folder after the heading "Project files", nothing at the top. Each part opens that folder and
+ * takes drops into it.
  */
 function Breadcrumb({ folderId, placeLabel, mutations, dragging, onUpload }: BreadcrumbProps) {
   const workspace = useWorkspace()
-  // A place that is not a folder follows the root, where nothing is dropped; -1 is no folder's id.
-  const crumbs: { id: number | null; name: string }[] = [
-    { id: null, name: 'All files' },
-    ...(placeLabel === null
-      ? workspace.tree.pathTo(folderId).map((folder) => ({ id: folder.id, name: folder.name }))
-      : [{ id: -1, name: placeLabel }]),
-  ]
-  const [over, setOver] = useState<number | null | 'none'>('none')
+  // After the heading "Project files", the folders down to the one shown, or the place shown, where nothing is dropped
+  // (-1 is no folder's id); nothing at the top, whose way back is "All files" above (the owner's word of 2026-11-27).
+  const crumbs: { id: number; name: string }[] =
+    placeLabel === null ? workspace.tree.pathTo(folderId).map((folder) => ({ id: folder.id, name: folder.name })) : [{ id: -1, name: placeLabel }]
+  const [over, setOver] = useState<number | 'none'>('none')
+  if (!crumbs.length) return null
 
   return (
     <nav aria-label="Folder path" className="flex min-w-0 items-center gap-0.5 text-[13px]">
       {crumbs.map((crumb, index) => {
         const last = index === crumbs.length - 1
         return (
-          <Fragment key={crumb.id ?? 'root'}>
-            {index > 0 && <ChevronRight className="size-3.5 shrink-0 text-muted/60" />}
+          <Fragment key={crumb.id}>
+            <ChevronRight aria-hidden className="size-3.5 shrink-0 text-muted/60" />
             <button
               type="button"
               title={crumb.name}
@@ -1996,49 +1977,6 @@ function GapRow({ gap, busy, onMore, onRetry }: GapRowProps) {
         )}
       </span>
     </div>
-  )
-}
-
-interface RenameInputProps {
-  value: string
-  isFile: boolean
-  onCommit: (value: string) => void
-  onCancel: () => void
-}
-
-/** An inline name editor. Enter or leaving the field commits; Escape cancels and nothing else fires. */
-function RenameInput({ value, isFile, onCommit, onCancel }: RenameInputProps) {
-  // Once committed or cancelled, the blur that follows changes nothing.
-  const done = useRef(false)
-  function finish(name: string | null) {
-    if (done.current) return
-    done.current = true
-    if (name === null) onCancel()
-    else onCommit(name)
-  }
-  return (
-    <input
-      autoFocus
-      defaultValue={value}
-      aria-label="New name"
-      maxLength={isFile ? 500 : 200}
-      onFocus={(event) => {
-        // Select the name but not the extension, which is kept anyway.
-        const dot = isFile ? value.lastIndexOf('.') : -1
-        event.target.setSelectionRange(0, dot > 0 ? dot : value.length)
-      }}
-      onClick={(event) => event.stopPropagation()}
-      onDoubleClick={(event) => event.stopPropagation()}
-      onKeyDown={(event) => {
-        event.stopPropagation()
-        if (event.key !== 'Enter' && event.key !== 'Escape') return
-        finish(event.key === 'Enter' ? event.currentTarget.value : null)
-        // The field goes, and the keyboard goes on in the listing it was in.
-        event.currentTarget.closest<HTMLElement>('[role="tree"]')?.focus()
-      }}
-      onBlur={(event) => finish(event.target.value)}
-      className="field rounded px-1.5 py-0.5 text-[13px]"
-    />
   )
 }
 

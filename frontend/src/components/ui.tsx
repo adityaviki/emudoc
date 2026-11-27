@@ -301,6 +301,8 @@ interface SectionBarProps {
   onToggle: () => void
   icon: ReactNode
   title: string
+  /** What follows the heading, such as where in the section the page is, taking the room the bar has. */
+  trail?: ReactNode
   /** What the bar holds at its end, beside the heading: a count, a button. */
   children?: ReactNode
 }
@@ -309,10 +311,10 @@ interface SectionBarProps {
  * The heading of a part of a pane that opens and closes, such as the library's My files under its search: a button turning
  * its chevron as it does, on the pane's own ground.
  */
-export function SectionBar({ id, controls, open, onToggle, icon, title, children }: SectionBarProps) {
+export function SectionBar({ id, controls, open, onToggle, icon, title, trail, children }: SectionBarProps) {
   return (
     <div className="flex h-9 shrink-0 items-center gap-1 px-2">
-      <h2 className="flex min-w-0 flex-1">
+      <h2 className="flex min-w-0 shrink">
         <button
           id={id}
           type="button"
@@ -328,6 +330,7 @@ export function SectionBar({ id, controls, open, onToggle, icon, title, children
           <span className="truncate">{title}</span>
         </button>
       </h2>
+      <div className="flex min-w-0 flex-1 items-center">{trail}</div>
       {children}
     </div>
   )

@@ -221,7 +221,6 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(offline).toBeVisible()
     await page.locator('input[name="files"]').setInputFiles(CONTRACT)
     await expect(page.getByText('Your browser is offline: the upload of 1 file starts once the connection is back.')).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Waiting for the connection' })).toBeDisabled()
     await page.context().setOffline(false)
     await expect(offline).toHaveCount(0)
     // Every stage done but the malware scan, which has no scanner here.
@@ -495,7 +494,6 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.locator('input[name="folder"]').setInputFiles(DELIVERIES)
     const panel = page.getByRole('region', { name: 'Upload' })
     await expect(panel.getByRole('progressbar', { name: 'Uploading 3 files into Supplier contracts' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Upload a folder' })).toBeDisabled()
     await panel.getByText('Each file', { exact: true }).click()
     const each = panel.getByRole('list', { name: 'Each file' })
     await expect(each.getByRole('listitem')).toHaveCount(3)
@@ -666,6 +664,18 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(grace.getByRole('dialog')).toHaveCount(0)
     await expect(grace.getByRole('img', { name: /^Ready/ })).toBeVisible()
     await expect(grace.getByRole('button', { name: 'Upload', exact: true })).toHaveCount(0)
+    // Uploading is the project's files' menu's, a right-click on their empty space: a viewer's has none.
+    const files = grace.getByRole('tree', { name: 'Files' })
+    const filesMenu = async () => {
+      await expect(async () => {
+        const box = await files.boundingBox()
+        await files.click({ button: 'right', position: { x: 12, y: (box?.height ?? 40) - 12 } })
+        await expect(grace.getByRole('menuitem', { name: 'Select all' })).toBeVisible({ timeout: 2_000 })
+      }).toPass({ timeout: 60_000 })
+    }
+    await filesMenu()
+    await expect(grace.getByRole('menuitem', { name: 'Upload files' })).toHaveCount(0)
+    await grace.keyboard.press('Escape')
 
     await page.reload()
     await expect(page.getByText('Nobody is invited at the moment.')).toBeVisible()
@@ -677,7 +687,9 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     expect((await saved).status()).toBe(200)
     await expect(role).toHaveValue('member')
     await grace.reload()
-    await expect(grace.getByRole('button', { name: 'Upload', exact: true })).toBeVisible()
+    await filesMenu()
+    await expect(grace.getByRole('menuitem', { name: 'Upload files' })).toBeVisible()
+    await grace.keyboard.press('Escape')
   })
 
   await test.step('read what the organisation holds and has used', async () => {
@@ -973,6 +985,23 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('heading', { name: 'Lines of the invoice.xlsx' })).toBeFocused()
     await expect(page.getByRole('list', { name: 'Versions' })).toContainText('Written by the agent · From a chat')
     await expect(page.getByRole('list', { name: 'My files' })).toContainText('Lines of the invoice.xlsx')
+    // Its row's right-click menu offers what a row of the project's files does, for a file of one's own.
+    const row = page.getByRole('list', { name: 'My files' }).getByRole('button', { name: /^Lines of the invoice\.xlsx/ })
+    await expect(async () => {
+      await row.click({ button: 'right' })
+      await expect(page.getByRole('menuitem', { name: 'Upload a new version…' })).toBeVisible({ timeout: 2_000 })
+    }).toPass({ timeout: 60_000 })
+    for (const item of ['Open', 'Download', 'Rename', 'Copy to project files…', 'Delete']) {
+      await expect(page.getByRole('menuitem', { name: item })).toBeVisible()
+    }
+    await expectAccessible(page, "a file of My files' menu")
+    await page.getByRole('menuitem', { name: 'Rename' }).click()
+    const name = page.getByRole('textbox', { name: 'New name' })
+    await expect(name).toBeFocused()
+    await name.fill('Invoice lines')
+    await name.press('Enter')
+    // Its kind's extension kept, the keyboard back on its row, which Enter did not open again.
+    await expect(page.getByRole('list', { name: 'My files' }).getByRole('button', { name: /^Invoice lines\.xlsx/ })).toBeFocused()
   })
 
   await test.step("give the project an address, list a supplier's domain, whose mail becomes documents, and read what became of a stranger's", async () => {
@@ -1316,9 +1345,9 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await favourites.click()
     await expect(favourites).toHaveAttribute('aria-pressed', 'true')
     await expect(allFiles).toHaveAttribute('aria-pressed', 'false')
-    // The path is there whatever the place, so that choosing one moves nothing under it.
+    // The path follows the heading "Project files", below the places, so that choosing one moves nothing under it.
     const path = page.getByRole('navigation', { name: 'Folder path' })
-    await expect(path).toContainText('Favourites')
+    await expect(path).toHaveText('Favourites')
     await expect(page.getByRole('treeitem')).toHaveCount(1)
     await expect(invoice).toHaveAccessibleDescription(/Favourite/)
     await expectAccessible(page, 'the favourites')
@@ -1332,7 +1361,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     // Every file, by name from Z, then as a grid of tiles that the arrows move through.
     await allFiles.click()
     await expect(allFiles).toHaveAttribute('aria-pressed', 'true')
-    await expect(path).toHaveText('All files')
+    await expect(path).toHaveCount(0)
     expect((await places.boundingBox())?.y).toBe(top)
     const order = page.getByRole('button', { name: /^Order: / })
     await order.click()

@@ -1,15 +1,11 @@
-import { Download, FileText, Lock, Pin, PinOff, X } from 'lucide-react'
+import { FileText, Lock, Pin, PinOff, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { DragEvent, KeyboardEvent, MouseEvent } from 'react'
-import { myFileUrl } from '../api.ts'
-import type { MyFileDetail } from '../api.ts'
 import { StatusDot } from '../components/IndexingStatus.tsx'
-import type { MenuItem } from '../components/Menu.tsx'
 import { useContextMenu } from '../components/useContextMenu.tsx'
 import { focusLibrary } from '../focus.ts'
-import { servable } from '../myFiles.ts'
 import { onMac, tabMoveKeys, tabMoveOf } from '../shortcuts.ts'
-import { fileKind, myFileKind, originalFileItem } from './files.ts'
+import { fileKind, myFileDownloadItem, myFileKind, originalFileItem } from './files.ts'
 import { closedByMenu, droppedAt, moved, tabKey, useWorkspace } from './state.ts'
 import type { OpenTab, TabKey } from './state.ts'
 
@@ -318,17 +314,3 @@ export const DOCUMENT_PANEL = 'document-panel'
 /** The start of an open tab's id, its key after it (`tabKey`), which names the panel while it is open. */
 export const TAB_ID = 'document-tab-'
 
-/** A file of My files' tab's last item: its newest version downloaded, once it may be. */
-function myFileDownloadItem(file: MyFileDetail): MenuItem {
-  return {
-    label: 'Download',
-    icon: Download,
-    disabled: !servable(file.latest),
-    // Followed as a click on the link would be, so the download leaves the page where it is.
-    onSelect: () => {
-      const anchor = window.document.createElement('a')
-      Object.assign(anchor, { href: myFileUrl(file.id, file.latest.number), download: '' })
-      anchor.click()
-    },
-  }
-}

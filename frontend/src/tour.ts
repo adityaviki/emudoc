@@ -25,7 +25,7 @@ export function workspaceTour(sample: boolean): TourStep[] {
     {
       target: 'upload',
       title: 'Upload',
-      body: `Add files here, or drop them anywhere on the library: ${ACCEPTED_TYPES_LABEL}. Each is scanned, read, outlined and indexed in the background.`,
+      body: `Right-click the project’s files to upload files or a folder, or drop them anywhere on the library: ${ACCEPTED_TYPES_LABEL}. Each is scanned, read, outlined and indexed in the background.`,
     },
     {
       target: 'search',
