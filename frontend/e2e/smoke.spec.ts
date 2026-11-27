@@ -259,7 +259,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     const box = page.getByLabel('Search the project')
     await box.fill('written notice')
     await expect(page).toHaveURL(/\/projects\/\d+\?q=written\+notice/)
-    await expect(page.getByText('No file’s name holds “written notice”.')).toBeVisible()
+    await expect(page.getByText('No project file’s name holds “written notice”.')).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Passages' })).toBeVisible()
     const hit = page.getByRole('button', { name: /Service contract/ })
     await expect(hit.first().locator('mark', { hasText: /^notice$/i }).first()).toBeVisible()
@@ -274,7 +274,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     // A file whose name holds the words comes first, a row of the library's above the passages.
     await box.fill('CONTRACT')
     await expect(page).toHaveURL(/[?&]q=CONTRACT/)
-    await expect(page.getByRole('heading', { name: 'Files', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Project files', exact: true })).toBeVisible()
     await expect(page.getByRole('treeitem', { name: 'service-contract.md', exact: true })).toBeVisible()
     await expect(hit.first()).toBeVisible()
     await page.getByRole('button', { name: 'Clear search' }).click()
@@ -666,9 +666,11 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(grace.getByRole('button', { name: 'Upload', exact: true })).toHaveCount(0)
     // Uploading is the project's files' menu's, a right-click on their empty space, which offers a viewer nothing: none opens.
     const files = grace.getByRole('tree', { name: 'Files' })
+    // Measured at each try, and given up on soon: measured while My files loads, the tree's bottom moves as its list is
+    // drawn, and a click left waiting below the window would hold the retries below until they time out.
     const rightClickFiles = async () => {
       const box = await files.boundingBox()
-      await files.click({ button: 'right', position: { x: 12, y: (box?.height ?? 40) - 12 } })
+      await files.click({ button: 'right', position: { x: 12, y: (box?.height ?? 40) - 12 }, timeout: 2_000 })
     }
     await rightClickFiles()
     await expect(grace.getByRole('menu')).toHaveCount(0)
@@ -1547,6 +1549,19 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('treeitem', { name: 'invoice.md', exact: true })).toBeVisible()
     await expect(page.getByRole('treeitem', { name: 'Invoices', exact: true })).toHaveCount(0)
     await expect(page.getByRole('heading', { name: 'Passages' })).toBeVisible()
+    // The member's own files whose names hold them come apart, above the project's, each saying where in My files it is,
+    // and keep their menu.
+    await expect(page.getByRole('heading', { name: 'My files', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Project files', exact: true })).toBeVisible()
+    const found = page.getByRole('list', { name: 'My files' }).getByRole('button', { name: /^Invoice lines\.xlsx in My files/ })
+    await expect(found).toBeVisible()
+    // Opened again until it shows, as above: the passages coming in may scroll the pane, which closes a menu.
+    await expect(async () => {
+      await found.click({ button: 'right' })
+      await expect(page.getByRole('menuitem', { name: 'Upload a new version…' })).toBeVisible({ timeout: 2_000 })
+    }).toPass({ timeout: 60_000 })
+    await page.keyboard.press('Escape')
+    await expect(found).toBeFocused()
     await expectAccessible(page, 'the library searched, its files above its passages')
     await box.press('Escape')
     await expect(page).not.toHaveURL(/[?&]q=/)
@@ -1556,7 +1571,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     const hit = (number: string) => page.getByRole('button', { name: new RegExp(`Invoice ${number}`) })
     await box.fill('total amount')
     await expect(page).toHaveURL(/[?&]q=total\+amount/)
-    await expect(page.getByText('No file’s name holds “total amount”.')).toBeVisible()
+    await expect(page.getByText('No project file’s name holds “total amount”.')).toBeVisible()
     await expect(hit('INV-2026-0412').first()).toBeVisible()
     await expect(hit('INV-2026-0413').first()).toBeVisible()
     await expect(hit('INV-2026-0502').first()).toBeVisible()

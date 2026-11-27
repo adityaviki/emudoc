@@ -123,6 +123,30 @@ export function following(listed: Pick<MyFiles, 'files'>): boolean {
   return listed.files.some((file) => waiting(file.latest))
 }
 
+/**
+ * The files a search of the library finds in My files: those whose names hold its words in any case, as the project's
+ * files' names are matched (the listing's `name=`, backend/app/api/documents.py), in the list's order; none without words.
+ */
+export function myFilesNamed(files: MyFile[], words: string): MyFile[] {
+  const sought = words.trim().toLocaleLowerCase()
+  return sought ? files.filter((file) => file.name.toLocaleLowerCase().includes(sought)) : []
+}
+
+/** Where a file a search found is in My files: the path of its folder, "Letters / 2026", or "My files" at the top. */
+export function myFileWhere(file: Pick<MyFile, 'folder_id'>, folders: MyFolder[]): string {
+  const byId = new Map(folders.map((folder) => [folder.id, folder]))
+  const path: string[] = []
+  const seen = new Set<number>()
+  for (let at = file.folder_id == null ? undefined : byId.get(file.folder_id); at && !seen.has(at.id); at = at.parent_id == null ? undefined : byId.get(at.parent_id)) {
+    seen.add(at.id)
+    path.unshift(at.name)
+  }
+  return path.length ? path.join(' / ') : 'My files'
+}
+
+/** What a search's My files say when no file's name there holds its words. */
+export const noMyFileNameWords = (words: string) => `No file’s name in My files holds “${words.trim()}”.`
+
 /** A folder of My files with what it holds, as the list shows it: its folders by name, then its files, the one changed last first. */
 export interface MyFolderNode {
   folder: MyFolder

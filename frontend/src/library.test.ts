@@ -39,7 +39,7 @@ describe('a place', () => {
     expect(allNamed({ folder: null })).toBe(false)
     expect(placeName({ name: 'inv' })).toBe('All files')
     expect(placeName({ recent: true, name: 'inv' })).toBe('Recent')
-    expect(noNameWords({ name: 'inv' })).toBe('No file’s name holds “inv”.')
+    expect(noNameWords({ name: 'inv' })).toBe('No project file’s name holds “inv”.')
     expect(noNameWords({ favorites: true, name: 'inv' })).toBe('No favourite’s name holds “inv”.')
     expect(noNameWords({ recent: true, name: 'inv' })).toBe('No recent file’s name holds “inv”.')
     expect(emptyPlaceWords({ favorites: true }).title).toBe('No favourites yet')

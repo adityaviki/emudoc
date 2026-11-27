@@ -157,8 +157,9 @@ const isOpenSections = (value: unknown): value is OpenSections =>
 
 /**
  * The file manager: a folder's contents, and the project's search in their place, the files whose names hold its words
- * first and the passages it finds below them. A viewer reads and searches it; uploading, folders, renaming, moving,
- * deleting and indexing again are offered only to a role the server lets change them.
+ * first, the member's own in My files apart above the project's, and the passages it finds below them. A viewer reads
+ * and searches it; uploading, folders, renaming, moving, deleting and indexing again are offered only to a role the
+ * server lets change them.
  */
 export function Library() {
   const workspace = useWorkspace()
@@ -251,6 +252,14 @@ export function Library() {
     // Passages that break leave the files above them, and the box.
     <ErrorBoundary part="library" resetKey={JSON.stringify(search)}>
       <SearchResults search={search} />
+    </ErrorBoundary>
+  )
+  // A search with words across the project finds the member's own files by name too, apart above the project's: the
+  // favourites and the recent documents, which My files has none of, keep their own.
+  const myFilesFound = search?.q && allNamed(place) && (
+    // My files that break leave the project's files and the passages.
+    <ErrorBoundary part="library">
+      <MyFilesSection found={search.q} />
     </ErrorBoundary>
   )
   return (
@@ -407,8 +416,8 @@ export function Library() {
         )}
       </div>
 
-      {/* Under the search, the member's own files, which it searches none of, then the project's files, each opened and
-          closed by its heading; a search shows what it finds alone. My files that break leave the project's files. */}
+      {/* Under the search, the member's own files, then the project's files, each opened and closed by its heading; a search
+          shows what it finds alone, of each apart. My files that break leave the project's files. */}
       {!search && (
         <ErrorBoundary part="library">
           <MyFilesSection
@@ -497,7 +506,8 @@ export function Library() {
             <Listing
               key={`${placeKey(place)}:${nameOf(place) ?? ''}`}
               place={place}
-              heading={search ? (allNamed(place) ? 'Files' : placeName(place)) : undefined}
+              before={myFilesFound || undefined}
+              heading={search ? (allNamed(place) ? 'Project files' : placeName(place)) : undefined}
               after={searchResults || undefined}
               arrangement={arrangement}
               creating={creating}
@@ -703,7 +713,11 @@ interface ListingProps {
   onPickFolder: () => void
   /** Choose a file to give the document as its new version; none where the library takes no uploads. */
   onPickVersion?: (document: Document) => void
-  /** A search's: what the files whose names hold its words are headed by, and its passages below them, in one scroller. */
+  /**
+   * A search's, in one scroller: the files of My files it found above, what the project's files whose names hold its
+   * words are headed by, and its passages below them.
+   */
+  before?: ReactNode
   heading?: string
   after?: ReactNode
 }
@@ -722,6 +736,7 @@ function Listing({
   onPickFiles,
   onPickFolder,
   onPickVersion,
+  before,
   heading,
   after,
 }: ListingProps) {
@@ -1345,8 +1360,9 @@ function Listing({
           {menu.element}
         </div>
       ) : (
-        // A search's files and its passages scroll together; the tree holds its rows alone.
+        // A search's files, My files' and the project's, and its passages scroll together; the tree holds its rows alone.
         <div {...background} className="min-h-0 flex-1 overflow-y-auto p-2">
+          {before}
           {heading && <ListingHeading>{heading}</ListingHeading>}
           {emptyState}
           {lines.length > 0 && (
@@ -1401,7 +1417,7 @@ function Listing({
   )
 }
 
-/** The heading of a search's files, above them as the passages' is above theirs. */
+/** The heading of a search's project files, above them as My files' is above its own and the passages' above theirs. */
 function ListingHeading({ children }: { children: string }) {
   return <h2 className="px-2 pb-1.5 text-xs font-semibold text-muted">{children}</h2>
 }
