@@ -588,20 +588,9 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
           {starter && messages.length === 0 && (
             <p className="pt-12 text-center text-[13px] text-muted">{starter} has not asked anything in this chat yet.</p>
           )}
-          {!loading && !chat.isError && !starter && messages.length === 0 && (
-            <div className="mx-auto max-w-md pt-12 text-center">
-              <div className="mx-auto mb-4 flex size-11 items-center justify-center rounded-xl bg-accent-soft text-accent">
-                <MessagesSquare className="size-5" />
-              </div>
-              <p className="text-base font-semibold tracking-tight">
-                {scope.kind === 'project' ? `Ask about the documents in ${project.name}` : `Ask about ${scoped}`}
-              </p>
-              <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
-                Answers are written by an AI model from the documents, and cite the passages they rely on;
-                citations open the document in the library. A model can misread a document or miss a passage,
-                so check the cited passages before you rely on an answer.
-              </p>
-              {chatId == null && shared.length > 0 && <RecentlyShared chats={shared} />}
+          {!loading && !chat.isError && !starter && messages.length === 0 && chatId == null && shared.length > 0 && (
+            <div className="mx-auto max-w-md pt-4">
+              <RecentlyShared chats={shared} />
             </div>
           )}
           {messages.map((message, index) =>

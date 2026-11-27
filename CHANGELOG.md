@@ -16,6 +16,9 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 
 ### Users
 
+- A new chat no longer opens on a heading and a paragraph about AI-written answers: it shows
+  only the chats shared with the project, when there are any. The line under the question box
+  still says to check the cited passages.
 - Hover over the "Project files" or "My files" heading and a "…" button shows at its end, as on
   a folder or a file: it opens the menu with "New folder", "Upload files" and "Upload a folder",
   which a right-click opened alone before. The right-click still works.
