@@ -16,6 +16,9 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 
 ### Users
 
+- Where the workspace sends no email and you are its only owner or admin, the help menu no longer
+  shows "Write to your workspace's admins" with a note that there is nobody to write to: it shows
+  its links alone.
 - The chat no longer suggests inviting your team under an answer. The workspace's owners and
   admins invite people from the workspace's page, under Invitations.
 - A file of My files opens where the project's documents open, in a tab of the middle pane beside

@@ -396,8 +396,12 @@ def test_where_the_install_mails_nothing_the_help_promises_no_email(monkeypatch)
     assert "by email" not in article("working-together")
     support = article("support")
     assert f"it names [{SUPPORT}](mailto:{SUPPORT}), the address your team set for help" in support
+    assert "the only one" not in support
     monkeypatch.setattr(settings, "support_email", "")
-    assert "it names the workspace's owners and admins, to write to" in article("support")
+    support = article("support")
+    assert "it names the workspace's owners and admins, to write to" in support
+    # The menu shows a sole owner or admin no way to write, having nobody to name.
+    assert "the only one has nobody to write to, and finds the menu's links alone." in support
 
 
 def test_the_help_names_every_file_type_an_upload_takes(monkeypatch):

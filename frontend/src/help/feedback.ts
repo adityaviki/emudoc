@@ -5,7 +5,8 @@
 // search, nor anything else the page shows. Each part keeps to what the server takes
 // (FeedbackIn in backend/app/schemas.py), since a part outside it would have the message refused.
 // Where the install mails nothing (`Help.mail`), the menu sends nothing and names whom to write
-// to from the member's own mail instead, each address a link to a mail that carries the same.
+// to from the member's own mail instead, each address a link to a mail that carries the same;
+// where that is nobody, a sole owner or admin without SUPPORT_EMAIL, it shows no way to write.
 
 import type { FailedRequest, Feedback, FeedbackKind, Member } from '../api.ts'
 import { pagePath } from '../errors.ts'
@@ -65,6 +66,7 @@ export interface Reader {
 /**
  * Whom a member writes to from their own mail where the install mails nothing: SUPPORT_EMAIL, or
  * else the workspace's owners and admins but the member, in the members list's order (owners first).
+ * None, for a sole owner or admin, and the menu leaves out the way to write.
  */
 export function readersByHand(supportEmail: string | null, members: Member[], myId: number): Reader[] {
   if (supportEmail) return [{ name: 'Support', email: supportEmail }]
@@ -74,11 +76,9 @@ export function readersByHand(supportEmail: string | null, members: Member[], my
 }
 
 /** What the menu says in place of its form where the install mails nothing, before the readers it lists. */
-export function byHandWords(supportEmail: string | null, readers: number): string {
+export function byHandWords(supportEmail: string | null): string {
   const nothing = 'This workspace sends no email, so the help menu cannot send your message.'
-  if (supportEmail) return `${nothing} Write to support from your own email:`
-  if (readers) return `${nothing} Write to one of its owners or admins from your own email:`
-  return `${nothing} You are its only owner or admin, so there is nobody else here to write to; SUPPORT_EMAIL on the server would name an address for help.`
+  return supportEmail ? `${nothing} Write to support from your own email:` : `${nothing} Write to one of its owners or admins from your own email:`
 }
 
 /**

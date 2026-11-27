@@ -402,10 +402,16 @@ def _write_to(support: str, mail: bool) -> str:
         if support
         else "the workspace's owners and admins"
     )
+    alone = (
+        ""
+        if support
+        else " An owner or admin who is the only one has nobody to write to, and finds the "
+        "menu's links alone."
+    )
     return (
         "This workspace sends no email, so the menu sends nothing: it names "
         f"{readers}, to write to from your own email, each a link to a message that carries the "
-        "page you were on and the reference of the last request that failed there."
+        f"page you were on and the reference of the last request that failed there.{alone}"
     )
 
 

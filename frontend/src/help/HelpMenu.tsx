@@ -3,7 +3,8 @@
 // wherever the member is, to SUPPORT_EMAIL or the workspace's owners and admins, with the page
 // and the last request that failed attached (src/help/feedback.ts, backend/app/api/help.py). What they typed is kept while the panel is
 // closed, which a click elsewhere or a switch to another window does, until it is sent. Where the install mails nothing, the
-// form gives way to whom to write to from the member's own mail.
+// form gives way to whom to write to from the member's own mail, and to nothing for a sole owner or admin without
+// SUPPORT_EMAIL, who has nobody to write to: the menu is then its links alone.
 
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Activity, BookOpen, CircleHelp, Code } from 'lucide-react'
@@ -15,7 +16,7 @@ import { api, lastFailedRequest, organizations } from '../api.ts'
 import type { FeedbackKind } from '../api.ts'
 import { useMe } from '../auth.ts'
 import { Floating } from '../components/Menu.tsx'
-import { Button, FIELD, Notice, Segmented, Spinner } from '../components/ui.tsx'
+import { Button, FIELD, Notice, Segmented } from '../components/ui.tsx'
 import { useHelp } from '../hooks.ts'
 import {
   FEEDBACK_KINDS,
@@ -60,21 +61,24 @@ export function HelpMenu() {
         <Floating anchor={anchor} alignEnd onClose={() => setAnchor(null)} ignore={button} className="w-96 max-w-[calc(100vw-16px)]">
           <div role="dialog" aria-label="Help">
             <HelpLinks onClose={() => setAnchor(null)} />
-            <p className="px-3 pt-3 text-[13px] font-medium">{writeHeading(help.data?.support_email ?? null)}</p>
             {help.data?.mail === false ? (
               <WriteByHand supportEmail={help.data.support_email} />
-            ) : send.isSuccess ? (
-              <Sent reference={send.data.reference} to={send.data.to} onAgain={() => send.reset()} />
             ) : (
-              <WriteForm
-                kind={kind}
-                onKind={setKind}
-                message={message}
-                onMessage={setMessage}
-                sending={send.isPending}
-                error={send.error?.message ?? null}
-                onSend={() => send.mutate()}
-              />
+              <WriteSection supportEmail={help.data?.support_email ?? null}>
+                {send.isSuccess ? (
+                  <Sent reference={send.data.reference} to={send.data.to} onAgain={() => send.reset()} />
+                ) : (
+                  <WriteForm
+                    kind={kind}
+                    onKind={setKind}
+                    message={message}
+                    onMessage={setMessage}
+                    sending={send.isPending}
+                    error={send.error?.message ?? null}
+                    onSend={() => send.mutate()}
+                  />
+                )}
+              </WriteSection>
             )}
           </div>
         </Floating>
@@ -91,7 +95,7 @@ export function HelpMenu() {
 function HelpLinks({ onClose }: { onClose: () => void }) {
   const help = useHelp()
   return (
-    <div className="border-b border-line p-1">
+    <div className="p-1">
       <Link to="/help" onClick={onClose} className={LINK}>
         <BookOpen className="size-4 shrink-0 opacity-70" />
         Help pages
@@ -118,6 +122,16 @@ function HelpLink({ href, icon: Icon, children }: { href: string; icon: LucideIc
       <Icon className="size-4 shrink-0 opacity-70" />
       {children}
     </a>
+  )
+}
+
+/** The way to write for help, under the links, headed by whom it goes to: SUPPORT_EMAIL, else the workspace's admins. */
+function WriteSection({ supportEmail, children }: { supportEmail: string | null; children: ReactNode }) {
+  return (
+    <div className="border-t border-line">
+      <p className="px-3 pt-3 text-[13px] font-medium">{writeHeading(supportEmail)}</p>
+      {children}
+    </div>
   )
 }
 
@@ -183,32 +197,30 @@ function WriteForm({ kind, onKind, message, onMessage, sending, error, onSend }:
 }
 
 // The members list names the owners and admins, which every member may read; the panel's first
-// link takes the focus as it opens.
+// link takes the focus as it opens. Nothing shows while the list loads, nor once it names
+// nobody (a sole owner or admin without SUPPORT_EMAIL), so the section never shows only to go.
 function WriteByHand({ supportEmail }: { supportEmail: string | null }) {
   const me = useMe()
   const location = useLocation()
   const members = useQuery({ queryKey: ['organization', 'members'], queryFn: organizations.members, enabled: !supportEmail })
-  if (!supportEmail && members.isPending) {
-    return (
-      <div className="flex justify-center p-3">
-        <Spinner />
-      </div>
-    )
-  }
+  if (!supportEmail && members.isPending) return null
   if (members.isError) {
     return (
-      <div className="p-3">
-        <Notice tone="bad">{members.error.message}</Notice>
-      </div>
+      <WriteSection supportEmail={supportEmail}>
+        <div className="p-3">
+          <Notice tone="bad">{members.error.message}</Notice>
+        </div>
+      </WriteSection>
     )
   }
   const readers = readersByHand(supportEmail, members.data ?? [], me.id)
+  if (!readers.length) return null
   const page = feedbackPage(location.pathname, location.search)
   const failed = lastFailedRequest()
   return (
-    <div className="space-y-2 p-3 text-[13px] leading-relaxed">
-      <p>{byHandWords(supportEmail, readers.length)}</p>
-      {readers.length > 0 && (
+    <WriteSection supportEmail={supportEmail}>
+      <div className="space-y-2 p-3 text-[13px] leading-relaxed">
+        <p>{byHandWords(supportEmail)}</p>
         <ul className="space-y-1">
           {readers.map((reader) => (
             <li key={reader.email} className="truncate">
@@ -218,8 +230,8 @@ function WriteByHand({ supportEmail }: { supportEmail: string | null }) {
             </li>
           ))}
         </ul>
-      )}
-    </div>
+      </div>
+    </WriteSection>
   )
 }
 

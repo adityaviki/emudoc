@@ -82,10 +82,9 @@ describe('where the install mails nothing', () => {
     expect(readersByHand(null, members.slice(0, 1), 1)).toEqual([])
   })
 
-  it('says the menu sends nothing, and whom to write to, or that nobody else is there', () => {
-    expect(byHandWords('help@example.com', 1)).toBe('This workspace sends no email, so the help menu cannot send your message. Write to support from your own email:')
-    expect(byHandWords(null, 2)).toContain('Write to one of its owners or admins from your own email:')
-    expect(byHandWords(null, 0)).toContain('You are its only owner or admin')
+  it('says the menu sends nothing, and whom to write to', () => {
+    expect(byHandWords('help@example.com')).toBe('This workspace sends no email, so the help menu cannot send your message. Write to support from your own email:')
+    expect(byHandWords(null)).toBe('This workspace sends no email, so the help menu cannot send your message. Write to one of its owners or admins from your own email:')
   })
 
   it("writes a mail that carries the page's address and the failed request, encoded", () => {
