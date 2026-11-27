@@ -588,7 +588,6 @@ def test_the_export_holds_the_users_data_and_nothing_of_anyone_elses(
         "notices",
         "checklist_hidden_at",
         "tour_seen_at",
-        "invite_hidden_at",
         "mail_spared",
     }
     assert export["account"]["notices"][0] == {"kind": "upload_indexed", "app": True, "email": True}

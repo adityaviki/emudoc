@@ -12,18 +12,9 @@ The steps are the organisation's, the member's role picks those it is offered (`
 owner or admin all three, a member uploading and asking, since only owners and admins invite,
 and a viewer none, since it can only ask, which an empty chat offers already.
 
-The invite step is offered a second time where it is worth most: under an answer about the
-organisation's own documents, not the sample's, the chat suggests inviting the team to whoever
-is offered the step while it is untaken (`inviteNudgeOf` in frontend/src/onboarding.ts, which
-reads these steps). An answer from the sample shows what the app does; one about the
-organisation's documents is the work a team would share.
-
-Whether the list is hidden, whether the tour of a project's workspace was seen and whether the
-chat's suggestion is hidden are the user's (`users.checklist_hidden_at`, `users.tour_seen_at`,
-`users.invite_hidden_at`), for every organisation they work in, chosen through `PATCH
-/api/auth/onboarding` (app/api/onboarding.py) and carried by `MeOut`. Hiding the list leaves the
-suggestion be: it is made at another moment, in another place, and hidden for good in one
-click.
+Whether the list is hidden and whether the tour of a project's workspace was seen are the
+user's (`users.checklist_hidden_at`, `users.tour_seen_at`), for every organisation they work in,
+chosen through `PATCH /api/auth/onboarding` (app/api/onboarding.py) and carried by `MeOut`.
 """
 
 from dataclasses import dataclass

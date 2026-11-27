@@ -152,29 +152,3 @@ def test_hiding_the_list_and_seeing_the_tour_are_the_accounts_own(client, sessio
 def test_the_steps_and_the_choices_are_a_signed_in_accounts(client, signed_in_only):
     assert client.get("/api/organization/onboarding").status_code == 401
     assert client.patch("/api/auth/onboarding", json={"tour_seen": True}).status_code == 401
-
-
-def test_hiding_the_suggestion_to_invite_the_team_is_the_accounts_own(client, session, ada):
-    assert client.get("/api/auth/me").json()["invite_hidden"] is False
-
-    hidden = onboarding(client, invite_hidden=True)
-    assert (hidden["invite_hidden"], hidden["checklist_hidden"], hidden["tour_seen"]) == (
-        True,
-        False,
-        False,
-    )
-    user = session.get(User, ada["id"])
-    session.refresh(user)
-    first = user.invite_hidden_at
-    assert first is not None
-    onboarding(client, invite_hidden=True)
-    session.refresh(user)
-    assert user.invite_hidden_at == first
-    # The step is still the organisation's, which the list goes on offering.
-    assert steps(client)["invite"] is False
-    assert client.get("/api/auth/account/export").json()["account"]["invite_hidden_at"]
-
-    shown = onboarding(client, invite_hidden=False)
-    assert shown["invite_hidden"] is False
-    session.refresh(user)
-    assert user.invite_hidden_at is None
