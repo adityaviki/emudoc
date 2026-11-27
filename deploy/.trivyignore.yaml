@@ -13,10 +13,11 @@
 vulnerabilities:
   # golang.org/x/net 0.62.0 made its HTML parser's joining of text linear; Caddy 2.11.9 holds
   # 0.60.0. A crafted page of many short texts between ignored end tags takes the parser
-  # quadratic time, so it matters only where Caddy parses HTML a peer wrote.
+  # quadratic time, so it matters only where Caddy parses HTML a peer wrote. Looked at again on
+  # 2026-11-27: Caddy has released nothing after 2.11.9, whose rebuilt tag still holds 0.60.0.
   - id: CVE-2026-78661
     paths: [usr/bin/caddy]
-    expired_at: 2026-11-26
+    expired_at: 2026-12-28
     statement: >-
       Caddy parses HTML only in its templates handler, which deploy/compose.yml's Caddyfile does not use:
       it proxies to the app, compresses the pages and limits bodies, passing the app's HTML
@@ -24,15 +25,54 @@ vulnerabilities:
 
   # zlib 1.3.1's gzwrite and gz_vacate write past a buffer on a crafted stream or a failed write;
   # Debian fixed both in 1:1.3.dfsg+really1.3.1-1+deb13u1 (November 2026), which the image's
-  # digest of 2026-11-12 was built just before.
+  # digest of 2026-11-12 was built just before; on 2026-11-27 pgvector's tag had not been
+  # rebuilt since.
   - id: CVE-2026-76844
     purls: [pkg:deb/debian/zlib1g@1.3.dfsg%2Breally1.3.1-1%2Bb1]
-    expired_at: 2026-11-27
+    expired_at: 2026-12-28
     statement: &zlib >-
       Postgres compresses nothing with zlib's gz* file functions, which the two findings are in:
       the database's pages, its WAL and a plain pg_dump go through none of them, and the image
       is rebuilt with Debian's fix within days, which Dependabot proposes.
-  - {id: CVE-2026-85091, purls: [pkg:deb/debian/zlib1g@1.3.dfsg%2Breally1.3.1-1%2Bb1], expired_at: 2026-11-27, statement: *zlib}
+  - {id: CVE-2026-85091, purls: [pkg:deb/debian/zlib1g@1.3.dfsg%2Breally1.3.1-1%2Bb1], expired_at: 2026-12-28, statement: *zlib}
+
+  # MIT krb5 1.21.3's fixes in Debian's 1.21.3-5+deb13u2 (November 2026), which Postgres's image
+  # of 2026-11-12 was built before: the KDC's and kadmind's decoders and RPCSEC_GSS, and the
+  # authentication indicators a KDC checks. The image holds the libraries alone, for Postgres's
+  # GSSAPI sign-in.
+  - id: CVE-2026-71199
+    purls: &krb5 [pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1, pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1, pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1, pkg:deb/debian/libkrb5support0@1.21.3-5%2Bdeb13u1]
+    expired_at: 2026-12-28
+    statement: &krb5-why >-
+      The image runs no KDC and no kadmind, which these are in, and Postgres signs nobody in by
+      GSSAPI: the image's pg_hba.conf takes a password (scram-sha-256) alone, and nothing
+      reaches the container from outside the compose network. The image is rebuilt with
+      Debian's fix in time, which Dependabot proposes.
+  - {id: CVE-2026-71200, purls: *krb5, expired_at: 2026-12-28, statement: *krb5-why}
+  - {id: CVE-2026-107364, purls: *krb5, expired_at: 2026-12-28, statement: *krb5-why}
+  - {id: CVE-2026-112315, purls: *krb5, expired_at: 2026-12-28, statement: *krb5-why}
+  - {id: CVE-2026-112316, purls: *krb5, expired_at: 2026-12-28, statement: *krb5-why}
+  - {id: CVE-2026-112317, purls: *krb5, expired_at: 2026-12-28, statement: *krb5-why}
+  - {id: CVE-2026-112318, purls: *krb5, expired_at: 2026-12-28, statement: *krb5-why}
+  - {id: CVE-2026-112319, purls: *krb5, expired_at: 2026-12-28, statement: *krb5-why}
+  - {id: CVE-2026-112320, purls: *krb5, expired_at: 2026-12-28, statement: *krb5-why}
+  - {id: CVE-2026-112321, purls: *krb5, expired_at: 2026-12-28, statement: *krb5-why}
+  - {id: CVE-2026-112322, purls: *krb5, expired_at: 2026-12-28, statement: *krb5-why}
+  - {id: CVE-2026-112323, purls: *krb5, expired_at: 2026-12-28, statement: *krb5-why}
+  - {id: CVE-2026-118380, purls: *krb5, expired_at: 2026-12-28, statement: *krb5-why}
+  - {id: CVE-2026-119079, purls: *krb5, expired_at: 2026-12-28, statement: *krb5-why}
+
+  # Zstandard 1.5.7's decompression can put up to 64 KiB of an earlier decompression's buffer in
+  # its output; Debian fixed it in 1.5.7+dfsg-1+deb13u1 (November 2026). Postgres's image holds
+  # the library and the command, ClamAV's (its rebuild of 2026-11-27) the library.
+  - id: CVE-2026-124851
+    purls: [pkg:deb/debian/libzstd1@1.5.7%2Bdfsg-1, pkg:deb/debian/zstd@1.5.7%2Bdfsg-1]
+    expired_at: 2026-12-28
+    statement: >-
+      It needs someone who submits the compressed data and reads what it decompresses to:
+      Postgres decompresses only what it wrote itself, and ClamAV answers a verdict alone,
+      never what it unpacked from a file. Both images take Debian's fix when rebuilt, which
+      Dependabot proposes.
 
   # gosu, which the Postgres image's entrypoint runs once to step down from root to the
   # postgres user, is built with Go 1.24.6, and these are that standard library's fixes since:

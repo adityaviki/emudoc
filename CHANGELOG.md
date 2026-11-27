@@ -117,6 +117,9 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 
 ### Admins
 
+- `deploy/compose.yml` runs ClamAV's rebuild of 1.5 (1.5.5), which carries Debian's fixes to
+  Kerberos. Postgres's image waits for pgvector's rebuild with them; until then
+  `deploy/.trivyignore.yaml` says why each finding there cannot be reached.
 - An agent turn may now run 10 minutes (it was 2), and Claude's tools stream their input as it
   is written, so a turn that writes a long file into My files keeps sending and is no longer
   given up as silent after a minute. A turn given up or broken off after it began now counts in
