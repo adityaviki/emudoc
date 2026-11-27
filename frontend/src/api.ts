@@ -684,7 +684,7 @@ export interface Help {
   support_email: string | null
   /** The status page outside the deployment, which says whether it is up; none where it names none. */
   status_page: string | null
-  /** The install mails something; without, the menu sends nothing and says whom to write to. */
+  /** The install mails something; without, the menu offers no way to write, and the help pages say whom to write to. */
   mail: boolean
   /** Where the running code's source is, which the AGPL has the app offer: SOURCE_URL, else the public repository at the running release. */
   source: string

@@ -191,7 +191,7 @@ def test_an_install_that_mails_nothing_takes_no_message(client, session, mailer,
     assert client.get("/api/help").json()["mail"] is False
     jobs = session.scalar(select(func.count()).select_from(Job))
     # The message would reach the log by its subject alone, so it is refused, with or without
-    # SUPPORT_EMAIL, and the menu says whom to write to instead.
+    # SUPPORT_EMAIL, and the menu offers no way to write.
     for support in (SUPPORT, ""):
         monkeypatch.setattr(get_settings(), "support_email", support)
         refused = write(client)
@@ -394,14 +394,19 @@ def test_where_the_install_mails_nothing_the_help_promises_no_email(monkeypatch)
         article("workspace")
     )
     assert "by email" not in article("working-together")
+    # The menu offers no way to write, so the article names whom to write to from one's own mail.
     support = article("support")
-    assert f"it names [{SUPPORT}](mailto:{SUPPORT}), the address your team set for help" in support
-    assert "the only one" not in support
+    assert (
+        f"the menu sends no message: write to [{SUPPORT}](mailto:{SUPPORT}), the address your "
+        "team set for help, from your own email." in support
+    )
+    assert "owners or admins" not in support
     monkeypatch.setattr(settings, "support_email", "")
     support = article("support")
-    assert "it names the workspace's owners and admins, to write to" in support
-    # The menu shows a sole owner or admin no way to write, having nobody to name.
-    assert "the only one has nobody to write to, and finds the menu's links alone." in support
+    assert (
+        "the menu sends no message: write to one of the workspace's owners or admins from your "
+        "own email, whom [the workspace's page](/organization) lists under Members." in support
+    )
 
 
 def test_the_help_names_every_file_type_an_upload_takes(monkeypatch):

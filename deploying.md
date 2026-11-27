@@ -1802,11 +1802,11 @@ once its lease runs out. Through Resend that is once: the message's key goes as 
   reset-password` prints one), the forgotten-password page says to ask them, and so does the
   account page for a member moving to a new address, whose link an owner or admin makes there
   too ("Change address…"), an owner or admin moving their own at once once their password
-  confirms it. The help menu sends nothing and names whom to write to from one's own mail
-  ("Support"), and the notices are told in the app alone, the account page and the
-  workspace's offering no email choice. Nobody can finish a sign-up, which `SIGNUP_OPEN`
-  would offer. Every start says so, and the Administration page's services show the mail as
-  none.
+  confirms it. The help menu sends nothing and offers no way to write, its links alone, the
+  help pages' "Getting help" naming whom to write to from one's own mail, and the notices are
+  told in the app alone, the account page and the workspace's offering no email choice. Nobody
+  can finish a sign-up, which `SIGNUP_OPEN` would offer. Every start says so, and the
+  Administration page's services show the mail as none.
 
 Production refuses `SMTP_URL` and `RESEND_API_KEY` both set, a key that is not Resend's or a
 webhook secret that is not one, quoting neither.

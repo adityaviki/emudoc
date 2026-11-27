@@ -3,16 +3,16 @@
 // wherever the member is, to SUPPORT_EMAIL or the workspace's owners and admins, with the page
 // and the last request that failed attached (src/help/feedback.ts, backend/app/api/help.py). What they typed is kept while the panel is
 // closed, which a click elsewhere or a switch to another window does, until it is sent. Where the install mails nothing, the
-// form gives way to whom to write to from the member's own mail, and to nothing for a sole owner or admin without
-// SUPPORT_EMAIL, who has nobody to write to: the menu is then its links alone.
+// menu offers no way to write and is its links alone (the owner's word of 2026-11-27); the help pages say whom to write to
+// from the member's own mail.
 
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import { Activity, BookOpen, CircleHelp, Code } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { Link, useLocation } from 'react-router'
-import { api, lastFailedRequest, organizations } from '../api.ts'
+import { api, lastFailedRequest } from '../api.ts'
 import type { FeedbackKind } from '../api.ts'
 import { useMe } from '../auth.ts'
 import { Floating } from '../components/Menu.tsx'
@@ -22,11 +22,7 @@ import {
   FEEDBACK_KINDS,
   MAX_FEEDBACK_CHARS,
   attachedWords,
-  byHandWords,
   feedbackOf,
-  feedbackPage,
-  mailtoOf,
-  readersByHand,
   sentTo,
   writeHeading,
 } from './feedback.ts'
@@ -61,9 +57,7 @@ export function HelpMenu() {
         <Floating anchor={anchor} alignEnd onClose={() => setAnchor(null)} ignore={button} className="w-96 max-w-[calc(100vw-16px)]">
           <div role="dialog" aria-label="Help">
             <HelpLinks onClose={() => setAnchor(null)} />
-            {help.data?.mail === false ? (
-              <WriteByHand supportEmail={help.data.support_email} />
-            ) : (
+            {help.data?.mail !== false && (
               <WriteSection supportEmail={help.data?.support_email ?? null}>
                 {send.isSuccess ? (
                   <Sent reference={send.data.reference} to={send.data.to} onAgain={() => send.reset()} />
@@ -193,45 +187,6 @@ function WriteForm({ kind, onKind, message, onMessage, sending, error, onSend }:
         </Button>
       </div>
     </form>
-  )
-}
-
-// The members list names the owners and admins, which every member may read; the panel's first
-// link takes the focus as it opens. Nothing shows while the list loads, nor once it names
-// nobody (a sole owner or admin without SUPPORT_EMAIL), so the section never shows only to go.
-function WriteByHand({ supportEmail }: { supportEmail: string | null }) {
-  const me = useMe()
-  const location = useLocation()
-  const members = useQuery({ queryKey: ['organization', 'members'], queryFn: organizations.members, enabled: !supportEmail })
-  if (!supportEmail && members.isPending) return null
-  if (members.isError) {
-    return (
-      <WriteSection supportEmail={supportEmail}>
-        <div className="p-3">
-          <Notice tone="bad">{members.error.message}</Notice>
-        </div>
-      </WriteSection>
-    )
-  }
-  const readers = readersByHand(supportEmail, members.data ?? [], me.id)
-  if (!readers.length) return null
-  const page = feedbackPage(location.pathname, location.search)
-  const failed = lastFailedRequest()
-  return (
-    <WriteSection supportEmail={supportEmail}>
-      <div className="space-y-2 p-3 text-[13px] leading-relaxed">
-        <p>{byHandWords(supportEmail)}</p>
-        <ul className="space-y-1">
-          {readers.map((reader) => (
-            <li key={reader.email} className="truncate">
-              <a href={mailtoOf(reader.email, window.location.origin, page, failed)} className="text-accent hover:underline">
-                {reader.name === reader.email ? reader.email : `${reader.name}, ${reader.email}`}
-              </a>
-            </li>
-          ))}
-        </ul>
-      </div>
-    </WriteSection>
   )
 }
 

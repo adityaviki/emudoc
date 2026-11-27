@@ -16,6 +16,9 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 
 ### Users
 
+- Where the workspace sends no email, the help menu no longer shows "Write to your workspace's
+  admins" with the addresses to write to from your own email: it shows its links alone. The help
+  pages' "Getting help" says whom to write to.
 - The library shows its files as a list alone: the List and Grid buttons beside the order are
   gone, and so is the grid of pictures of the files' first pages.
 - The right-click menu of Project files' empty space no longer offers "Select all", "Expand all"
@@ -38,9 +41,6 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 - My files and Project files, opened with nothing in them, say so in a dashed box right under
   their heading: "No files yet" in My files, "This library is empty" with its upload buttons in
   Project files.
-- Where the workspace sends no email and you are its only owner or admin, the help menu no longer
-  shows "Write to your workspace's admins" with a note that there is nobody to write to: it shows
-  its links alone.
 - The chat no longer suggests inviting your team under an answer. The workspace's owners and
   admins invite people from the workspace's page, under Invitations.
 - A file of My files opens where the project's documents open, in a tab of the middle pane beside

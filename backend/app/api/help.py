@@ -13,7 +13,8 @@ The message goes to SUPPORT_EMAIL where the server names one, a team's helpdesk;
 workspace's owners and admins, who run it, each by a mail of their own, the member who wrote
 left out. A sole owner or admin has nobody to write to there, which they are told. An install
 that mails nothing (`relay_set`) takes no message, which would reach its log by the subject alone:
-`HelpOut.mail` has the menu say whom to write to from the member's own mail instead.
+`HelpOut.mail` has the menu offer no way to write, and the help pages name whom to write to from
+the member's own mail instead.
 
 The message is the member's words and goes nowhere but the mail: not into a log line, nor an
 `AppError`, nor the subject, which the mailer logs when a relay refuses it. What is attached is
@@ -58,7 +59,7 @@ NOBODY_ELSE = (
 # What a message sent where the install mails nothing is told, which the menu does not offer.
 NO_MAIL = (
     "This workspace sends no email, so the help menu cannot send a message. Write from your own "
-    "email to the address the help menu names, or to one of the workspace's owners or admins."
+    "email to the address the help pages name, or to one of the workspace's owners or admins."
 )
 # The longest browser description a message carries; a real one is a few hundred characters.
 BROWSER_CHARS = 300
