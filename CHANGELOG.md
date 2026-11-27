@@ -16,6 +16,9 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 
 ### Users
 
+- Hover over the "Project files" or "My files" heading and a "…" button shows at its end, as on
+  a folder or a file: it opens the menu with "New folder", "Upload files" and "Upload a folder",
+  which a right-click opened alone before. The right-click still works.
 - Search the project finds your own files too: those whose names hold your words are listed
   under "My files", each with the folder it is in and the same right-click menu, above the
   project's files it finds, now headed "Project files".

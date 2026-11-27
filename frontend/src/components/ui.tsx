@@ -1,4 +1,4 @@
-import { ChevronRight, LoaderCircle } from 'lucide-react'
+import { ChevronRight, LoaderCircle, MoreHorizontal } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useId } from 'react'
 import type { AnchorHTMLAttributes, ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, Ref, SelectHTMLAttributes } from 'react'
@@ -305,15 +305,20 @@ interface SectionBarProps {
   trail?: ReactNode
   /** What the bar holds at its end, beside the heading: a count, a button. */
   children?: ReactNode
+  /** Opens the section's menu below the bar's last button, "More actions"; no such button without it. */
+  onMenu?: (element: HTMLElement) => void
+  /** Whether that menu is open, which keeps its button shown. */
+  menuOpen?: boolean
 }
 
 /**
  * The heading of a part of a pane that opens and closes, such as the library's My files under its search: a button turning
- * its chevron as it does, on the pane's own ground.
+ * its chevron as it does, on the pane's own ground, and at its end what the section offers behind "More actions", shown as
+ * a row's is, on hover, on focus and while its menu is open, and always where the pointer is a finger.
  */
-export function SectionBar({ id, controls, open, onToggle, icon, title, trail, children }: SectionBarProps) {
+export function SectionBar({ id, controls, open, onToggle, icon, title, trail, children, onMenu, menuOpen = false }: SectionBarProps) {
   return (
-    <div className="flex h-9 shrink-0 items-center gap-1 px-2">
+    <div className="group/bar flex h-9 shrink-0 items-center gap-1 px-2">
       <h2 className="flex min-w-0 shrink">
         <button
           id={id}
@@ -332,6 +337,17 @@ export function SectionBar({ id, controls, open, onToggle, icon, title, trail, c
       </h2>
       <div className="flex min-w-0 flex-1 items-center">{trail}</div>
       {children}
+      {onMenu && (
+        <IconButton
+          label={`More actions for ${title}`}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          className={menuOpen ? 'bg-sunken text-ink' : 'opacity-0 group-hover/bar:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100'}
+          onClick={(event) => onMenu(event.currentTarget)}
+        >
+          <MoreHorizontal className="size-4" />
+        </IconButton>
+      )}
     </div>
   )
 }
