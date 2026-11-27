@@ -15,7 +15,6 @@ import { myFileQuery } from '../myFiles.ts'
 import { offerTour, workspaceTour } from '../tour.ts'
 import { ChatPane } from '../workspace/ChatPane.tsx'
 import { DocumentTab } from '../workspace/DocumentTab.tsx'
-import { FilesSections } from '../workspace/FilesSections.tsx'
 import { Library } from '../workspace/Library.tsx'
 import { documentQuery, isGone, placeListingsKey } from '../workspace/listing.ts'
 import { MyFileView } from '../workspace/MyFiles.tsx'
@@ -226,12 +225,9 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
       key: 'library',
       label: 'Library',
       node: (
-        // The member's own files above the project's, a section each: a section that breaks leaves the other.
-        <FilesSections>
-          <ErrorBoundary part="library" resetKey={libraryPlace(url.library)}>
-            <Library />
-          </ErrorBoundary>
-        </FilesSections>
+        <ErrorBoundary part="library" resetKey={libraryPlace(url.library)}>
+          <Library />
+        </ErrorBoundary>
       ),
       share: hasMiddle ? 25 : 55,
       min: 240,

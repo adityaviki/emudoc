@@ -1,4 +1,4 @@
-// A member's own files in a project, their My files (backend/app/my_files.py): the words of their list atop the library
+// A member's own files in a project, their My files (backend/app/my_files.py): the words of their list in the library
 // and of a file's place, its versions, what keeps one from being shown or served, and a copy into the project's files.
 
 import { queryOptions } from '@tanstack/react-query'

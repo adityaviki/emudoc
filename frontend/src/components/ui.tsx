@@ -292,10 +292,13 @@ interface SectionBarProps {
   children?: ReactNode
 }
 
-/** The heading of a part that opens and closes, such as the library's My files: a button turning its chevron as it does. */
+/**
+ * The heading of a part of a pane that opens and closes, such as the library's My files under its search: a button turning
+ * its chevron as it does, on the pane's own ground.
+ */
 export function SectionBar({ id, controls, open, onToggle, icon, title, children }: SectionBarProps) {
   return (
-    <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line bg-surface pr-2 pl-1">
+    <div className="flex h-9 shrink-0 items-center gap-1 px-2">
       <h2 className="flex min-w-0 flex-1">
         <button
           id={id}

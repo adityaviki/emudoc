@@ -9,7 +9,7 @@ import { folderChoices } from '../library.ts'
 import { Confirm } from '../components/Confirm.tsx'
 import { PagesView } from '../components/DocumentViews.tsx'
 import { Button, FIELD, IconButton, Loading, Notice, SectionBar, SelectField, Spinner } from '../components/ui.tsx'
-import { MY_FILES_TOGGLE } from '../focus.ts'
+import { MY_FILES_TOGGLE, focusLibrary } from '../focus.ts'
 import { useStatus } from '../hooks.ts'
 import {
   MY_FILES_NOTE,
@@ -58,8 +58,8 @@ interface MyFilesSectionProps {
 }
 
 /**
- * The member's own files in the project, atop the library above the project's files: the Word documents and Excel
- * workbooks they keep here, which nobody else sees, the one changed last first, each a row as the library's are and
+ * The member's own files in the project, in the library under its search and above the project's files: the Word
+ * documents and Excel workbooks they keep here, which nobody else sees, the one changed last first, each a row as the library's are and
  * opening, as theirs do, in a tab of the middle pane; and a file added from this computer, opened there too. Its heading
  * opens and closes the list; the count and "Add a file" stay on it while it is closed.
  */
@@ -86,7 +86,7 @@ export function MyFilesSection({ open, onToggle, capped }: MyFilesSectionProps) 
   const adding = add.isPending ? 'Adding…' : 'Add a file'
 
   return (
-    <section aria-labelledby={MY_FILES_TOGGLE} className={`@container flex min-h-0 flex-col ${capped ? 'max-h-[45%] shrink-0' : ''}`}>
+    <section aria-labelledby={MY_FILES_TOGGLE} className={`@container flex min-h-0 flex-col ${capped ? 'max-h-[35%] shrink-0' : ''}`}>
       <SectionBar id={MY_FILES_TOGGLE} controls={body} open={open} onToggle={onToggle} icon={<FolderLock />} title="My files">
         {files.data && listed.length > 0 && (
           <span className="mr-1 hidden shrink-0 text-xs text-muted @3xs:inline">{myFilesCount(listed.length, files.data.limit)}</span>
@@ -116,7 +116,7 @@ export function MyFilesSection({ open, onToggle, capped }: MyFilesSectionProps) 
           }}
         />
       </SectionBar>
-      <div id={body} hidden={!open} className="min-h-0 overflow-y-auto border-b border-line p-2">
+      <div id={body} hidden={!open} className="min-h-0 overflow-y-auto px-2 pb-2">
         <div className="space-y-2 pb-1 empty:hidden">
           {add.isPaused && <Notice tone="info">The file is added once you are back online.</Notice>}
           {add.isError && <Refusal error={add.error} />}
@@ -225,13 +225,16 @@ export function MyFileView({ fileId }: { fileId: number }) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: myFilesKey(project.id) })
       // The tab goes with the file, and the keyboard on from the tab shown next, else from the heading of My files, whose
-      // list held it: the question closed first, since the page beneath it takes no focus while it is open.
+      // list held it, or the library while a search shows no My files: the question closed first, since the page beneath
+      // it takes no focus while it is open.
       const key = myFileTab(fileId)
       const next = shownAfter(workspace.openTabs, key, new Set([key]))
       flushSync(() => setDeleting(false))
       workspace.closeTabs([key])
       queryClient.removeQueries({ queryKey: myFileKey(fileId) })
-      window.document.getElementById(next ? `${TAB_ID}${tabKey(next)}` : MY_FILES_TOGGLE)?.focus()
+      const shown = window.document.getElementById(next ? `${TAB_ID}${tabKey(next)}` : MY_FILES_TOGGLE)
+      if (shown) shown.focus()
+      else focusLibrary()
     },
     onError: (error) => setRefused(error),
   })
