@@ -1289,11 +1289,11 @@ function Listing({
     (name != null && after !== undefined ? (
       <p className="px-2 py-1.5 text-[13px] text-muted">{noNameWords({ ...place, name })}</p>
     ) : flat ? (
-      <EmptyState icon={<FolderIcon />} title={emptyPlaceWords(place).title}>
+      <EmptyState icon={<FolderIcon />} title={emptyPlaceWords(place).title} framed>
         {emptyPlaceWords(place).body}
       </EmptyState>
     ) : (
-      <EmptyState icon={<FolderIcon />} title={folderId == null ? 'This library is empty' : 'This folder is empty'}>
+      <EmptyState icon={<FolderIcon />} title={folderId == null ? 'This library is empty' : 'This folder is empty'} framed>
         {changes ? (
           <>
             Upload files or drop them here. Each one is parsed, outlined and indexed in the background.

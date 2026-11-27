@@ -215,9 +215,22 @@ export function Loading() {
   )
 }
 
-export function EmptyState({ icon, title, children }: { icon?: ReactNode; title: string; children?: ReactNode }) {
+/** What a place shows with nothing in it; `framed`, a dashed box, where it is the body of a section opened. */
+export function EmptyState({
+  icon,
+  title,
+  framed = false,
+  children,
+}: {
+  icon?: ReactNode
+  title: string
+  framed?: boolean
+  children?: ReactNode
+}) {
   return (
-    <div className="flex flex-col items-center gap-1.5 px-6 py-16 text-center">
+    <div
+      className={`flex flex-col items-center gap-1.5 px-6 text-center ${framed ? 'rounded-lg border border-dashed border-ink/20 py-10' : 'py-16'}`}
+    >
       {icon && (
         <div className="mb-2 flex size-12 items-center justify-center rounded-full bg-sunken text-muted [&_svg]:size-5">
           {icon}
