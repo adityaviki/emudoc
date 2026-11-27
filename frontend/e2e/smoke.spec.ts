@@ -927,7 +927,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByText('In My files: only you see it.')).toBeVisible()
     await expect(page.getByRole('list', { name: 'Versions' })).toContainText('Written by the agent · From a chat')
     await expectAccessible(page, 'a file of My files the agent wrote')
-    // The library's My files, above the project's files, lists it, and its row shows the same tab.
+    // The library's My files, under its search and above the project's files, lists it, and its row shows the same tab.
     const listed = page.getByRole('list', { name: 'My files' })
     await expect(listed).toContainText('Notes on the invoice.docx')
     await expectAccessible(page, 'My files')

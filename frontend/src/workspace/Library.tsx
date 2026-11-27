@@ -13,6 +13,7 @@ import {
   FolderPlus,
   FolderSync,
   FolderUp,
+  Folders,
   GitCompareArrows,
   ListChecks,
   Mail,
@@ -28,7 +29,7 @@ import {
   WifiOff,
   X,
 } from 'lucide-react'
-import { createElement, Fragment, useEffect, useRef, useState } from 'react'
+import { createElement, Fragment, useEffect, useId, useRef, useState } from 'react'
 import type { DragEvent, FocusEvent, KeyboardEvent, MouseEvent, ReactNode, RefObject } from 'react'
 import {
   ACCEPTED_EXTENSIONS,
@@ -45,11 +46,11 @@ import { StatusIcon } from '../components/IndexingStatus.tsx'
 import type { MenuItem } from '../components/Menu.tsx'
 import { SearchBox } from '../components/SearchBox.tsx'
 import { Confirm } from '../components/Confirm.tsx'
-import { Button, EmptyState, IconButton, Notice, SelectField, Spinner } from '../components/ui.tsx'
+import { Button, EmptyState, IconButton, Notice, SectionBar, SelectField, Spinner } from '../components/ui.tsx'
 import { useContextMenu } from '../components/useContextMenu.tsx'
 import { uploadCutOff, uploadWaiting } from '../connection.ts'
 import { libraryPlace } from '../failures.ts'
-import { cursorAfter } from '../focus.ts'
+import { PROJECT_FILES_TOGGLE, cursorAfter } from '../focus.ts'
 import { useFolders, useLocalStorage, useOnline, useStatus } from '../hooks.ts'
 import type { FolderTree } from '../hooks.ts'
 import { partlyIndexedWords, restHeld, unfinishedStages } from '../indexing.ts'
@@ -76,6 +77,7 @@ import { chosenFolder, droppedEntries, readEntries } from './dropped.ts'
 import { photoName } from './uploads.ts'
 import { ConnectorsView } from './Connectors.tsx'
 import { MailboxView } from './Mailbox.tsx'
+import { MyFilesSection } from './MyFiles.tsx'
 import { fileKind, originalFileItem } from './files.ts'
 import { BY_NAME, growing, hasMore, listed, nameOf, placeKey, showMore, useListings } from './listing.ts'
 import type { Arrangement, Listing } from './listing.ts'
@@ -147,6 +149,18 @@ const isArrangement = (value: unknown): value is Arrangement =>
   SORT_NAMES.includes((value as Arrangement).sort) &&
   ['asc', 'desc'].includes((value as Arrangement).order)
 const isLayout = (value: unknown): value is LibraryLayout => value === 'list' || value === 'grid'
+// Which of the member's My files and the project's files are open under the search, in this browser for every project.
+interface OpenSections {
+  mine: boolean
+  project: boolean
+}
+const SECTIONS_KEY = 'emudoc.library-sections'
+const BOTH_OPEN: OpenSections = { mine: true, project: true }
+const isOpenSections = (value: unknown): value is OpenSections =>
+  typeof value === 'object' &&
+  value !== null &&
+  typeof (value as OpenSections).mine === 'boolean' &&
+  typeof (value as OpenSections).project === 'boolean'
 // How wide a tile of the grid is at the least, with the gap after it, in pixels.
 const TILE_WIDTH = 128
 
@@ -203,6 +217,17 @@ export function Library() {
   const flat = !('folder' in place)
   const [arrangement, setArrangement] = useLocalStorage<Arrangement>(ARRANGEMENT_KEY, BY_NAME, isArrangement)
   const [layout, setLayout] = useLocalStorage<LibraryLayout>(LAYOUT_KEY, 'list', isLayout)
+  const [sections, setSections] = useLocalStorage<OpenSections>(SECTIONS_KEY, BOTH_OPEN, isOpenSections)
+  const projectBody = useId()
+  // A folder, a place, a search or a page of the project's files opened from elsewhere (a document's path, the trash's
+  // way back) is shown, never left behind a closed heading.
+  const shownPlace = useRef(JSON.stringify(workspace.url.library))
+  useEffect(() => {
+    const place = JSON.stringify(workspace.url.library)
+    if (shownPlace.current === place) return
+    shownPlace.current = place
+    setSections((current) => (current.project ? current : { ...current, project: true }))
+  }, [workspace.url.library, setSections])
 
   function uploadItems(items: UploadItem[], targetId: number | null, unread: string[] = []) {
     const refusal = project.sample ? SAMPLE_UPLOADS : mutations.startUpload(items, targetId, unread)
@@ -470,41 +495,65 @@ export function Library() {
         )}
       </div>
 
-      {/* A folder or a search that breaks leaves the path and the search's box, from which another opens. */}
-      <ErrorBoundary part="library" resetKey={libraryPlace(workspace.url.library)}>
-        {search && !search.q ? (
-          // A search without words, narrowed already: what narrows it, waiting for the words.
-          <div className="min-h-0 flex-1 overflow-y-auto p-2">{searchResults}</div>
-        ) : (
-          <Listing
-            key={`${placeKey(place)}:${nameOf(place) ?? ''}:${layout}`}
-            place={place}
-            heading={search ? (allNamed(place) ? 'Files' : placeName(place)) : undefined}
-            after={searchResults || undefined}
-            arrangement={arrangement}
-            layout={layout}
-            creating={creating}
-            onCreatingChange={setCreating}
-            mutations={mutations}
-            changes={changes}
-            dragging={dragging}
-            onDragChange={(payload) => {
-              dragging.current = payload
-            }}
-            onUploadDropped={uploadDropped}
-            onPickFiles={() => fileInput.current?.click()}
-            onPickFolder={() => folderInput.current?.click()}
-            onPickVersion={
-              uploads
-                ? (document) => {
-                    versionOf.current = document
-                    versionInput.current?.click()
-                  }
-                : undefined
-            }
+      {/* Under the search, the member's own files, which it searches none of, then the project's files, each opened and
+          closed by its heading; a search shows what it finds alone. My files that break leave the project's files. */}
+      {!search && (
+        <ErrorBoundary part="library">
+          <MyFilesSection
+            open={sections.mine}
+            onToggle={() => setSections((current) => ({ ...current, mine: !current.mine }))}
+            capped={sections.project}
           />
-        )}
-      </ErrorBoundary>
+        </ErrorBoundary>
+      )}
+      {!search && (
+        <SectionBar
+          id={PROJECT_FILES_TOGGLE}
+          controls={projectBody}
+          open={sections.project}
+          onToggle={() => setSections((current) => ({ ...current, project: !current.project }))}
+          icon={<Folders />}
+          title="Project files"
+        />
+      )}
+      {/* Closed, the listing stays, hidden: its selection and its folders' pages are there as it opens again. */}
+      <div id={projectBody} hidden={!search && !sections.project} className="flex min-h-0 flex-1 flex-col">
+        {/* A folder or a search that breaks leaves the path and the search's box, from which another opens. */}
+        <ErrorBoundary part="library" resetKey={libraryPlace(workspace.url.library)}>
+          {search && !search.q ? (
+            // A search without words, narrowed already: what narrows it, waiting for the words.
+            <div className="min-h-0 flex-1 overflow-y-auto p-2">{searchResults}</div>
+          ) : (
+            <Listing
+              key={`${placeKey(place)}:${nameOf(place) ?? ''}:${layout}`}
+              place={place}
+              heading={search ? (allNamed(place) ? 'Files' : placeName(place)) : undefined}
+              after={searchResults || undefined}
+              arrangement={arrangement}
+              layout={layout}
+              creating={creating}
+              onCreatingChange={setCreating}
+              mutations={mutations}
+              changes={changes}
+              dragging={dragging}
+              onDragChange={(payload) => {
+                dragging.current = payload
+              }}
+              onUploadDropped={uploadDropped}
+              onPickFiles={() => fileInput.current?.click()}
+              onPickFolder={() => folderInput.current?.click()}
+              onPickVersion={
+                uploads
+                  ? (document) => {
+                      versionOf.current = document
+                      versionInput.current?.click()
+                    }
+                  : undefined
+              }
+            />
+          )}
+        </ErrorBoundary>
+      </div>
 
       {uploads && (
         <>
