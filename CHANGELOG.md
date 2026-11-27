@@ -16,6 +16,9 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 
 ### Users
 
+- My files and Project files, opened with nothing in them, say so in a dashed box right under
+  their heading: "No files yet" in My files, "This library is empty" with its upload buttons in
+  Project files.
 - Where the workspace sends no email and you are its only owner or admin, the help menu no longer
   shows "Write to your workspace's admins" with a note that there is nobody to write to: it shows
   its links alone.

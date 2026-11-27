@@ -126,6 +126,13 @@ export function MyFilesSection({ open, onToggle, capped }: MyFilesSectionProps) 
             <Spinner />
           </div>
         )}
+        {files.data && listed.length === 0 && (
+          // Said in a box of the project files' kind, so that the section opened is not taken for one closed.
+          <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-ink/20 px-3 py-4 text-[13px] text-muted">
+            <FolderLock aria-hidden className="size-4 shrink-0" />
+            No files yet
+          </div>
+        )}
         {listed.length > 0 && (
           <ul aria-label="My files">
             {listed.map((file) => (
