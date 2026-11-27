@@ -65,6 +65,7 @@ from app.models import (
     Membership,
     MyFile,
     MyFileVersion,
+    MyFolder,
     Notification,
     Organization,
     Passage,
@@ -77,6 +78,7 @@ from app.models import (
     User,
 )
 from app.models import UserSession as SessionRow
+from app.my_files import paths_of
 from app.notices import PROJECT_EXPORT, app_address, choices, tell
 from app.retention import day
 from app.scanning import scan_passed
@@ -255,6 +257,9 @@ def account_export(session: Session, user: User) -> AccountExport:
         .order_by(MyFileVersion.file_id, MyFileVersion.number)
     ):
         my_versions[version.file_id].append(version)
+    my_folders = paths_of(
+        list(session.scalars(select(MyFolder).where(MyFolder.user_id == user.id)))
+    )
     notifications = session.execute(
         select(Notification, Organization.slug)
         .join(Organization, Organization.id == Notification.org_id)
@@ -377,6 +382,7 @@ def account_export(session: Session, user: User) -> AccountExport:
             ExportedMyFile(
                 organization=slug,
                 project=project,
+                folder=my_folders.get(row.folder_id) if row.folder_id else None,
                 name=row.name,
                 kind=row.kind,
                 created_at=row.created_at,

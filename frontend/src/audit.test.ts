@@ -265,6 +265,12 @@ describe('a row', () => {
     expect(describeDetail(event('my_file_version_added', { kind: 'docx', version: 3, by_model: true }))).toBe(
       'a Word document, version 3, by the agent in a chat',
     )
+    expect(describeDetail(event('my_file_moved', { kind: 'xlsx' }))).toBe('an Excel workbook')
+  })
+
+  it('words a folder of My files deleted by what went with it, never by its name', () => {
+    expect(describeDetail(event('my_folder_deleted', { files: 2, folders: 1 }))).toBe('with 2 files and 1 folder in it')
+    expect(describeDetail(event('my_folder_deleted', { files: 1, folders: 0 }))).toBe('with 1 file and 0 folders in it')
   })
 
   it('words a share link by its document, its days and its password', () => {

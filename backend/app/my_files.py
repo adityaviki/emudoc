@@ -8,6 +8,10 @@ library, where it becomes a document like any upload (app/api/my_files.py). It i
 that none of the many places that read a project's documents can show it to another member by
 forgetting to leave it out; it is not indexed, and the agent reads it with tools of its own.
 
+A member keeps their files in folders of their own if they like (`MyFolder`, 2026-11-27, the owner's
+"upload files, upload folder, new folder … in the my files section"), nested as the project's
+folders are and seen by them alone; a folder deleted takes what it holds for good.
+
 A file keeps its versions, never changed: each of its member's uploads and each of the agent's
 writings adds one, the newest being the file. A version the member uploaded is scanned for
 malware first; each is shown as it looks by the PDF the converter makes of it (app/conversion.py),
@@ -25,7 +29,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import BinaryIO
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -38,10 +42,11 @@ from app.conversion import (
     ConvertError,
     convert_file,
 )
-from app.db import SessionLocal
+from app.db import MIGRATION_LOCK, SessionLocal
 from app.errors import shown
+from app.folders import MAX_DEPTH, NAME_LENGTH, PATH_SEPARATOR, folder_names
 from app.jobs import LIVE, VIEW_MY_FILE, Job, Lease, LeaseLost, enqueue, renew
-from app.models import MyFile, MyFileVersion, Organization, Project
+from app.models import MyFile, MyFileVersion, MyFolder, Organization, Project
 from app.rendering import RenderError
 from app.scanning import ScanError, Scanner
 from app.storage import Storage, StorageError, my_file_key, my_file_prefix
@@ -61,6 +66,11 @@ MAX_FILES = 200
 NAME_CHARS = 200
 # What a member's own upload says it changed, in the versions' list.
 UPLOADED = "Uploaded"
+# How many folders a member keeps in one project's My files.
+MAX_FOLDERS = 200
+# The advisory lock a member's folders are made under, their id the second key, so that two
+# uploads of one folder at once make each of its folders once.
+MY_FOLDERS_LOCK = MIGRATION_LOCK + 8
 
 WRONG_KIND = (
     "My files keeps Word documents (.docx) and Excel workbooks (.xlsx). Save this file as one of "
@@ -78,6 +88,17 @@ SAVED_MEANWHILE = (
 FLAGGED = (
     "The malware scan flagged this file as {threat}, so it cannot be opened, downloaded or copied. "
     "Delete it."
+)
+TOO_MANY_FOLDERS = (
+    f"You have {MAX_FOLDERS} folders in My files in this project, as many as it keeps. Delete some "
+    "to make more."
+)
+FOLDER_NAME = 'A folder\'s name cannot be empty, "." or "..", or hold a "/". Choose another.'
+FOLDER_TAKEN = "A folder named “{name}” is here already. Choose another name."
+NO_FOLDER = "That folder is no longer in your My files. Choose another."
+BAD_PATH = (
+    "The folder this file was in has a name My files cannot take, or lies more than "
+    f"{MAX_DEPTH} folders deep. Move it higher, then upload it again."
 )
 
 
@@ -113,6 +134,113 @@ def files_of(session: Session, project_id: int, user_id: int) -> list[MyFile]:
             .order_by(MyFile.updated_at.desc(), MyFile.id.desc())
         )
     )
+
+
+def folders_of(session: Session, project_id: int, user_id: int) -> list[MyFolder]:
+    """The member's folders in the project, by name."""
+    return list(
+        session.scalars(
+            select(MyFolder)
+            .where(MyFolder.project_id == project_id, MyFolder.user_id == user_id)
+            .order_by(MyFolder.name, MyFolder.id)
+        )
+    )
+
+
+def paths_of(folders: list[MyFolder]) -> dict[int, str]:
+    """Each folder's path from the top of its member's My files, like "Letters/2026"."""
+    by_id = {folder.id: folder for folder in folders}
+    paths: dict[int, str] = {}
+
+    def path(folder: MyFolder) -> str:
+        if folder.id not in paths:
+            parent = by_id.get(folder.parent_id) if folder.parent_id else None
+            paths[folder.id] = (
+                f"{path(parent)}{PATH_SEPARATOR}{folder.name}" if parent else folder.name
+            )
+        return paths[folder.id]
+
+    for folder in folders:
+        path(folder)
+    return paths
+
+
+def own_folder(
+    session: Session, project_id: int, user_id: int, folder_id: int | None
+) -> MyFolder | None:
+    """The member's folder of this id in the project, None for the top of their My files; raises
+    `Refused` with 404 for a folder that is not theirs there, or no longer is."""
+    if folder_id is None:
+        return None
+    folder = session.get(MyFolder, folder_id)
+    if folder is None or folder.project_id != project_id or folder.user_id != user_id:
+        raise Refused(NO_FOLDER, 404)
+    return folder
+
+
+def make_folder(
+    session: Session, project: Project, user_id: int, parent_id: int | None, name: str
+) -> MyFolder:
+    """Make a folder in the member's My files in the project, in `parent_id` or at the top, and
+    commit; raises `Refused` with nothing written for a name taken there, whatever its case."""
+    try:
+        own_folder(session, project.id, user_id, parent_id)
+        cleaned = _folder_name(name)
+        _lock(session, user_id)
+        if _child(session, project.id, user_id, parent_id, cleaned) is not None:
+            raise Refused(FOLDER_TAKEN.format(name=cleaned), 409)
+        folder = _new_folder(session, project, user_id, parent_id, cleaned)
+    except Refused:
+        session.rollback()
+        raise
+    session.commit()
+    return folder
+
+
+def rename_folder(session: Session, folder: MyFolder, name: str) -> None:
+    """Give the folder a new name no other folder beside it carries, and commit."""
+    cleaned = _folder_name(name)
+    taken = _child(session, folder.project_id, folder.user_id, folder.parent_id, cleaned)
+    if taken is not None and taken != folder.id:
+        raise Refused(FOLDER_TAKEN.format(name=cleaned), 409)
+    folder.name = cleaned
+    session.commit()
+
+
+def move_file(session: Session, file: MyFile, folder_id: int | None) -> None:
+    """Put the file into another of its member's folders, or at the top, and commit."""
+    own_folder(session, file.project_id, file.user_id, folder_id)
+    file.folder_id = folder_id
+    session.commit()
+
+
+def delete_folder(session: Session, storage: Storage, folder: MyFolder) -> tuple[int, int]:
+    """Delete the folder for good with the folders and files in it, then the files' stored files,
+    as `delete_file` does a file's; returns how many folders were inside and how many files."""
+    children: dict[int | None, list[int]] = {}
+    for folder_id, parent_id in session.execute(
+        select(MyFolder.id, MyFolder.parent_id).where(
+            MyFolder.project_id == folder.project_id, MyFolder.user_id == folder.user_id
+        )
+    ):
+        children.setdefault(parent_id, []).append(folder_id)
+    inside: set[int] = set()
+    stack = [folder.id]
+    while stack:
+        current = stack.pop()
+        inside.add(current)
+        stack.extend(children.get(current, []))
+    files = list(session.scalars(select(MyFile.id).where(MyFile.folder_id.in_(inside))))
+    prefixes = [my_file_prefix(folder.org_id, folder.project_id, file_id) for file_id in files]
+    # The database deletes what is inside with it (`ondelete="CASCADE"`).
+    session.delete(folder)
+    session.commit()
+    for prefix in prefixes:
+        try:
+            storage.delete_prefix(prefix)
+        except StorageError as error:
+            log.warning("Could not delete the files of a file in My files at %s: %s", prefix, error)
+    return len(inside) - 1, len(files)
 
 
 def versions_of(session: Session, file_id: int) -> list[MyFileVersion]:
@@ -157,12 +285,16 @@ def add_file(
     note: str = UPLOADED,
     origin_document_id: int | None = None,
     answer: tuple[int, int] | None = None,
+    folder_id: int | None = None,
+    path: str = "",
 ) -> MyFile:
     """Keep `upload`, named `name`, as a new file of the member's My files in the project and
     commit; raises `Refused` with nothing written. `by_model` says the agent wrote it, which needs
     no scan; the member's upload is scanned when there is a `scanner`, and shown as it looks when
     there is a `converter`, by the job this queues. `answer` is the answer that made it and which
-    of its files it is (app/agent/writing.py)."""
+    of its files it is (app/agent/writing.py). It goes into the member's folder `folder_id`, or
+    the top for none, and below it into the folders `path` names ("Letters/2026", a folder's file
+    uploaded with its folders), each made where none of its name is."""
     kind = kind_of(name)
     if kind is None:
         raise Refused(WRONG_KIND)
@@ -174,6 +306,9 @@ def add_file(
         )
         if held >= MAX_FILES:
             raise Refused(TOO_MANY, 409)
+        own_folder(session, project.id, user_id, folder_id)
+        if path:
+            folder_id = _folder_at(session, project, user_id, folder_id, path)
         with _spooled(upload, f".{kind}") as (spool, size, sha256):
             file = MyFile(
                 org_id=organization.id,
@@ -181,6 +316,7 @@ def add_file(
                 user_id=user_id,
                 name=own_name(name, kind),
                 kind=kind,
+                folder_id=folder_id,
                 origin_document_id=origin_document_id,
                 answer_id=answer[0] if answer else None,
                 answer_ordinal=answer[1] if answer else None,
@@ -276,9 +412,11 @@ def delete_file(session: Session, storage: Storage, file: MyFile) -> None:
 
 
 def drop_files(session: Session, org_id: int, user_id: int) -> None:
-    """Delete the member's files in every project of the organisation they are leaving, in the
-    caller's transaction; the storage walk sweeps their files once it has committed."""
+    """Delete the member's files and folders in every project of the organisation they are
+    leaving, in the caller's transaction; the storage walk sweeps their files once it has
+    committed."""
     session.execute(delete(MyFile).where(MyFile.org_id == org_id, MyFile.user_id == user_id))
+    session.execute(delete(MyFolder).where(MyFolder.org_id == org_id, MyFolder.user_id == user_id))
 
 
 def ask_view(
@@ -301,6 +439,85 @@ def ask_view(
         version.view_error = None
     _queue(session, version, version.file_id)
     return True
+
+
+def _folder_name(name: str) -> str:
+    """A folder's name with its spaces tidied, as the project's folders' are; raises `Refused`
+    for one no folder can take."""
+    cleaned = " ".join(name.split())
+    if cleaned in ("", ".", "..") or PATH_SEPARATOR in cleaned or len(cleaned) > NAME_LENGTH:
+        raise Refused(FOLDER_NAME)
+    return cleaned
+
+
+def _folder_at(
+    session: Session, project: Project, user_id: int, parent_id: int | None, path: str
+) -> int | None:
+    """The member's folder `path` leads to below `parent_id`, each folder made where none beside
+    it carries its name, whatever its case, so that a folder uploaded again goes into the one it
+    made before: looked for, then looked for again and made under MY_FOLDERS_LOCK, held until the
+    caller commits."""
+    names = folder_names(path)
+    if names is None:
+        raise Refused(BAD_PATH)
+    held = False
+    for name in names:
+        found = _child(session, project.id, user_id, parent_id, name)
+        if found is None and not held:
+            _lock(session, user_id)
+            held = True
+            found = _child(session, project.id, user_id, parent_id, name)
+        if found is None:
+            found = _new_folder(session, project, user_id, parent_id, name).id
+        parent_id = found
+    return parent_id
+
+
+def _new_folder(
+    session: Session, project: Project, user_id: int, parent_id: int | None, name: str
+) -> MyFolder:
+    """A new folder's row, flushed, once the member has room for one more; under the lock."""
+    count = session.scalar(
+        select(func.count(MyFolder.id)).where(
+            MyFolder.project_id == project.id, MyFolder.user_id == user_id
+        )
+    )
+    if count >= MAX_FOLDERS:
+        raise Refused(TOO_MANY_FOLDERS, 409)
+    folder = MyFolder(
+        org_id=project.org_id,
+        project_id=project.id,
+        user_id=user_id,
+        parent_id=parent_id,
+        name=name,
+    )
+    session.add(folder)
+    session.flush()
+    return folder
+
+
+def _child(
+    session: Session, project_id: int, user_id: int, parent_id: int | None, name: str
+) -> int | None:
+    """The member's folder of this name in `parent_id`, whatever its case."""
+    return session.scalar(
+        select(MyFolder.id)
+        .where(
+            MyFolder.project_id == project_id,
+            MyFolder.user_id == user_id,
+            MyFolder.parent_id == parent_id,
+            func.lower(MyFolder.name) == name.lower(),
+        )
+        .order_by(MyFolder.id)
+        .limit(1)
+    )
+
+
+def _lock(session: Session, user_id: int) -> None:
+    session.execute(
+        text("SELECT pg_advisory_xact_lock(:key, :user)"),
+        {"key": MY_FOLDERS_LOCK, "user": user_id},
+    )
 
 
 def _version(

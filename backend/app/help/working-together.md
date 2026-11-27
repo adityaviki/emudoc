@@ -6,13 +6,18 @@ The library shows two lists under its search box, each opened and closed by its 
 files** holds your own Word documents and Excel workbooks in the project, which only you see:
 nobody else does, the workspace's owners and admins included. **Project files**, below it, holds
 the documents and folders every member of the project sees.
-"Add a file" keeps one there$my_views, up to $my_files in a project. A file opens in a tab beside the
-documents you have open, a lock on it saying it is yours alone. Edit it in Word or Excel and
-give it back with "Upload a new version": every version stays, to show or download. "Copy to
-project files" gives the project's members a copy, as a new document or as the next version of
-the document it came from, if you may change the project. Right-click a file in the list for all
-of these, as in Project files: open, download, rename, upload a new version, copy or delete it.
-My files are not searched, exported with the project or shared by link.
+Right-click the My files heading or the list's empty space for "Upload files" and "Upload a
+folder", up to $my_files files in a project, and "New folder": keep them in folders of your own as
+you would in Project files. A folder uploaded brings its Word documents and workbooks with its
+subfolders, and says which other files it left out. Right-click a folder to upload into it, make a
+folder in it, rename it or delete it with everything in it. A file opens in a tab beside the
+documents you have open$my_views, a lock on it saying it is yours alone. Edit it in Word or
+Excel and give it back with "Upload a new version": every version stays, to show or download.
+"Copy to project files" gives the project's members a copy, as a new document or as the next
+version of the document it came from, if you may change the project. Right-click a file in the
+list for all of these, as in Project files: open, download, rename, move it to another folder,
+upload a new version, copy or delete it. My files are not searched, exported with the project or
+shared by link.
 
 The assistant writes there for you, whatever your role. Ask in a chat for a letter, a memo or a
 report and it writes the Word document into your My files, its sources as numbered notes, and

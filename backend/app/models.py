@@ -334,6 +334,10 @@ AUDIT_ACTIONS = (
     "reset_link_made",
     "provider_switched",
     "email_link_made",
+    "my_folder_created",
+    "my_folder_renamed",
+    "my_folder_deleted",
+    "my_file_moved",
 )
 
 
@@ -1503,6 +1507,34 @@ class Fact(Base):
     verified: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
+class MyFolder(Base):
+    """A folder of a member's own My files in a project (app/my_files.py), which holds their files
+    and other folders as the project's folders hold its documents, seen by them alone. A null
+    parent is the top of their My files. It is deleted for good with everything in it, never put
+    in the trash, as its files are."""
+
+    __tablename__ = "my_folders"
+    __table_args__ = (
+        # A member's folders in a project, which their list reads with their files.
+        Index("ix_my_folders_owner", "project_id", "user_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    # Whose it is; indexed for an account purged and a member leaving, whose folders go with them.
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("my_folders.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class MyFile(Base):
     """A file of a member's own in a project, among their My files (app/my_files.py): a Word
     document or an Excel workbook they keep there, which the agent writes or edits for them, seen
@@ -1549,6 +1581,11 @@ class MyFile(Base):
         ForeignKey("chat_messages.id", ondelete="SET NULL")
     )
     answer_ordinal: Mapped[int | None] = mapped_column(SmallInteger)
+    # The folder of its member's My files it is in, null for the top. Deleting a folder deletes
+    # the files in it, whose stored files the storage walk then sweeps (app/my_files.py).
+    folder_id: Mapped[int | None] = mapped_column(
+        ForeignKey("my_folders.id", ondelete="CASCADE"), index=True
+    )
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

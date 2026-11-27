@@ -58,6 +58,7 @@ class World:
     webhook_id: int
     link_id: int
     my_file_id: int
+    my_folder_id: int
 
 
 @pytest.fixture
@@ -113,9 +114,11 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
     session.flush()
     connector.refresh_token = encrypt(CONNECTOR_TOKENS, connector.id, "refresh-1")
     session.commit()
-    letter = {"file": ("Letter.docx", word("Dear Acme,"))}
+    letter = [("files", ("Letter.docx", word("Dear Acme,")))]
     my_file = client.post(f"/api/projects/{project['id']}/my-files", files=letter)
     assert my_file.status_code == 201, my_file.text
+    my_folder = client.post(f"/api/projects/{project['id']}/my-folders", json={"name": "Letters"})
+    assert my_folder.status_code == 201, my_folder.text
     for path in (
         f"/api/folders/{trashed_folder['id']}",
         f"/api/documents/{note['id']}",
@@ -143,7 +146,8 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
         connector.id,
         hook.json()["id"],
         link.json()["id"],
-        my_file.json()["id"],
+        my_file.json()["files"][0]["id"],
+        my_folder.json()["id"],
     )
 
 
@@ -381,16 +385,17 @@ def members(w: World) -> list[Route]:
 def keeps(w: World) -> list[Route]:
     """A reader's own My files in the project (test_my_files.py): their list and a file kept
     there, which a viewer keeps too, since it changes nothing the members share."""
-    letter = {"file": ("Notes.docx", word("My notes."))}
+    letter = [("files", ("Notes.docx", word("My notes.")))]
     return [
         ("GET", f"/api/projects/{w.project_id}/my-files", {}),
         ("POST", f"/api/projects/{w.project_id}/my-files", {"files": letter}),
+        ("POST", f"/api/projects/{w.project_id}/my-folders", {"json": {"name": "Mine"}}),
     ]
 
 
 def own_files(w: World) -> list[Route]:
-    """The routes that name a file of the owner's My files, which nobody else finds, the
-    organisation's admins included."""
+    """The routes that name a file or a folder of the owner's My files, which nobody else finds,
+    the organisation's admins included."""
     file = f"/api/my-files/{w.my_file_id}"
     version = {"file": ("Letter.docx", word("Dear Acme, again."))}
     return [
@@ -402,6 +407,8 @@ def own_files(w: World) -> list[Route]:
         ("POST", f"{file}/versions/1/view", {}),
         ("POST", f"{file}/copy", {"json": {}}),
         ("DELETE", file, {}),
+        ("PATCH", f"/api/my-folders/{w.my_folder_id}", {"json": {"name": "Mine"}}),
+        ("DELETE", f"/api/my-folders/{w.my_folder_id}", {}),
     ]
 
 

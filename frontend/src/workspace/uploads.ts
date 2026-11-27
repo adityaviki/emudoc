@@ -37,7 +37,8 @@ const SYSTEM_FILES = new Set(['thumbs.db', 'ehthumbs.db', 'desktop.ini'])
 /** A file's name with the folders it is in, as the server names one it rejects. */
 export const pathOf = ({ file, folder }: UploadItem) => (folder ? `${folder}/${file.name}` : file.name)
 
-const hidden = (item: UploadItem) =>
+/** Whether an item is one of the files a folder holds that its owner does not see, which an upload leaves out unsaid. */
+export const hidden = (item: UploadItem) =>
   item.folder !== '' &&
   (SYSTEM_FILES.has(item.file.name.toLowerCase()) || pathOf(item).split('/').some((name) => name.startsWith('.')))
 

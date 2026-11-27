@@ -144,9 +144,9 @@ export interface FolderChoice {
   label: string
 }
 
-/** The project's folders in the library's order, each by its path: "Inbox", "Inbox/Invoices". */
-export function folderChoices(folders: Folder[]): FolderChoice[] {
-  const children = new Map<number | null, Folder[]>()
+/** The project's folders in the library's order, each by its path: "Inbox", "Inbox/Invoices"; My files' folders too. */
+export function folderChoices(folders: Pick<Folder, 'id' | 'parent_id' | 'name'>[]): FolderChoice[] {
+  const children = new Map<number | null, Pick<Folder, 'id' | 'parent_id' | 'name'>[]>()
   for (const folder of folders) children.set(folder.parent_id, [...(children.get(folder.parent_id) ?? []), folder])
   const found: FolderChoice[] = []
   const visit = (parentId: number | null, path: string) => {

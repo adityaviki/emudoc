@@ -164,6 +164,10 @@ export const ACTIONS: Record<AuditAction, [label: string, kind: AuditKind]> = {
   my_file_deleted: ['Deleted a file in My files', 'files'],
   my_file_downloaded: ['Downloaded a file in My files', 'files'],
   my_file_copied: ['Copied a file in My files into the library', 'files'],
+  my_file_moved: ['Moved a file in My files to another folder', 'files'],
+  my_folder_created: ['Made a folder in My files', 'files'],
+  my_folder_renamed: ['Renamed a folder in My files', 'files'],
+  my_folder_deleted: ['Deleted a folder in My files', 'files'],
 }
 
 /** What a row's action is called: by ACTIONS, or for one a page loaded before a release does not know, by its name. */
@@ -239,6 +243,7 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   else if (DRAFT_ACTIONS.has(event.action)) parts.push(describeDraft(detail))
   else if (DRAFT_TEMPLATE_ACTIONS.has(event.action)) parts.push(describeDraftTemplate(detail))
   else if (event.action.startsWith('my_file_')) parts.push(describeMyFile(event.action, detail))
+  else if (event.action === 'my_folder_deleted') parts.push(describeMyFolderDeleted(detail))
   else if (MAILBOX_ACTIONS.has(event.action) && event.action !== 'mailbox_deleted') parts.push(describeMailbox(detail))
   else if (CONNECTOR_ACTIONS.has(event.action)) parts.push(describeConnector(detail))
   else if (WEBHOOK_ACTIONS.has(event.action)) parts.push(describeWebhookChange(detail))
@@ -573,6 +578,15 @@ function describeMyFile(action: AuditAction, detail: AuditEvent['detail']): stri
     parts.push(writing ? `by the agent: ${kindWords(writing)}` : 'by the agent in a chat')
   }
   return parts.join(', ')
+}
+
+/** A folder of My files deleted for good: how many files and folders went with it, never their names, which are the member's own. */
+function describeMyFolderDeleted(detail: AuditEvent['detail']): string {
+  const count = (value: unknown, one: string) => {
+    const n = typeof value === 'number' ? value : 0
+    return `${n} ${one}${n === 1 ? '' : 's'}`
+  }
+  return `with ${count(detail.files, 'file')} and ${count(detail.folders, 'folder')} in it`
 }
 
 // A project's own writing template made, changed or given up for the built-in one, until the writing templates went on

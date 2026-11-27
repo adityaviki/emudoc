@@ -516,6 +516,8 @@ export interface MyFile {
   project_id: number
   name: string
   kind: MyFileKind
+  /** The member's folder it is in, null for the top of their My files. */
+  folder_id: number | null
   origin_document_id: number | null
   origin_name: string | null
   latest: MyFileVersion
@@ -532,9 +534,23 @@ export interface MyFileDetail extends MyFile {
 /** The files a text citing passages downloads as: an answer, a chat (backend/app/draft_export.py, backend/app/chat_export.py). */
 export type TextFormat = 'docx' | 'pdf' | 'md'
 
-/** The member's files in a project, the one changed last first, and how many files it keeps (MyFilesOut). */
+/** What an upload into My files kept, in the order sent, and what it refused, each by its path below the folder chosen (MyFilesAddedOut). */
+export interface MyFilesAdded {
+  files: MyFileDetail[]
+  rejected: UploadResult['rejected']
+}
+
+/** A folder of the member's own My files (MyFolderOut): its name and the folder it is in, null for the top. */
+export interface MyFolder {
+  id: number
+  parent_id: number | null
+  name: string
+}
+
+/** The member's files in a project, the one changed last first, their folders by name, and how many files it keeps (MyFilesOut). */
 export interface MyFiles {
   files: MyFile[]
+  folders: MyFolder[]
   limit: number
 }
 
@@ -1208,6 +1224,10 @@ export type AuditAction =
   | 'reset_link_made'
   | 'provider_switched'
   | 'email_link_made'
+  | 'my_folder_created'
+  | 'my_folder_renamed'
+  | 'my_folder_deleted'
+  | 'my_file_moved'
 
 /** One row of the organisation's audit log, which its owners and admins read. */
 export interface AuditEvent {
@@ -1972,11 +1992,13 @@ export const api = {
     request<void>(`/projects/${projectId}/connectors/${connectorId}`, { method: 'DELETE' }),
   /** The member's own files in the project, the one changed last first, and how many it keeps. */
   myFiles: (projectId: number) => request<MyFiles>(`/projects/${projectId}/my-files`),
-  /** Keep a Word or Excel file in the member's My files. */
-  addMyFile: (projectId: number, file: File) => {
+  /** Keep Word and Excel files in the member's My files: in their folder `folderId` or at the top, each below it in the folders its item names, made as needed ("Letters/2026", a folder uploaded whole). */
+  addMyFiles: (projectId: number, items: UploadItem[], folderId: number | null) => {
     const form = new FormData()
-    form.append('file', file)
-    return request<MyFileDetail>(`/projects/${projectId}/my-files`, { method: 'POST', body: form })
+    for (const { file } of items) form.append('files', file)
+    if (items.some(({ folder }) => folder)) for (const { folder } of items) form.append('paths', folder)
+    if (folderId != null) form.append('folder_id', String(folderId))
+    return request<MyFilesAdded>(`/projects/${projectId}/my-files`, { method: 'POST', body: form })
   },
   myFile: (id: number) => request<MyFileDetail>(`/my-files/${id}`),
   /** Keep a file edited elsewhere as the next version, made from version `base`, which must still be the newest. */
@@ -1987,6 +2009,13 @@ export const api = {
     return request<MyFileDetail>(`/my-files/${id}/versions`, { method: 'POST', body: form })
   },
   renameMyFile: (id: number, name: string) => request<MyFileDetail>(`/my-files/${id}`, json('PATCH', { name })),
+  /** Put a file into another of the member's folders, null for the top. */
+  moveMyFile: (id: number, folderId: number | null) => request<MyFileDetail>(`/my-files/${id}`, json('PATCH', { folder_id: folderId })),
+  createMyFolder: (projectId: number, name: string, parentId: number | null) =>
+    request<MyFolder>(`/projects/${projectId}/my-folders`, json('POST', { name, parent_id: parentId })),
+  renameMyFolder: (id: number, name: string) => request<MyFolder>(`/my-folders/${id}`, json('PATCH', { name })),
+  /** Delete a folder for good with the folders and files in it. */
+  deleteMyFolder: (id: number) => request<void>(`/my-folders/${id}`, { method: 'DELETE' }),
   deleteMyFile: (id: number) => request<void>(`/my-files/${id}`, { method: 'DELETE' }),
   /** Have a version scanned and shown again, once either failed. */
   showMyFile: (id: number, number: number) => request<MyFileDetail>(`/my-files/${id}/versions/${number}/view`, { method: 'POST' }),

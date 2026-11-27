@@ -1,7 +1,8 @@
 """My files (app/my_files.py): each member's own Word and Excel files in a project, which they add,
-look at as they look, download, give new versions, rename, delete and copy into the project's
-library. A member reaches their own files alone (`MyFileDep`): another member's, an owner's or an
-admin's included, are not found.
+look at as they look, download, give new versions, rename, move between their folders, delete and
+copy into the project's library, and the folders they keep them in. A member reaches their own
+files and folders alone (`MyFileDep`, `MyFolderDep`): another member's, an owner's or an admin's
+included, are not found.
 
 The agent writes into a member's My files in a chat, with its tools (app/agent/writing.py).
 
@@ -9,7 +10,7 @@ Every route takes a session alone, never an API key, since a program has no file
 Whoever sees the project keeps files there, a viewer too; copying one into the library adds a
 document, so it is held to what holds an upload (`EditorDep`, the sample project's refusal). Each
 change is a row of the organisation's audit log naming the file by its kind and id, never its name,
-which is its member's own.
+which is its member's own, and a folder by its id alone, for the same reason.
 """
 
 import io
@@ -36,16 +37,18 @@ from app.api.deps import (
     AccountDep,
     EditorDep,
     MyFileDep,
+    MyFolderDep,
     ProjectDep,
     ServicesDep,
     SessionDep,
     WorkerDep,
     limited,
 )
-from app.api.documents import _draw_page, _drawn
+from app.api.documents import ONE_PATH_A_FILE, _draw_page, _drawn, too_many
 from app.api.folders import resolve_folder
 from app.audit import audit
-from app.models import Document, MyFile, MyFileVersion, Project
+from app.config import get_settings
+from app.models import Document, MyFile, MyFileVersion, MyFolder, Project
 from app.my_files import (
     MAX_FILES,
     MEDIA_TYPES,
@@ -54,8 +57,14 @@ from app.my_files import (
     add_version,
     ask_view,
     delete_file,
+    delete_folder,
     files_of,
+    folders_of,
+    make_folder,
+    move_file,
+    own_folder,
     rename,
+    rename_folder,
     servable,
     versions_of,
 )
@@ -67,9 +76,14 @@ from app.schemas import (
     MyFileCopyIn,
     MyFileDetailOut,
     MyFileOut,
-    MyFileRenameIn,
+    MyFilePatch,
+    MyFilesAddedOut,
     MyFilesOut,
     MyFileVersionOut,
+    MyFolderIn,
+    MyFolderOut,
+    MyFolderRenameIn,
+    RejectedFile,
 )
 from app.uploads import Incoming, take_files
 from app.usage import RENDER, record
@@ -94,45 +108,77 @@ REFUSED = {"too_large": 413, "duplicate": 409, "indexing": 409}
 
 @router.get("/projects/{project_id}/my-files", response_model=MyFilesOut)
 def list_files(project: ProjectDep, session: SessionDep, account: AccountDep):
-    """The member's files in the project, the one changed last first."""
+    """The member's files in the project, the one changed last first, and their folders."""
     files = files_of(session, project.id, account.user.id)
-    return MyFilesOut(files=_summaries(session, files), limit=MAX_FILES)
+    folders = folders_of(session, project.id, account.user.id)
+    return MyFilesOut(
+        files=_summaries(session, files),
+        folders=[MyFolderOut.model_validate(folder) for folder in folders],
+        limit=MAX_FILES,
+    )
 
 
 @router.post(
     "/projects/{project_id}/my-files",
-    response_model=MyFileDetailOut,
+    response_model=MyFilesAddedOut,
     status_code=201,
     dependencies=[Depends(limited(UPLOADS))],
 )
-def upload_file(
+def upload_files(
     project: ProjectDep,
-    file: Annotated[UploadFile, File()],
+    files: list[UploadFile],
     account: AccountDep,
     services: ServicesDep,
     session: SessionDep,
     request: Request,
     worker: WorkerDep,
+    folder_id: Annotated[int | None, Form()] = None,
+    paths: Annotated[list[str] | None, Form()] = None,
 ):
-    """Keep a Word or Excel file in the member's My files in the project."""
+    """Keep Word and Excel files in the member's My files in the project: in their folder
+    `folder_id`, or at the top, each below it in the folders its entry of `paths` names
+    ("Letters/2026", "" for that folder itself), made where none of its name is, as a folder
+    uploaded whole sends them. The request is refused whole when it carries more files or bytes
+    than one upload may (413, as the library's upload is) or names a folder that is not theirs
+    (404); a file refused is said in `rejected` with its sentence while the others are kept."""
+    if reason := too_many(files, get_settings()):
+        raise HTTPException(413, reason)
+    if paths is not None and len(paths) != len(files):
+        raise HTTPException(422, ONE_PATH_A_FILE)
     try:
-        kept = add_file(
-            session,
-            services.storage,
-            account.organization,
-            project,
-            account.user.id,
-            file.filename or "Untitled",
-            file.file,
-            scanner=services.scanner,
-            converter=services.converter,
-        )
+        own_folder(session, project.id, account.user.id, folder_id)
     except Refused as refused:
         raise _refusal(refused) from None
-    _audit(session, account, request, "my_file_added", kept, size_bytes=_newest(kept).size_bytes)
-    if worker:
+    added: list[MyFile] = []
+    rejected: list[RejectedFile] = []
+    for index, upload in enumerate(files):
+        path = paths[index] if paths is not None else ""
+        name = upload.filename or "Untitled"
+        try:
+            kept = add_file(
+                session,
+                services.storage,
+                account.organization,
+                project,
+                account.user.id,
+                name,
+                upload.file,
+                scanner=services.scanner,
+                converter=services.converter,
+                folder_id=folder_id,
+                path=path,
+            )
+        except Refused as refused:
+            shown = f"{path.strip('/')}/{name}" if path.strip("/") else name
+            rejected.append(RejectedFile(filename=shown, reason=refused.reason, index=index))
+            continue
+        _audit(
+            session, account, request, "my_file_added", kept, size_bytes=_newest(kept).size_bytes
+        )
+        added.append(kept)
+    if added and worker:
         worker.notify()
-    return _detail(session, kept)
+    return MyFilesAddedOut(files=[_detail(session, file) for file in added], rejected=rejected)
 
 
 @router.get("/my-files/{file_id}", response_model=MyFileDetailOut)
@@ -141,16 +187,83 @@ def get_file(file: MyFileDep, session: SessionDep):
 
 
 @router.patch("/my-files/{file_id}", response_model=MyFileDetailOut)
-def rename_file(
+def change_file(
     file: MyFileDep,
-    body: MyFileRenameIn,
+    body: MyFilePatch,
     account: AccountDep,
     session: SessionDep,
     request: Request,
 ):
-    rename(session, file, body.name)
-    _audit(session, account, request, "my_file_renamed", file)
+    """Rename the file, move it into another of the member's folders (`folder_id`, null for the
+    top), or both."""
+    if "folder_id" in body.model_fields_set and body.folder_id != file.folder_id:
+        try:
+            move_file(session, file, body.folder_id)
+        except Refused as refused:
+            raise _refusal(refused) from None
+        _audit(session, account, request, "my_file_moved", file)
+    if body.name is not None:
+        rename(session, file, body.name)
+        _audit(session, account, request, "my_file_renamed", file)
     return _detail(session, file)
+
+
+@router.post("/projects/{project_id}/my-folders", response_model=MyFolderOut, status_code=201)
+def create_folder(
+    project: ProjectDep,
+    body: MyFolderIn,
+    account: AccountDep,
+    session: SessionDep,
+    request: Request,
+):
+    """Make a folder in the member's My files in the project, in `parent_id` or at the top."""
+    try:
+        folder = make_folder(session, project, account.user.id, body.parent_id, body.name)
+    except Refused as refused:
+        raise _refusal(refused) from None
+    _audit_folder(session, account, request, "my_folder_created", folder)
+    return folder
+
+
+@router.patch("/my-folders/{folder_id}", response_model=MyFolderOut)
+def rename_my_folder(
+    folder: MyFolderDep,
+    body: MyFolderRenameIn,
+    account: AccountDep,
+    session: SessionDep,
+    request: Request,
+):
+    try:
+        rename_folder(session, folder, body.name)
+    except Refused as refused:
+        raise _refusal(refused) from None
+    _audit_folder(session, account, request, "my_folder_renamed", folder)
+    return folder
+
+
+@router.delete("/my-folders/{folder_id}", status_code=204)
+def remove_folder(
+    folder: MyFolderDep,
+    account: AccountDep,
+    services: ServicesDep,
+    session: SessionDep,
+    request: Request,
+):
+    """Delete the folder for good with the folders and files in it; the page asks first, since
+    nothing brings them back."""
+    project_id, folder_id = folder.project_id, folder.id
+    folders, files = delete_folder(session, services.storage, folder)
+    audit(
+        session,
+        account,
+        request,
+        "my_folder_deleted",
+        project_id=project_id,
+        target=("my_folder", folder_id),
+        detail={"folders": folders, "files": files},
+    )
+    session.commit()
+    return Response(status_code=204)
 
 
 @router.delete("/my-files/{file_id}", status_code=204)
@@ -458,6 +571,7 @@ def _out(file: MyFile, latest: MyFileVersion, versions: int, origin: str | None)
         project_id=file.project_id,
         name=file.name,
         kind=file.kind,
+        folder_id=file.folder_id,
         origin_document_id=file.origin_document_id if origin is not None else None,
         origin_name=origin,
         latest=MyFileVersionOut.model_validate(latest),
@@ -547,5 +661,21 @@ def _audit(
         project_id=file.project_id,
         target=("my_file", file.id),
         detail={"kind": file.kind, **detail},
+    )
+    session.commit()
+
+
+def _audit_folder(
+    session: Session, account: Account, request: Request, action: str, folder: MyFolder
+) -> None:
+    """A row of the organisation's audit log about a folder of My files, by its id alone, and
+    commit."""
+    audit(
+        session,
+        account,
+        request,
+        action,
+        project_id=folder.project_id,
+        target=("my_folder", folder.id),
     )
     session.commit()
