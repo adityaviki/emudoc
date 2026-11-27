@@ -33,7 +33,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
-import { api, organizations, pageLabel, sectionPath, sourceLabel } from '../api.ts'
+import { api, pageLabel, sectionPath, sourceLabel } from '../api.ts'
 import type { Chat, ChatScope, ScopeIn, Source, StepFile, TextFormat } from '../api.ts'
 import { useMe } from '../auth.ts'
 import {
@@ -64,7 +64,6 @@ import { Button, IconButton, Loading, Notice, Spinner } from '../components/ui.t
 import { ANSWER_OFFLINE, QUESTION_OFFLINE } from '../connection.ts'
 import { formatDate } from '../format.ts'
 import { useOnline, useStatus } from '../hooks.ts'
-import { inviteNudgeOf, mayInvite } from '../onboarding.ts'
 import { offersLinks } from '../shareLinks.ts'
 import { sameScope, scopeIn, scopeOf, scopeWords } from '../scopes.ts'
 import { askForComposer, listHint, onMac, takeComposerAsk, useComposerAsks } from '../shortcuts.ts'
@@ -72,7 +71,6 @@ import { askHeld } from '../status.ts'
 import { answerFileUrl, chatFileUrl } from '../textFiles.ts'
 import { trashKey } from '../trash.ts'
 import { describeAnswerUsage } from '../usage.ts'
-import { InviteTeam } from './InviteTeam.tsx'
 import { documentQuery } from './listing.ts'
 import { ShareDialog } from './ShareLinks.tsx'
 import { useWorkspace } from './state.ts'
@@ -519,22 +517,9 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
   const messages = chat.data?.messages ?? NO_MESSAGES
   // Another member's chat, shared with the project: read here, asked in by its starter alone.
   const starter = chat.data && chat.data.user_id !== me.id ? chat.data.started_by : null
-  // The organisation's first steps, for the suggestion to invite its team under an answer, asked
-  // each time a chat opens and read only once answered then, since the team may have been invited
-  // meanwhile, on the organisation page or by another member.
-  const onboarding = useQuery({
-    queryKey: ['onboarding', me.organization.id],
-    queryFn: organizations.onboarding,
-    enabled: !starter && mayInvite(me, project),
-  })
-  const steps = onboarding.isFetchedAfterMount ? onboarding.data?.steps : undefined
-  // Kept once the member invited someone from it, which takes the step, to read where it went,
-  // until hidden.
-  const [invitedFrom, setInvitedFrom] = useState(false)
-  const nudged = !me.invite_hidden && (invitedFrom || (!starter && inviteNudgeOf(me, project, messages, steps)))
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: 'end' })
-  }, [messages, nudged])
+  }, [messages])
 
   function send(text: string) {
     const question = text.trim()
@@ -655,7 +640,6 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
               />
             ),
           )}
-          {nudged && <InviteTeam onInvited={() => setInvitedFrom(true)} />}
           {sharing != null && chatId != null && (
             <ShareDialog target={{ kind: 'answer', chatId, id: sharing }} onClose={() => setSharing(null)} />
           )}

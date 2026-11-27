@@ -16,6 +16,8 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 
 ### Users
 
+- The chat no longer suggests inviting your team under an answer. The workspace's owners and
+  admins invite people from the workspace's page, under Invitations.
 - A file of My files opens where the project's documents open, in a tab of the middle pane beside
   theirs, rather than in place of the library: open your own Word documents and workbooks next to
   the documents they draw on, and move, pin and close their tabs as a document's. A lock on the tab

@@ -408,13 +408,11 @@ class User(Base):
     # turned off by its notices' own unsubscribe link. The mail about the account, its
     # organisations' invitations and billing is sent whatever it says.
     notices: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
-    # When the user hid the projects page's list of first steps, when they ended the tour of a
-    # project's workspace, by finishing or skipping it, and when they hid the chat's suggestion
-    # to invite their team (app/onboarding.py). Each is the user's for every organisation they
-    # work in: whoever ended one knows their way about.
+    # When the user hid the projects page's list of first steps, and when they ended the tour of
+    # a project's workspace, by finishing or skipping it (app/onboarding.py). Each is the user's
+    # for every organisation they work in: whoever ended one knows their way about.
     checklist_hidden_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     tour_seen_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
-    invite_hidden_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

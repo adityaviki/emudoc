@@ -1012,10 +1012,9 @@ export interface Me {
   has_password: boolean
   /** When the account will be deleted, if its user asked; until then the app offers only to keep it. */
   deletion_due_at: string | null
-  /** Whether the user hid the projects page's list of first steps, ended the workspace's tour, and hid the chat's suggestion to invite their team, for every organisation. */
+  /** Whether the user hid the projects page's list of first steps and ended the workspace's tour, for every organisation. */
   checklist_hidden: boolean
   tour_seen: boolean
-  invite_hidden: boolean
 }
 
 /** A signed-in user an admin removed from the workspace: in none until invited again (backend/app/api/deps.py), which is all the app shows them. */
@@ -1627,7 +1626,7 @@ export const auth = {
     notices?: { kind: NoticeKind; app?: boolean; email?: boolean }[]
   }) => request<Me>('/auth/profile', json('PATCH', body)),
   /** Hide the list of first steps or show it again, or say the tour was seen; a field left out stays as it is. */
-  chooseOnboarding: (body: { checklist_hidden?: boolean; tour_seen?: boolean; invite_hidden?: boolean }) =>
+  chooseOnboarding: (body: { checklist_hidden?: boolean; tour_seen?: boolean }) =>
     request<Me>('/auth/onboarding', json('PATCH', body)),
   /**
    * Stops the email of the kind of notice a notice's link was made for, to its user, signed in

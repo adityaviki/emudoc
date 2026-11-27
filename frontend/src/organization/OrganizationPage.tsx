@@ -31,7 +31,6 @@ import { NoticeChoices } from '../components/NoticeChoices.tsx'
 import { HandedLink, SentInvitation } from '../components/HandedLink.tsx'
 import { Button, Checkbox, Chip, FIELD, InputField, LinkButton, Loading, Notice, Radio, Row, Section, SelectField } from '../components/ui.tsx'
 import { formatDate, formatDateTime } from '../format.ts'
-import { INVITATIONS_SECTION } from '../onboarding.ts'
 import {
   LANGUAGES_KEY,
   chosenLanguage,
@@ -1226,7 +1225,7 @@ function InvitationsSection({ me }: { me: Me }) {
 
   return (
     <Section
-      id={INVITATIONS_SECTION}
+      id="invitations"
       title="Invitations"
       description={`Invite someone by their email address: ${mailed ? 'the link they are sent' : 'the link shown here once you invite them, which you pass on yourself since this workspace sends no email,'} lets them join with the role you choose, and makes their account if they have none. An invitation runs out after a week unless it is accepted or revoked first.`}
     >

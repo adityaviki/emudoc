@@ -14,11 +14,11 @@ import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, rele
 // project the organisation starts with whether an invoice applies its contract's discount, print its contract's pages, make a project, upload a contract,
 // begun offline and waiting for the connection, wait for it to be indexed, find it by searching, ask about it, stop the
 // answer while the model thinks and try it again, open the passage the answer
-// cites and print the contract as it reads, which the chat follows with a form that invites the team, upload a folder,
+// cites and print the contract as it reads, upload a folder,
 // whose panel follows each file while its request is held, and put it in the trash, export the project,
 // download it and open the bell's notice that it is ready, leave the account's menu by the
 // keyboard, choose the workspace's settings, read them in its audit log and download it, invite a colleague as a
-// viewer from under that answer, who makes an account from the invitation's link, copied since the run mails nothing, ends her tour, finds
+// viewer from its Invitations, who makes an account from the invitation's link, copied since the run mails nothing, ends her tour, finds
 // the project and is offered no change to it until made a member, then find in her help menu, the run mailing nothing,
 // the workspace's admin to write to, by a mail that carries the page, read the help pages from the menu, filled in
 // from what the run does, and follow an article's link into the app, make a read key, which reads the
@@ -71,8 +71,6 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   let grace: Page
   // The first member's address.
   let address = ''
-  // The chat's suggestion to invite the team, under an answer about the organisation's documents.
-  const inviteTeam = page.getByRole('region', { name: 'Invite your team' })
   // The organisation page's webhooks, and the secret of the one added, which signs its events.
   const webhooks = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Webhooks', exact: true }) })
   let hookSecret = ''
@@ -144,8 +142,6 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page).toHaveURL(/[?&]chat=\d+/)
     await expect(page.getByRole('button', { name: '1', exact: true })).toBeVisible({ timeout: 30_000 })
     await expect(page.getByText('Thinking')).toHaveCount(0)
-    // The sample's answer suggests no invitation: its documents are no work a team shares.
-    await expect(inviteTeam).toHaveCount(0)
     await expectAccessible(page, 'a project with an answer')
     // Printed, a PDF is its pages alone, a sheet each, under the document's name, the app's again after.
     await page.getByRole('treeitem', { name: 'acme-service-contract.pdf' }).click()
@@ -316,8 +312,6 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByText('Thinking')).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0)
     await releaseTurns(request)
-    // Nobody else is in the workspace yet: the suggestion under the answer invites from the chat.
-    await expect(inviteTeam.getByLabel('Email', { exact: true })).toBeVisible()
   })
 
   await test.step('open the cited passage', async () => {
@@ -637,22 +631,18 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   })
 
   await test.step('invite a viewer, who makes an account from the link, reads, and is made a member', async () => {
-    // The answer's suggestion invites from the chat, which opens the member's latest.
-    await page.getByRole('link', { name: 'Emudoc' }).click()
-    await page.getByText('Supplier contracts').click()
-    await expect(page.getByRole('button', { name: /^How much notice/ })).toBeVisible()
+    // From the workspace's page, which the step before leaves open.
+    const invitations = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Invitations', exact: true }) })
     const colleague = `grace.${Date.now()}@example.com`
-    await inviteTeam.getByLabel('Email', { exact: true }).fill(colleague)
-    await inviteTeam.getByLabel('Role', { exact: true }).selectOption('viewer')
-    await inviteTeam.getByRole('button', { name: 'Invite', exact: true }).click()
+    await invitations.getByLabel('Email', { exact: true }).fill(colleague)
+    await invitations.getByLabel('Role', { exact: true }).selectOption('viewer')
+    await invitations.getByRole('button', { name: 'Invite', exact: true }).click()
     // The run mails nothing, so the link is handed on: copied from the field that holds it.
-    await expect(inviteTeam).toContainText(`This Emudoc sends no mail, so nothing went to ${colleague}`)
-    const invitation = await inviteTeam.getByLabel(`Invitation link for ${colleague}`).inputValue()
+    await expect(invitations).toContainText(`This Emudoc sends no mail, so nothing went to ${colleague}`)
+    const invitation = await invitations.getByLabel(`Invitation link for ${colleague}`).inputValue()
     expect(invitation).toMatch(/\/invitation#token=/)
     await expectAccessible(page, "an invitation's link to copy")
-    await inviteTeam.getByRole('link', { name: 'See the invitations' }).click()
-    await expect(page).toHaveURL(/\/organization#invitations$/)
-    await expect(page.getByRole('listitem').filter({ hasText: colleague })).toContainText('Viewer')
+    await expect(invitations.getByRole('listitem').filter({ hasText: colleague })).toContainText('Viewer')
 
     // Another browser, signed in as nobody, as the colleague's is.
     theirs = await browser.newContext()
@@ -824,9 +814,6 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   await test.step('share the chat with the project, which a colleague reads but does not ask in', async () => {
     await page.getByText('Supplier contracts').click()
     await expect(page.getByRole('button', { name: /^How much notice/ })).toBeVisible()
-    // The team is in: the chat suggests inviting it no more.
-    await expect(page.getByRole('button', { name: 'Share', exact: true })).toBeVisible()
-    await expect(inviteTeam).toHaveCount(0)
     await page.getByRole('button', { name: 'Share', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Make private', exact: true })).toBeVisible()
 

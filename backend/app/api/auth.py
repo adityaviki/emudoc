@@ -1207,7 +1207,6 @@ def me_out(session: Session, person: Account | Outsider) -> MeOut:
         deletion_due_at=user.deletion_due_at,
         checklist_hidden=user.checklist_hidden_at is not None,
         tour_seen=user.tour_seen_at is not None,
-        invite_hidden=user.invite_hidden_at is not None,
     )
     if isinstance(person, Outsider):
         return MeOut(
