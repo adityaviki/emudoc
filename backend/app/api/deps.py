@@ -78,6 +78,7 @@ from app.models import (
     Document,
     Folder,
     MyFile,
+    MyFolder,
     Passage,
     Project,
     User,
@@ -365,12 +366,27 @@ def get_my_file(file_id: int, session: SessionDep, account: AccountDep) -> MyFil
     return file
 
 
+def get_my_folder(folder_id: int, session: SessionDep, account: AccountDep) -> MyFolder:
+    """A folder of the account's own My files, found as `get_my_file` finds a file: another
+    member's is not found."""
+    folder = session.scalar(
+        select(MyFolder)
+        .join(Project, Project.id == MyFolder.project_id)
+        .where(MyFolder.id == folder_id, MyFolder.user_id == account.user.id, visible_to(account))
+    )
+    if folder is None:
+        raise HTTPException(404, "Folder not found")
+    about(project_id=folder.project_id)
+    return folder
+
+
 ProjectDep = Annotated[Project, Depends(get_project)]
 DocumentDep = Annotated[Document, Depends(get_document)]
 FolderDep = Annotated[Folder, Depends(get_folder)]
 PassageDep = Annotated[Passage, Depends(get_passage)]
 ChatDep = Annotated[Chat, Depends(get_chat)]
 MyFileDep = Annotated[MyFile, Depends(get_my_file)]
+MyFolderDep = Annotated[MyFolder, Depends(get_my_folder)]
 
 
 def get_editable_project(project: ProjectDep, account: AccountDep) -> Project:

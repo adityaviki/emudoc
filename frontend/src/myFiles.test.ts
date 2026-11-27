@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import type { Document, MyFile, MyFileVersion } from './api.ts'
+import type { Document, MyFile, MyFileVersion, MyFolder } from './api.ts'
 import { formatDate, formatDateTime } from './format.ts'
 import {
+  addingWords,
   copiedWords,
   copyQuestion,
   following,
+  heldBy,
   heldWords,
+  leftOutWords,
   myFileDeletionQuestion,
+  myFileUploads,
+  myFilesTree,
+  myFolderDeletionQuestion,
   myFileLine,
   myFileWords,
   myFilesCount,
@@ -36,6 +42,7 @@ const file = (fields: Partial<MyFile> = {}): MyFile => ({
   project_id: 1,
   name: 'Dispute.docx',
   kind: 'docx',
+  folder_id: null,
   origin_document_id: null,
   origin_name: null,
   latest: version(),
@@ -120,5 +127,55 @@ describe('the list', () => {
   it('counts the files, and the most a member keeps once they come near it', () => {
     expect([myFilesCount(1, 200), myFilesCount(2, 200), myFilesCount(179, 200)]).toEqual(['1 file', '2 files', '179 files'])
     expect([myFilesCount(180, 200), myFilesCount(200, 200)]).toEqual(['180 of 200 files', '200 of 200 files'])
+  })
+})
+
+describe('the folders of My files', () => {
+  const folder = (id: number, name: string, parent_id: number | null = null): MyFolder => ({ id, name, parent_id })
+  const folders = [folder(1, 'Letters'), folder(2, 'archive'), folder(3, 'Q10', 1), folder(4, 'Q2', 1)]
+  const files = [file({ id: 10, name: 'Newest.docx', folder_id: 3 }), file({ id: 11, name: 'Top.docx' }), file({ id: 12, name: 'Older.docx', folder_id: 3 })]
+
+  it('builds the tree: folders by name as the library sorts them, files in the list order, each in its folder', () => {
+    const tree = myFilesTree({ files, folders })
+    expect(tree.folders.map((node) => node.folder.name)).toEqual(['archive', 'Letters'])
+    expect(tree.files.map((one) => one.id)).toEqual([11])
+    const letters = tree.folders[1]
+    expect(letters.folders.map((node) => node.folder.name)).toEqual(['Q2', 'Q10'])
+    expect(letters.folders[1].files.map((one) => one.id)).toEqual([10, 12])
+  })
+
+  it('keeps at the top what names a folder the list does not hold', () => {
+    const tree = myFilesTree({ files: [file({ id: 5, folder_id: 99 })], folders: [folder(7, 'Lost', 98)] })
+    expect(tree.files.map((one) => one.id)).toEqual([5])
+    expect(tree.folders.map((node) => node.folder.id)).toEqual([7])
+  })
+
+  it('counts what a folder holds at every depth, and asks before deleting it with that', () => {
+    const letters = myFilesTree({ files, folders }).folders[1]
+    expect(heldBy(letters)).toEqual({ files: 2, folders: 2 })
+    expect(myFolderDeletionQuestion(letters)).toEqual({
+      title: 'Delete this folder?',
+      body: 'Delete “Letters” and the 2 files and 2 folders in it for good? Nobody can bring them back.',
+      action: 'Delete for good',
+    })
+    const archive = myFilesTree({ files, folders }).folders[0]
+    expect(myFolderDeletionQuestion(archive)).toEqual({ title: 'Delete this folder?', body: 'Delete the empty folder “archive”?', action: 'Delete' })
+  })
+
+  it('sends a Word document or a workbook with its folder, names the rest, and leaves what a folder hides unsaid', () => {
+    const item = (name: string, folder = '') => ({ file: new File(['x'], name), folder })
+    const chosen = myFileUploads([item('Letter.DOCX', 'Mail'), item('Sums.xlsx', 'Mail/2026'), item('scan.pdf', 'Mail'), item('.~lock.docx', 'Mail'), item('Thumbs.db', 'Mail')])
+    expect(chosen.items.map(({ file, folder }) => [file.name, folder])).toEqual([
+      ['Letter.DOCX', 'Mail'],
+      ['Sums.xlsx', 'Mail/2026'],
+    ])
+    expect(chosen.left).toEqual(['Mail/scan.pdf'])
+    expect(leftOutWords(chosen.left)).toBe('My files keeps Word documents and Excel workbooks, so this was left out: Mail/scan.pdf.')
+    expect(leftOutWords(['a', 'b', 'c', 'd', 'e', 'f', 'g'])).toBe('My files keeps Word documents and Excel workbooks, so these were left out: a, b, c, d, e and 2 more.')
+  })
+
+  it('says what an upload is adding', () => {
+    expect(addingWords(1)).toBe('Adding the file…')
+    expect(addingWords(12)).toBe('Adding 12 files…')
   })
 })

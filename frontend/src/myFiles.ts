@@ -1,11 +1,13 @@
 // A member's own files in a project, their My files (backend/app/my_files.py): the words of their list in the library
-// and of a file's place, its versions, what keeps one from being shown or served, and a copy into the project's files.
+// and of a file's place, its versions, what keeps one from being shown or served, and a copy into the project's files;
+// the folders they keep them in, as a tree, and what a folder uploaded whole sends of what it holds.
 
 import { queryOptions } from '@tanstack/react-query'
 import type { Question } from './components/Confirm.tsx'
 import { api } from './api.ts'
-import type { Document, MyFile, MyFileKind, MyFileVersion, MyFiles } from './api.ts'
+import type { Document, MyFile, MyFileKind, MyFileVersion, MyFiles, MyFolder, UploadItem } from './api.ts'
 import { formatDate, formatDateTime, formatSize } from './format.ts'
+import { hidden, pathOf } from './workspace/uploads.ts'
 
 /** The query of the member's files in a project, which a file added, changed or deleted asks again. */
 export const myFilesKey = (projectId: number) => ['my-files', projectId] as const
@@ -119,4 +121,99 @@ export function copiedWords(document: Document, asVersion: boolean): string {
 /** Whether the list should be asked again: a file's newest version waits for its scan or its pages. */
 export function following(listed: Pick<MyFiles, 'files'>): boolean {
   return listed.files.some((file) => waiting(file.latest))
+}
+
+/** A folder of My files with what it holds, as the list shows it: its folders by name, then its files, the one changed last first. */
+export interface MyFolderNode {
+  folder: MyFolder
+  folders: MyFolderNode[]
+  files: MyFile[]
+}
+
+/** The member's folders and files as a tree: what is at the top, each folder holding its own. */
+export interface MyFilesTree {
+  folders: MyFolderNode[]
+  files: MyFile[]
+}
+
+const byName = (a: MyFolderNode, b: MyFolderNode) => a.folder.name.localeCompare(b.folder.name, undefined, { numeric: true, sensitivity: 'base' })
+
+/** The list's folders and files as a tree, the folders by name as the library sorts its own and the files in the list's order; a file or a folder whose folder is not in the list sits at the top. */
+export function myFilesTree(listed: Pick<MyFiles, 'files' | 'folders'>): MyFilesTree {
+  const nodes = new Map(listed.folders.map((folder) => [folder.id, { folder, folders: [], files: [] } as MyFolderNode]))
+  const tree: MyFilesTree = { folders: [], files: [] }
+  for (const node of nodes.values()) {
+    const parent = node.folder.parent_id == null ? undefined : nodes.get(node.folder.parent_id)
+    ;(parent ?? tree).folders.push(node)
+  }
+  for (const file of listed.files) {
+    const parent = file.folder_id == null ? undefined : nodes.get(file.folder_id)
+    ;(parent ?? tree).files.push(file)
+  }
+  const sort = (node: MyFilesTree) => {
+    node.folders.sort(byName)
+    node.folders.forEach(sort)
+  }
+  sort(tree)
+  return tree
+}
+
+/** How many files and folders a folder holds, at every depth. */
+export function heldBy(node: MyFolderNode): { files: number; folders: number } {
+  return node.folders.reduce(
+    (held, child) => {
+      const inner = heldBy(child)
+      return { files: held.files + inner.files, folders: held.folders + 1 + inner.folders }
+    },
+    { files: node.files.length, folders: 0 },
+  )
+}
+
+const counted = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
+
+/** What the confirmation of a folder's deletion asks, since nothing brings it back nor what it holds. */
+export function myFolderDeletionQuestion(node: MyFolderNode): Question {
+  const { files, folders } = heldBy(node)
+  const held = [files ? counted(files, 'file') : null, folders ? counted(folders, 'folder') : null].filter(Boolean).join(' and ')
+  return {
+    title: 'Delete this folder?',
+    body: held
+      ? `Delete “${node.folder.name}” and the ${held} in it for good? Nobody can bring them back.`
+      : `Delete the empty folder “${node.folder.name}”?`,
+    action: held ? 'Delete for good' : 'Delete',
+  }
+}
+
+/** The top of My files, the first place "Move to…" offers a file. */
+export const TOP_OF_MY_FILES = 'My files, at the top'
+
+/** The kinds of file My files keeps, by their extensions. */
+const KEPT = MY_FILE_ACCEPT.split(',')
+
+/** What of a choice of files, or a folder's, My files is sent: Word documents and Excel workbooks, each with the folder it is in below the one chosen; the rest named by their paths, and what a folder holds hidden left out unsaid. */
+export function myFileUploads(items: UploadItem[]): { items: UploadItem[]; left: string[] } {
+  const kept: UploadItem[] = []
+  const left: string[] = []
+  for (const item of items) {
+    if (hidden(item)) continue
+    const name = item.file.name.toLowerCase()
+    if (KEPT.some((suffix) => name.endsWith(suffix))) kept.push(item)
+    else left.push(pathOf(item))
+  }
+  return { items: kept, left }
+}
+
+/** How many of the files named a notice lists before it counts the rest. */
+const NAMED = 5
+
+/** Why files of a choice or a folder were not sent: My files keeps Word documents and Excel workbooks alone. */
+export function leftOutWords(left: string[]): string {
+  const named = left.slice(0, NAMED).join(', ')
+  const more = left.length > NAMED ? ` and ${left.length - NAMED} more` : ''
+  return `My files keeps Word documents and Excel workbooks, so ${left.length === 1 ? 'this was' : 'these were'} left out: ${named}${more}.`
+}
+
+/** Said while files go into My files. */
+export function addingWords(total: number): string {
+  return total === 1 ? 'Adding the file…' : `Adding ${total} files…`
 }

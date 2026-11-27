@@ -46,8 +46,10 @@ from app.my_files import (
     add_file,
     add_version,
     files_of,
+    folders_of,
     kind_of,
     newest,
+    paths_of,
     servable,
     versions_of,
 )
@@ -319,6 +321,8 @@ def list_my_files(ctx: ToolContext, args: ListMyFilesInput) -> str:
             )
         ).all()
     )
+    # The folders the member keeps them in, which they may name a file by.
+    folders = paths_of(folders_of(ctx.session, ctx.project_id, ctx.writing.user_id))
     lines = [f"The member's files in this project ({len(files)}), changed last first:"]
     for file in files:
         latest = newest(ctx.session, file.id)
@@ -330,6 +334,8 @@ def list_my_files(ctx: ToolContext, args: ListMyFilesInput) -> str:
             f"changed {file.updated_at.date().isoformat()}",
             "written by the agent" if latest.by_model else "uploaded by the member",
         ]
+        if file.folder_id in folders:
+            parts.append(f"in the folder {folders[file.folder_id]}")
         if file.origin_document_id in origins:
             parts.append(
                 f"copied from doc {file.origin_document_id} ({origins[file.origin_document_id]})"

@@ -892,6 +892,8 @@ class MyFileOut(BaseModel):
     project_id: int
     name: str
     kind: MyFileKind
+    # The member's folder it is in, null for the top of their My files.
+    folder_id: int | None
     origin_document_id: int | None
     origin_name: str | None
     latest: MyFileVersionOut
@@ -906,15 +908,48 @@ class MyFileDetailOut(MyFileOut):
     history: list[MyFileVersionOut]
 
 
+class MyFolderOut(_FromORM):
+    """A folder of the member's My files: its name and the folder it is in, null for the top."""
+
+    id: int
+    parent_id: int | None
+    name: str
+
+
 class MyFilesOut(BaseModel):
-    """The member's files in the project, the one changed last first, and how many it keeps."""
+    """The member's files in the project, the one changed last first, their folders by name,
+    and how many files it keeps; the page builds the tree from `folder_id` and `parent_id`."""
 
     files: list[MyFileOut]
+    folders: list[MyFolderOut]
     limit: int
 
 
-class MyFileRenameIn(BaseModel):
-    name: str = Field(min_length=1, max_length=300)
+class MyFilesAddedOut(BaseModel):
+    """The files an upload kept in My files, in the order sent, and those it refused, each with
+    its path below the folder chosen and the sentence saying why."""
+
+    files: list[MyFileDetailOut]
+    rejected: list[RejectedFile]
+
+
+class MyFilePatch(BaseModel):
+    """A file renamed, moved into another folder of its member's (`folder_id`, null for the
+    top), or both; a field left out stays as it is."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=300)
+    folder_id: int | None = None
+
+
+class MyFolderIn(BaseModel):
+    """A new folder of the member's My files, in `parent_id` or at the top."""
+
+    name: str = Field(min_length=1, max_length=200)
+    parent_id: int | None = None
+
+
+class MyFolderRenameIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
 
 
 class MyFileCopyIn(BaseModel):
@@ -1942,6 +1977,8 @@ class ExportedMyFile(BaseModel):
 
     organization: str
     project: str
+    # The folders of My files it is in, like "Letters/2026", null for the top.
+    folder: str | None
     name: str
     kind: MyFileKind
     created_at: dt.datetime

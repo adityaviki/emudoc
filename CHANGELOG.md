@@ -16,6 +16,12 @@ renames Unreleased to its version and day, and a new Unreleased starts above it.
 
 ### Users
 
+- Keep My files in folders: right-click the My files heading, the list's empty space or a folder
+  for "New folder", "Upload files" (several at once) and "Upload a folder", which brings its
+  Word documents and Excel workbooks with their subfolders and says which other files it left
+  out. Rename a folder (or F2), delete it with what it holds (or the Delete key), and move a file
+  between folders with "Move to…" in its right-click menu. The "Add a file" button is gone from
+  the My files heading; on a phone or a tablet an Upload button sits there instead.
 - Right-click a file in My files for what a file of Project files offers: open, download,
   rename (or F2), upload a new version, copy to project files, or delete it (or the Delete key).
   Right-click the list's empty space to add a file.

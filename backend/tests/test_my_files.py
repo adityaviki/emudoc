@@ -17,8 +17,17 @@ from app.db import engine
 from app.indexing.pipeline import process_document
 from app.jobs import VIEW_MY_FILE, claim
 from app.maintenance import describe_orphans, sweep_storage
-from app.models import Document, Job, MyFile, MyFileVersion, UsageEvent
-from app.my_files import MAX_FILES, SAVED_MEANWHILE, WRONG_KIND, abandon_view
+from app.models import AuditEvent, Document, Job, MyFile, MyFileVersion, MyFolder, UsageEvent
+from app.my_files import (
+    BAD_PATH,
+    FOLDER_NAME,
+    FOLDER_TAKEN,
+    MAX_FILES,
+    NO_FOLDER,
+    SAVED_MEANWHILE,
+    WRONG_KIND,
+    abandon_view,
+)
 from app.storage import my_file_prefix
 from app.usage import my_files_bytes
 from app.worker import HANDLERS
@@ -53,17 +62,69 @@ def workbook(*rows: tuple) -> bytes:
     return out.getvalue()
 
 
-def keep(client, project_id: int, name: str = "Letter.docx", data: bytes | None = None):
+def keep(
+    client,
+    project_id: int,
+    name: str = "Letter.docx",
+    data: bytes | None = None,
+    folder_id: int | None = None,
+    path: str | None = None,
+):
+    """Upload a file into My files: into the member's folder `folder_id`, below it in the
+    folders `path` names."""
+    form: dict[str, str] = {}
+    if folder_id is not None:
+        form["folder_id"] = str(folder_id)
+    if path is not None:
+        form["paths"] = path
     return client.post(
         f"/api/projects/{project_id}/my-files",
-        files={"file": (name, data if data is not None else word("Dear Acme,"))},
+        files=[("files", (name, data if data is not None else word("Dear Acme,")))],
+        data=form,
     )
 
 
-def kept(client, project_id: int, name: str = "Letter.docx", data: bytes | None = None) -> dict:
-    response = keep(client, project_id, name, data)
+def kept(client, project_id: int, name: str = "Letter.docx", data: bytes | None = None, **form):
+    response = keep(client, project_id, name, data, **form)
     assert response.status_code == 201, response.text
-    return response.json()
+    assert response.json()["rejected"] == []
+    (file,) = response.json()["files"]
+    return file
+
+
+def refusal(client, project_id: int, name: str, data: bytes | None = None, **form) -> str:
+    """Why the upload of one file kept nothing: the sentence its refusal says."""
+    response = keep(client, project_id, name, data, **form)
+    assert response.status_code == 201, response.text
+    assert response.json()["files"] == []
+    (refused,) = response.json()["rejected"]
+    return refused["reason"]
+
+
+def folder(client, project_id: int, name: str, parent_id: int | None = None) -> dict:
+    made = client.post(
+        f"/api/projects/{project_id}/my-folders", json={"name": name, "parent_id": parent_id}
+    )
+    assert made.status_code == 201, made.text
+    return made.json()
+
+
+def listing(client, project_id: int) -> dict:
+    """The member's folders by their paths, and each file's folder by its path ("" the top)."""
+    listed = client.get(f"/api/projects/{project_id}/my-files").json()
+    by_id = {one["id"]: one for one in listed["folders"]}
+
+    def path(folder_id: int | None) -> str:
+        if folder_id is None:
+            return ""
+        one = by_id[folder_id]
+        above = path(one["parent_id"])
+        return f"{above}/{one['name']}" if above else one["name"]
+
+    return {
+        "folders": sorted(path(one["id"]) for one in listed["folders"]),
+        "files": {file["name"]: path(file["folder_id"]) for file in listed["files"]},
+    }
 
 
 def shown(client, file_id: int) -> dict:
@@ -213,11 +274,10 @@ def test_a_lost_job_leaves_the_view_failed_to_ask_again(
 
 
 def test_only_word_documents_and_excel_workbooks_are_kept(client, project, sample_pdf):
-    refused = keep(client, project["id"], "contract.pdf", sample_pdf.read_bytes())
-    assert (refused.status_code, refused.json()["detail"]) == (400, WRONG_KIND)
+    assert refusal(client, project["id"], "contract.pdf", sample_pdf.read_bytes()) == WRONG_KIND
     # The bytes must be the type the name says, and there must be some.
-    assert keep(client, project["id"], "fake.docx", b"plain text").status_code == 400
-    assert keep(client, project["id"], "empty.xlsx", b"").status_code == 400
+    assert refusal(client, project["id"], "fake.docx", b"plain text").startswith("Not a Word")
+    assert refusal(client, project["id"], "empty.xlsx", b"") == "Empty file."
     sheet = kept(client, project["id"], "Prices.XLSX", workbook(("Pallet", 12.5)))
     assert (sheet["name"], sheet["kind"]) == ("Prices.xlsx", "xlsx")
 
@@ -355,9 +415,7 @@ def test_a_member_keeps_no_more_files_than_the_ceiling(client, project, monkeypa
     services.scanner = None
     monkeypatch.setattr("app.my_files.MAX_FILES", 1)
     kept(client, project["id"])
-    refused = keep(client, project["id"], "Second.docx")
-    assert refused.status_code == 409
-    assert "as many as it keeps" in refused.json()["detail"]
+    assert "as many as it keeps" in refusal(client, project["id"], "Second.docx")
 
 
 def test_a_member_who_leaves_takes_their_files(
@@ -409,3 +467,184 @@ def test_the_account_export_lists_the_members_files_and_nobody_elses(
     (listed,) = exported.json()["my_files"]
     assert (listed["name"], listed["kind"], listed["project"]) == ("Mine.docx", "docx", "Contracts")
     assert [version["number"] for version in listed["versions"]] == [1, 2]
+
+
+def test_a_member_keeps_files_in_folders_of_their_own(client, session, services, project):
+    services.scanner = None
+    letters = folder(client, project["id"], "  Letters  ")
+    assert letters["name"] == "Letters" and letters["parent_id"] is None
+    year = folder(client, project["id"], "2026", letters["id"])
+    kept(client, project["id"], "Reply.docx", folder_id=year["id"])
+    kept(client, project["id"], "Top.docx")
+    assert listing(client, project["id"]) == {
+        "folders": ["Letters", "Letters/2026"],
+        "files": {"Top.docx": "", "Reply.docx": "Letters/2026"},
+    }
+    # Beside it, a folder's name is its alone, whatever its case; one no folder can take is refused.
+    taken = client.post(f"/api/projects/{project['id']}/my-folders", json={"name": "letters"})
+    assert taken.status_code == 409
+    assert taken.json()["detail"] == FOLDER_TAKEN.format(name="letters")
+    for name in ("a/b", ".."):
+        refused = client.post(f"/api/projects/{project['id']}/my-folders", json={"name": name})
+        assert (refused.status_code, refused.json()["detail"]) == (400, FOLDER_NAME)
+    # Renamed, its files go with it; another folder's name is refused, its own in another case not.
+    at = f"/api/my-folders/{letters['id']}"
+    assert client.patch(at, json={"name": "Mail"}).json()["name"] == "Mail"
+    assert client.patch(at, json={"name": "MAIL"}).status_code == 200
+    folder(client, project["id"], "Notes")
+    assert client.patch(at, json={"name": "notes"}).status_code == 409
+    assert listing(client, project["id"])["files"]["Reply.docx"] == "MAIL/2026"
+    assert actions(session)[-3:] == ["my_folder_renamed", "my_folder_renamed", "my_folder_created"]
+
+
+def test_a_folder_uploaded_whole_makes_its_folders_once(client, session, services, project):
+    services.scanner = None
+    reports = folder(client, project["id"], "Reports")
+    kept(client, project["id"], "March.docx", folder_id=reports["id"], path="Q1/Board")
+    kept(client, project["id"], "April.xlsx", data=workbook(("a", 1)), path="Q2")
+    # The same folder uploaded again goes into the folders it made, whatever their case.
+    kept(client, project["id"], "May.docx", folder_id=reports["id"], path="q1/board/Late")
+    assert listing(client, project["id"]) == {
+        "folders": ["Q2", "Reports", "Reports/Q1", "Reports/Q1/Board", "Reports/Q1/Board/Late"],
+        "files": {
+            "March.docx": "Reports/Q1/Board",
+            "April.xlsx": "Q2",
+            "May.docx": "Reports/Q1/Board/Late",
+        },
+    }
+    # A path no folder can take, and a file refused, make no folder.
+    bad = keep(client, project["id"], "Bad.docx", path="a/../b").json()["rejected"]
+    assert bad == [
+        {"filename": "a/../b/Bad.docx", "reason": BAD_PATH, "index": 0, "duplicate_of": None}
+    ]
+    assert refusal(client, project["id"], "Empty.docx", data=b"", path="Nowhere") == "Empty file."
+    session.expire_all()
+    assert session.scalar(select(func.count(MyFolder.id)).where(MyFolder.name == "Nowhere")) == 0
+
+
+def test_moving_a_file_between_folders(
+    client, session, services, project, account, make_account, act_as
+):
+    services.scanner = None
+    letters = folder(client, project["id"], "Letters")
+    file = kept(client, project["id"])
+    moved = client.patch(f"/api/my-files/{file['id']}", json={"folder_id": letters["id"]})
+    assert moved.status_code == 200, moved.text
+    assert (moved.json()["folder_id"], moved.json()["name"]) == (letters["id"], "Letter.docx")
+    # Moved and renamed at once; then back to the top.
+    both = client.patch(f"/api/my-files/{file['id']}", json={"folder_id": None, "name": "Reply"})
+    assert (both.json()["folder_id"], both.json()["name"]) == (None, "Reply.docx")
+    assert actions(session)[-3:] == ["my_file_moved", "my_file_moved", "my_file_renamed"]
+    # Another member's folder is not found, for a move as for an upload into it.
+    act_as(make_account("bo@example.com", account.organization, role="member"))
+    theirs = folder(client, project["id"], "Bo's")
+    act_as(account)
+    refused = client.patch(f"/api/my-files/{file['id']}", json={"folder_id": theirs["id"]})
+    assert (refused.status_code, refused.json()["detail"]) == (404, NO_FOLDER)
+    into = keep(client, project["id"], "Sneaky.docx", folder_id=theirs["id"])
+    assert (into.status_code, into.json()["detail"]) == (404, NO_FOLDER)
+    made = client.post(
+        f"/api/projects/{project['id']}/my-folders", json={"name": "In", "parent_id": theirs["id"]}
+    )
+    assert made.status_code == 404
+    assert listing(client, project["id"])["folders"] == ["Letters"]
+
+
+def test_deleting_a_folder_takes_what_it_holds(client, session, services, project):
+    services.scanner = None
+    letters = folder(client, project["id"], "Letters")
+    year = folder(client, project["id"], "2026", letters["id"])
+    inside = [
+        kept(client, project["id"], "Reply.docx", folder_id=letters["id"]),
+        kept(client, project["id"], "Old.docx", folder_id=year["id"]),
+    ]
+    top = kept(client, project["id"], "Top.docx")
+    folder(client, project["id"], "Notes")
+    rows = [session.get(MyFile, file["id"]) for file in inside]
+    prefixes = [my_file_prefix(row.org_id, row.project_id, row.id) for row in rows]
+    assert all(list(services.storage.list(prefix)) for prefix in prefixes)
+    assert client.delete(f"/api/my-folders/{letters['id']}").status_code == 204
+    assert listing(client, project["id"]) == {"folders": ["Notes"], "files": {"Top.docx": ""}}
+    for file, prefix in zip(inside, prefixes, strict=True):
+        assert client.get(f"/api/my-files/{file['id']}").status_code == 404
+        assert list(services.storage.list(prefix)) == []
+    assert client.get(f"/api/my-files/{top['id']}").status_code == 200
+    assert client.delete(f"/api/my-folders/{letters['id']}").status_code == 404
+    session.expire_all()
+    event = session.scalars(select(AuditEvent).order_by(AuditEvent.id.desc()).limit(1)).one()
+    assert (event.action, event.target_type, event.detail) == (
+        "my_folder_deleted",
+        "my_folder",
+        {"folders": 1, "files": 2},
+    )
+
+
+def test_a_member_keeps_no_more_folders_than_the_ceiling(client, project, monkeypatch, services):
+    services.scanner = None
+    monkeypatch.setattr("app.my_files.MAX_FOLDERS", 2)
+    folder(client, project["id"], "One")
+    assert "folders in My files in this project" in refusal(
+        client, project["id"], "Deep.docx", path="Two/Three"
+    )
+    folder(client, project["id"], "Two")
+    made = client.post(f"/api/projects/{project['id']}/my-folders", json={"name": "Three"})
+    assert made.status_code == 409
+    assert listing(client, project["id"])["folders"] == ["One", "Two"]
+
+
+def test_a_member_who_leaves_takes_their_folders(
+    client, session, services, project, account, make_account, act_as
+):
+    services.scanner = None
+    leaving = make_account("lee@example.com", account.organization, role="member")
+    act_as(leaving)
+    kept(client, project["id"], path="Letters")
+    client.app.dependency_overrides.clear()
+    folder(client, project["id"], "Owner's")
+    assert client.delete(f"/api/organization/members/{leaving.user.id}").status_code == 204
+    session.expire_all()
+    assert session.scalars(select(MyFolder.name)).all() == ["Owner's"]
+    assert session.scalar(select(func.count(MyFile.id))) == 0
+
+
+def test_the_account_export_says_which_folder_a_file_is_in(client, services, project):
+    services.scanner = None
+    kept(client, project["id"], "Reply.docx", path="Letters/2026")
+    kept(client, project["id"], "Top.docx")
+    listed = client.get("/api/auth/account/export").json()["my_files"]
+    assert {file["name"]: file["folder"] for file in listed} == {
+        "Reply.docx": "Letters/2026",
+        "Top.docx": None,
+    }
+
+
+def test_one_upload_keeps_several_files_and_says_which_it_refused(
+    client, services, project, sample_pdf
+):
+    services.scanner = None
+    letters = folder(client, project["id"], "Letters")
+    sent = client.post(
+        f"/api/projects/{project['id']}/my-files",
+        files=[
+            ("files", ("Reply.docx", word("Dear Acme,"))),
+            ("files", ("scan.pdf", sample_pdf.read_bytes())),
+            ("files", ("Sums.xlsx", workbook(("a", 1)))),
+        ],
+        data={"folder_id": str(letters["id"]), "paths": ["2026", "2026", ""]},
+    )
+    assert sent.status_code == 201, sent.text
+    assert [file["name"] for file in sent.json()["files"]] == ["Reply.docx", "Sums.xlsx"]
+    assert sent.json()["rejected"] == [
+        {"filename": "2026/scan.pdf", "reason": WRONG_KIND, "index": 1, "duplicate_of": None}
+    ]
+    assert listing(client, project["id"])["files"] == {
+        "Reply.docx": "Letters/2026",
+        "Sums.xlsx": "Letters",
+    }
+    # A path for some files and not others is no upload, nor are more files than one may carry.
+    uneven = client.post(
+        f"/api/projects/{project['id']}/my-files",
+        files=[("files", ("A.docx", word("a"))), ("files", ("B.docx", word("b")))],
+        data={"paths": ["x"]},
+    )
+    assert uneven.status_code == 422
