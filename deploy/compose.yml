@@ -257,7 +257,7 @@ services:
   # needs about a gigabyte of memory, and a minute at start to load the signatures, during which
   # the worker holds uploads in the queue.
   clamav:
-    image: clamav/clamav-debian:1.5@sha256:76a9c3b63764b78178dc68fa7efcceca0cde2c8c9d4f925a8e697cb4511f8fdc
+    image: clamav/clamav-debian:1.5@sha256:85f35b3eee903dbd96c5ca250c5aa13d230d97987c0f876f7d46f001f9414239
     profiles: [scan]
     environment:
       CLAMD_CONF_StreamMaxLength: 100M
